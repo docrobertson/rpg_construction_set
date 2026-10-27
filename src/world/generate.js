@@ -287,6 +287,11 @@ export function generateWorld(w, h, seed, opt = {}) {
   const sorted = Array.from(elev).sort((a, b) => a - b);
   const sea = sorted[Math.floor(clamp01(water) * (sorted.length - 1))];
   const top = sorted[sorted.length - 1];
+  // elevation cut-offs as quantiles of the land, so "mountains: 50%" means the same on every seed
+  const land = sorted.filter((e) => e >= sea);
+  const q = (p) => land[Math.max(0, Math.min(land.length - 1, Math.floor(clamp01(p) * (land.length - 1))))];
+  const m2 = Math.max(0, mtn) * 2;
+  const peakCut = q(1 - 0.03 * m2), mtnCut = q(1 - 0.1 * m2), hillCut = q(1 - 0.22 * m2);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const e = elev[y * w + x];
     if (e < sea) {
@@ -294,16 +299,18 @@ export function generateWorld(w, h, seed, opt = {}) {
       continue;
     }
     const a = (e - sea) / (top - sea + 1e-6); // 0..1 altitude above sea
-    const moist = fbm(x * 0.06, y * 0.06, seed + 101, 4);
-    const temp = 1 - y / h + (fbm(x * 0.05, y * 0.05, seed + 202, 3) - 0.5) * 0.4;
+    const moist = fbm(x * 0.07, y * 0.07, seed + 101, 4);
+    // the north (top of the map) is cold, the south warm
+    const temp = y / h + (fbm(x * 0.05, y * 0.05, seed + 202, 3) - 0.5) * 0.4;
     let k;
-    if (a > 1 - 0.18 * mtn) k = a > 1 - 0.07 * mtn ? 'peaks' : 'mountains';
-    else if (a > 1 - 0.3 * mtn - 0.05) k = 'hills';
-    else if (a < 0.05) k = temp > 0.25 ? 'sand' : 'snow';
-    else if (temp < 0.18) k = moist > 0.55 ? 'pines' : 'snow';
-    else if (moist > 0.68 && a < 0.3) k = 'swamp';
-    else if (moist > 1 - 0.38 * forest - 0.07) k = temp < 0.4 || moist > 0.66 ? 'pines' : 'forest';
-    else if (moist < 0.32 && temp > 0.62) k = moist < 0.25 ? 'desert' : 'sand';
+    if (m2 > 0 && e >= mtnCut) k = e >= peakCut ? 'peaks' : 'mountains';
+    else if (m2 > 0 && e >= hillCut) k = 'hills';
+    else if (a < 0.04) k = temp > 0.2 ? 'sand' : 'snow';
+    else if (temp < 0.14) k = moist > 0.52 ? 'pines' : 'snow';
+    else if (moist > 0.63 && a < 0.25) k = 'swamp';
+    else if (moist > 0.6 - (forest - 0.5) * 0.25) k = temp < 0.35 || moist > 0.66 ? 'pines' : 'forest';
+    else if (moist > 0.53 - (forest - 0.5) * 0.2) k = 'forest';
+    else if (moist < 0.4 && temp > 0.7) k = moist < 0.34 ? 'desert' : 'sand';
     else k = fbm(x * 0.2, y * 0.2, seed + 303, 2) > 0.58 ? 'meadow' : 'grass';
     map.tiles[y * w + x] = T[k];
   }

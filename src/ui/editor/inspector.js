@@ -194,7 +194,7 @@ export function inspectMap(ed, container) {
     ed.markDirty();
     if (k === 'lighting') ed.view.setLighting(map.lighting);
     if (k === 'fill' || k === 'name') ed.reloadMap();
-    if (k === 'name') ed.refreshMapList();
+    if (k === 'name' || k === 'type') ed.refreshMapList();
   }));
   if (map.exit) {
     const back = game.maps.find((m) => m.id === map.exit.map);

@@ -1,6 +1,6 @@
 // Tactical battles on a small arena map, Ultima III/IV style:
 // each party member acts in turn, then every monster acts.
-import { terrain } from '../data/terrain.js';
+import { terrain, T } from '../data/terrain.js';
 import { byId } from '../data/schema.js';
 import { generateArena, ARENA_W, ARENA_H, bresenham } from '../world/generate.js';
 import { getTile, inBounds } from '../world/map.js';
@@ -41,6 +41,11 @@ export class Battle {
   setup() {
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    // sea monsters that strike at a party on the shore need water to fight from
+    const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
+    if (swimmers && !this.arena.tiles.some((t) => terrain(t).water && terrain(t).key !== 'bridge')) {
+      for (let y = 0; y < 3; y++) for (let x = 1; x < ARENA_W - 1; x++) this.arena.tiles[y * ARENA_W + x] = y === 2 ? T.shallows : T.ocean;
+    }
     const v = this.view;
     v.setMap(this.arena);
     v.setVisibilityEnabled(false);
@@ -204,7 +209,7 @@ export class Battle {
       this.view.floatText(u.x, u.y, 'Zzz', '#aaf');
       if (u.sleep === 0) {
         this.log(`${u.name} wakes up.`);
-        if (u.side === 'party') u.member.status = 'ok';
+        if (u.side === 'party' && u.member.status === 'asleep') u.member.status = 'ok';
       }
       return true;
     }
@@ -213,6 +218,7 @@ export class Battle {
 
   checkEnd() {
     if (this.over) return null;
+    if (!this.enemies.length) return 'fled'; // nothing could be placed: no fight happened
     const foes = this.enemies.some((e) => this.alive(e));
     const friends = this.partyUnits.some((u) => this.alive(u));
     if (!foes) return 'victory';
@@ -265,8 +271,9 @@ export class Battle {
   }
 
   // ------------------------------------------------------------ player actions
-  async perform(fn) {
+  async perform(fn, expect) {
     if (!this.active || this.acting || this.over) return false;
+    if (expect && expect !== this.active) return false;
     this.acting = true;
     let used = false;
     try { used = await fn(this.active); } finally { this.acting = false; }
@@ -306,20 +313,20 @@ export class Battle {
     });
   }
 
-  actAttack(target) {
-    return this.perform(async (u) => this.attack(u, target));
+  actAttack(target, expect) {
+    return this.perform(async (u) => this.attack(u, target), expect);
   }
 
   actPass() {
     return this.perform(async (u) => { this.log(`${u.name} waits.`); return true; });
   }
 
-  actCast(spell, target) {
-    return this.perform(async (u) => this.castSpell(u, spell, target));
+  actCast(spell, target, expect) {
+    return this.perform(async (u) => this.castSpell(u, spell, target), expect);
   }
 
-  actUse(item, target) {
-    return this.perform(async (u) => this.useItem(u, item, target));
+  actUse(item, target, expect) {
+    return this.perform(async (u) => this.useItem(u, item, target), expect);
   }
 
   // can the active unit attack this target?
@@ -422,6 +429,7 @@ export class Battle {
   async castSpell(u, spell, target) {
     const m = u.member;
     const inv = this.s.party.inventory;
+    if (!knownSpells(this.game, m).includes(spell)) { this.log(`${u.name} does not know ${spell.name}.`, 'warn'); return false; }
     const can = canCast(this.game, m, spell, inv);
     if (!can.ok) { this.log(can.why, 'warn'); sfx('error'); return false; }
     if (!spell.combat) { this.log('That spell is of no use in battle.', 'warn'); return false; }
@@ -500,7 +508,7 @@ export class Battle {
           const immune = t.def?.sleepImmune || t.def?.undead || (t.side === 'party' && hasTrait(this.game, t.member, 'stout') && rng.chance(0.5));
           if (immune || (spell.chance && !rng.chance(spell.chance))) { this.view.floatText(t.x, t.y, 'resists', '#ccc'); break; }
           t.sleep = parseInt(spell.power, 10) || 2;
-          if (t.side === 'party') t.member.status = 'asleep';
+          if (t.side === 'party' && t.member.status === 'ok') t.member.status = 'asleep';
           this.view.floatText(t.x, t.y, 'Zzz', '#b0a0ff');
           break;
         }

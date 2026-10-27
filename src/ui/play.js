@@ -332,7 +332,7 @@ export class PlayUI {
   // ------------------------------------------------------------ combat input
   combatKey(e, dir) {
     const b = this.s.battle;
-    if (!b || !b.active) return;
+    if (!b || !b.active || b.acting) return;
     if (this.targeting) {
       if (e.key === 'Tab') { e.preventDefault(); this.cycleTarget(e.shiftKey ? -1 : 1); return; }
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'f' || e.key === 'F') { e.preventDefault(); this.confirmTarget(); return; }
@@ -355,7 +355,7 @@ export class PlayUI {
 
   combatClick(t) {
     const b = this.s.battle;
-    if (!b.active) return;
+    if (!b.active || b.acting) return;
     if (this.targeting) {
       if (this.targetValid(t)) this.pickTarget(t);
       else sfx('error');
@@ -397,12 +397,13 @@ export class PlayUI {
   beginAttackTargeting() {
     const b = this.s.battle;
     if (!b || !b.active) return;
-    const targets = b.attackTargets(b.active);
+    const u = b.active;
+    const targets = b.attackTargets(u);
     if (!targets.length) { this.s.log('No foe within reach. Move closer, or use a ranged weapon.', 'warn'); sfx('error'); return; }
     this.startTargeting({
       units: targets,
       label: 'Attack',
-      onPick: (t) => b.actAttack(b.unitAt(t.x, t.y)),
+      onPick: (t) => b.actAttack(b.unitAt(t.x, t.y), u),
     });
   }
 
@@ -411,7 +412,8 @@ export class PlayUI {
     const cells = tg.tiles || tg.units.map((u) => ({ x: u.x, y: u.y }));
     this.view.setHighlights(cells, tg.color || 0xffc030, 0.4);
     tg.index = 0;
-    tg.cursor = cells[0] ? { ...cells[0] } : null;
+    const foe = tg.tiles ? tg.tiles.find((c) => this.s.battle?.unitAt(c.x, c.y)?.side === 'enemy') : null;
+    tg.cursor = foe ? { ...foe } : cells[0] ? { ...cells[0] } : null;
     if (tg.cursor) this.view.showCursor(tg.cursor.x, tg.cursor.y, 0xffe040);
     this.hint(`${tg.label}: click a target (Tab cycles, Enter confirms, Esc cancels).`);
   }
@@ -453,37 +455,38 @@ export class PlayUI {
 
   async combatCast() {
     const b = this.s.battle;
-    if (!b || !b.active) return;
+    if (!b || !b.active || b.acting) return;
     const u = b.active;
     const spells = b.combatSpells(u);
     if (!spells.length) { this.s.log(`${u.name} knows no battle magic.`, 'warn'); return; }
     const spell = await this.chooseSpell(u.member, spells);
-    if (!spell) return;
+    if (!spell || b.active !== u || this.s.battle !== b) return;
     const can = canCast(this.s.game, u.member, spell, this.s.party.inventory);
     if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
     if (spell.target === 'enemy') {
       const ts = b.spellTargets(u, spell);
       if (!ts.length) { this.s.log('No foe in sight for that spell.', 'warn'); return; }
-      this.startTargeting({ units: ts, label: spell.name, color: spell.fx, onPick: (t) => b.actCast(spell, b.unitAt(t.x, t.y)) });
+      this.startTargeting({ units: ts, label: spell.name, color: spell.fx, onPick: (t) => b.actCast(spell, b.unitAt(t.x, t.y), u) });
     } else if (spell.target === 'area') {
       const tiles = [];
       const r = spell.range || 7;
       for (let y = 0; y < b.arena.h; y++) for (let x = 0; x < b.arena.w; x++) if (Math.max(Math.abs(x - u.x), Math.abs(y - u.y)) <= r) tiles.push({ x, y });
-      this.startTargeting({ tiles, label: `${spell.name} (area)`, color: spell.fx, onPick: (t) => b.actCast(spell, { x: t.x, y: t.y }) });
+      this.startTargeting({ tiles, label: `${spell.name} (area)`, color: spell.fx, onPick: (t) => b.actCast(spell, { x: t.x, y: t.y }, u) });
       this.view.setHighlights(tiles.filter((c) => b.unitAt(c.x, c.y)?.side === 'enemy'), spell.fx || 0xffc030, 0.45);
     } else if (spell.target === 'ally') {
       const ts = b.spellTargets(u, spell);
       if (!ts.length) { this.s.log(spell.effect === 'revive' ? 'No one has fallen.' : 'No one to target.', 'warn'); return; }
       const pick = await this.chooseFrom(`${spell.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.s.game, t.member)} HP${t.dead ? ', fallen' : ''})`, value: t })));
-      if (pick) b.actCast(spell, pick);
+      if (pick) b.actCast(spell, pick, u);
     } else {
-      b.actCast(spell, null);
+      b.actCast(spell, null, u);
     }
   }
 
   async combatUse() {
     const b = this.s.battle;
-    if (!b || !b.active) return;
+    if (!b || !b.active || b.acting) return;
+    const u = b.active;
     const items = b.combatItems();
     if (!items.length) { this.s.log('You have nothing useful to hand.', 'warn'); return; }
     const inv = this.s.party.inventory;
@@ -491,7 +494,7 @@ export class PlayUI {
     if (!item) return;
     const ts = b.partyUnits.filter((p) => (item.effect === 'revive' ? p.dead && !p.fled : b.alive(p)));
     const tgt = await this.chooseFrom(`${item.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.s.game, t.member)} HP)`, value: t })));
-    if (tgt) b.actUse(item, tgt);
+    if (tgt) b.actUse(item, tgt, u);
   }
 
   // ------------------------------------------------------------ generic choosers
@@ -590,36 +593,40 @@ export class PlayUI {
       for (const w of words) chips.appendChild(h('button.chip', { onclick: () => ask(w) }, w));
       chips.appendChild(h('button.chip.bye', { onclick: () => ask('BYE') }, 'BYE'));
     };
+    let finished = false;
     const ask = (word) => {
       word = String(word || '').trim();
-      if (!word) return;
+      if (!word || finished) return;
       add(h('p.you-say', '› ' + word.toUpperCase()));
       const res = s.say(npc, word);
       if (res.text) sayLine(res.text);
       if (res.note) add(h('p.note', res.note));
       for (const k of knownKeywords(npc)) if (res.text && new RegExp('\\b' + k + '\\b', 'i').test(res.text)) asked.add(k);
       refreshChips();
-      if (res.end) { setTimeout(() => m.close(), 450); return; }
+      if (res.end) { finished = true; setTimeout(() => m.close(), 450); return; }
       if (res.shop) { this.openShop(npc); }
       if (res.inn) { this.openInn(npc); }
       if (res.healer) { this.openHealer(npc); }
       if (res.join) {
         const err = s.recruit(npc);
         if (err) add(h('p.note', err));
-        else { add(h('p.note', `${npc.name} joins your company!`)); setTimeout(() => m.close(), 900); }
+        else { finished = true; add(h('p.note', `${npc.name} joins your company!`)); setTimeout(() => m.close(), 900); }
       }
       if (res.fight) {
+        finished = true;
         setTimeout(async () => {
           m.close();
           s.log(`${npc.name} attacks!`, 'bad');
-          await s.engage({ id: npc.id, monster: res.fight, count: '1', roaming: true });
-          s.removeEntity(npc);
+          const out = await s.engage({ id: '__fight_' + npc.id, monster: res.fight, count: '1', roaming: true });
+          if (out && out.outcome === 'victory' && s.map.entities.includes(npc)) s.removeEntity(npc);
         }, 600);
       }
       if (res.teleport) {
+        finished = true;
         setTimeout(async () => { m.close(); await s.enterMap(res.teleport.map || s.map.id, +res.teleport.x || 0, +res.teleport.y || 0); }, 600);
       }
       if (res.victory) {
+        finished = true;
         s.state.won = true;
         setTimeout(() => { m.close(); this.showVictory(); }, 700);
       }

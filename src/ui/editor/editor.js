@@ -231,7 +231,8 @@ export class Editor {
     L.appendChild(section('Characters & objects', 'Place people, monsters and treasure. Select them to edit.',
       h('div.tool-grid', ...ents.map(toolBtn))));
     L.appendChild(section('Generate', 'Replace this whole map with a freshly generated one.',
-      h('button', { onclick: () => this.regenerateDialog() }, '🎲 Regenerate this map…')));
+      h('button', { onclick: () => this.regenerateDialog() }, '🎲 Regenerate this map…'),
+      isDungeon ? h('button', { onclick: () => this.addDeeperLevel(), title: 'Generate a new level below this one, linked by stairs' }, '⬇ Add a deeper level') : null));
     if (!L.querySelector(`.tool[data-tool="${this.toolId}"]`)) this.setTool('select');
   }
 
@@ -369,7 +370,7 @@ export class Editor {
           this.beginEdit();
           const seed = Math.floor(Math.random() * 1e9);
           let m;
-          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { water: water.value / 100, mountains: mtn.value / 50, forest: forest.value / 50 });
+          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { water: water.value / 100, mountains: mtn.value / 100, forest: forest.value / 100 });
           else m = this.makeMap(type, gen.value, map.name, seed);
           // keep identity and links
           // sites keep their place (and their tile) on a regenerated world
@@ -386,6 +387,45 @@ export class Editor {
         },
       }],
     });
+  }
+
+  // Dig a new dungeon level beneath this one, joined by a staircase
+  addDeeperLevel() {
+    const map = this.map;
+    const entry = map.entry || { x: 1, y: 1 };
+    // farthest reachable floor tile from the entry
+    const dist = new Map();
+    const key = (x, y) => y * map.w + x;
+    const q = [[entry.x, entry.y]];
+    dist.set(key(entry.x, entry.y), 0);
+    let far = null, fd = -1;
+    while (q.length) {
+      const [x, y] = q.shift();
+      const d = dist.get(key(x, y));
+      const t = terrain(getTile(map, x, y));
+      if (d > fd && t.walk && !t.door && !map.entities.some((en) => en.x === x && en.y === y) && !['stairs_up', 'stairs_down'].includes(t.key)) { fd = d; far = [x, y]; }
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(map, nx, ny) || dist.has(key(nx, ny))) continue;
+        if (!terrain(getTile(map, nx, ny)).walk) continue;
+        dist.set(key(nx, ny), d + 1);
+        q.push([nx, ny]);
+      }
+    }
+    if (!far) { toast('No room for a staircase on this level.', 'warn'); return; }
+    this.beginEdit();
+    const style = map.fill === 'dungeon_wall' ? 'crypt' : 'cave';
+    const level = (map.level || 1) + 1;
+    const monsters = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes('dungeon') && (m.level || 1) <= level + 2).map((m) => m.id);
+    const { map: deeper } = generateDungeon({ style, seed: Math.floor(Math.random() * 1e9), name: `${map.name.replace(/ \(level \d+\)$/, '')} (level ${level})`, level, monsters });
+    deeper.exit = { map: map.id, x: far[0], y: far[1] };
+    this.game.maps.push(deeper);
+    map.tiles[far[1] * map.w + far[0]] = T.stairs_down;
+    map.entities.push({ id: uid('portal'), type: 'portal', x: far[0], y: far[1], style: 'stairs', label: 'Stairs down', target: { map: deeper.id } });
+    this.markDirty();
+    this.loadMap(map, true);
+    this.view.focus(far[0], far[1]);
+    toast(`Dug ${deeper.name}. The stairs down are marked on this level.`);
   }
 
   deleteMap(map) {

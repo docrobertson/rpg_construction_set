@@ -99,8 +99,20 @@ export class PlaySession {
   }
 
   async enterMap(id, x, y, opts = {}) {
+    if (this.map) this.persistExplored();
     const map = this.buildLiveMap(id);
     if (!map) { this.log('That way leads nowhere (missing map).', 'warn'); return; }
+    this.transitioning = true;
+    this.queued = null;
+    try {
+      await this._enterMap(map, id, x, y, opts);
+    } finally {
+      this.transitioning = false;
+      this.queued = null;
+    }
+  }
+
+  async _enterMap(map, id, x, y, opts) {
     const zoomFor = (m) => (m.type === 'world' ? 18 : 15);
     // swoop the camera in (entering a site) or out (returning to the wide world)
     const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
@@ -221,7 +233,7 @@ export class PlaySession {
   }
 
   async move(dx, dy) {
-    if (this.mode !== 'explore') return;
+    if (this.mode !== 'explore' || this.transitioning) return;
     if (this.busy) { this.queued = [dx, dy]; return; }
     this.busy = true;
     try {
@@ -347,7 +359,7 @@ export class PlaySession {
   }
 
   async wait() {
-    if (this.mode !== 'explore' || this.busy) return;
+    if (this.mode !== 'explore' || this.busy || this.transitioning) return;
     this.busy = true;
     this.log('You wait a moment.');
     try { await this.afterStep(true); } finally { this.busy = false; }
@@ -651,15 +663,17 @@ export class PlaySession {
     if (res.outcome === 'victory') {
       const real = this.map.entities.find((x) => x.id === e.id);
       if (real) this.removeEntity(real, !real.roaming);
-      if (e.flag) this.party.flags[e.flag] = true;
+      if (e.flag) { this.party.flags[e.flag] = true; this.checkVictory(); }
     } else if (res.outcome === 'fled' && e.roaming) {
       const real = this.map.entities.find((x) => x.id === e.id);
       if (real) this.removeEntity(real, false);
     }
+    return res;
   }
 
   async fight(enemies, style, opts = {}) {
     this.mode = 'combat';
+    this.queued = null;
     this.persistExplored();
     sfx('encounter');
     this.view.shake(0.2, 0.3);
@@ -714,6 +728,7 @@ export class PlaySession {
 
   // ------------------------------------------------------------ talking
   talkTo(npc) {
+    this.queued = null;
     if (npc.hostile) return this.engage({ ...npc, monster: npc.hostile, count: '1' });
     this.view.face('party', npc.x - this.state.pos.x, npc.y - this.state.pos.y);
     this.view.face(npc.id, this.state.pos.x - npc.x, this.state.pos.y - npc.y);
@@ -748,14 +763,15 @@ export class PlaySession {
     const ctx = this.dialogContext();
     const res = respond(npc, input, ctx);
     res.text = fillText(res.text, ctx);
-    if (res.setFlag) this.party.flags[res.setFlag] = true;
-    if (res.action) this.runAction(npc, res.action, res);
+    const ok = res.action ? this.runAction(npc, res.action, res) : true;
+    if (res.setFlag && ok !== false) this.party.flags[res.setFlag] = true;
     return res;
   }
 
   runAction(npc, a, res) {
     const inv = this.party.inventory;
     const n = parseInt(a.n, 10) || 1;
+    let ok = true;
     switch (a.type) {
       case 'give_item': {
         const it = itemOf(this.game, a.value);
@@ -764,7 +780,8 @@ export class PlaySession {
       }
       case 'take_item': {
         const it = itemOf(this.game, a.value);
-        if (it && inv[it.id]) { inv[it.id] = Math.max(0, inv[it.id] - n); res.note = `Gave ${it.name}.`; }
+        if (it && (inv[it.id] || 0) >= n) { inv[it.id] -= n; res.note = `Gave ${it.name}.`; }
+        else { res.note = `You do not have ${n > 1 ? n + ' × ' : ''}${it ? it.name : 'that'}.`; ok = false; }
         break;
       }
       case 'give_gold': this.party.gold += n; res.note = `Received ${n} gold.`; sfx('gold'); break;
@@ -776,7 +793,7 @@ export class PlaySession {
         break;
       }
       case 'take_gold':
-        if (this.party.gold >= n) { this.party.gold -= n; res.note = `Paid ${n} gold.`; } else { res.note = 'You cannot afford it.'; }
+        if (this.party.gold >= n) { this.party.gold -= n; res.note = `Paid ${n} gold.`; } else { res.note = 'You cannot afford it.'; ok = false; }
         break;
       case 'set_flag': this.party.flags[a.value] = true; break;
       case 'clear_flag': delete this.party.flags[a.value]; break;
@@ -800,9 +817,11 @@ export class PlaySession {
     }
     this.ui.refresh();
     this.checkVictory();
+    return ok;
   }
 
   recruit(npc) {
+    if (!this.map.entities.includes(npc)) return `${npc.name} has already joined thee.`;
     const max = this.game.settings.maxParty || 6;
     if (this.party.members.length >= max) return `Thy company is full (${max}).`;
     const r = npc.recruit || {};
@@ -871,19 +890,21 @@ export class PlaySession {
         this.view.sparkle(p.x, p.y, 0xfff0a0);
         break;
       case 'reveal': this.reveal(); break;
-      case 'recall': {
-        const s = this.game.settings.start;
-        this.view.sparkle(p.x, p.y, 0xa0c0ff, 30);
-        this.persistExplored();
-        this.state.vehicle = null;
-        await this.enterMap(s.map, s.x, s.y);
-        break;
-      }
+      case 'recall': await this.recall(); break;
       default: this.log('Nothing happens.');
     }
     this.updateVisibility();
     this.ui.refresh();
     return true;
+  }
+
+  async recall() {
+    const s = this.game.settings.start;
+    const p = this.state.pos;
+    this.view.sparkle(p.x, p.y, 0xa0c0ff, 30);
+    this.state.vehicle = null;
+    this.log('The world blurs... and you stand where your journey began.', 'magic');
+    await this.enterMap(s.map, s.x, s.y);
   }
 
   reveal(radius = 14) {
@@ -932,7 +953,7 @@ export class PlaySession {
         this.party.food += parseInt(item.power, 10) || 25;
         this.log(`You pack away the provisions (+${parseInt(item.power, 10) || 25} food).`); consume(); break;
       case 'reveal': consume(); this.reveal(); break;
-      case 'recall': consume(); this.castField(this.leader, { name: item.name, effect: 'recall', field: true, cost: 0 }, null); break;
+      case 'recall': consume(); this.recall(); break;
       default: this.log('You cannot use that here.'); return false;
     }
     this.updateVisibility();
@@ -941,7 +962,8 @@ export class PlaySession {
   }
 
   async camp() {
-    if (this.mode !== 'explore' || this.busy) return;
+    if (this.mode !== 'explore' || this.busy || this.transitioning) return;
+    this.queued = null;
     if (this.mapIsTown()) { this.log('Find an inn to rest in town.'); return; }
     const p = this.state.pos;
     if (this.map.entities.some((e) => e.type === 'monster' && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) < 8 && this.isVisible(e.x, e.y))) {

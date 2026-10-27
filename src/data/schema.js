@@ -21,7 +21,7 @@ export function defaultSettings() {
     creationPoints: 24,
     startLevel: 1,
     victory: { type: 'none', target: '' },
-    pitch: 70,
+    pitch: 72,
   };
 }
 

@@ -340,6 +340,8 @@ export class View {
   removeEntity(id) {
     const e = this.entities.get(id);
     if (!e) return;
+    // never leave a caller waiting on an animation that can no longer finish
+    if (e.anim) { const done = e.anim.done; e.anim = null; done && done(); }
     this.entityGroup.remove(e.root);
     e.root.traverse((o) => {
       if (o.isMesh && o.geometry && (o.geometry.type === 'CircleGeometry' || o.geometry.type === 'RingGeometry')) o.geometry.dispose();
@@ -567,6 +569,7 @@ export class View {
   setHighlights(tiles, color = 0x40a0ff, opacity = 0.28) {
     if (this.highlightMesh) {
       this.overlayGroup.remove(this.highlightMesh);
+      this.highlightMesh.geometry.dispose();
       this.highlightMesh.dispose?.();
       this.highlightMesh = null;
     }
