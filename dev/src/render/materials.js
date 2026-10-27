@@ -42,7 +42,11 @@ function injectVisibility(material, extra = {}) {
         ${extra.fragmentColor || ''}`)
       .replace('#include <tonemapping_fragment>', `
         {
-          float vis = texture2D(uVisTex, vVisPos / uVisSize).r;
+          // a few taps soften the tile-sized steps of the line-of-sight map
+          vec2 uv = vVisPos / uVisSize, o = 0.5 / uVisSize;
+          float vis = (2.0 * texture2D(uVisTex, uv).r
+            + texture2D(uVisTex, uv + vec2(o.x, o.y)).r + texture2D(uVisTex, uv + vec2(-o.x, o.y)).r
+            + texture2D(uVisTex, uv + vec2(o.x, -o.y)).r + texture2D(uVisTex, uv - o).r) / 6.0;
           vis = mix(1.0, vis, uVisOn);
           gl_FragColor.rgb *= vis;
         }

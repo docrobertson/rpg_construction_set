@@ -22,6 +22,8 @@ export function defaultSettings() {
     startLevel: 1,
     victory: { type: 'none', target: '' },
     pitch: 72,
+    dayNight: true,
+    loot: true,
   };
 }
 
@@ -126,6 +128,8 @@ export function migrateGame(game) {
   ensure('spells', SPELLS);
   ensure('monsters', MONSTERS);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
+  // classes from before class specials existed get their default one
+  for (const k of game.classes) if (k.special === undefined) k.special = CLASSES.find((d) => d.id === k.id)?.special || null;
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;

@@ -31,6 +31,14 @@ class App {
     return this._sample;
   }
 
+  // 'full' (title, party creation), 'play' (framed map with docked panels) or 'editor'
+  setLayout(name) {
+    const root = document.getElementById('app');
+    if (root.dataset.layout === name) return;
+    root.dataset.layout = name;
+    this.view.resize();
+  }
+
   fade(on, ms = 350) {
     const el = this.fadeEl;
     el.style.transitionDuration = ms + 'ms';
@@ -48,7 +56,9 @@ class App {
 
   // ------------------------------------------------------------ title
   showTitle() {
+    this.stopSession();
     this.clearScreen();
+    this.setLayout('full');
     if (this.editor) { this.editor.destroy(); this.editor = null; }
     const g = this.embedded || this.sample;
     // a slow flyover of the world behind the title
@@ -171,6 +181,7 @@ class App {
       if (opts.start) state.pos = { ...opts.start };
       return this.startSession(game, state, opts);
     }
+    this.setLayout('full');
     partyCreation(this, game, {
       onBack: () => { if (opts.fromEditor) this.endPlay(true); else this.showTitle(); },
       onDone: (members) => {
@@ -261,6 +272,7 @@ class App {
 
   openEditor(game) {
     stopMusic();
+    this.stopSession();
     this.clearScreen();
     if (this.editor) this.editor.destroy();
     this.editor = new Editor(this, game);

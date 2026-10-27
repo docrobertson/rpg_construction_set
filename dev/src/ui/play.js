@@ -4,8 +4,8 @@ import { byId } from '../data/schema.js';
 import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import {
-  maxHp, maxMp, armorClass, attackBonus, weaponOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel,
-  statusLabel, partyAlive, charLook, casting, mod,
+  maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel,
+  statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, EQUIP_SLOTS, SLOT_NAMES,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
@@ -22,6 +22,12 @@ const MOVE_KEYS = {
 };
 
 const STATUS_ICON = { ok: '', poisoned: '☠', asleep: 'z', dead: '✝' };
+const STAT_HELP = {
+  str: 'Strength: melee damage and to-hit, and health',
+  dex: 'Dexterity: armour, and to-hit with bows and daggers',
+  int: 'Intellect: power and mana for Sorcery and Rune-craft',
+  wis: 'Wisdom: power and mana for Prayer and Elven Song',
+};
 
 export class PlayUI {
   constructor(app, session) {
@@ -39,23 +45,35 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ layout
+  // Docked layout: a header strip, the map in its own frame, the company on the
+  // right, and the log, commands and minimap along the bottom.
   build() {
     const root = h('div.hud');
     this.root = root;
     this.statusEl = h('div.hud-status');
-    this.partyEl = h('div.hud-party');
-    this.logEl = h('div.hud-log');
-    this.cmdEl = h('div.hud-cmds');
-    this.hintEl = h('div.hud-hint');
-    this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M)', onclick: () => this.openMap() });
     this.hoverEl = h('div.hud-hover');
+    this.partyEl = h('div.hud-party');
+    this.heroEl = h('div.hud-hero');
+    this.logEl = h('div.hud-log');
+    this.hintEl = h('div.hud-prompt');
+    this.cmdEl = h('div.hud-cmds');
+    this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M)', onclick: () => this.openMap() });
     root.append(
-      h('div.hud-top', this.statusEl, this.hoverEl),
-      h('div.hud-right', this.minimap, this.partyEl),
-      h('div.hud-bottom', this.logEl, this.cmdEl),
-      this.hintEl,
+      h('div.hud-head',
+        h('div.hud-title', this.s.game.meta.title),
+        this.statusEl,
+        this.hoverEl,
+        h('button.hud-menu', { onclick: () => this.openMenu(), title: 'Menu (Esc)' }, '☰ Menu')),
+      h('div.hud-frame'),
+      h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.heroEl),
+      h('div.hud-foot',
+        h('div.hud-logbox', this.logEl, this.hintEl),
+        this.cmdEl,
+        h('div.hud-mapbox', this.minimap)),
     );
     this.app.ui.appendChild(root);
+    this.app.setLayout('play');
+    this.selected = this.s.party.members[0] || null;
   }
 
   destroy() {
@@ -68,16 +86,19 @@ export class PlayUI {
 
   log(text, cls = '') {
     this.logLines.push({ text, cls });
-    if (this.logLines.length > 120) this.logLines.shift();
-    const line = h('div.log-line' + (cls ? '.' + cls : ''), text);
-    this.logEl.appendChild(line);
-    while (this.logEl.childNodes.length > 120) this.logEl.removeChild(this.logEl.firstChild);
-    this.logEl.scrollTop = this.logEl.scrollHeight;
+    if (this.logLines.length > 400) this.logLines.shift();
+    const el = this.logEl;
+    // keep following new lines unless the player has scrolled back to read
+    const follow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.appendChild(h('div.log-line' + (cls ? '.' + cls : ''), text));
+    while (el.childNodes.length > 400) el.removeChild(el.firstChild);
+    if (follow) el.scrollTop = el.scrollHeight;
   }
 
   refresh() {
     this.refreshStatus();
     this.refreshParty();
+    this.refreshHero();
     this.drawMinimap();
   }
 
@@ -87,13 +108,24 @@ export class PlayUI {
     const s = this.s, p = s.party;
     const map = s.battle ? null : s.map;
     clear(this.statusEl);
+    const tod = !s.battle && s.dayCycleActive && s.dayCycleActive() ? s.timeOfDay() : null;
     this.statusEl.append(...[
       h('span.st-place', s.battle ? '⚔ Battle' : map ? map.name : ''),
+      tod ? h('span.st-item', { title: `Day ${tod.day}` }, tod.dark > 0.5 ? '☾ ' : '☀ ', `${tod.name}, day ${tod.day}`) : null,
       h('span.st-item', { title: 'Gold' }, h('b.gold', '◆'), ' ', String(p.gold)),
       this.s.game.settings.food ? h('span.st-item' + (p.food < 20 ? '.low' : ''), { title: 'Food' }, '🍖 ', String(p.food)) : null,
       p.light > 0 ? h('span.st-item', { title: 'Light' }, '🔥 ', String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', '⛵ Aboard ship') : null,
     ].filter(Boolean));
+  }
+
+  selectHero(m) {
+    this.selected = m;
+    sfx('click');
+    this.refreshParty();
+    this.refreshHero();
+    // on narrow screens the sheet is hidden: show it in the Pack instead
+    if (!this.heroEl.offsetParent && !anyModal()) this.openParty(m);
   }
 
   refreshParty() {
@@ -102,16 +134,107 @@ export class PlayUI {
     const active = this.s.battle?.active?.member;
     for (const m of this.s.party.members) {
       const mhp = maxHp(g, m), mmp = maxMp(g, m);
-      const card = h('div.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : ''), {
-        onclick: () => { if (!this.s.battle) this.openParty(m); },
-      },
-      h('div.pc-head', h('span.pc-name', m.name), h('span.pc-status', STATUS_ICON[m.status] || '')),
-      h('div.pc-sub', `L${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
-      bar('HP', m.hp, mhp, 'hp'),
-      mmp > 0 ? bar('MP', m.mp, mmp, 'mp') : null,
-      );
-      this.partyEl.appendChild(card);
+      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.selected ? '.sel' : '');
+      this.partyEl.appendChild(h('div' + cls, { onclick: () => this.selectHero(m), title: 'Show details' },
+        h('div.pc-head', h('span.pc-name', m.name), m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
+          h('span.pc-status', STATUS_ICON[m.status] || ''), h('span.pc-sub', `L${m.level} ${classOf(g, m).name}`)),
+        h('div.pc-bars', bar('HP', m.hp, mhp, 'hp'), mmp > 0 ? bar('MP', m.mp, mmp, 'mp') : null),
+      ));
     }
+  }
+
+  refreshHero(force = false) {
+    const s = this.s;
+    if (!s.party.members.includes(this.selected)) this.selected = s.party.members[0] || null;
+    // rebuild only when something on the sheet changed (keeps open dropdowns stable while walking)
+    const bu = s.battle?.partyUnits.find((u) => u.member === this.selected);
+    const sig = JSON.stringify([this.selected, s.party.inventory, s.party.members.indexOf(this.selected), !!s.battle, bu?.specialUsed]);
+    if (!force && sig === this.heroSig) return;
+    this.heroSig = sig;
+    clear(this.heroEl);
+    if (this.selected) this.heroEl.appendChild(this.heroSheet(this.selected, () => this.refresh()));
+  }
+
+  // The character sheet: attributes, numbers that matter, equipment, special and spells
+  heroSheet(m, onChange) {
+    const s = this.s, g = s.game, inv = s.party.inventory;
+    const inBattle = !!s.battle;
+    const k = classOf(g, m), r = raceOf(g, m);
+    const w = weaponOf(g, m), rw = rangedOf(g, m);
+    const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
+    const changed = () => { s.refreshPartyVisual(); onChange && onChange(); };
+    const el = h('div.sheet');
+    const add = (...kids) => { for (const k of kids) if (k) el.appendChild(k); };
+    add(
+      h('div.sheet-title', h('span', m.name), h('span.status' + (m.status !== 'ok' ? '.bad' : ''), statusLabel(m))),
+      h('div.sheet-sub', `Level ${m.level} ${r.name} ${k.name}`),
+      h('div.sheet-bars',
+        bar('HP', m.hp, maxHp(g, m), 'hp'),
+        maxMp(g, m) > 0 ? bar('MP', m.mp, maxMp(g, m), 'mp') : null,
+        isFinite(next) ? h('div.bar.xp', { title: `${m.xp} / ${next} experience` }, h('i', { style: { width: Math.round(100 * Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev)))) + '%' } }), h('span', `XP ${m.xp} / ${next}`)) : null),
+    );
+    // attributes, with points to spend after levelling up
+    const pts = m.points || 0;
+    add(
+      pts > 0 ? h('div.points', `▲ ${pts} attribute point${pts === 1 ? '' : 's'} to spend`) : null,
+      h('div.attrs', ...STATS.map((st) => h('div.attr', { title: STAT_HELP[st] },
+        h('span.an', STAT_NAMES[st]), h('b', String(m[st])), h('i', fmtMod(mod(m[st]))),
+        pts > 0 && m.status !== 'dead' ? h('button.small.plus', {
+          title: `Raise ${STAT_NAMES[st]}`,
+          onclick: (e) => { e.stopPropagation(); if (spendPoint(g, m, st)) { sfx('level'); changed(); } },
+        }, '+') : null))),
+      h('div.nums',
+        h('div.num', { title: 'Armour class: foes must roll this or more to hit' }, h('span', 'Armour'), h('b', String(armorClass(g, m)))),
+        h('div.num', { title: `${w.name}: ${w.dmg} damage` }, h('span', 'Melee'), h('b', `${fmtMod(attackBonus(g, m, w))} · ${w.dmg}`)),
+        h('div.num', { title: rw ? `${rw.name}: ${rw.dmg} damage, range ${rw.range}` : 'No ranged weapon' }, h('span', 'Ranged'), h('b', rw ? `${fmtMod(attackBonus(g, m, rw))} · ${rw.dmg} · ${rw.range}sq` : '—')),
+      ),
+    );
+    // equipment
+    const eq = h('div.equip');
+    for (const slot of EQUIP_SLOTS) {
+      const cur = itemOf(g, m.equip[slot]);
+      const sel = h('select', { disabled: inBattle || m.status === 'dead', title: inBattle ? 'You cannot change gear mid-battle' : `Choose ${SLOT_NAMES[slot].toLowerCase()}` });
+      sel.appendChild(h('option', { value: '' }, '— none —'));
+      if (cur) sel.appendChild(h('option', { value: cur.id, selected: true }, `${cur.name} (${itemStats(cur)})`));
+      for (const it of g.items) {
+        if (!(inv[it.id] > 0) || slotFor(it) !== slot || (cur && it.id === cur.id)) continue;
+        const ok = canEquip(g, m, it);
+        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
+      }
+      sel.value = cur ? cur.id : '';
+      sel.addEventListener('change', () => {
+        if (!sel.value) unequip(m, slot, inv);
+        else {
+          const res = equipItem(g, m, itemOf(g, sel.value), inv);
+          if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); }
+        }
+        sfx('click');
+        changed();
+      });
+      eq.appendChild(h('div.slot', h('span.slot-name', SLOT_NAMES[slot]), sel));
+    }
+    add(eq);
+    // special ability
+    const sp = specialOf(g, m);
+    if (sp) {
+      const used = s.battle?.partyUnits.find((u) => u.member === m)?.specialUsed;
+      add(h('div.special' + (used ? '.used' : ''), h('b', `★ ${sp.name}`), h('span', used ? ' — used this battle' : ' — once per battle (Q)'), h('p', sp.desc)));
+    }
+    // spells
+    const spells = knownSpells(g, m);
+    if (spells.length) {
+      add(h('div.spells', h('div.sub', 'Spells'), h('div.spell-tags', ...spells.map((x) => h('span.tag', { title: `${x.desc || ''} (${x.reagents?.length ? x.reagents.map((id) => itemOf(g, id)?.name || id).join(' + ') : (x.cost || 0) + ' MP'})` }, x.name)))));
+    }
+    const idx = s.party.members.indexOf(m);
+    add(h('div.sheet-actions',
+      h('button.small', { onclick: () => this.openParty(m) }, '🎒 Pack'),
+      idx > 0 && !inBattle ? h('button.small', {
+        title: 'The first hero leads the party',
+        onclick: () => { s.party.members.splice(idx, 1); s.party.members.splice(idx - 1, 0, m); changed(); },
+      }, '▲ Move up') : null,
+      idx === 0 ? h('span.hint', 'Leads the party') : null,
+    ));
+    return el;
   }
 
   drawMinimap() {
@@ -145,35 +268,36 @@ export class PlayUI {
   setMode(mode) {
     this.mode = mode;
     clear(this.cmdEl);
-    const btn = (label, key, fn, title) => h('button.cmd', { title: title || label, onclick: () => { sfx('click'); fn(); } }, h('u', key), label.replace(key, ''));
+    const btn = (label, key, fn, title, cls = '') => h('button.cmd' + cls, { title: title || label, onclick: () => { sfx('click'); fn(); } }, h('u', key), ' ', label);
     if (mode === 'combat') {
       this.cmdEl.append(
-        btn('Fight', 'F', () => this.beginAttackTargeting(), 'Attack a foe (F) — or bump into an adjacent enemy'),
+        btn('Attack', 'F', () => this.beginAttackTargeting(), 'Attack or shoot a foe (F) — or bump into an adjacent enemy'),
+        this.specialBtn = btn('Special', 'Q', () => this.combatSpecial(), 'Class special, once per battle (Q)', '.special'),
         btn('Cast', 'C', () => this.combatCast()),
         btn('Use', 'U', () => this.combatUse()),
         btn('Wait', '␣', () => this.s.battle?.actPass(), 'Pass this turn (Space)'),
+        btn('Help', '?', () => this.openHelp()),
       );
-      this.hint('');
     } else {
       this.cmdEl.append(
         btn('Talk', 'T', () => this.askDirection('Talk', (dx, dy) => this.s.talkDirection(dx, dy))),
         btn('Look', 'L', () => this.askDirection('Look', (dx, dy) => this.look(dx, dy))),
         btn('Cast', 'C', () => this.fieldCast()),
         btn('Use', 'U', () => this.fieldUse()),
-        btn('Party', 'I', () => this.openParty()),
-        btn('Hole up', 'H', () => this.s.camp(), 'Make camp and rest (H)'),
+        btn('Pack', 'I', () => this.openParty(this.selected)),
+        btn('Camp', 'H', () => this.s.camp(), 'Hole up: make camp and rest (H)'),
         btn('Map', 'M', () => this.openMap()),
-        btn('Wait', '␣', () => this.s.wait()),
-        h('button.cmd.menu', { onclick: () => this.openMenu(), title: 'Menu (Esc)' }, '☰'),
+        btn('Wait', '␣', () => this.s.wait(), 'Wait a turn (Space)'),
+        btn('Help', '?', () => this.openHelp()),
       );
-      this.hint('');
     }
+    this.hint('');
     this.refresh();
   }
 
   hint(text) {
-    this.hintEl.textContent = text || '';
-    this.hintEl.style.display = text ? '' : 'none';
+    this.hintEl.textContent = text ? '› ' + text : '';
+    this.hintEl.classList.toggle('on', !!text);
   }
 
   askDirection(what, fn) {
@@ -275,7 +399,7 @@ export class PlayUI {
       if (this.targeting) color = this.targetValid(t) ? 0xffe040 : 0x808080;
       else if (u && u.side === 'enemy' && b.active && b.canAttack(b.active, u)) color = 0xff4040;
       this.view.showCursor(t.x, t.y, color);
-      this.hoverEl.textContent = u ? `${u.name}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}${u.sleep > 0 ? ' (asleep)' : ''}` : '';
+      this.hoverEl.textContent = u ? `${u.name}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}${u.sleep > 0 ? ' (asleep)' : ''}${u.stun > 0 ? ' (stunned)' : ''}` : '';
       return;
     }
     if (!this.s.map) return;
@@ -350,6 +474,8 @@ export class PlayUI {
     if (k === 'f') { e.preventDefault(); this.beginAttackTargeting(); }
     else if (k === 'c') { e.preventDefault(); this.combatCast(); }
     else if (k === 'u') { e.preventDefault(); this.combatUse(); }
+    else if (k === 'q') { e.preventDefault(); this.combatSpecial(); }
+    else if (k === '?') { e.preventDefault(); this.openHelp(); }
     else if (k === ' ' || k === '.') { e.preventDefault(); b.actPass(); }
   }
 
@@ -376,11 +502,19 @@ export class PlayUI {
 
   combatTurn(u) {
     this.cancelTargeting();
+    if (u && u.member !== this.selected) { this.selected = u.member; this.refreshHero(); }
     this.refreshParty();
     const b = this.s.battle;
     if (!u || !b) { this.view.setHighlights(null); this.hint(''); return; }
-    const w = weaponOf(this.s.game, u.member);
-    this.hint(`${u.name}'s turn — arrows move (bump to strike${w.range > 1 ? ', F to shoot' : ''}), C cast, U use, Space wait. Walk off the edge to flee.`);
+    const rw = rangedOf(this.s.game, u.member);
+    const sp = specialOf(this.s.game, u.member);
+    const spOk = sp && b.canSpecial(u).ok;
+    this.hint(`${u.name}'s turn — arrows move, bump to strike${rw ? `, F shoots (${rw.name})` : ', F attacks'}${sp ? (spOk ? `, Q ${sp.name}` : '') : ''}, C cast, U use, Space wait. Walk off the edge to flee.`);
+    if (this.specialBtn) {
+      this.specialBtn.classList.toggle('disabled', !spOk);
+      this.specialBtn.lastChild.textContent = ' ' + (sp ? sp.name : 'Special');
+      this.specialBtn.title = sp ? `${sp.name}: ${sp.desc}${u.specialUsed ? ' (used)' : ''}` : 'No special ability';
+    }
     const moves = [];
     for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) if (b.walkable(u.x + dx, u.y + dy, u)) moves.push({ x: u.x + dx, y: u.y + dy });
     const atk = b.attackTargets(u).map((e) => ({ x: e.x, y: e.y }));
@@ -405,6 +539,25 @@ export class PlayUI {
       label: 'Attack',
       onPick: (t) => b.actAttack(b.unitAt(t.x, t.y), u),
     });
+  }
+
+  async combatSpecial() {
+    const b = this.s.battle;
+    if (!b || !b.active || b.acting) return;
+    const u = b.active;
+    const can = b.canSpecial(u);
+    if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
+    const sp = can.special;
+    const tg = b.specialTargets(u);
+    const after = () => { if (b.active === u && this.s.battle === b) this.combatTurn(u); };
+    if (tg.kind === 'tile') {
+      this.startTargeting({ tiles: tg.tiles, label: sp.name, color: 0xb090ff, onPick: async (t) => { await b.actSpecial({ x: t.x, y: t.y }, u); after(); } });
+    } else if (tg.kind === 'enemy') {
+      this.startTargeting({ units: tg.units, label: sp.name, color: 0xb090ff, onPick: async (t) => { await b.actSpecial(b.unitAt(t.x, t.y), u); after(); } });
+    } else {
+      await b.actSpecial(null, u);
+      after();
+    }
   }
 
   startTargeting(tg) {
@@ -766,83 +919,44 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ party / inventory
+  // The pack: everything the company carries, with the chosen hero's sheet beside it
   openParty(focus) {
     const s = this.s, g = s.game;
-    let sel = focus || s.party.members[0];
+    let sel = focus || this.selected || s.party.members[0];
     const body = h('div.party-screen');
     const render = () => {
       clear(body);
       const tabs = h('div.tabs');
-      for (const m of s.party.members) tabs.appendChild(h('button' + (m === sel ? '.on' : ''), { onclick: () => { sel = m; render(); } }, m.name));
+      for (const m of s.party.members) tabs.appendChild(h('button' + (m === sel ? '.on' : ''), { onclick: () => { sel = m; render(); } }, m.name, m.points > 0 ? ' ▲' : ''));
       body.appendChild(tabs);
       const m = sel;
-      const w = weaponOf(g, m);
-      const next = xpForLevel(m.level + 1);
-      const sheet = h('div.sheet',
-        h('div.sheet-title', `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`, h('span.status', statusLabel(m))),
-        h('div.sheet-grid',
-          ...STATS.map((st) => h('div.stat', h('span', STAT_NAMES[st]), h('b', String(m[st])), h('i', fmtMod(mod(m[st]))))),
-          h('div.stat', h('span', 'Health'), h('b', `${m.hp}/${maxHp(g, m)}`)),
-          h('div.stat', h('span', 'Mana'), h('b', `${m.mp}/${maxMp(g, m)}`)),
-          h('div.stat', h('span', 'Armour'), h('b', String(armorClass(g, m)))),
-          h('div.stat', h('span', 'To hit'), h('b', fmtMod(attackBonus(g, m)))),
-          h('div.stat', h('span', 'Weapon'), h('b', `${w.name} (${w.dmg}${w.range > 1 ? ', range ' + w.range : ''})`)),
-          h('div.stat', h('span', 'Experience'), h('b', `${m.xp}${isFinite(next) ? ' / ' + next : ''}`)),
-        ),
-        h('div.equip',
-          ...['weapon', 'armor', 'shield'].map((slot) => {
-            const it = itemOf(g, m.equip[slot]);
-            return h('div.slot', h('span.slot-name', slot), h('b', it ? it.name : '—'), it ? h('button', {
-              onclick: () => { s.party.inventory[it.id] = (s.party.inventory[it.id] || 0) + 1; m.equip[slot] = null; s.refreshPartyVisual(); render(); this.refresh(); },
-            }, 'Remove') : null);
-          }),
-        ),
-      );
-      const spells = knownSpells(g, m);
-      if (spells.length) {
-        const ci = casting(g, m);
-        sheet.appendChild(h('div.spells', h('div.sub', 'Spells: ' + ci.map((c) => `${c.sys.name} (circle ${c.maxSpell})`).join(', ')),
-          h('div.spell-tags', ...spells.map((sp) => h('span.tag', { title: sp.desc }, sp.name)))));
-      }
-      body.appendChild(sheet);
-      // inventory
       const inv = s.party.inventory;
       const invList = h('div.inv');
       const items = g.items.filter((it) => inv[it.id] > 0);
       if (!items.length) invList.appendChild(h('p.hint', 'The pack is empty.'));
       for (const it of items) {
         const row = h('div.inv-row', h('span.inv-name', `${it.name} ×${inv[it.id]}`), h('span.inv-stats', itemStats(it)));
-        if (['weapon', 'armor', 'shield'].includes(it.type)) {
+        const slot = slotFor(it);
+        if (slot && !s.battle) {
           const ok = canEquip(g, m, it);
           row.appendChild(h('button' + (ok.ok ? '' : '.disabled'), {
-            title: ok.ok ? `Equip on ${m.name}` : ok.why,
+            title: ok.ok ? `Equip on ${m.name} (${SLOT_NAMES[ok.slot].toLowerCase()})` : ok.why,
             onclick: () => {
-              if (!ok.ok) { s.log(ok.why, 'warn'); sfx('error'); return; }
-              const old = m.equip[ok.slot];
-              if (old) inv[old] = (inv[old] || 0) + 1;
-              inv[it.id]--;
-              m.equip[ok.slot] = it.id;
-              if (it.type === 'weapon' && (it.twoHanded || ['bow', 'crossbow'].includes(it.wkind)) && m.equip.shield) {
-                inv[m.equip.shield] = (inv[m.equip.shield] || 0) + 1;
-                m.equip.shield = null;
-              }
+              const res = equipItem(g, m, it, inv);
+              if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); return; }
               sfx('click');
               s.refreshPartyVisual();
               render(); this.refresh();
             },
           }, 'Equip'));
-        } else if (it.type === 'consumable') {
+        } else if (it.type === 'consumable' && !s.battle) {
           row.appendChild(h('button', { onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
         }
         invList.appendChild(row);
       }
-      body.appendChild(h('div.inv-wrap', h('div.sub', `Pack — ◆ ${s.party.gold} gold${g.settings.food ? ` · ${s.party.food} food` : ''}`), invList));
-      // reorder / dismiss
-      const idx = s.party.members.indexOf(m);
-      body.appendChild(h('div.party-actions',
-        idx > 0 ? h('button', { onclick: () => { s.party.members.splice(idx, 1); s.party.members.splice(idx - 1, 0, m); s.refreshPartyVisual(); render(); this.refresh(); } }, '◀ Move up') : null,
-        idx === 0 ? h('span.hint', 'The first hero leads the party.') : null,
-      ));
+      body.appendChild(h('div.pack-cols',
+        h('div.pack-sheet', this.heroSheet(m, () => { render(); this.refresh(); })),
+        h('div.inv-wrap', h('div.sub', `Pack — ◆ ${s.party.gold} gold${g.settings.food ? ` · ${s.party.food} food` : ''}`), invList)));
     };
     render();
     modal(body, { title: 'Your Company', cls: 'wide party-modal' });
@@ -993,18 +1107,29 @@ Step onto towns, caves and stairs to enter them; walk off the edge of a town to 
 <table class="keys">
 <tr><td>T</td><td>Talk (then a direction)</td><td>L</td><td>Look</td></tr>
 <tr><td>C</td><td>Cast a spell</td><td>U</td><td>Use an item</td></tr>
-<tr><td>I</td><td>Party, equipment &amp; pack</td><td>H</td><td>Hole up (camp &amp; rest)</td></tr>
+<tr><td>I</td><td>Pack &amp; equipment</td><td>H</td><td>Hole up (camp &amp; rest)</td></tr>
 <tr><td>M</td><td>Map</td><td>Space</td><td>Wait a turn</td></tr>
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Menu</td></tr>
 </table>
+<h3>Your company</h3>
+<p>Click a hero on the right to see their sheet. Each hero carries a <b>hand weapon</b> for melee and a <b>ranged weapon</b>
+(bow, crossbow or sling) — change either, and armour and shield, straight from the sheet. Every level brings an
+<b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
 <h3>Talking</h3>
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company.</p>
 <h3>Battle</h3>
-<p>Each hero acts in turn, then the enemy. Move with the arrows and bump a foe to strike. <b>F</b> fires a ranged weapon,
-<b>C</b> casts, <b>U</b> uses an item, <b>Space</b> waits. Walk off the edge of the field to flee.</p>
+<p>Each hero acts in turn, then the enemy. Move with the arrows and bump a foe to strike. <b>F</b> attacks — with your bow if the foe is
+out of reach. <b>Q</b> uses your class special, once per battle: Whirlwind, Volley, Blink, Shadow Strike and more.
+<b>C</b> casts, <b>U</b> uses an item, <b>Space</b> waits. Walk off the edge of the field to flee. Fallen foes sometimes leave gear behind.</p>
+<table class="keys">
+<tr><td>F</td><td>Attack / shoot</td><td>Q</td><td>Class special</td></tr>
+<tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
+<tr><td>Tab</td><td>Next target</td><td>Enter</td><td>Confirm target</td></tr>
+</table>
 <h3>Survival</h3>
 <p>Food runs down as you travel. Swamps may poison you. Rest at inns, or hole up in the wild (if no foes are near).
-Forests and mountains block your sight. Carry torches into dark places.</p>`;
+Forests and mountains block your sight. Carry torches into dark places. Night falls every few hundred turns:
+you see less, and more monsters roam.</p>`;
 
 export { escapeHtml };

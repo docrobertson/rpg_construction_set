@@ -3,12 +3,12 @@ import { h, clear, confirmDialog, toast } from '../dom.js';
 import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
-  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
+  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, CLASS_SPECIALS, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
 } from '../../data/defaults.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
 
-const WEAPON_MODELS = ['sword', 'greatsword', 'axe', 'hammer', 'mace', 'club', 'staff', 'spear', 'dagger', 'bow'];
+const WEAPON_MODELS = ['sword', 'greatsword', 'axe', 'hammer', 'mace', 'club', 'staff', 'spear', 'dagger', 'bow', 'crossbow', 'sling'];
 
 export function categories(game) {
   const items = () => game.items.map((i) => [i.id, i.name]);
@@ -49,7 +49,8 @@ export function categories(game) {
         { key: 'armor', label: 'Heaviest armour', type: 'select', options: ARMOR_WEIGHTS },
         { key: 'shields', label: 'Can use shields', type: 'check' },
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
-        { key: 'primary', label: 'Favoured attributes', type: 'multicheck', options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'Raised automatically on level-ups.' },
+        { key: 'special', label: 'Battle special (once per battle, key Q)', type: 'select', empty: '— none —', nullable: true, options: Object.entries(CLASS_SPECIALS).map(([k, v]) => [k, `${v.name} — ${v.desc}`]) },
+        { key: 'primary', label: 'Favoured attributes', type: 'multicheck', options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'Suggested when creating a hero. Players spend a point per level themselves.' },
         { key: 'start', label: 'Starting equipment', type: 'ids', options: items },
         { type: 'section', label: 'Appearance' },
         ...LOOK_FIELDS.filter((f) => !['look.race', 'look.skin', 'look.hair', 'look.beard'].includes(f.key)),
@@ -64,10 +65,11 @@ export function categories(game) {
         { key: 'desc', label: 'Description', type: 'textarea', rows: 2 },
         { key: 'price', label: 'Price (gold)', type: 'number', min: 0 },
         { key: 'unique', label: 'Unique — never sold in shops', type: 'check' },
+        { key: 'noLoot', label: 'Never dropped by defeated monsters', type: 'check', show: (o) => ['weapon', 'armor', 'shield'].includes(o.type) },
         { key: 'wkind', label: 'Weapon type', type: 'select', options: WEAPON_KINDS, show: (o) => o.type === 'weapon' },
         { key: 'dmg', label: 'Damage', type: 'dice', placeholder: '1d8', show: (o) => o.type === 'weapon' },
         { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => o.type === 'weapon' },
-        { key: 'range', label: 'Range', type: 'number', min: 1, max: 12, show: (o) => o.type === 'weapon', hint: '1 = melee' },
+        { key: 'range', label: 'Range', type: 'number', min: 1, max: 12, show: (o) => o.type === 'weapon', hint: '1 = melee (hand weapon); 2 or more = ranged, carried in its own slot beside a hand weapon' },
         { key: 'twoHanded', label: 'Two-handed', type: 'check', show: (o) => o.type === 'weapon' },
         { key: 'model', label: 'Looks like', type: 'select', options: WEAPON_MODELS, show: (o) => o.type === 'weapon' },
         { key: 'glow', label: 'Magical glow', type: 'color', nullable: true, show: (o) => o.type === 'weapon' },

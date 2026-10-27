@@ -7,12 +7,16 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 ## What's inside
 
 ### Play
-- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable). Low-poly, Warcraft-flavoured terrain, towns and creatures; figures are leaned toward the camera so people read clearly from above.
+- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water and rounded, Warcraft-flavoured figures, leaned toward the camera so people read clearly from above.
 - **Party of up to six** — Men, Dwarves and Elves; Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith. Point-buy attributes with a live 3D preview.
+- **A character sheet for every hero**: attributes, armour and to-hit, and four equipment slots — hand weapon, **ranged weapon** (bows, crossbows, slings), armour and shield — changed with a click. Each level brings an attribute point to spend.
 - **Three scales of map**: the broad overworld, zoomed-in settlements and dungeons, and close-up tactical battles.
 - **Ultima III/IV-style mechanics**: turn-based movement, line of sight and fog of war, food, swamps that poison, dark dungeons that need torches, ships, waygates, locked doors and keys, chests and traps.
 - **Keyword conversations** (`NAME`, `JOB`, and whatever people mention — highlighted words are clickable). Shops, inns, healers, rumours, and companions who will `JOIN` you.
-- **Tactical combat**: each hero acts in turn, then the monsters. Melee by bumping, ranged attacks, area spells, sleep, fear, buffs, poison, fleeing off the field.
+- **Tactical combat**: each hero acts in turn, then the monsters. Melee by bumping, arrows in flight, area spells, sleep, fear, buffs, poison, fleeing off the field.
+- **A special move per class, once per battle**: Whirlwind, Volley, Blink, Prayer of Mending, Shadow Strike, Rally, Dazzling Air, Earthshaker.
+- **Loot**: fallen foes sometimes leave potions, weapons or armour, scaled to how tough they were.
+- **Day and night** outdoors: evenings draw in, night cuts your sight and brings out more monsters.
 - **Four magic systems**, each switchable on or off per game:
   - *Sorcery* (Intellect, mana) — missiles, fireballs, lightning
   - *Prayer* (Wisdom, mana) — healing, blessing, turning the undead
@@ -27,7 +31,7 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 - **Buildings and rooms** for towns and dungeons, furnished with their keepers.
 - **People, monsters, chests, signs, ships, waygates, passages** — with inspectors for everything, including a conversation editor (conditions, actions, story flags).
 - **World Data editors** for races, classes, items, spells, monsters and the magic systems themselves.
-- **Settings**: story text, rules (party size, food, line of sight, encounter rate), victory condition, starting kit and position.
+- **Settings**: story text, rules (party size, food, line of sight, encounter rate, day and night, loot), victory condition, starting kit and position.
 - **Undo/redo, autosave** to browser storage, and **▶ Playtest** from the start or from wherever you're looking.
 
 ### Share
@@ -39,14 +43,16 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 | Exploring | | Battle | |
 |---|---|---|---|
 | Arrows / WASD / click | Move | Arrows | Move, bump to strike |
-| T | Talk | F | Fire / attack a target |
-| L | Look | C | Cast |
-| C | Cast | U | Use item |
-| U | Use item | Space | Wait |
-| I | Party & equipment | Walk off the edge | Flee |
-| H | Hole up (camp) | | |
-| M | Map | | |
+| T | Talk | F | Attack / shoot a target |
+| L | Look | Q | Class special (once per battle) |
+| C | Cast | C | Cast |
+| U | Use item | U | Use item |
+| I | Pack & equipment | Space | Wait |
+| H | Hole up (camp) | Walk off the edge | Flee |
+| M | Map | Tab / Enter | Next target / confirm |
 | Ctrl/⌘+S | Save | Esc | Menu |
+
+Click a hero in the Company panel to see their sheet and change their gear.
 
 In the construction set: right-drag or WASD to pan, mouse wheel (or pinch) to zoom, Ctrl+Z / Ctrl+Y to undo/redo. Press **?** in the editor for a quick-start guide.
 

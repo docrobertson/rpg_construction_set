@@ -8,8 +8,8 @@ import { rng, roll } from '../core/rng.js';
 import { DIR4 } from '../core/util.js';
 import { stepToward } from './path.js';
 import {
-  attackBonus, armorClass, damageRoll, weaponOf, isRanged, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
-  canCast, payForSpell, spellPower, gainXp, itemOf, partyAlive, knownSpells,
+  attackBonus, armorClass, damageRoll, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
+  canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf,
 } from './rules.js';
 import { sfx } from '../core/sound.js';
 
@@ -39,7 +39,7 @@ export class Battle {
 
   // ------------------------------------------------------------ setup
   setup() {
-    const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.map?.lighting === 'night' ? 'night' : 'day';
+    const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
@@ -49,7 +49,7 @@ export class Battle {
     const v = this.view;
     v.setMap(this.arena);
     v.setVisibilityEnabled(false);
-    v.frameArea(0, 0, ARENA_W, ARENA_H, { left: 10, right: 256, top: 76, bottom: 150 });
+    v.frameArea(0, 0, ARENA_W, ARENA_H, { left: 6, right: 6, top: 6, bottom: 6 });
     v.rig.dist *= 1.6; // settle in from above
     // party
     let i = 0;
@@ -204,6 +204,11 @@ export class Battle {
       await this.damage(u, rng.int(1, 2), { quiet: true, color: '#8f8' });
       if (!this.alive(u)) return true;
     }
+    if (u.stun > 0) {
+      u.stun--;
+      this.view.floatText(u.x, u.y, 'stunned', '#ffe080');
+      return true;
+    }
     if (u.sleep > 0) {
       u.sleep--;
       this.view.floatText(u.x, u.y, 'Zzz', '#aaf');
@@ -244,20 +249,13 @@ export class Battle {
       for (const m of alive) {
         const lv = gainXp(this.game, m, share);
         if (lv.length) {
-          this.log(`${m.name} is now level ${m.level}!`, 'level');
+          this.log(`${m.name} is now level ${m.level}! (▲ ${m.points} attribute point${m.points === 1 ? '' : 's'} to spend)`, 'level');
           sfx('level');
           const u = this.partyUnits.find((pu) => pu.member === m);
           if (u) { this.view.sparkle(u.x, u.y, 0xffe060, 24); this.view.floatText(u.x, u.y, 'LEVEL UP!', '#ffe060', true); }
         }
       }
-      if (rng.chance(0.2 + this.killedIds.length * 0.03)) {
-        const drops = this.game.items.filter((it) => it.type === 'consumable' && (it.price || 0) <= 50 && it.combat);
-        if (drops.length) {
-          const it = rng.pick(drops);
-          this.s.party.inventory[it.id] = (this.s.party.inventory[it.id] || 0) + 1;
-          this.log(`You find a ${it.name} among the fallen.`, 'good');
-        }
-      }
+      this.dropLoot();
       await this.view.wait(1.2);
     } else if (outcome === 'fled') {
       this.log('You escape the battle.', 'warn');
@@ -330,34 +328,43 @@ export class Battle {
   }
 
   // can the active unit attack this target?
+  // can the active unit attack this target? Next to a foe the hand weapon is used,
+  // further away the bow, crossbow or sling.
   canAttack(u, t) {
     if (!t || t.side === u.side || !this.alive(t)) return false;
-    const w = weaponOf(this.game, u.member);
-    const d = this.dist(u, t);
-    if (d <= 1 && Math.abs(u.x - t.x) + Math.abs(u.y - t.y) === 1) return true;
-    if (isRanged(w) && d <= (w.range || 1) && this.lineClear(u, t)) return true;
-    return false;
+    if (this.adjacent(u, t)) return true;
+    const r = rangedOf(this.game, u.member);
+    return !!r && this.dist(u, t) <= (r.range || 1) && this.lineClear(u, t);
+  }
+
+  adjacent(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1; }
+
+  weaponFor(u, t) {
+    return this.adjacent(u, t) ? weaponOf(this.game, u.member) : rangedOf(this.game, u.member) || weaponOf(this.game, u.member);
+  }
+
+  async shoot(from, to, w) {
+    const kind = w.wkind === 'sling' ? 'stone' : w.wkind === 'crossbow' ? 'bolt' : 'arrow';
+    sfx('shoot');
+    await this.view.arrow(from.x, from.y, to.x, to.y, { kind, glow: w.glow });
   }
 
   attackTargets(u) { return this.enemies.filter((e) => this.canAttack(u, e)); }
 
-  async attack(u, t) {
+  async attack(u, t, opts = {}) {
     if (!this.canAttack(u, t)) {
-      this.log(isRanged(weaponOf(this.game, u.member)) ? 'Out of range or no clear shot.' : 'Too far away — move adjacent to strike.', 'warn');
+      this.log(rangedOf(this.game, u.member) ? 'Out of range or no clear shot.' : 'Too far away — move adjacent to strike, or carry a bow.', 'warn');
       sfx('error');
       return false;
     }
     const m = u.member;
-    const w = weaponOf(this.game, m);
+    const w = this.weaponFor(u, t);
     this.view.face(u.id, t.x - u.x, t.y - u.y);
-    if (isRanged(w) && this.dist(u, t) > 1) {
-      await this.view.projectile(u.x, u.y, t.x, t.y, w.wkind === 'sling' ? 0x9a9a9a : 0xe0d0a0, 0.06, 14);
-    } else {
-      await this.view.attackAnim(u.id, t.x, t.y);
-    }
+    if (!this.adjacent(u, t)) await this.shoot(u, t, w);
+    else await this.view.attackAnim(u.id, t.x, t.y);
     const d20 = rng.int(1, 20);
-    const asleep = t.sleep > 0;
-    const crit = d20 >= critRange(this.game, m);
+    const asleep = t.sleep > 0 || t.stun > 0;
+    const crit = opts.crit || d20 >= critRange(this.game, m);
     const hit = asleep || crit || (d20 !== 1 && d20 + attackBonus(this.game, m, w) >= this.acOf(t));
     if (!hit) {
       this.view.floatText(t.x, t.y, 'miss', '#ccc');
@@ -416,6 +423,178 @@ export class Battle {
     this.view.floatText(u.x, u.y, '+' + amt, '#70ff90');
     this.view.sparkle(u.x, u.y);
     this.updateBar(u);
+  }
+
+  // ------------------------------------------------------------ class specials (once per battle)
+  specialFor(u) { return u && u.side === 'party' ? specialOf(this.game, u.member) : null; }
+
+  // What a special needs from the player: null (just do it), 'tile' or 'enemy', with the valid choices
+  specialTargets(u) {
+    const sp = this.specialFor(u);
+    if (!sp) return null;
+    if (sp.key === 'blink') {
+      const tiles = [];
+      for (let y = 0; y < this.arena.h; y++) for (let x = 0; x < this.arena.w; x++) {
+        if ((x !== u.x || y !== u.y) && this.dist(u, { x, y }) <= 5 && this.walkable(x, y, u)) tiles.push({ x, y });
+      }
+      return { kind: 'tile', tiles };
+    }
+    if (sp.key === 'shadowstrike') {
+      const units = this.enemies.filter((e) => this.alive(e) && this.dist(u, e) <= 4 && this.landingBeside(u, e));
+      return { kind: 'enemy', units };
+    }
+    return { kind: 'none' };
+  }
+
+  canSpecial(u) {
+    const sp = this.specialFor(u);
+    if (!sp) return { ok: false, why: 'No special ability.' };
+    if (u.specialUsed) return { ok: false, why: `${sp.name} has already been used this battle.` };
+    const foes = this.enemies.filter((e) => this.alive(e));
+    const adj = foes.filter((e) => this.dist(u, e) <= 1);
+    switch (sp.key) {
+      case 'whirlwind': if (!foes.some((e) => this.adjacent(u, e))) return { ok: false, why: 'No foe stands beside you.' }; break;
+      case 'earthshaker': if (!adj.length) return { ok: false, why: 'No foe stands beside you.' }; break;
+      case 'volley': {
+        const r = rangedOf(this.game, u.member);
+        if (!r) return { ok: false, why: 'Volley needs a bow, crossbow or sling.' };
+        if (!foes.some((e) => this.dist(u, e) <= r.range && this.lineClear(u, e))) return { ok: false, why: 'No foe in range.' };
+        break;
+      }
+      case 'dazzle': if (!foes.some((e) => this.dist(u, e) <= 3)) return { ok: false, why: 'No foe within 3 squares.' }; break;
+      case 'shadowstrike': if (!this.specialTargets(u).units.length) return { ok: false, why: 'No foe within 4 squares to reach.' }; break;
+      default: break;
+    }
+    return { ok: true, special: sp };
+  }
+
+  landingBeside(u, e) {
+    let best = null, bd = Infinity;
+    for (const [dx, dy] of DIR4) {
+      const x = e.x + dx, y = e.y + dy;
+      if (!(x === u.x && y === u.y) && !this.walkable(x, y, u)) continue;
+      const d = Math.abs(x - u.x) + Math.abs(y - u.y);
+      if (d < bd) { bd = d; best = { x, y }; }
+    }
+    return best;
+  }
+
+  actSpecial(target, expect) {
+    return this.perform(async (u) => this.special(u, target), expect);
+  }
+
+  async teleport(u, x, y) {
+    this.view.sparkle(u.x, u.y, 0xc0a0ff, 16);
+    u.x = x; u.y = y;
+    await this.view.moveEntity(u.id, x, y, 0.08, 0.3);
+    this.view.sparkle(x, y, 0xc0a0ff, 16);
+  }
+
+  async special(u, target) {
+    const can = this.canSpecial(u);
+    if (!can.ok) { this.log(can.why, 'warn'); sfx('error'); return false; }
+    const sp = can.special;
+    const foes = () => this.enemies.filter((e) => this.alive(e));
+    u.specialUsed = true;
+    this.log(`${u.name}: ${sp.name}!`, 'magic');
+    this.view.floatText(u.x, u.y, sp.name, '#ffe080', true);
+    switch (sp.key) {
+      case 'whirlwind':
+        await this.view.attackAnim(u.id, u.x, u.y - 1);
+        for (const e of foes().filter((f) => this.adjacent(u, f))) await this.attack(u, e);
+        return true;
+      case 'volley': {
+        const r = rangedOf(this.game, u.member);
+        const ts = foes().filter((e) => this.dist(u, e) <= r.range && this.lineClear(u, e)).sort((a, b) => a.hp - b.hp).slice(0, 3);
+        for (const t of ts) if (this.alive(t)) {
+          this.view.face(u.id, t.x - u.x, t.y - u.y);
+          await this.shoot(u, t, r);
+          const d20 = rng.int(1, 20);
+          const crit = d20 >= critRange(this.game, u.member);
+          if (t.sleep > 0 || crit || (d20 !== 1 && d20 + attackBonus(this.game, u.member, r) >= this.acOf(t))) {
+            const dmg = damageRoll(this.game, u.member, r) * (crit ? 2 : 1);
+            sfx(crit ? 'crit' : 'hit');
+            await this.damage(t, dmg, { crit, by: u });
+          } else this.view.floatText(t.x, t.y, 'miss', '#ccc');
+        }
+        return true;
+      }
+      case 'blink': {
+        const ok = target && this.specialTargets(u).tiles.some((c) => c.x === target.x && c.y === target.y);
+        if (!ok) { u.specialUsed = false; this.log('Choose an open square within 5.', 'warn'); return false; }
+        sfx('spell');
+        await this.teleport(u, target.x, target.y);
+        this.log(`${u.name} blinks across the field — and may still act.`);
+        return false; // a free action
+      }
+      case 'mending':
+        sfx('heal');
+        for (const p of this.partyUnits) if (this.alive(p)) this.heal(p, Math.max(2, Math.ceil(maxHp(this.game, p.member) / 4)));
+        return true;
+      case 'shadowstrike': {
+        const t = target && this.specialTargets(u).units.includes(target) ? target : null;
+        if (!t) { u.specialUsed = false; this.log('Choose a foe within 4 squares.', 'warn'); return false; }
+        const spot = this.landingBeside(u, t);
+        if (spot.x !== u.x || spot.y !== u.y) await this.teleport(u, spot.x, spot.y);
+        await this.attack(u, t, { crit: true });
+        return true;
+      }
+      case 'rally':
+        sfx('level');
+        for (const p of this.partyUnits) {
+          if (!this.alive(p)) continue;
+          p.member.buffs.push({ kind: 'bless', power: 2, rounds: 4 }, { kind: 'shield', power: 2, rounds: 4 });
+          this.view.sparkle(p.x, p.y, 0xffe080, 12);
+        }
+        this.log('The company takes heart: +2 to hit and +2 armour.', 'good');
+        return true;
+      case 'dazzle':
+        sfx('spell');
+        this.view.flash('#ffe0ff44', 200);
+        for (const e of foes().filter((f) => this.dist(u, f) <= 3)) {
+          if (e.def?.boss) { this.view.floatText(e.x, e.y, 'resists', '#ccc'); continue; }
+          e.stun = Math.max(e.stun || 0, 1);
+          this.view.sparkle(e.x, e.y, 0xff90ff, 10);
+          this.view.floatText(e.x, e.y, 'spellbound', '#ff90ff');
+        }
+        return true;
+      case 'earthshaker':
+        await this.view.attackAnim(u.id, u.x, u.y + 1);
+        sfx('crit');
+        this.view.shake(0.3, 0.4);
+        this.view.burst(u.x, u.y, 0x9a8a70, 18, { y: 0.1, up: 2 });
+        for (const e of foes().filter((f) => this.dist(u, f) <= 1)) {
+          await this.damage(e, roll('1d8') + Math.max(0, Math.floor((u.member.level - 1) / 2)), { by: u });
+          if (this.alive(e) && !e.def?.boss) { e.stun = Math.max(e.stun || 0, 1); this.view.floatText(e.x, e.y, 'stunned', '#ffe080'); }
+        }
+        return true;
+      default:
+        u.specialUsed = false;
+        return false;
+    }
+  }
+
+  // Spoils: the occasional potion, and now and then a weapon or armour worth
+  // the foes that carried it
+  dropLoot() {
+    const inv = this.s.party.inventory;
+    const power = this.killedIds.reduce((t, id) => t + (byId(this.game.monsters, id)?.level || 1), 0);
+    if (!power) return;
+    const give = (it, how) => {
+      inv[it.id] = (inv[it.id] || 0) + 1;
+      this.log(`${how} ${/^[aeiou]/i.test(it.name) ? 'an' : 'a'} ${it.name}!`, 'loot');
+      sfx('gold');
+    };
+    if (rng.chance(Math.min(0.6, 0.22 + power * 0.04))) {
+      const drops = this.game.items.filter((it) => it.type === 'consumable' && it.combat && (it.price || 0) <= 40 + power * 6);
+      if (drops.length) give(rng.pick(drops), 'Among the fallen you find');
+    }
+    if (this.game.settings.loot === false) return;
+    const boss = this.killedIds.some((id) => byId(this.game.monsters, id)?.boss);
+    if (!boss && !rng.chance(Math.min(0.5, 0.08 + power * 0.03))) return;
+    const budget = 40 + power * 30 + (boss ? 400 : 0);
+    const gear = this.game.items.filter((it) => ['weapon', 'armor', 'shield'].includes(it.type) && !it.noLoot && !it.unique && (it.price || 0) <= budget && (it.price || 0) >= budget * 0.12);
+    if (gear.length) give(rng.weighted(gear, (it) => 1 + (it.price || 0) / 50), boss ? 'The great foe leaves behind' : 'You claim');
   }
 
   // ------------------------------------------------------------ spells
@@ -639,7 +818,9 @@ export class Battle {
       const shots = this.partyUnits.filter((p) => this.alive(p) && this.dist(m, p) <= def.range && this.lineClear(m, p));
       if (shots.length) {
         const t = shots.reduce((a, b) => (this.hpOf(a) <= this.hpOf(b) ? a : b));
-        await this.view.projectile(m.x, m.y, t.x, t.y, 0x2a2a2a, 0.06, 14);
+        this.view.face(m.id, t.x - m.x, t.y - m.y);
+        sfx('shoot');
+        await this.view.arrow(m.x, m.y, t.x, t.y, { fletch: 0x2a2a2a, shaft: 0x4a3a2a });
         return this.monsterHit(m, t);
       }
     }
@@ -684,7 +865,7 @@ export class Battle {
     const mem = t.member;
     const d20 = rng.int(1, 20);
     const luck = hasTrait(this.game, mem, 'lucky') ? 2 : 0;
-    const asleep = t.sleep > 0;
+    const asleep = t.sleep > 0 || t.stun > 0;
     const crit = d20 === 20;
     const hit = asleep || crit || (d20 !== 1 && d20 + (def.hit || 0) - luck >= armorClass(this.game, mem));
     if (!hit) {

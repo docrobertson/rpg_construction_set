@@ -1,7 +1,9 @@
 // Decoration builders: chunky low-poly props placed on top of terrain tiles.
 // Each builder receives a context:
 //   B (lit geometry), G (glow geometry), W (water geometry),
-//   x, z (tile corner in world space), cx, cz (tile centre), y (surface height),
+//   x, z (tile corner in world space), cx, cz (tile centre), y (surface height:
+//   wall top, water level or ground), g (ground at the centre), gy(px, pz) ground
+//   height anywhere,
 //   t (terrain def), r(k) deterministic random, nb(dx,dy) neighbour terrain def,
 //   map (the map being drawn)
 import { TPL, shade } from './builder.js';
@@ -14,23 +16,37 @@ const ROOFS = [0xa83a2a, 0x9a4a2a, 0x4a5a78, 0x7a3a5a, 0x3a6a4a];
 const TRUNK = 0x6b4a2b;
 
 export function tree(B, x, y, z, s, r, palette = GREENS) {
-  B.shape(TPL.cyl6, TRUNK, { x, y, z, sx: 0.09 * s, sy: 0.32 * s, sz: 0.09 * s, grad: 0.3 });
+  B.shape(TPL.taper8, TRUNK, { x, y: y - 0.02, z, sx: 0.1 * s, sy: 0.36 * s, sz: 0.1 * s, grad: 0.35 });
   const g = palette[Math.floor(r * palette.length) % palette.length];
-  B.shape(TPL.ico0, g, { x, y: y + 0.42 * s, z, s: 0.5 * s, ry: r * 6, grad: 0.35 });
-  B.shape(TPL.ico0, shade(g, 1.12), { x: x + 0.07 * s, y: y + 0.6 * s, z: z + 0.03 * s, s: 0.34 * s, ry: r * 9, grad: 0.3 });
+  B.shape(TPL.ico1, shade(g, 0.88), { x, y: y + 0.42 * s, z, sx: 0.5 * s, sy: 0.42 * s, sz: 0.5 * s, ry: r * 6, grad: 0.45 });
+  B.shape(TPL.ico1, g, { x: x - 0.08 * s, y: y + 0.55 * s, z: z + 0.06 * s, s: 0.34 * s, ry: r * 9, grad: 0.35 });
+  B.shape(TPL.ico1, shade(g, 1.15), { x: x + 0.07 * s, y: y + 0.64 * s, z: z + 0.02 * s, s: 0.28 * s, ry: r * 4, grad: 0.25 });
 }
 
 export function pine(B, x, y, z, s, r, snowy = false) {
-  B.shape(TPL.cyl6, 0x5a3e24, { x, y, z, sx: 0.07 * s, sy: 0.22 * s, sz: 0.07 * s });
+  B.shape(TPL.taper8, 0x5a3e24, { x, y: y - 0.02, z, sx: 0.08 * s, sy: 0.24 * s, sz: 0.08 * s });
   const c = PINES[Math.floor(r * PINES.length) % PINES.length];
   const ry = r * 5;
-  B.shape(TPL.cone6, c, { x, y: y + 0.14 * s, z, sx: 0.46 * s, sy: 0.4 * s, sz: 0.46 * s, ry, grad: 0.4 });
-  B.shape(TPL.cone6, shade(c, 1.08), { x, y: y + 0.34 * s, z, sx: 0.36 * s, sy: 0.36 * s, sz: 0.36 * s, ry: ry + 0.5, grad: 0.4 });
-  B.shape(TPL.cone6, snowy ? 0xeef3f6 : shade(c, 1.16), { x, y: y + 0.54 * s, z, sx: 0.24 * s, sy: 0.32 * s, sz: 0.24 * s, ry, grad: 0.3 });
+  B.shape(TPL.cone8, shade(c, 0.9), { x, y: y + 0.12 * s, z, sx: 0.48 * s, sy: 0.4 * s, sz: 0.48 * s, ry, grad: 0.45 });
+  B.shape(TPL.cone8, c, { x, y: y + 0.31 * s, z, sx: 0.38 * s, sy: 0.36 * s, sz: 0.38 * s, ry: ry + 0.5, grad: 0.4 });
+  B.shape(TPL.cone8, snowy ? 0xeef3f6 : shade(c, 1.14), { x, y: y + 0.5 * s, z, sx: 0.26 * s, sy: 0.34 * s, sz: 0.26 * s, ry, grad: 0.3 });
 }
 
 function rock(B, x, y, z, s, r, color) {
   B.shape(TPL.dodec, color ?? ROCKS[Math.floor(r * 4) % 4], { x, y: y + 0.12 * s, z, sx: 0.32 * s, sy: 0.24 * s, sz: 0.28 * s, ry: r * 7, rx: r * 0.4, grad: 0.3 });
+}
+
+function grassTuft(B, x, y, z, s, r) {
+  const g = r < 0.5 ? 0x5f9a3e : 0x6aa646;
+  for (let i = 0; i < 3; i++) {
+    const a = r * 6 + i * 2.1;
+    B.shape(TPL.cone4, shade(g, 0.9 + i * 0.08), { x: x + Math.cos(a) * 0.025 * s, y, z: z + Math.sin(a) * 0.025 * s, sx: 0.035 * s, sy: (0.07 + 0.03 * i) * s, sz: 0.035 * s, rx: Math.sin(a) * 0.35, rz: -Math.cos(a) * 0.35, ry: a, grad: 0.45 });
+  }
+}
+
+function bush(B, x, y, z, s, r, color = 0x4f8a34) {
+  B.shape(TPL.ico1, color, { x, y: y + 0.06 * s, z, sx: 0.2 * s, sy: 0.15 * s, sz: 0.2 * s, ry: r * 6, grad: 0.4 });
+  B.shape(TPL.ico1, shade(color, 1.12), { x: x + 0.05 * s, y: y + 0.1 * s, z: z - 0.03 * s, s: 0.12 * s, grad: 0.3 });
 }
 
 function house(B, x, y, z, w, d, hgt, roof, wall = 0xe8dcc0, ry = 0) {
@@ -70,11 +86,18 @@ export const DECOR = {
       const n = 2 + Math.floor(r(2) * 3);
       for (let i = 0; i < n; i++) {
         const px = cx - 0.35 + r(10 + i) * 0.7, pz = cz - 0.35 + r(20 + i) * 0.7;
-        B.shape(TPL.cone4, 0x5f9a3e, { x: px, y, z: pz, sx: 0.05, sy: 0.08 + r(30 + i) * 0.06, sz: 0.05, ry: r(40 + i) * 3 });
+        grassTuft(B, px, c.gy(px, pz), pz, 0.8 + r(30 + i) * 0.6, r(40 + i));
       }
     }
-    if (r(3) < 0.08) B.shape(TPL.ico0, 0x4f8a34, { x: cx + (r(4) - 0.5) * 0.6, y: y + 0.05, z: cz + (r(5) - 0.5) * 0.6, s: 0.18, grad: 0.3 });
-    if (r(6) < 0.04) rock(B, cx + (r(7) - 0.5) * 0.5, y, cz + (r(8) - 0.5) * 0.5, 0.4, r(9));
+    if (r(3) < 0.08) {
+      const px = cx + (r(4) - 0.5) * 0.6, pz = cz + (r(5) - 0.5) * 0.6;
+      bush(B, px, c.gy(px, pz), pz, 0.9, r(6));
+    }
+    if (r(6) < 0.04) {
+      const px = cx + (r(7) - 0.5) * 0.5, pz = cz + (r(8) - 0.5) * 0.5;
+      rock(B, px, c.gy(px, pz), pz, 0.4, r(9));
+    }
+    void y;
   },
   flowers(c) {
     const { B, cx, cz, y, r } = c;
@@ -84,9 +107,11 @@ export const DECOR = {
     const col = cols[Math.floor(r(2) * cols.length)];
     for (let i = 0; i < n; i++) {
       const px = cx - 0.4 + r(10 + i) * 0.8, pz = cz - 0.4 + r(20 + i) * 0.8;
-      B.box(0x4f8a34, { x: px, y, z: pz, sx: 0.012, sy: 0.05, sz: 0.012 });
-      B.box(i % 3 === 2 ? cols[Math.floor(r(30 + i) * cols.length)] : col, { x: px, y: y + 0.05, z: pz, sx: 0.035, sy: 0.02, sz: 0.035, ry: r(40 + i) });
+      const gy = c.gy(px, pz);
+      B.shape(TPL.cyl6, 0x4f8a34, { x: px, y: gy, z: pz, sx: 0.014, sy: 0.06, sz: 0.014 });
+      B.shape(TPL.blob, i % 3 === 2 ? cols[Math.floor(r(30 + i) * cols.length)] : col, { x: px, y: gy + 0.065, z: pz, sx: 0.05, sy: 0.03, sz: 0.05, ry: r(40 + i) });
     }
+    void y;
   },
   trees(c) {
     const { B, cx, cz, y, r } = c;
@@ -94,8 +119,10 @@ export const DECOR = {
     const spots = [[-0.22, -0.2], [0.22, -0.15], [-0.05, 0.22], [0.25, 0.25]];
     for (let i = 0; i < n; i++) {
       const [ox, oz] = spots[(i + Math.floor(r(2) * 4)) % 4];
-      tree(B, cx + ox + (r(10 + i) - 0.5) * 0.12, y, cz + oz + (r(20 + i) - 0.5) * 0.12, 0.85 + r(30 + i) * 0.4, r(40 + i));
+      const px = cx + ox + (r(10 + i) - 0.5) * 0.12, pz = cz + oz + (r(20 + i) - 0.5) * 0.12;
+      tree(B, px, c.gy(px, pz), pz, 0.85 + r(30 + i) * 0.4, r(40 + i));
     }
+    void y;
   },
   pines(c) {
     const { B, cx, cz, y, r, map } = c;
@@ -104,14 +131,19 @@ export const DECOR = {
     const spots = [[-0.24, -0.22], [0.22, -0.2], [-0.2, 0.2], [0.24, 0.22], [0, 0]];
     for (let i = 0; i < n; i++) {
       const [ox, oz] = spots[(i + Math.floor(r(2) * 5)) % 5];
-      pine(B, cx + ox + (r(10 + i) - 0.5) * 0.1, y, cz + oz + (r(20 + i) - 0.5) * 0.1, 0.8 + r(30 + i) * 0.45, r(40 + i), snowy);
+      const px = cx + ox + (r(10 + i) - 0.5) * 0.1, pz = cz + oz + (r(20 + i) - 0.5) * 0.1;
+      pine(B, px, c.gy(px, pz), pz, 0.8 + r(30 + i) * 0.45, r(40 + i), snowy);
     }
+    void y;
   },
   hill(c) {
-    const { B, cx, cz, y, r, t } = c;
-    mound(B, cx + (r(1) - 0.5) * 0.15, y, cz + (r(2) - 0.5) * 0.15, 0.95, 0.26 + r(3) * 0.12, 0.85, shade(t.top, 1.02), r(4));
-    if (r(5) < 0.5) mound(B, cx + (r(6) - 0.5) * 0.5, y, cz + (r(7) - 0.5) * 0.5, 0.5, 0.16, 0.5, shade(t.top, 0.92), r(8));
-    if (r(9) < 0.25) rock(B, cx + (r(10) - 0.5) * 0.5, y + 0.05, cz + (r(11) - 0.5) * 0.5, 0.5, r(12));
+    // the ground itself rolls; dot it with scrub, stones and the odd tree
+    const { B, cx, cz, r } = c;
+    const at = (k, s = 0.7) => { const px = cx + (r(k) - 0.5) * s, pz = cz + (r(k + 1) - 0.5) * s; return [px, c.gy(px, pz), pz]; };
+    if (r(1) < 0.5) { const [px, py, pz] = at(2); grassTuft(B, px, py, pz, 1.1, r(4)); }
+    if (r(5) < 0.3) { const [px, py, pz] = at(6); bush(B, px, py, pz, 1, r(8), 0x6f8a3a); }
+    if (r(9) < 0.3) { const [px, py, pz] = at(10, 0.5); rock(B, px, py - 0.02, pz, 0.55, r(12)); }
+    if (r(13) < 0.12) { const [px, py, pz] = at(14, 0.4); tree(B, px, py, pz, 0.75, r(16)); }
   },
   mountain(c) { mountainDeco(c, false); },
   peak(c) { mountainDeco(c, true); },
@@ -544,23 +576,23 @@ function mountainDeco(c, snowy, scale = 1) {
 }
 
 function timber(c, windowed) {
-  const { B, G, cx, cz, y, nb, t } = c;
+  const { B, G, cx, cz, y, g, nb, t } = c;
   const beam = 0x5a3a22;
   const hgt = t.h;
   // corner posts and top band
   for (const [dx, dz] of [[-0.47, -0.47], [0.47, -0.47], [-0.47, 0.47], [0.47, 0.47]]) {
-    B.box(beam, { x: cx + dx, y: 0, z: cz + dz, sx: 0.07, sy: hgt + 0.01, sz: 0.07 });
+    B.box(beam, { x: cx + dx, y: g, z: cz + dz, sx: 0.07, sy: hgt + 0.01, sz: 0.07 });
   }
   const exposed = [[0, 1], [0, -1], [1, 0], [-1, 0]].filter(([dx, dz]) => { const n = nb(dx, dz); return !(n.wall); });
   for (const [dx, dz] of exposed) {
     const o = dx ? { x: cx + dx * 0.505, z: cz, sx: 0.02, sz: 1.0 } : { x: cx, z: cz + dz * 0.505, sx: 1.0, sz: 0.02 };
-    B.box(beam, { ...o, y: hgt - 0.06, sy: 0.06 });
-    B.box(beam, { ...o, y: 0.02, sy: 0.05 });
+    B.box(beam, { ...o, y: g + hgt - 0.06, sy: 0.06 });
+    B.box(beam, { ...o, y: g + 0.02, sy: 0.05 });
     if (windowed) {
       const w = dx ? { x: cx + dx * 0.51, z: cz, sx: 0.015, sz: 0.4 } : { x: cx, z: cz + dz * 0.51, sx: 0.4, sz: 0.015 };
-      G.box(0xffe8a0, { ...w, y: 0.2, sy: 0.2 });
+      G.box(0xffe8a0, { ...w, y: g + 0.2, sy: 0.2 });
       const f = dx ? { x: cx + dx * 0.515, z: cz, sx: 0.02, sz: 0.04 } : { x: cx, z: cz + dz * 0.515, sx: 0.04, sz: 0.02 };
-      B.box(beam, { ...f, y: 0.2, sy: 0.2 });
+      B.box(beam, { ...f, y: g + 0.2, sy: 0.2 });
     }
   }
   void y;

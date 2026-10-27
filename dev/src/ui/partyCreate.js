@@ -1,8 +1,8 @@
 // Party creation: up to N heroes, race + class + point-buy stats,
 // previewed live as 3D figures standing in a meadow.
 import { h, clear } from './dom.js';
-import { STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES } from '../data/defaults.js';
-import { createCharacter, classAvailable, charLook, maxHp, maxMp, mod } from '../game/rules.js';
+import { STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, CLASS_SPECIALS } from '../data/defaults.js';
+import { createCharacter, classAvailable, charLook, maxHp, maxMp, mod, equipKit, specialOf } from '../game/rules.js';
 import { createMap } from '../world/map.js';
 import { T } from '../data/terrain.js';
 import { randomName } from '../world/generate.js';
@@ -86,13 +86,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
     frame(n);
     heroes.forEach((hero, i) => {
       const c = createCharacter(game, hero);
-      const k = byId(classes, hero.cls);
-      for (const id of k?.start || []) {
-        const it = byId(game.items, id);
-        if (!it) continue;
-        const slot = it.type === 'weapon' ? 'weapon' : it.type === 'armor' ? 'armor' : it.type === 'shield' ? 'shield' : null;
-        if (slot && !c.equip[slot]) c.equip[slot] = id;
-      }
+      equipKit(game, c, byId(classes, hero.cls)?.start);
       const x = 7 - Math.floor(n / 2) + i;
       view.addEntity('hero' + i, charLook(game, c), x, 4, { ring: hero === sel ? 0xffd040 : 0x806020 });
     });
@@ -137,7 +131,8 @@ export function partyCreation(app, game, { onDone, onBack }) {
       h('div.sub', 'Calling'),
       h('div.cards.classes', ...classes.map((cls) => h('div.card' + (cls.id === hero.cls ? '.on' : ''), {
         onclick: () => { hero.cls = cls.id; autoStats(hero); sfx('click'); render(); },
-      }, h('b', cls.name), h('small', magicText(game, cls)), h('p', cls.desc || '')))),
+      }, h('b', cls.name), h('small', magicText(game, cls)), h('p', cls.desc || ''),
+      CLASS_SPECIALS[cls.special] ? h('small.traits', `★ ${CLASS_SPECIALS[cls.special].name}`) : null))),
       h('div.sub', `Attributes — ${left} point${left === 1 ? '' : 's'} left`,
         h('button.small', { onclick: () => { autoStats(hero); render(); } }, 'Auto')),
       h('div.stats', ...STATS.map((s) => {
@@ -149,6 +144,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
           h('button.small', { onclick: () => { if (left > 0 && hero.stats[s] < MAXBASE) { hero.stats[s]++; render(); } } }, '+'));
       })),
       h('p.hint', `Health ${maxHp(game, c)} · Mana ${maxMp(game, c)} · ${(k?.abilities || []).map((a) => (CLASS_ABILITIES[a] || a).split(':')[0]).join(', ') || 'no special skills'}`),
+      specialOf(game, c) ? h('p.hint', `★ ${specialOf(game, c).name} (once per battle): ${specialOf(game, c).desc}`) : null,
     );
     return panel;
   }

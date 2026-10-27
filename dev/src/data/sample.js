@@ -277,7 +277,7 @@ function dressWesthold(game, map) {
         kw('KEY', 'The Rune-Key! Forged to seal the gates of Dol Garoth. Goblins stole it and fled south, to the barrow of GRIMHOLT. If thou art going after it... I would JOIN thee.'),
         kw('GRIMHOLT', 'An old barrow in the southern hills. Cursed, they say. Goblins nest there now — and worse.'),
       ],
-      recruit: { race: 'dwarf', cls: 'warrior', level: 2, joinText: 'Ha! My axe is thine. Let us go and get that key back!', equip: ['battle_axe', 'chain_mail'] },
+      recruit: { race: 'dwarf', cls: 'warrior', level: 2, joinText: 'Ha! My axe is thine. Let us go and get that key back!', equip: ['battle_axe', 'crossbow', 'chain_mail'] },
     });
   }
   const healer = byRole(map, 'healer')[0];
@@ -387,7 +387,7 @@ function dressElves(game, map) {
     keywords: [
       kw('SPIDERS', 'Great spiders creep out of the forest\'s eastern edge. They grow fat on the Shadow\'s malice. I would hunt them with thee — ask me to JOIN.'),
     ],
-    recruit: { race: 'elf', cls: 'ranger', level: 2, joinText: 'At last! My bow is thine — let us see the wide world together.', equip: ['elven_bow', 'leather_armor'] },
+    recruit: { race: 'elf', cls: 'ranger', level: 2, joinText: 'At last! My bow is thine — let us see the wide world together.', equip: ['short_sword', 'elven_bow', 'leather_armor'] },
   });
   const bowyer = byRole(map, 'bowyer')[0] || map.entities.find((e) => e.shop?.kind === 'weapons');
   if (bowyer) {

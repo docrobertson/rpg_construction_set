@@ -8,6 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
+  equipKit, normalizeMember,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -21,6 +22,11 @@ export function moodFor(map) {
 
 export const STATE_VERSION = 1;
 
+// A day lasts this many turns: morning, midday and afternoon, then evening,
+// night and dawn
+export const DAY_LEN = 300;
+const PHASES = [[0, 'Morning'], [0.2, 'Midday'], [0.35, 'Afternoon'], [0.5, 'Evening'], [0.6, 'Night'], [0.9, 'Dawn']];
+
 export function newPlayState(game, members) {
   const s = game.settings;
   const inv = {};
@@ -28,13 +34,8 @@ export function newPlayState(game, members) {
   // starting equipment from class kits
   for (const m of members) {
     const cls = byId(game.classes, m.cls);
-    for (const id of cls?.start || []) {
-      const it = byId(game.items, id);
-      if (!it) continue;
-      const slot = it.type === 'weapon' ? 'weapon' : it.type === 'armor' ? 'armor' : it.type === 'shield' ? 'shield' : null;
-      if (slot && !m.equip[slot]) m.equip[slot] = id;
-      else inv[id] = (inv[id] || 0) + 1;
-    }
+    normalizeMember(game, m, inv);
+    equipKit(game, m, cls?.start, inv);
     m.hp = maxHp(game, m);
     m.mp = maxMp(game, m);
   }
@@ -67,6 +68,7 @@ export class PlaySession {
     this.battle = null;
     this.ui = null; // set by PlayUI
     this.roamCount = 0;
+    for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
   }
 
   get party() { return this.state.party; }
@@ -122,6 +124,7 @@ export class PlaySession {
     this.state.pos = { map: id, x, y };
     this.roamCount = 0;
     this.view.setMap(map);
+    this.applyDaylight();
     playMusic(moodFor(map));
     this.view.setPitch(this.game.settings.pitch || 70);
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
@@ -178,16 +181,59 @@ export class PlaySession {
     this.addPartyVisual();
   }
 
+  // ------------------------------------------------------------ time of day
+  dayCycleActive() {
+    const m = this.map;
+    return this.game.settings.dayNight !== false && !!m && (m.type === 'world' || m.type === 'town' || m.type === 'castle') && (!m.lighting || m.lighting === 'day');
+  }
+
+  timeOfDay() {
+    const turn = this.state.turn || 0;
+    const t = (turn % DAY_LEN) / DAY_LEN;
+    let name = PHASES[0][1];
+    for (const [at, n] of PHASES) if (t >= at) name = n;
+    // 0 in daylight, 1 at night, ramping through evening and dawn
+    const dark = t < 0.5 ? 0 : t < 0.6 ? (t - 0.5) / 0.1 : t < 0.9 ? 1 : 1 - (t - 0.9) / 0.1;
+    return { day: Math.floor(turn / DAY_LEN) + 1, t, name, dark };
+  }
+
+  darkness() { return this.dayCycleActive() ? this.timeOfDay().dark : 0; }
+
+  currentLighting() {
+    if (this.map?.lighting === 'dark') return 'dark';
+    if (!this.dayCycleActive()) return this.map?.lighting || 'day';
+    const k = this.darkness();
+    return k > 0.75 ? 'night' : k > 0.25 ? 'dusk' : 'day';
+  }
+
+  applyDaylight() {
+    if (!this.map) return;
+    if (this.dayCycleActive()) this.view.setDaylight(this.darkness());
+    else this.view.setLighting(this.map.lighting || 'day');
+  }
+
+  // announce nightfall and daybreak
+  checkPhase() {
+    if (!this.dayCycleActive()) { this.lastPhase = null; return; }
+    const { name } = this.timeOfDay();
+    if (this.lastPhase && name !== this.lastPhase) {
+      if (name === 'Evening') this.log('The sun sinks low. Night is coming.', 'place');
+      else if (name === 'Night') this.log('Night falls. Foul things walk in the dark.', 'warn');
+      else if (name === 'Dawn') this.log('Dawn breaks over the land.', 'place');
+    }
+    this.lastPhase = name;
+  }
+
   sightRadius() {
-    const lighting = this.map.lighting;
+    const lighting = this.currentLighting();
     const keen = this.party.members.some((m) => m.status !== 'dead' && hasTrait(this.game, m, 'keenSight'));
     const dark = this.party.members.some((m) => m.status !== 'dead' && hasTrait(this.game, m, 'darkSight'));
     if (lighting === 'dark') {
       const light = this.party.light > 0 ? 5 : 1.6;
       return { sight: 14, light: light + (dark ? 1.2 : 0) };
     }
-    if (lighting === 'night') return { sight: 8, light: this.party.light > 0 ? 7 : 4 };
-    const s = this.map.type === 'world' ? 10.5 : 13;
+    if (lighting === 'night') return { sight: 8, light: (this.party.light > 0 ? 7 : 4) + (keen || dark ? 1 : 0) };
+    const s = (this.map.type === 'world' ? 10.5 : 13) - (lighting === 'dusk' ? 2 : 0);
     return { sight: s + (keen ? 2 : 0), light: 99 };
   }
 
@@ -369,6 +415,8 @@ export class PlaySession {
   async afterStep(noMove = false) {
     const st = this.state;
     st.turn++;
+    this.applyDaylight();
+    this.checkPhase();
     const map = this.map;
     const p = st.pos;
     // portals & pickups
@@ -597,7 +645,7 @@ export class PlaySession {
 
   maybeSpawnEncounter() {
     const map = this.map;
-    const rate = (map.encounterRate ?? 0) * (this.game.settings.encounterRate ?? 1);
+    const rate = (map.encounterRate ?? 0) * (this.game.settings.encounterRate ?? 1) * (1 + 0.5 * this.darkness());
     if (!rate) return;
     const tracker = partyAlive(this.party).some((m) => hasAbility(this.game, m, 'tracker'));
     const base = map.type === 'dungeon' ? 0.03 : 0.035;
@@ -687,14 +735,16 @@ export class PlaySession {
     // restore the exploration view
     await this.app.fade(true, 200);
     this.view.setMap(this.map);
+    this.applyDaylight();
     playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
     this.view.setZoom(this.map.type === 'world' ? 18 : 15, true);
     this.view.focus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
     if (res.outcome === 'defeat') {
-      await this.app.fade(false);
       this.mode = 'gameover';
+      this.ui.setMode('explore');
+      await this.app.fade(false);
       this.ui.showGameOver();
       return res;
     }
@@ -833,13 +883,9 @@ export class PlaySession {
     });
     c.level = Math.max(1, parseInt(r.level, 10) || 1);
     c.xp = xpForLevel(c.level);
+    c.points = c.level - 1; // seasoned companions arrive with points to spend
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
-    for (const id of r.equip || byId(this.game.classes, c.cls)?.start || []) {
-      const it = itemOf(this.game, id);
-      if (!it) continue;
-      const slot = it.type === 'weapon' ? 'weapon' : it.type === 'armor' ? 'armor' : it.type === 'shield' ? 'shield' : null;
-      if (slot && !c.equip[slot]) c.equip[slot] = id;
-    }
+    equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
     c.look = {};
     this.party.members.push(c);
     this.removeEntity(npc);
@@ -979,6 +1025,9 @@ export class PlaySession {
     this.view.removeEntity('campfire');
     if (this.game.settings.food) this.party.food -= n;
     this.state.turn += 50;
+    this.applyDaylight();
+    this.checkPhase();
+    this.updateVisibility();
     if (rng.chance(0.18) && (this.map.encounterRate ?? 0) > 0) {
       this.busy = false;
       const t = terrain(getTile(this.map, p.x, p.y));

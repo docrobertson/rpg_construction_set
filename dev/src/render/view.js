@@ -8,6 +8,8 @@ import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import { clamp } from '../core/util.js';
 
+const _tmpColor = new THREE.Color(), _bgColor = new THREE.Color();
+
 const LIGHTING = {
   day: { bg: 0x8fbde6, hemiSky: 0xdcefff, hemiGround: 0x6a5a40, hemi: 1.5, sun: 2.6, sunColor: 0xfff0d8, amb: 0 },
   dusk: { bg: 0x5a4a6a, hemiSky: 0xffc8a0, hemiGround: 0x3a2a40, hemi: 1.1, sun: 1.6, sunColor: 0xffb070, amb: 0 },
@@ -75,6 +77,8 @@ export class View {
     this.visOn = false;
     this.setLighting('day');
     window.addEventListener('resize', () => this.resize());
+    // the map lives in a docked frame whose size changes with the layout
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
     this.renderer.setAnimationLoop(() => this._frame());
   }
@@ -82,6 +86,8 @@ export class View {
   resize() {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
+    if (w === this._w && h === this._h) return;
+    this._w = w; this._h = h;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -106,6 +112,20 @@ export class View {
     this.sun.intensity = L.sun;
   }
 
+  // Blend the outdoor light through the day: 0 = full day, 0.5 = dusk, 1 = night
+  setDaylight(k) {
+    const D = LIGHTING.day, U = LIGHTING.dusk, N = LIGHTING.night;
+    const [A, B, t] = k < 0.5 ? [D, U, k * 2] : [U, N, (k - 0.5) * 2];
+    const mixc = (target, a, b) => target.setHex(a).lerp(_tmpColor.setHex(b), t);
+    this.lighting = k > 0.75 ? 'night' : k > 0.25 ? 'dusk' : 'day';
+    this.renderer.setClearColor(mixc(_bgColor, A.bg, B.bg), 1);
+    mixc(this.hemi.color, A.hemiSky, B.hemiSky);
+    mixc(this.hemi.groundColor, A.hemiGround, B.hemiGround);
+    this.hemi.intensity = A.hemi + (B.hemi - A.hemi) * t;
+    mixc(this.sun.color, A.sunColor, B.sunColor);
+    this.sun.intensity = A.sun + (B.sun - A.sun) * t;
+  }
+
   // ---- map ----
   setMap(map) {
     this.map = map;
@@ -128,10 +148,12 @@ export class View {
   heightAt(x, y) {
     if (!this.map) return 0;
     const t = terrain(getTile(this.map, x, y));
+    if (t.key === 'bridge') return 0.04;
     if (t.water) return WATER_Y;
-    if (t.deco === 'hill') return t.h + 0.2;
-    if (t.deco === 'stairsup') return t.h + 0.1;
-    return t.h;
+    const g = this.terrain.groundAt(x, y);
+    if (t.wall) return g + t.h;
+    if (t.deco === 'stairsup') return g + 0.1;
+    return g;
   }
 
   // ---- visibility (fog of war) ----
@@ -544,14 +566,14 @@ export class View {
     this.overlayGroup.add(this.brushRing);
 
     this.highlightMesh = null;
-    this.highlightMat = new THREE.MeshBasicMaterial({ color: 0x40a0ff, transparent: true, opacity: 0.28, depthWrite: false });
+    this.highlightMat = new THREE.MeshBasicMaterial({ color: 0x40a0ff, transparent: true, opacity: 0.28, depthWrite: false, depthTest: false });
     this.lineObj = null;
   }
 
   showCursor(x, y, color = 0xffffff, size = 1) {
     if (x == null) { this.cursor.visible = false; return; }
     this.cursor.visible = true;
-    const h = Math.max(0, this.heightAt(x, y)) + 0.03;
+    const h = this.heightAt(x, y) + 0.03;
     const off = Math.floor((size - 1) / 2);
     this.cursor.position.set(x - off, h, y - off);
     this.cursor.scale.set(size, 1, size);
@@ -582,7 +604,7 @@ export class View {
     const inst = new THREE.InstancedMesh(geo, mat, tiles.length);
     const m4 = new THREE.Matrix4();
     tiles.forEach((t, i) => {
-      m4.makeTranslation(t.x + 0.5, Math.max(0, this.heightAt(t.x, t.y)) + 0.025, t.y + 0.5);
+      m4.makeTranslation(t.x + 0.5, this.heightAt(t.x, t.y) + 0.025, t.y + 0.5);
       inst.setMatrixAt(i, m4);
     });
     inst.renderOrder = 5;
@@ -698,6 +720,53 @@ export class View {
         this.fxGroup.remove(m);
         geo.dispose();
         mat.dispose();
+        resolve();
+      });
+    });
+  }
+
+  // An arrow (or sling stone / bolt) flying in an arc, nose along its path
+  arrow(fx, fy, tx, ty, opts = {}) {
+    const kind = opts.kind || 'arrow';
+    const g = new THREE.Group();
+    const mats = [];
+    const mk = (geo, color, x = 0, y = 0, z = 0, rx = 0) => {
+      const mat = new THREE.MeshBasicMaterial({ color });
+      mats.push(mat);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.rotation.x = rx;
+      m.layers.set(1);
+      g.add(m);
+    };
+    if (kind === 'stone') mk(new THREE.IcosahedronGeometry(0.06, 0), 0x9a958c);
+    else {
+      const len = kind === 'bolt' ? 0.34 : 0.5;
+      mk(new THREE.CylinderGeometry(0.012, 0.012, len, 5), opts.shaft ?? 0x8a6a42, 0, 0, 0, Math.PI / 2);
+      mk(new THREE.ConeGeometry(0.03, 0.08, 5), opts.head ?? 0xd8dce4, 0, 0, len / 2 + 0.04, Math.PI / 2);
+      mk(new THREE.BoxGeometry(0.06, 0.004, 0.09), opts.fletch ?? 0xe8e0d0, 0, 0, -len / 2 + 0.05);
+      mk(new THREE.BoxGeometry(0.004, 0.06, 0.09), opts.fletch ?? 0xe8e0d0, 0, 0, -len / 2 + 0.05);
+      if (opts.glow) mk(new THREE.SphereGeometry(0.05, 8, 6), opts.glow, 0, 0, len / 2 + 0.02);
+    }
+    const a = new THREE.Vector3(fx + 0.5, this.heightAt(fx, fy) + 0.55, fy + 0.5);
+    const b = new THREE.Vector3(tx + 0.5, this.heightAt(tx, ty) + 0.45, ty + 0.5);
+    const dist = a.distanceTo(b);
+    const d = Math.max(0.12, dist / (opts.speed || 16));
+    const arc = dist * (kind === 'stone' ? 0.1 : 0.07);
+    g.position.copy(a);
+    this.fxGroup.add(g);
+    const p = new THREE.Vector3(), q = new THREE.Vector3();
+    const at = (k, out) => { out.lerpVectors(a, b, k); out.y += Math.sin(k * Math.PI) * arc; return out; };
+    return new Promise((resolve) => {
+      this.tween(d, (k) => {
+        at(k, p);
+        at(Math.min(1, k + 0.02), q);
+        g.position.copy(p);
+        if (q.distanceToSquared(p) > 1e-8) g.lookAt(q);
+      }, () => {
+        this.fxGroup.remove(g);
+        g.traverse((o) => o.geometry && o.geometry.dispose());
+        for (const m of mats) m.dispose();
         resolve();
       });
     });

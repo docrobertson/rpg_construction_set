@@ -64,6 +64,7 @@ export class Editor {
 
   // ------------------------------------------------------------ layout
   build() {
+    this.app.setLayout('editor');
     const root = h('div.editor');
     this.root = root;
     this.titleInput = h('input.ed-title', { type: 'text', value: this.game.meta.title, title: 'Game title' });
@@ -117,6 +118,7 @@ export class Editor {
 
   show() {
     this.hidden = false;
+    this.app.setLayout(this.tab === 'map' ? 'editor' : 'editor-data');
     this.root.style.display = '';
     this.bindInput();
     this.view.setPitch(this.game.settings.pitch || 70);
@@ -130,6 +132,7 @@ export class Editor {
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('on', k === tab);
     this.root.classList.toggle('tab-map', tab === 'map');
     this.root.classList.toggle('tab-data', tab !== 'map');
+    this.app.setLayout(tab === 'map' ? 'editor' : 'editor-data');
     if (tab === 'map') {
       this.main.style.display = 'none';
       this.right.style.display = '';
@@ -302,7 +305,8 @@ export class Editor {
     }
     // frame the model in the space to the right of the form
     const mainRight = this.main.getBoundingClientRect().right || 912;
-    this.view.frameArea(3, 1.5, 6, 4.2, { left: mainRight, top: 46, bottom: 26 });
+    const vpLeft = this.view.container.getBoundingClientRect().left;
+    this.view.frameArea(3, 1.5, 6, 4.2, { left: Math.max(0, mainRight - vpLeft) });
     this.view.clearEntities();
     if (look) this.view.addEntity('preview', look, 4, 3, { ring: 0xffd040 });
   }

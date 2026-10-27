@@ -54,6 +54,7 @@ const SFX = {
   bump: () => tone(90, 0.08, 'square', 0.05),
   hit: () => { noise(0.12, 0.12, 1800); tone(160, 0.1, 'square', 0.04, -80); },
   miss: () => noise(0.1, 0.04, 3000),
+  shoot: () => { tone(330, 0.09, 'triangle', 0.05, -180); noise(0.12, 0.03, 4000); },
   crit: () => { noise(0.18, 0.16, 2500); tone(260, 0.15, 'sawtooth', 0.05, -150); },
   hurt: () => tone(200, 0.15, 'sawtooth', 0.06, -120),
   die: () => { tone(220, 0.4, 'sawtooth', 0.06, -180); noise(0.3, 0.05, 500); },
