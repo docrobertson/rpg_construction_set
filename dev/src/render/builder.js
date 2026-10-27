@@ -67,6 +67,8 @@ export const TPL = {
   limb: templ(new THREE.CylinderGeometry(0.42, 0.5, 1, 10)),
   thigh: templ(new THREE.CylinderGeometry(0.5, 0.38, 1, 10)),
   torso: templ(new THREE.CylinderGeometry(0.5, 0.4, 1, 14)),
+  vtorso: templ(new THREE.CylinderGeometry(0.5, 0.37, 1, 16)),
+  flare: templ(new THREE.CylinderGeometry(0.34, 0.5, 1, 16)),
   capsule: templ(new THREE.CapsuleGeometry(0.5, 1, 4, 10).scale(1, 0.5, 1)),
   ico0: templ(new THREE.IcosahedronGeometry(0.5, 0), false, 'flat'),
   blob: templ(new THREE.IcosahedronGeometry(0.5, 0), false, 'sphere'),

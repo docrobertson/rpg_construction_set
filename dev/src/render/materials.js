@@ -21,6 +21,7 @@ function injectVisibility(material, extra = {}) {
         varying vec2 vVisPos;
         ${extra.vertexHead || ''}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        ${extra.vertexPre || ''}
         {
           vec4 wp0 = vec4(transformed, 1.0);
           #ifdef USE_INSTANCING
@@ -86,14 +87,24 @@ export function createMaterials() {
     `,
   });
 
-  const entity = injectVisibility(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'entity' });
+  // Figures are cel-shaded in a few soft bands and drawn with an ink outline
+  // (the back faces, pushed out along their normals), so they read like
+  // painted miniatures against the softer-lit land.
+  const ramp = new THREE.DataTexture(new Uint8Array([92, 150, 205, 255]), 4, 1, THREE.RedFormat);
+  ramp.minFilter = ramp.magFilter = THREE.NearestFilter;
+  ramp.needsUpdate = true;
+  const entity = injectVisibility(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: ramp }), { key: 'entity' });
+  const outline = injectVisibility(new THREE.MeshBasicMaterial({ color: 0x20150e, side: THREE.BackSide }), {
+    key: 'outline',
+    vertexPre: 'transformed += normalize(normal) * 0.013;',
+  });
   const entityGlow = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true }), { key: 'eglow' });
 
   const shadowBlob = new THREE.MeshBasicMaterial({
     color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false,
   });
 
-  return { land, water, glow, entity, entityGlow, shadowBlob };
+  return { land, water, glow, entity, entityGlow, outline, shadowBlob };
 }
 
 // Silhouette shown where a unit is hidden behind trees or walls.

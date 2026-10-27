@@ -7,8 +7,8 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 ## What's inside
 
 ### Play
-- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water and rounded, Warcraft-flavoured figures, leaned toward the camera so people read clearly from above.
-- **Party of up to six** — Men, Dwarves and Elves; Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith. Point-buy attributes with a live 3D preview.
+- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water, and cel-shaded, ink-outlined figures like painted miniatures, leaned toward the camera so people read clearly from above.
+- **Party of up to six** — Men, Dwarves and Elves; Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith. Point-buy attributes, skin, hair and outfit colours, with a live 3D preview — or roll a completely random company.
 - **A character sheet for every hero**: attributes, armour and to-hit, and four equipment slots — hand weapon, **ranged weapon** (bows, crossbows, slings), armour and shield — changed with a click. Each level brings an attribute point to spend.
 - **Three scales of map**: the broad overworld, zoomed-in settlements and dungeons, and close-up tactical battles.
 - **Ultima III/IV-style mechanics**: turn-based movement, line of sight and fog of war, food, swamps that poison, dark dungeons that need torches, ships, waygates, locked doors and keys, chests and traps.

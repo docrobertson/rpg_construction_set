@@ -331,7 +331,7 @@ export class View {
     if (opts.silhouette) {
       const sm = silhouetteMaterial(opts.silhouette);
       const meshes = [];
-      model.traverse((o) => { if (o.isMesh) meshes.push(o); });
+      model.traverse((o) => { if (o.isMesh && !o.userData.outline) meshes.push(o); });
       for (const o of meshes) {
         const s = new THREE.Mesh(o.geometry, sm);
         s.renderOrder = 10;
