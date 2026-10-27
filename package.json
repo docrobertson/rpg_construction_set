@@ -1,0 +1,16 @@
+{
+  "name": "rpg-construction-set",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser-based construction set for making and playing early-Ultima-style RPGs in 3D.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --dev --watch",
+    "test": "node tests/smoke.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "three": "0.170.0"
+  }
+}
