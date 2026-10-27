@@ -3,12 +3,13 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+const HERE = path.dirname(new URL(import.meta.url).pathname);
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
 
-const OUT = 'tests/out';
+const OUT = path.join(HERE, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 const only = process.argv[2] || 'all';
 const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -22,7 +23,7 @@ const click = async (text) => { await page.getByRole('button', typeof text === '
 const key = async (k, n = 1, delay = 260) => { for (let i = 0; i < n; i++) { await page.keyboard.press(k); await wait(delay); } };
 
 await page.addInitScript(() => { try { localStorage.setItem('rpgcs.pref.seenEditorHelp', 'true'); } catch {} });
-await page.goto('file://' + path.resolve('index.html'));
+await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await wait(1500);
 await shot('01-title');
 

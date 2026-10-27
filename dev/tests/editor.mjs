@@ -2,11 +2,12 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+const HERE = path.dirname(new URL(import.meta.url).pathname);
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
-const OUT = 'tests/out';
+const OUT = path.join(HERE, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
@@ -19,7 +20,7 @@ const wait = (ms) => page.waitForTimeout(ms);
 const ev = (fn, arg) => page.evaluate(fn, arg);
 const log = (x) => console.log(JSON.stringify(x));
 await page.addInitScript(() => { try { localStorage.setItem('rpgcs.pref.seenEditorHelp', 'true'); } catch {} });
-await page.goto('file://' + path.resolve('index.html'));
+await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await wait(1200);
 
 // new generated realm

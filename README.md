@@ -52,26 +52,30 @@ In the construction set: right-drag or WASD to pan, mouse wheel (or pinch) to zo
 
 ## Developing
 
-The source lives in `src/` as ES modules and is bundled (with three.js) into the single `index.html`:
+Players only need `index.html`. Everything else lives in `dev/`: the source code as ES modules, which is bundled (with three.js) into that single `index.html` one level up:
 
 ```sh
+cd dev
 npm install
-npm run build        # minified index.html
+npm run build        # minified ../index.html
 npm run dev          # unminified, rebuilds on change
+npm test             # Playwright scripts that play the built page
 ```
 
 ```
-src/
-  main.js              app shell: title screen, play, construction set, export
-  core/                rng & dice, noise, storage, sound, utilities
-  data/                terrain types, default rules content, game schema, sample adventure
-  world/               map helpers and generators (stamps, settlements, dungeons, arenas)
-  render/              three.js view, chunked terrain, decorations, procedural models
-  game/                rules, exploration session, combat, dialogue, line of sight, pathfinding
-  ui/                  play HUD, party creation, editor (tools, inspectors, data, settings)
-tests/                 Playwright scripts that drive the built page and take screenshots
+dev/
+  build.mjs            bundles src/ into ../index.html
+  src/
+    main.js            app shell: title screen, play, construction set, export
+    core/              rng & dice, noise, storage, sound, music, utilities
+    data/              terrain types, default rules content, game schema, sample adventure
+    world/             map helpers and generators (stamps, settlements, dungeons, arenas)
+    render/            three.js view, chunked terrain, decorations, procedural models
+    game/              rules, exploration session, combat, dialogue, line of sight, pathfinding
+    ui/                play HUD, party creation, editor (tools, inspectors, data, settings)
+  tests/               Playwright scripts that drive the built page and take screenshots
 ```
 
-Tests (need Playwright with Chromium): `node tests/smoke.mjs`, `tests/deep.mjs`, `tests/combat.mjs`, `tests/editor.mjs`. Screenshots land in `tests/out/`.
+The tests need Playwright with Chromium; screenshots land in `dev/tests/out/`.
 
 Saved games and projects live in your browser's local storage, so export anything you want to keep.

@@ -1,4 +1,4 @@
-// Bundles src/ into a single self-contained index.html (works from file://, offline).
+// Bundles src/ into the single self-contained ../index.html (works from file://, offline).
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +14,7 @@ function writeHtml(js) {
   const html = tpl
     .replace('/*__CSS__*/', () => css)
     .replace('/*__JS__*/', () => safeJs);
-  fs.writeFileSync(path.join(root, 'index.html'), html);
+  fs.writeFileSync(path.join(root, '..', 'index.html'), html);
   console.log(`[build] index.html written (${(html.length / 1024).toFixed(0)} KB)${dev ? ' [dev]' : ''}`);
 }
 

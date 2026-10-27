@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+const HERE = path.dirname(new URL(import.meta.url).pathname);
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
@@ -9,7 +10,7 @@ const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-await page.goto('file://' + path.resolve('index.html'));
+await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await page.waitForTimeout(1000);
 const ev = (fn, a) => page.evaluate(fn, a);
 let fails = 0;

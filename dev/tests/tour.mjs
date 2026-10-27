@@ -2,17 +2,18 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+const HERE = path.dirname(new URL(import.meta.url).pathname);
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
-const OUT = 'tests/out';
+const OUT = path.join(HERE, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-await page.goto('file://' + path.resolve('index.html'));
+await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await page.waitForTimeout(1200);
 await page.evaluate(async () => { const app = window.__app; app.playGame(app.sample, { quick: true, noSave: true }); await new Promise((r) => setTimeout(r, 1500)); });
 const names = process.argv.slice(2).length ? process.argv.slice(2) : ['Westhold', 'Caer Aldon', 'Lindaleth', 'Hammerdeep', 'Brookend', 'Grimholt Barrow', 'Dol Garoth', 'Tower of the Hermit'];

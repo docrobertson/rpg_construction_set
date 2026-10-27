@@ -2,11 +2,12 @@
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+const HERE = path.dirname(new URL(import.meta.url).pathname);
 import fs from 'node:fs';
 const require = createRequire(import.meta.url);
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
-const OUT = 'tests/out';
+const OUT = path.join(HERE, 'out');
 fs.mkdirSync(OUT, { recursive: true });
 const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -16,7 +17,7 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + e.message + '\n' + (e.st
 const wait = (ms) => page.waitForTimeout(ms);
 const ev = (fn, arg) => page.evaluate(fn, arg);
 const log = (x) => console.log(JSON.stringify(x));
-await page.goto('file://' + path.resolve('index.html'));
+await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await wait(1200);
 await ev(async () => { const app = window.__app; app.playGame(app.sample, { quick: true }); await new Promise((r) => setTimeout(r, 1500)); });
 // food: walk 30 steps back and forth on the world
