@@ -50,7 +50,7 @@ function keywordFields(game) {
     { key: 'action.value', label: 'Item', type: 'select', options: items, show: (r) => ['give_item', 'take_item'].includes(act(r)) },
     { key: 'action.value', label: 'Fights as', type: 'select', options: monsters, show: (r) => act(r) === 'fight' },
     { key: 'action.value', label: 'Flag name', type: 'text', show: (r) => ['set_flag', 'clear_flag'].includes(act(r)) },
-    { key: 'action.n', label: 'Amount', type: 'number', min: 1, show: (r) => ['give_item', 'take_item', 'give_gold', 'take_gold'].includes(act(r)) },
+    { key: 'action.n', label: 'Amount', type: 'number', min: 1, show: (r) => ['give_item', 'take_item', 'give_gold', 'take_gold', 'give_xp'].includes(act(r)) },
     { key: 'action.map', label: 'To map', type: 'select', options: maps, show: (r) => act(r) === 'teleport' },
     { key: 'action.x', label: 'X', type: 'number', show: (r) => act(r) === 'teleport' },
     { key: 'action.y', label: 'Y', type: 'number', show: (r) => act(r) === 'teleport' },
@@ -165,7 +165,11 @@ export function inspectEntity(ed, ent, container) {
         { key: 'lockedText', label: 'Message when barred', type: 'textarea', rows: 2, show: (o) => !!o.requires },
       ], changed));
       const tgt = game.maps.find((m) => m.id === ent.target?.map);
-      if (tgt) container.appendChild(h('button', { onclick: () => ed.openLinkedMap(ent) }, `Open “${tgt.name}” →`));
+      if (tgt) {
+        container.appendChild(h('div.row',
+          h('button', { onclick: () => ed.pickTarget(ent) }, '🎯 Pick arrival point'),
+          h('button', { onclick: () => ed.openLinkedMap(ent) }, `Open “${tgt.name}” →`)));
+      }
       break;
     }
     default:

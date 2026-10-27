@@ -386,7 +386,7 @@ export const DECOR = {
   },
   bigtree(c) {
     const { B, cx, cz, y, r } = c;
-    tree(B, cx + (r(1) - 0.5) * 0.1, y, cz + (r(2) - 0.5) * 0.1, 1.45, r(3));
+    tree(B, cx + (r(1) - 0.5) * 0.1, y, cz + (r(2) - 0.5) * 0.1, 1.85, r(3));
   },
   shelf(c) {
     const { B, cx, cz, y, r } = c;

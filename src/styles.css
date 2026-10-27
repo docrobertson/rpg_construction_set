@@ -356,3 +356,4 @@ table.keys td:nth-child(odd) { color: var(--gold); font-weight: bold; }
   .ed-main { left: 220px; }
   .ed-title { width: 120px; }
 }
+.cont-sub { display: block; font-size: 12px; color: var(--muted); font-family: var(--font-ui); margin-top: 2px; }

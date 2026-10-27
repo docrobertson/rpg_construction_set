@@ -4,7 +4,7 @@ import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
 import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
 import { serializeGame, cloneGame, getMap } from '../../data/schema.js';
-import { saveProject } from '../../core/storage.js';
+import { saveProject, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
 import { inspectEntity, inspectMap } from './inspector.js';
@@ -12,6 +12,7 @@ import { DatabaseEditor } from './database.js';
 import { renderSettings } from './settings.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
+import { attachGestures } from '../../render/gestures.js';
 
 const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
 const TOWN_STAMPS = ['forest', 'meadow', 'clear', 'lake'];
@@ -54,6 +55,11 @@ export class Editor {
     this.loadMap(this.map);
     this.setTool('select');
     this.updateSaveState();
+    if (!getPref('seenEditorHelp', false)) { setPref('seenEditorHelp', true); setTimeout(() => this.help(), 400); }
+  }
+
+  help() {
+    modal(h('div.help', { html: EDITOR_HELP }), { title: 'Building your realm', cls: 'wide' });
   }
 
   // ------------------------------------------------------------ layout
@@ -80,6 +86,7 @@ export class Editor {
       this.saveState,
       h('button', { onclick: () => this.save(false), title: 'Save to this browser (Ctrl+S)' }, 'Save'),
       h('button', { onclick: () => this.fileMenu() }, 'File ▾'),
+      h('button.icon', { onclick: () => this.help(), title: 'How to build a game' }, '?'),
       h('button.primary', { onclick: () => this.playtestMenu(), title: 'Try your game' }, '▶ Playtest'),
     );
     this.left = h('div.ed-left.panel');
@@ -365,11 +372,12 @@ export class Editor {
           if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { water: water.value / 100, mountains: mtn.value / 50, forest: forest.value / 50 });
           else m = this.makeMap(type, gen.value, map.name, seed);
           // keep identity and links
-          const keepPortals = map.entities.filter((e) => e.type === 'portal' && e.style === 'site');
+          // sites keep their place (and their tile) on a regenerated world
+          const keepPortals = type === 'world' ? map.entities.filter((e) => e.type === 'portal' && e.style === 'site').map((p) => ({ p, t: getTile(map, p.x, p.y) })) : [];
           map.tiles = m.tiles;
           map.w = m.w; map.h = m.h;
-          map.entities = [...m.entities, ...(type === 'world' ? keepPortals : [])];
-          if (type === 'world') for (const p of keepPortals) { const fk = getMap(this.game, p.target.map); void fk; }
+          map.entities = [...m.entities, ...keepPortals.map((k) => k.p)];
+          for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
           map.entry = m.entry;
           map.lighting = m.lighting;
           map.fill = m.fill;
@@ -399,6 +407,30 @@ export class Editor {
     if (s.map === this.map.id) { s.x = Math.min(w - 1, s.x); s.y = Math.min(hh - 1, s.y); }
     this.markDirty();
     this.loadMap(this.map, true);
+  }
+
+  // Choose a portal's arrival point by clicking on its destination map
+  pickTarget(ent) {
+    const dest = getMap(this.game, ent.target?.map);
+    if (!dest) { toast('Choose a destination map first.', 'warn'); return; }
+    const from = this.map;
+    const prevTool = this.toolId;
+    this.loadMap(dest);
+    this.tools.__pick = {
+      label: 'Pick arrival point', icon: '🎯', hint: `Click where the party should arrive in ${dest.name}. Esc cancels.`, cursor: 'tile',
+      down: (ed, t) => {
+        if (!inBounds(dest, t.x, t.y)) return;
+        ent.target.x = t.x;
+        ent.target.y = t.y;
+        ed.markDirty();
+        toast(`Arrival set to ${t.x}, ${t.y} in ${dest.name}.`);
+        ed.loadMap(from);
+        ed.setTool(prevTool in ed.tools && prevTool !== '__pick' ? prevTool : 'select');
+        ed.select(ent);
+      },
+    };
+    this.setTool('__pick');
+    toast(`Click the arrival point in ${dest.name}.`);
   }
 
   openLinkedMap(ent) {
@@ -613,9 +645,11 @@ export class Editor {
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),
       leave: () => { this.view.showCursor(null); this.view.showBrush(null); },
     };
-    cv.addEventListener('mousedown', this.h.down);
-    window.addEventListener('mousemove', this.h.move);
-    window.addEventListener('mouseup', this.h.up);
+    cv.addEventListener('pointerdown', this.h.down);
+    window.addEventListener('pointermove', this.h.move);
+    window.addEventListener('pointerup', this.h.up);
+    cv.style.touchAction = 'none';
+    this.gestures = attachGestures(this.view, cv, { pan: true });
     cv.addEventListener('wheel', this.h.wheel, { passive: false });
     cv.addEventListener('contextmenu', this.h.ctx);
     cv.addEventListener('mouseleave', this.h.leave);
@@ -628,9 +662,10 @@ export class Editor {
     if (!this.bound) return;
     this.bound = false;
     const cv = this.view.renderer.domElement;
-    cv.removeEventListener('mousedown', this.h.down);
-    window.removeEventListener('mousemove', this.h.move);
-    window.removeEventListener('mouseup', this.h.up);
+    cv.removeEventListener('pointerdown', this.h.down);
+    window.removeEventListener('pointermove', this.h.move);
+    window.removeEventListener('pointerup', this.h.up);
+    if (this.gestures) { this.gestures.destroy(); this.gestures = null; }
     cv.removeEventListener('wheel', this.h.wheel);
     cv.removeEventListener('contextmenu', this.h.ctx);
     cv.removeEventListener('mouseleave', this.h.leave);
@@ -658,6 +693,7 @@ export class Editor {
 
   onDown(e) {
     if (this.tab !== 'map') return;
+    if (this.gestures?.active) { this.cancelStroke(); return; }
     if (e.button === 1 || e.button === 2 || (e.button === 0 && this.keys.has(' '))) {
       this.mouse.panning = { x: e.clientX, y: e.clientY };
       e.preventDefault();
@@ -670,12 +706,17 @@ export class Editor {
     if (!t) return;
     this.mouse.down = true;
     this.mouse.last = t;
+    const now = performance.now();
+    const dbl = this.lastDown && now - this.lastDown.t < 400 && this.lastDown.x === t.x && this.lastDown.y === t.y;
+    this.lastDown = { t: now, x: t.x, y: t.y };
+    const ev = { shiftKey: e.shiftKey, detail: dbl ? 2 : 1, button: e.button };
     const tool = this.tool;
-    try { tool.down && tool.down(this, t, e); } catch (err) { console.error(err); toast('Tool error: ' + err.message, 'bad'); }
+    try { tool.down && tool.down(this, t, ev); } catch (err) { console.error(err); toast('Tool error: ' + err.message, 'bad'); }
   }
 
   onMove(e) {
     if (this.hidden) return;
+    if (this.gestures?.active) return;
     if (this.mouse.panning) {
       const k = this.worldPerPixel();
       const dx = e.clientX - this.mouse.panning.x, dy = e.clientY - this.mouse.panning.y;
@@ -695,6 +736,16 @@ export class Editor {
         try { tool.drag && tool.drag(this, t, e); } catch (err) { console.error(err); }
       }
     }
+  }
+
+  cancelStroke() {
+    if (!this.mouse.down) return;
+    this.mouse.down = false;
+    const tool = this.tool;
+    this.view.setLine(null);
+    this.view.setHighlights(null);
+    if (tool.pts) tool.pts = null;
+    if (tool.start) tool.start = null;
   }
 
   onUp(e) {
@@ -789,3 +840,32 @@ function nearestWalkable(map, x, y) {
 }
 
 void uid; void promptDialog; void confirmDialog; void closeAllModals; void sfx; void cloneGame;
+
+const EDITOR_HELP = `
+<p>Everything you build is saved in this browser as you go. Here is the usual way to make an adventure:</p>
+<h3>1 · Shape the world</h3>
+<p>On the <b>Map</b> tab, use <b>Shape the land</b>: click to drop an island, a lake, a forest or a mountain range — or drag to keep stamping.
+Change the <b>stamp size</b> for continents or copses. <b>Draw paths</b> lets you drag out roads (they bridge rivers on their own), rivers and mountain ridges.</p>
+<h3>2 · Found towns, castles and dungeons</h3>
+<p>Under <b>Found a site</b>, click the map to create a town, castle, village, dungeon, tower, dark fortress, elven hall or dwarf hold.
+Each one gets its own generated map — streets, shops, an inn, a healer and townsfolk. <b>Double-click</b> a site (or select it and press <i>Open</i>) to go inside and change anything.</p>
+<h3>3 · Paint the details</h3>
+<p><b>Paint tiles</b> gives you a brush, scatter, line, rectangle, flood fill and picker, with every tile type — walls, doors, counters, beds, braziers, lava…</p>
+<h3>4 · People, monsters and treasure</h3>
+<p>Place <b>people</b> and give them a role (shopkeeper, innkeeper, healer, king…), a look, and <b>keywords</b> they answer to.
+A keyword can require a flag, item or gold, and can give items or gold, set story flags, heal the party, make the speaker <b>join</b> your company, start a fight, teleport the party — or win the game.
+Place <b>monster groups</b>, <b>chests</b>, <b>signs</b>, <b>ships</b>, <b>waygates</b> and <b>passages</b> (links between maps — use <i>Pick arrival point</i> to choose where they lead).</p>
+<h3>5 · Rules of the realm</h3>
+<p><b>World Data</b> holds the races, classes, items, spells, monsters and the magic systems themselves. <b>Settings</b> holds your story, the starting point and kit,
+the victory condition, and switches for the four kinds of magic — Sorcery, Prayer, Rune-craft and Elven Song.</p>
+<h3>6 · Playtest and share</h3>
+<p>Press <b>▶ Playtest</b> at any time — from the start, or from wherever you are looking. Use <b>File → Export</b> to save a <i>.json</i> game file,
+or a single <i>.html</i> page your friends can simply open and play.</p>
+<h3>Keys</h3>
+<table class="keys">
+<tr><td>B</td><td>Brush</td><td>F</td><td>Fill</td><td>R</td><td>Rectangle</td></tr>
+<tr><td>L</td><td>Line</td><td>I</td><td>Pick tile</td><td>V</td><td>Select</td></tr>
+<tr><td>X</td><td>Remove</td><td>[ ]</td><td>Brush/stamp size</td><td>Del</td><td>Delete selected</td></tr>
+<tr><td>WASD</td><td>Pan</td><td>Wheel</td><td>Zoom</td><td>Right-drag</td><td>Pan</td></tr>
+<tr><td>Ctrl+Z</td><td>Undo</td><td>Ctrl+Y</td><td>Redo</td><td>Ctrl+S</td><td>Save</td></tr>
+</table>`;

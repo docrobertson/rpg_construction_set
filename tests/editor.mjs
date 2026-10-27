@@ -18,6 +18,7 @@ const shot = async (name) => { await page.screenshot({ path: `${OUT}/${name}.png
 const wait = (ms) => page.waitForTimeout(ms);
 const ev = (fn, arg) => page.evaluate(fn, arg);
 const log = (x) => console.log(JSON.stringify(x));
+await page.addInitScript(() => { try { localStorage.setItem('rpgcs.pref.seenEditorHelp', 'true'); } catch {} });
 await page.goto('file://' + path.resolve('index.html'));
 await wait(1200);
 

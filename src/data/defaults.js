@@ -230,5 +230,5 @@ export const MONSTERS = [
 ];
 
 // XP needed to reach a given level (index = level)
-export const XP_TABLE = [0, 0, 60, 160, 320, 560, 900, 1350, 1950, 2700, 3700, 5000, 6600, 8600, 11000, 14000, 17500, 21500, 26000, 31000, 37000];
+export const XP_TABLE = [0, 0, 50, 130, 250, 420, 650, 950, 1350, 1850, 2500, 3300, 4300, 5500, 7000, 8800, 11000, 13500, 16500, 20000, 24000];
 export const MAX_LEVEL = XP_TABLE.length - 1;

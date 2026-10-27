@@ -7,12 +7,17 @@ import { deepClone, uid, rleEncode, rleDecode, plural, DIR4 } from '../core/util
 import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
-  createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, knownSpells, canCast, payForSpell, spellPower,
+  createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
 import { saveState } from '../core/storage.js';
 import { sfx } from '../core/sound.js';
+import { playMusic } from '../core/music.js';
+
+export function moodFor(map) {
+  return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
+}
 
 export const STATE_VERSION = 1;
 
@@ -96,13 +101,19 @@ export class PlaySession {
   async enterMap(id, x, y, opts = {}) {
     const map = this.buildLiveMap(id);
     if (!map) { this.log('That way leads nowhere (missing map).', 'warn'); return; }
+    const zoomFor = (m) => (m.type === 'world' ? 18 : 15);
+    // swoop the camera in (entering a site) or out (returning to the wide world)
+    const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
+    if (dir && !opts.instant) this.view.setZoom(this.view.rig.tdist * (dir === 'in' ? 0.45 : 1.8));
     if (!opts.instant) await this.app.fade(true);
     this.map = map;
     this.state.pos = { map: id, x, y };
     this.roamCount = 0;
     this.view.setMap(map);
+    playMusic(moodFor(map));
     this.view.setPitch(this.game.settings.pitch || 70);
-    this.view.setZoom(map.type === 'world' ? 18 : 15, true);
+    this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
+    this.view.setZoom(zoomFor(map));
     this.view.focus(x, y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
@@ -638,10 +649,12 @@ export class PlaySession {
     if (this.mapIsTown() && style === 'grass') style = 'town';
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
     if (res.outcome === 'victory') {
-      this.removeEntity(e, !e.roaming);
+      const real = this.map.entities.find((x) => x.id === e.id);
+      if (real) this.removeEntity(real, !real.roaming);
       if (e.flag) this.party.flags[e.flag] = true;
     } else if (res.outcome === 'fled' && e.roaming) {
-      this.removeEntity(e, false);
+      const real = this.map.entities.find((x) => x.id === e.id);
+      if (real) this.removeEntity(real, false);
     }
   }
 
@@ -649,7 +662,10 @@ export class PlaySession {
     this.mode = 'combat';
     this.persistExplored();
     sfx('encounter');
-    await this.app.fade(true, 250);
+    this.view.shake(0.2, 0.3);
+    this.view.setZoom(this.view.rig.tdist * 0.5);
+    playMusic('combat');
+    await this.app.fade(true, 300);
     this.battle = new Battle(this, enemies, style, opts);
     this.ui.setMode('combat');
     const res = await this.battle.run();
@@ -657,6 +673,7 @@ export class PlaySession {
     // restore the exploration view
     await this.app.fade(true, 200);
     this.view.setMap(this.map);
+    playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
     this.view.setZoom(this.map.type === 'world' ? 18 : 15, true);
     this.view.focus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
@@ -751,6 +768,13 @@ export class PlaySession {
         break;
       }
       case 'give_gold': this.party.gold += n; res.note = `Received ${n} gold.`; sfx('gold'); break;
+      case 'give_xp': {
+        const ups = [];
+        for (const m of partyAlive(this.party)) if (gainXp(this.game, m, n).length) ups.push(`${m.name} reaches level ${m.level}`);
+        res.note = `The party gains ${n} experience.${ups.length ? ' ' + ups.join('; ') + '!' : ''}`;
+        sfx(ups.length ? 'level' : 'gold');
+        break;
+      }
       case 'take_gold':
         if (this.party.gold >= n) { this.party.gold -= n; res.note = `Paid ${n} gold.`; } else { res.note = 'You cannot afford it.'; }
         break;

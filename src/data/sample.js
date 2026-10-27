@@ -114,8 +114,9 @@ function buildSample() {
   // --- the Rune-Key lies in Grimholt's deepest chest
   barrow.chest.items = [{ id: 'rune_key', n: 1 }, { id: 'healing_draught', n: 2 }];
   barrow.chest.gold = '150';
-  // the hermit's treasure
+  // the hermit's treasure, behind locked doors
   tower.chest.items = [{ id: 'staff_of_power', n: 1 }, { id: 'phoenix_feather', n: 1 }];
+  lockRoom(tower.map, tower.last);
   // the fortress hoard
   fortress.chest.items = [{ id: 'truesilver_mail', n: 1 }, { id: 'greater_draught', n: 3 }];
   fortress.chest.gold = '1000';
@@ -145,6 +146,18 @@ function buildSample() {
   mon('orc_captain', 78, 58, '1');
   mon('bog_lurker', 56, 72, '2');
   mon('drake', 62, 17, '1');
+  // a sea serpent prowls the western sea, between Westhold and the Hermit's isle
+  const sea = nearestWhere(w, 12, 66, (t) => t.key === 'ocean');
+  w.entities.push({ id: uid('mon'), type: 'monster', monster: 'sea_serpent', x: sea.x, y: sea.y, count: '1', wander: 6 });
+  // hidden treasures
+  const cache = nearestWhere(w, 31, 41, (t) => t.key === 'forest' || t.key === 'pines');
+  w.entities.push({ id: 'chest_wolfwood', type: 'chest', x: cache.x, y: cache.y, gold: '40', items: [{ id: 'healing_draught', n: 2 }, { id: 'iron_key', n: 1 }] });
+  const isle = nearestWhere(w, 10, 85, (t) => t.key === 'sand' || t.key === 'grass');
+  w.entities.push({ id: 'chest_isle', type: 'chest', x: isle.x, y: isle.y, gold: '3d20', items: [{ id: 'mana_tonic', n: 2 }, { id: 'silverdust', n: 4 }], trap: true });
+  const ruinsAt = nearestWhere(w, 47, 66, (t) => t.key === 'hills' || t.key === 'grass' || t.key === 'meadow');
+  w.tiles[ruinsAt.y * w.w + ruinsAt.x] = T.ruins;
+  w.entities.push({ id: 'sign_ruins', type: 'sign', x: ruinsAt.x + 1, y: ruinsAt.y, text: 'Here fell the host of King Elendur. Let the dead rest.' });
+  mon('skeleton', ruinsAt.x, ruinsAt.y + 1, '2-3', { wander: 2 });
 
   // --- people
   dressWesthold(game, westhold);
@@ -171,7 +184,18 @@ function addDungeon(game, world, x, y, kind, name, opt) {
   map.exit = sub.exit;
   game.maps[idx] = map;
   const chest = map.entities.find((e) => e.type === 'chest' && e.x === last.cx && e.y === last.cy);
-  return { map, chest };
+  return { map, chest, last };
+}
+
+// Turn every entrance of a rectangular room into a locked door
+function lockRoom(map, r) {
+  const inRoom = (x, y) => x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+  for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+    if (inRoom(x, y)) continue;
+    const corner = (x === r.x - 1 || x === r.x + r.w) && (y === r.y - 1 || y === r.y + r.h);
+    if (corner || !inBounds(map, x, y)) continue;
+    if (terrain(getTile(map, x, y)).walk) map.tiles[y * map.w + x] = T.door_locked;
+  }
 }
 
 function nearestWalkable(map, x, y) {
@@ -275,7 +299,15 @@ function dressWesthold(game, map) {
     ],
   });
   addNpc(map, 9, 26, { name: 'Wynn', race: 'human', desc: 'a young shepherdess', greeting: 'Have ye seen my sheep?', job: 'I mind the sheep. WOLVES took three last week.', keywords: [kw('WOLVES', 'They come out of the old forest north of town. Hunt in packs, they do.')] });
-  for (const e of byRole(map, 'villager')) if (!e.rumour) e.rumour = 'They say the dwarves of Hammerdeep lost something precious to goblins.';
+  const rumours = [
+    'They say the dwarves of Hammerdeep lost something precious to goblins.',
+    'Old Fennick the hermit has a waygate on his island. Or so the elves say.',
+    'Trolls in the southern hills. Their wounds close up while you watch — hit them hard and fast!',
+    'The barrow-wights hate holy light. A good cleric is worth ten swords in Grimholt.',
+    'The provisioner sells iron keys. Handy, if you find a locked door.',
+  ];
+  let ri = 0;
+  for (const e of byRole(map, 'villager')) if (!e.rumour) e.rumour = rumours[ri++ % rumours.length];
   nameNpcs(map, game, 1);
   for (const n of byRole(map, 'tavern')) n.rumour = n.rumour || 'Old Borin in the corner used to guard the dwarves\' treasure. Buy him a drink and ask about the KEY.';
   addNpc(map, 6, 17, {
@@ -298,7 +330,11 @@ function dressCastle(game, map) {
       kw('SHADOW', 'Malgrath, the Shadow Lord, has woken in DOL GAROTH beyond the Ashen Peaks. His orcs grow bolder by the day. Wilt thou take up this QUEST?'),
       kw('QUEST', 'Then hear me. The gate of Dol Garoth is sealed by sorcery. Only the Rune-KEY forged by the dwarves can open it. Take my SEAL to King Durgan of HAMMERDEEP, and he will aid thee.', { once: true, action: { type: 'give_item', value: 'kings_seal' }, afterText: 'Go! Take my seal to Hammerdeep, find the KEY, and break the Shadow.' }),
       kw('KEY', 'The Rune-Key was kept by the dwarves of Hammerdeep. I have heard troubling tales that it was STOLEN.'),
-      kw('STOLEN', 'Ask the dwarves. Or that gloomy dwarf who drinks in Westhold\'s tavern.'),
+      kw('STOLEN', 'Ask the dwarves. Or that gloomy dwarf who drinks in Westhold\'s tavern. Return to me with the Rune-Key and I shall give thee my BLESSING.'),
+      kw('BLESSING', 'The Rune-Key! Thou hast done what my knights could not. Kneel — and rise, heroes of Eldmark!', {
+        cond: { type: 'item', value: 'rune_key' }, elseText: 'Bring me the Rune-Key, and thou shalt have my blessing.', once: true,
+        action: { type: 'give_xp', n: 150 }, afterText: 'Go now to Dol Garoth, and may the light go with thee.',
+      }),
       kw('DOL GAROTH', 'The black fortress in the blighted east. Follow the road east, through the pass in the Ashen Peaks. Its gates will not open without the KEY.'),
       kw('HAMMERDEEP', 'The dwarf-hold lies north-west, in the Grey Mountains. Follow the road north from here.'),
       kw('MAGIC', 'Speak with my sage, Merek. He knows the arts.'),
@@ -427,7 +463,8 @@ function dressTower(game, map) {
     greeting: 'Visitors! Splendid. Mind the skeletons — they were students once.',
     job: 'I am a wizard, retired. Mostly. My TREASURE lies above, if thou canst reach it.',
     keywords: [
-      kw('TREASURE', 'A staff of great power, and a phoenix feather. They are wasted on me. Take them, if my old servants let thee pass.'),
+      kw('TREASURE', 'A staff of great power, and a phoenix feather. They are wasted on me. Take them — if my old servants let thee pass, and if thou hast a KEY.'),
+      kw('KEY', 'I locked the vault and threw away the key. Silly of me. Any iron key will do — the provisioners sell them. Or bring a clever burglar.'),
       kw('SHADOW', 'Malgrath? Hah! I fought him once, when I was young and foolish. Now I am old and foolish. Perhaps I should JOIN thee.'),
       kw('WAYGATE', 'The waygate on this isle leads to the elves of Silverwood. Handy, that.'),
     ],

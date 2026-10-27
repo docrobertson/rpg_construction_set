@@ -10,8 +10,10 @@ import {
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
 import { sfx, isMuted, setMuted } from '../core/sound.js';
+import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
 import { escapeHtml } from '../core/util.js';
+import { attachGestures } from '../render/gestures.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -197,6 +199,8 @@ export class PlayUI {
     cv.addEventListener('contextmenu', this.onCtx);
     this.onWheel = (e) => { e.preventDefault(); this.view.zoomBy(e.deltaY > 0 ? 1.1 : 0.9); };
     cv.addEventListener('wheel', this.onWheel, { passive: false });
+    cv.style.touchAction = 'none';
+    this.gestures = attachGestures(this.view, cv, { pan: false });
   }
 
   unbindInput() {
@@ -206,6 +210,7 @@ export class PlayUI {
     cv.removeEventListener('click', this.onClick);
     cv.removeEventListener('contextmenu', this.onCtx);
     cv.removeEventListener('wheel', this.onWheel);
+    if (this.gestures) { this.gestures.destroy(); this.gestures = null; }
   }
 
   handleKey(e) {
@@ -894,7 +899,8 @@ export class PlayUI {
       ['Resume', () => {}],
       !s.opts.noSave ? ['Save game', () => s.save()] : null,
       ['Help & keys', () => this.openHelp()],
-      [isMuted() ? 'Sound: off' : 'Sound: on', () => { setMuted(!isMuted()); }],
+      [isMuted() ? 'Sound effects: off' : 'Sound effects: on', () => { setMuted(!isMuted()); }],
+      [musicEnabled() ? 'Music: on' : 'Music: off', () => { setMusicEnabled(!musicEnabled()); }],
       ['Camera angle', () => this.openCamera()],
       s.opts.fromEditor ? ['Return to the Construction Set', () => this.app.endPlay(true)] : ['Quit to title', async () => {
         if (await confirmDialog('Return to the title screen? Unsaved progress since your last save will be lost.')) this.app.endPlay(false);

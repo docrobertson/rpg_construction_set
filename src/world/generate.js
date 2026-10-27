@@ -625,12 +625,18 @@ export function generateSettlement(kind, opt = {}) {
 
   // greenery & clutter
   if (!S.underground) {
-    for (let i = 0; i < (kind === 'elfhall' ? 40 : 14); i++) {
+    const green = (tt) => tt === T.grass || tt === T.meadow || tt === T.garden || tt === T.tree;
+    const elvish = kind === 'elfhall';
+    for (let i = 0; i < (elvish ? 260 : 14); i++) {
       const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
       const t = getTile(map, x, y);
       if (t !== T.grass && t !== T.meadow) continue;
-      if (!rectFree(map, x, y, 1, 1, (tt) => tt === T.grass || tt === T.meadow || tt === T.garden)) continue;
-      setTile(map, x, y, rng.chance(0.6) ? T.tree : T.garden);
+      if (npcs.some((n) => Math.abs(n.x - x) + Math.abs(n.y - y) <= 1)) continue;
+      // elven glades are thick with trees, but streets and doorways stay clear
+      if (elvish) {
+        if (![[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => green(getTile(map, x + dx, y + dy)))) continue;
+      } else if (!rectFree(map, x, y, 1, 1, green)) continue;
+      setTile(map, x, y, rng.chance(elvish ? 0.7 : 0.6) ? T.tree : T.garden);
     }
     if (kind === 'village') {
       for (let i = 0; i < 3; i++) {
@@ -838,7 +844,7 @@ export function defaultStock(game, kind) {
   switch (kind) {
     case 'weapons': return items.filter((it) => it.type === 'weapon' && ok(it) && (it.price || 0) <= 400).map((it) => it.id);
     case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 500).map((it) => it.id);
-    case 'provisions': return items.filter((it) => it.type === 'consumable' && ok(it)).map((it) => it.id);
+    case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
     default: return [];
   }

@@ -15,6 +15,7 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + 
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 5).join('\n')));
 const shot = async (name) => { await page.screenshot({ path: `${OUT}/${name}.png` }); console.log('shot', name); };
 const wait = (ms) => page.waitForTimeout(ms);
+await page.addInitScript(() => { try { localStorage.setItem('rpgcs.pref.seenEditorHelp', 'true'); } catch {} });
 await page.goto('file://' + path.resolve('index.html'));
 await wait(1200);
 const ev = (fn, arg) => page.evaluate(fn, arg);

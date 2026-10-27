@@ -45,6 +45,7 @@ export class Battle {
     v.setMap(this.arena);
     v.setVisibilityEnabled(false);
     v.frameArea(0, 0, ARENA_W, ARENA_H, { left: 10, right: 256, top: 76, bottom: 150 });
+    v.rig.dist *= 1.6; // settle in from above
     // party
     let i = 0;
     for (const m of this.s.party.members) {
@@ -93,6 +94,10 @@ export class Battle {
       const x = rng.int(1, ARENA_W - 2);
       const y = def.swim ? rng.int(0, ARENA_H - 4) : rng.int(0, 2);
       if (this.walkable(x, y, { def })) return [x, y];
+    }
+    // nowhere suitable (e.g. landlubbers at sea): any free walkable tile, farthest from the party first
+    for (let y = 0; y < ARENA_H; y++) for (let x = 0; x < ARENA_W; x++) {
+      if (this.walkable(x, y, { def }) || (this.walkable(x, y, null) && !def.swim)) return [x, y];
     }
     return null;
   }
@@ -226,7 +231,8 @@ export class Battle {
     if (outcome === 'victory') {
       sfx('victory');
       const alive = members.filter((m) => m.status !== 'dead');
-      const share = alive.length ? Math.ceil(this.xp / alive.length) : 0;
+      // a big company shares the glory, but not so thinly that it stops being fun
+      const share = alive.length ? Math.ceil(this.xp / Math.sqrt(alive.length)) : 0;
       this.s.party.gold += this.gold;
       this.log(`Victory! Each survivor gains ${share} experience${this.gold ? `, and you find ${this.gold} gold` : ''}.`, 'good');
       for (const m of alive) {

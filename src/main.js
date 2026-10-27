@@ -5,11 +5,12 @@ import { PlayUI } from './ui/play.js';
 import { partyCreation, quickParty } from './ui/partyCreate.js';
 import { PlaySession, newPlayState } from './game/session.js';
 import { newGame, deserializeGame, serializeGame, cloneGame, getMap } from './data/schema.js';
-import { listProjects, loadProject, saveProject, deleteProject, loadState, deleteState } from './core/storage.js';
+import { listProjects, loadProject, saveProject, deleteProject, loadState, deleteState, getPref, setPref } from './core/storage.js';
 import { pickFile, downloadText, slugify, uid } from './core/util.js';
 import { buildSampleGame, SAMPLE_ID } from './data/sample.js';
 import { Editor } from './ui/editor/editor.js';
 import { sfx } from './core/sound.js';
+import { playMusic, stopMusic } from './core/music.js';
 
 class App {
   constructor() {
@@ -64,12 +65,14 @@ class App {
       t += dt * 0.05;
       this.view.focus(cx + Math.sin(t) * 14, cy + Math.cos(t * 0.8) * 9);
     };
+    playMusic('title');
     const el = h('div.title-screen',
       h('div.title-card',
         h('div.logo', h('span.l1', 'Realms'), h('span.l2', 'Construction Set')),
         h('p.tagline', 'Forge your own legend in the style of the classic tile-based role-playing games — then share it with your friends.'),
         this.embedded ? h('div.embedded-title', h('b', this.embedded.meta.title), this.embedded.meta.author ? h('span', ' by ' + this.embedded.meta.author) : null) : null,
         h('div.title-menu',
+          this.continueButton(),
           h('button.primary.big', { onclick: () => { sfx('click'); this.embedded ? this.adventureMenu(this.embedded) : this.pickAdventure(); } }, '▶  Play an Adventure'),
           h('button.big', { onclick: () => { sfx('click'); this.pickProject(); } }, '⚒  Construction Set'),
           h('button', { onclick: () => this.importFile('play') }, '⤓  Load a game file to play'),
@@ -80,6 +83,17 @@ class App {
     );
     this.ui.appendChild(el);
     this.titleEl = el;
+  }
+
+  continueButton() {
+    const id = getPref('lastPlayed', null);
+    if (!id) return null;
+    const saved = loadState(id);
+    if (!saved) return null;
+    const game = this.embedded?.id === id ? this.embedded : id === SAMPLE_ID ? this.sample : loadProject(id);
+    if (!game) return null;
+    return h('button.big', { onclick: () => { sfx('click'); this.playGame(game, { state: saved }); } },
+      '⟳  Continue', h('small.cont-sub', ` ${game.meta.title} — ${saved.party.members[0]?.name || ''}'s company`));
   }
 
   about() {
@@ -148,7 +162,9 @@ class App {
     if (this.editor) this.editor.hide();
     this.playOpts = opts;
     this.playing = game;
+    if (!opts.noSave) setPref('lastPlayed', game.id);
     this.view.setPitch(game.settings.pitch || 70);
+    playMusic('title');
     if (opts.state) return this.startSession(game, opts.state, opts);
     if (opts.quick) {
       const state = newPlayState(game, quickParty(game));
@@ -202,7 +218,7 @@ class App {
     if (this.session && !this.session.opts.noSave && this.session.mode === 'explore') this.session.autosave();
     this.stopSession();
     this.clearScreen();
-    if (toEditor && this.editor) this.editor.show();
+    if (toEditor && this.editor) { stopMusic(); this.editor.show(); }
     else this.showTitle();
   }
 
@@ -244,6 +260,7 @@ class App {
   }
 
   openEditor(game) {
+    stopMusic();
     this.clearScreen();
     if (this.editor) this.editor.destroy();
     this.editor = new Editor(this, game);

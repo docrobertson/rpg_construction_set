@@ -24,7 +24,7 @@ function lin(hex) {
 }
 
 function isBlendable(t) {
-  return !t.water && !t.wall && (t.group === 'world' || t.key === 'garden' || t.key === 'crops' || t.key === 'tree' || t.key === 'fence');
+  return !t.water && !t.wall && t.key !== 'lava' && (t.group === 'world' || t.key === 'garden' || t.key === 'crops' || t.key === 'tree' || t.key === 'fence');
 }
 
 export class TerrainView {
@@ -199,7 +199,10 @@ export class TerrainView {
         cNW = avg(self, n, w, nw); cNE = avg(self, n, e, ne); cSE = avg(self, s, e, se); cSW = avg(self, s, w, sw);
       } else {
         // crisp tiles; each quarter jittered slightly (flagstones, cobbles)
-        const j = (k) => { const f = 0.94 + 0.12 * hash2(x * 2 + k, y * 3 - k, 91); return [self[0] * f, self[1] * f, self[2] * f]; };
+        const LAVA = [lin(0xff5a14), lin(0xffa424), lin(0xd8380e), lin(0xff7a18)];
+        const j = t.key === 'lava'
+          ? (k) => LAVA[Math.floor(hash2(x * 2 + k, y * 3 - k, 13) * 4)]
+          : (k) => { const f = 0.94 + 0.12 * hash2(x * 2 + k, y * 3 - k, 91); return [self[0] * f, self[1] * f, self[2] * f]; };
         const q = [j(1), j(2), j(3), j(4)];
         cN = cS = cE = cWc = cNW = cNE = cSE = cSW = null;
         const P = (px, pz) => [px, h, pz];

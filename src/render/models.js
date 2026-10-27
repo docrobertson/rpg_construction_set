@@ -370,10 +370,16 @@ function campfire() {
 }
 
 function marker(spec) {
+  // a banner on a pole, used by the editor for start / arrival points and hidden passages
   const B = new GeoBuilder(), G = new GeoBuilder();
-  G.shape(TPL.cone4, spec.color ?? 0xffd040, { y: 0.35, sx: 0.22, sy: 0.3, sz: 0.22, rx: Math.PI });
-  B.shape(TPL.cyl12, spec.color ?? 0xffd040, { y: 0, sx: 0.7, sy: 0.02, sz: 0.7 });
-  return { B, G, height: 0.6, noLean: true };
+  const c = spec.color ?? 0xffd040;
+  B.shape(TPL.cyl12, shade(c, 0.6), { y: 0, sx: 0.5, sy: 0.03, sz: 0.5 });
+  B.shape(TPL.cyl6, 0x5a3a20, { y: 0, sx: 0.04, sy: 0.75, sz: 0.04 });
+  const A = [0.02, 0.74, 0], Bp = [0.02, 0.46, 0], C = [0.34, 0.6, 0.02];
+  G.tri(A, Bp, C, c);
+  G.tri(A, C, Bp, shade(c, 0.8));
+  G.shape(TPL.ico0, c, { y: 0.78, s: 0.07 });
+  return { B, G, height: 0.8 };
 }
 
 const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker };

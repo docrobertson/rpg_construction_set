@@ -5,6 +5,7 @@ export const ACTIONS = {
   give_item: 'Give item to party',
   take_item: 'Take item from party',
   give_gold: 'Give gold',
+  give_xp: 'Grant experience to the party',
   take_gold: 'Take gold (payment)',
   set_flag: 'Set story flag',
   clear_flag: 'Clear story flag',

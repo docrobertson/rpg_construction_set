@@ -21,6 +21,7 @@ const wait = (ms) => page.waitForTimeout(ms);
 const click = async (text) => { await page.getByRole('button', typeof text === 'string' ? { name: text, exact: true } : { name: text }).first().click(); await wait(300); };
 const key = async (k, n = 1, delay = 260) => { for (let i = 0; i < n; i++) { await page.keyboard.press(k); await wait(delay); } };
 
+await page.addInitScript(() => { try { localStorage.setItem('rpgcs.pref.seenEditorHelp', 'true'); } catch {} });
 await page.goto('file://' + path.resolve('index.html'));
 await wait(1500);
 await shot('01-title');
