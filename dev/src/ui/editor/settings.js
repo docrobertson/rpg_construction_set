@@ -32,6 +32,7 @@ export function renderSettings(ed, left, main) {
     { key: 'settings.startFood', label: 'Starting food', type: 'number', min: 0, show: (o) => o.settings.food },
     { key: 'settings.lineOfSight', label: 'Line of sight & fog of war', type: 'check', hint: 'Forests, walls and mountains hide what lies beyond.' },
     { key: 'settings.encounterRate', label: 'Wandering monster frequency', type: 'number', step: 0.25, min: 0, max: 4, hint: '0 = only the monsters you place' },
+    { key: 'settings.combatMoves', label: 'Squares a hero moves per battle turn', type: 'number', min: 1, max: 8, hint: 'Before attacking or casting. Dexterity 16+ adds one; plate armour costs one.' },
     { key: 'settings.dayNight', label: 'Day and night', type: 'check', hint: 'Outdoors the sun sets every 300 turns: at night you see less and more monsters roam.' },
     { key: 'settings.loot', label: 'Monsters drop weapons and armour', type: 'check', hint: 'Sometimes, scaled to the foes defeated. Mark special items as never dropped.' },
     { key: 'settings.pitch', label: 'Camera angle', type: 'number', min: 50, max: 85, hint: 'Degrees above the horizon (70 is a good board-game view)' },

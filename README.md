@@ -7,13 +7,13 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 ## What's inside
 
 ### Play
-- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water, and cel-shaded, ink-outlined figures like painted miniatures, leaned toward the camera so people read clearly from above.
+- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water, and chunky toy figures inspired by building-block minifigures, leaned toward the camera so people read clearly from above.
 - **Party of up to six** — Men, Dwarves and Elves; Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith. Point-buy attributes, skin, hair and outfit colours, with a live 3D preview — or roll a completely random company.
 - **A character sheet for every hero**: attributes, armour and to-hit, and four equipment slots — hand weapon, **ranged weapon** (bows, crossbows, slings), armour and shield — changed with a click. Each level brings an attribute point to spend.
 - **Three scales of map**: the broad overworld, zoomed-in settlements and dungeons, and close-up tactical battles.
 - **Ultima III/IV-style mechanics**: turn-based movement, line of sight and fog of war, food, swamps that poison, dark dungeons that need torches, ships, waygates, locked doors and keys, chests and traps.
 - **Keyword conversations** (`NAME`, `JOB`, and whatever people mention — highlighted words are clickable). Shops, inns, healers, rumours, and companions who will `JOIN` you.
-- **Tactical combat**: each hero acts in turn, then the monsters. Melee by bumping, arrows in flight, area spells, sleep, fear, buffs, poison, fleeing off the field.
+- **Tactical combat**: each hero moves up to three squares (click a highlighted square) and then strikes, shoots, casts or uses an item; then the monsters charge in. Arrows in flight, area spells, sleep, fear, buffs, poison, fleeing off the field.
 - **A special move per class, once per battle**: Whirlwind, Volley, Blink, Prayer of Mending, Shadow Strike, Rally, Dazzling Air, Earthshaker.
 - **Loot**: fallen foes sometimes leave potions, weapons or armour, scaled to how tough they were.
 - **Day and night** outdoors: evenings draw in, night cuts your sight and brings out more monsters.
@@ -44,10 +44,11 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 |---|---|---|---|
 | Arrows / WASD / click | Move | Arrows | Move, bump to strike |
 | T | Talk | F | Attack / shoot a target |
-| L | Look | Q | Class special (once per battle) |
+| L | Look | Click a blue square | Move there (up to 3 squares) |
+| | | Q | Class special (once per battle) |
 | C | Cast | C | Cast |
 | U | Use item | U | Use item |
-| I | Pack & equipment | Space | Wait |
+| I | Pack & equipment | Space | End the hero's turn |
 | H | Hole up (camp) | Walk off the edge | Flee |
 | M | Map | Tab / Enter | Next target / confirm |
 | Ctrl/⌘+S | Save | Esc | Menu |

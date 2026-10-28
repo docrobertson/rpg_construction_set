@@ -87,7 +87,7 @@ if (only === 'all' || only === 'play') {
           const foe = b.enemies.find((e) => b.alive(e));
           if (!foe) break;
           const dx = Math.sign(foe.x - u.x), dy = Math.sign(foe.y - u.y);
-          if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy);
+          if (!(u.moves > 0)) b.actPass(); else if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy);
           else if (dx && b.walkable(u.x + dx, u.y, u)) b.actMove(dx, 0);
           else b.actPass();
         }

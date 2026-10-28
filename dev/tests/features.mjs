@@ -86,6 +86,16 @@ await ev(() => { const s = window.__app.session; s.state.turn = 10; s.applyDayli
 // --- battle: ranged attack, specials
 await ev(() => { const s = window.__app.session; for (const m of s.party.members) { m.hp = 60; } s.engage({ id: 'x', monster: 'goblin', count: '4', roaming: true }); });
 await wait(2500);
+await shot('feat-moves');
+const mv = await ev(async () => {
+  const b = window.__app.session.battle; const u = b && b.active;
+  if (!u) return { none: true };
+  const start = u.moves;
+  const dest = [...b.reachable(u).values()].find((c) => c.d === 2);
+  if (dest) await b.actMoveTo(dest.x, dest.y, u);
+  return { start, stillActive: b.active === u, left: u.moves, moved: !!dest && u.x === dest.x && u.y === dest.y };
+});
+check('heroes move several squares in one turn', mv.start >= 2 && mv.moved && mv.stillActive && mv.left === mv.start - 2, mv);
 const active = () => ev(() => { const b = window.__app.session.battle; return b && b.active ? b.active.member.cls : null; });
 const waitActive = async (cls) => {
   for (let i = 0; i < 80; i++) {

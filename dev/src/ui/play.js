@@ -5,7 +5,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel,
-  statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, EQUIP_SLOTS, SLOT_NAMES,
+  statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, EQUIP_SLOTS, SLOT_NAMES,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
@@ -185,6 +185,7 @@ export class PlayUI {
         }, '+') : null))),
       h('div.nums',
         h('div.num', { title: 'Armour class: foes must roll this or more to hit' }, h('span', 'Armour'), h('b', String(armorClass(g, m)))),
+        h('div.num', { title: 'Squares this hero can move in a battle turn before acting' }, h('span', 'Moves'), h('b', String(combatMoves(g, m)))),
         h('div.num', { title: `${w.name}: ${w.dmg} damage` }, h('span', 'Melee'), h('b', `${fmtMod(attackBonus(g, m, w))} · ${w.dmg}`)),
         h('div.num', { title: rw ? `${rw.name}: ${rw.dmg} damage, range ${rw.range}` : 'No ranged weapon' }, h('span', 'Ranged'), h('b', rw ? `${fmtMod(attackBonus(g, m, rw))} · ${rw.dmg} · ${rw.range}sq` : '—')),
       ),
@@ -275,7 +276,7 @@ export class PlayUI {
         this.specialBtn = btn('Special', 'Q', () => this.combatSpecial(), 'Class special, once per battle (Q)', '.special'),
         btn('Cast', 'C', () => this.combatCast()),
         btn('Use', 'U', () => this.combatUse()),
-        btn('Wait', '␣', () => this.s.battle?.actPass(), 'Pass this turn (Space)'),
+        btn('End turn', '␣', () => this.s.battle?.actPass(), 'End this hero\'s turn (Space)'),
         btn('Help', '?', () => this.openHelp()),
       );
     } else {
@@ -398,6 +399,7 @@ export class PlayUI {
       let color = 0xffffff;
       if (this.targeting) color = this.targetValid(t) ? 0xffe040 : 0x808080;
       else if (u && u.side === 'enemy' && b.active && b.canAttack(b.active, u)) color = 0xff4040;
+      else if (b.active && !u && b.pathTo(b.active, t.x, t.y)) color = 0x80c8ff;
       this.view.showCursor(t.x, t.y, color);
       this.hoverEl.textContent = u ? `${u.name}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}${u.sleep > 0 ? ' (asleep)' : ''}${u.stun > 0 ? ' (stunned)' : ''}` : '';
       return;
@@ -491,7 +493,9 @@ export class PlayUI {
     const other = b.unitAt(t.x, t.y);
     if (other && other.side === 'enemy') { b.actAttack(other); return; }
     const dx = t.x - u.x, dy = t.y - u.y;
-    if (Math.abs(dx) + Math.abs(dy) === 1) b.actMove(dx, dy);
+    if (Math.abs(dx) + Math.abs(dy) === 1 && other) { b.actMove(dx, dy); return; } // swap with an ally
+    if (b.pathTo(u, t.x, t.y)) b.actMoveTo(t.x, t.y, u);
+    else if (dx || dy) sfx('bump');
   }
 
   combatStart() {
@@ -509,16 +513,16 @@ export class PlayUI {
     const rw = rangedOf(this.s.game, u.member);
     const sp = specialOf(this.s.game, u.member);
     const spOk = sp && b.canSpecial(u).ok;
-    this.hint(`${u.name}'s turn — arrows move, bump to strike${rw ? `, F shoots (${rw.name})` : ', F attacks'}${sp ? (spOk ? `, Q ${sp.name}` : '') : ''}, C cast, U use, Space wait. Walk off the edge to flee.`);
+    const mv = u.moves || 0;
+    this.hint(`${u.name}: ${mv} move${mv === 1 ? '' : 's'} left — click a blue square or use the arrows; bump or F to ${rw ? `attack (shoots with the ${rw.name.toLowerCase()})` : 'attack'}${spOk ? `, Q ${sp.name}` : ''}, C cast, U use, Space ends the turn.`);
     if (this.specialBtn) {
       this.specialBtn.classList.toggle('disabled', !spOk);
       this.specialBtn.lastChild.textContent = ' ' + (sp ? sp.name : 'Special');
       this.specialBtn.title = sp ? `${sp.name}: ${sp.desc}${u.specialUsed ? ' (used)' : ''}` : 'No special ability';
     }
-    const moves = [];
-    for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) if (b.walkable(u.x + dx, u.y + dy, u)) moves.push({ x: u.x + dx, y: u.y + dy });
-    const atk = b.attackTargets(u).map((e) => ({ x: e.x, y: e.y }));
-    this.view.setHighlights([...moves, ...atk], 0x50a0ff, 0.22);
+    const moves = [...b.reachable(u).values()].filter((c) => c.d > 0 && !c.ally).map((c) => ({ x: c.x, y: c.y, color: 0x50a0ff }));
+    const atk = b.attackTargets(u).map((e) => ({ x: e.x, y: e.y, color: 0xff5040 }));
+    this.view.setHighlights([...moves, ...atk], 0x50a0ff, 0.34);
   }
 
   combatEnd() {
@@ -1119,9 +1123,10 @@ Step onto towns, caves and stairs to enter them; walk off the edge of a town to 
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company.</p>
 <h3>Battle</h3>
-<p>Each hero acts in turn, then the enemy. Move with the arrows and bump a foe to strike. <b>F</b> attacks — with your bow if the foe is
-out of reach. <b>Q</b> uses your class special, once per battle: Whirlwind, Volley, Blink, Shadow Strike and more.
-<b>C</b> casts, <b>U</b> uses an item, <b>Space</b> waits. Walk off the edge of the field to flee. Fallen foes sometimes leave gear behind.</p>
+<p>Each hero acts in turn, then the enemy. A hero can move up to three squares (four if nimble, two in plate armour) —
+click a blue square or use the arrows — and then strike, cast or use an item. Bump a foe to strike it. <b>F</b> attacks — with your bow if the foe is
+out of reach. <b>Space</b> ends a hero's turn early. <b>Q</b> uses your class special, once per battle: Whirlwind, Volley, Blink, Shadow Strike and more.
+<b>C</b> casts, <b>U</b> uses an item. Walk off the edge of the field to flee. Fallen foes sometimes leave gear behind.</p>
 <table class="keys">
 <tr><td>F</td><td>Attack / shoot</td><td>Q</td><td>Class special</td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>

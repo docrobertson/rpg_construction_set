@@ -598,14 +598,18 @@ export class View {
     if (!tiles || !tiles.length) return;
     const geo = new THREE.PlaneGeometry(0.92, 0.92);
     geo.rotateX(-Math.PI / 2);
-    const mat = this.highlightMat;
-    mat.color.setHex(color);
+    // tiles may carry their own colour (e.g. squares to move to and foes to strike)
+    const mixed = tiles.some((t) => t.color != null);
+    const mat = mixed ? (this.highlightMatMixed ||= this.highlightMat.clone()) : this.highlightMat;
+    mat.color.setHex(mixed ? 0xffffff : color);
     mat.opacity = opacity;
     const inst = new THREE.InstancedMesh(geo, mat, tiles.length);
     const m4 = new THREE.Matrix4();
+    const c = new THREE.Color();
     tiles.forEach((t, i) => {
       m4.makeTranslation(t.x + 0.5, this.heightAt(t.x, t.y) + 0.025, t.y + 0.5);
       inst.setMatrixAt(i, m4);
+      if (mixed) inst.setColorAt(i, c.setHex(t.color ?? color));
     });
     inst.renderOrder = 5;
     this.highlightMesh = inst;

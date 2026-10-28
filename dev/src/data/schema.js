@@ -23,6 +23,7 @@ export function defaultSettings() {
     victory: { type: 'none', target: '' },
     pitch: 72,
     dayNight: true,
+    combatMoves: 3,
     loot: true,
   };
 }

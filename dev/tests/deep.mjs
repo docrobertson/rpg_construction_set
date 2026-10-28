@@ -147,7 +147,7 @@ log(await ev(async () => {
         const foe = b.enemies.filter((e) => b.alive(e)).sort((a, c) => b.dist(u, a) - b.dist(u, c))[0];
         if (!foe) break;
         const dx = Math.sign(foe.x - u.x), dy = Math.sign(foe.y - u.y);
-        if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy);
+        if (!(u.moves > 0)) b.actPass(); else if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy);
         else if (dx && b.walkable(u.x + dx, u.y, u)) b.actMove(dx, 0);
         else b.actPass();
       }

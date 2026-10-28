@@ -87,16 +87,12 @@ export function createMaterials() {
     `,
   });
 
-  // Figures are cel-shaded in a few soft bands and drawn with an ink outline
-  // (the back faces, pushed out along their normals), so they read like
-  // painted miniatures against the softer-lit land.
-  const ramp = new THREE.DataTexture(new Uint8Array([92, 150, 205, 255]), 4, 1, THREE.RedFormat);
-  ramp.minFilter = ramp.magFilter = THREE.NearestFilter;
-  ramp.needsUpdate = true;
-  const entity = injectVisibility(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: ramp }), { key: 'entity' });
-  const outline = injectVisibility(new THREE.MeshBasicMaterial({ color: 0x20150e, side: THREE.BackSide }), {
+  // Figures are glossy toy plastic with an ink outline (back faces pushed
+  // out along smoothed normals), so they read clearly against the land.
+  const entity = injectVisibility(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 55, specular: 0x2c2c2c }), { key: 'entity' });
+  const outline = injectVisibility(new THREE.MeshBasicMaterial({ color: 0x241a12, side: THREE.BackSide }), {
     key: 'outline',
-    vertexPre: 'transformed += normalize(normal) * 0.013;',
+    vertexPre: 'transformed += normalize(normal) * 0.011;',
   });
   const entityGlow = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true }), { key: 'eglow' });
 
