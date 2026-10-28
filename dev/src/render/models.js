@@ -9,14 +9,14 @@ const cache = new Map();
 // Proportions per race, toy-figure style: everyone shares the same blocky
 // body plan; races differ in leg length, build, and their ears, beards and tusks.
 export const RACE_LOOKS = {
-  human: { scale: 1, width: 1, skin: 0xf0c4a0, hair: 0x5a3a20, legH: 0.3 },
-  dwarf: { scale: 0.92, width: 1.1, skin: 0xeab48e, hair: 0x9a4a22, legH: 0.18, beard: true },
-  elf: { scale: 1.02, width: 0.96, skin: 0xf6dcc4, hair: 0xeedc98, legH: 0.33, ears: true, longHair: true },
-  hobbit: { scale: 0.82, width: 1, skin: 0xf0c4a0, hair: 0x6a4020, legH: 0.2 },
-  orc: { scale: 1.06, width: 1.12, skin: 0x6f8f42, hair: 0x1a1a1a, legH: 0.3, tusks: true },
-  goblin: { scale: 0.78, width: 1, skin: 0x9aaa44, hair: 0x2a2a1a, legH: 0.2, bigEars: true, nose: true },
-  troll: { scale: 1.5, width: 1.22, skin: 0x7a8a76, hair: 0x3a3a2a, legH: 0.3, tusks: true },
-  skeleton: { scale: 1, width: 0.95, skin: 0xece4cc, hair: null, legH: 0.3, bones: true },
+  human: { scale: 1, width: 1, skin: 0xf0c4a0, hair: 0x5a3a20, legH: 0.21 },
+  dwarf: { scale: 0.94, width: 1.1, skin: 0xeab48e, hair: 0x9a4a22, legH: 0.13, beard: true },
+  elf: { scale: 1.02, width: 0.96, skin: 0xf6dcc4, hair: 0xeedc98, legH: 0.24, ears: true, longHair: true },
+  hobbit: { scale: 0.82, width: 1, skin: 0xf0c4a0, hair: 0x6a4020, legH: 0.14 },
+  orc: { scale: 1.06, width: 1.12, skin: 0x6f8f42, hair: 0x1a1a1a, legH: 0.21, tusks: true },
+  goblin: { scale: 0.8, width: 1, skin: 0x9aaa44, hair: 0x2a2a1a, legH: 0.14, bigEars: true, nose: true },
+  troll: { scale: 1.5, width: 1.22, skin: 0x7a8a76, hair: 0x3a3a2a, legH: 0.22, tusks: true },
+  skeleton: { scale: 1, width: 0.95, skin: 0xece4cc, hair: null, legH: 0.21, bones: true },
 };
 
 export const HAIR_STYLES = ['short', 'long', 'ponytail', 'bald'];
@@ -30,6 +30,15 @@ function bowShape(B, x, y, z, wood, o = {}) {
   B.shape(TPL.capsule, wood, { y: -0.05, z: 0, sx: 0.025, sy: H, sz: 0.025, rx: Math.PI + 0.45, matrix: m });
   const tipZ = -Math.sin(0.45) * H, tipY = Math.cos(0.45) * H;
   B.shape(TPL.cyl6, 0xf4f0e0, { y: -0.05 - tipY, z: tipZ, sx: 0.008, sy: tipY * 2 + 0.1, sz: 0.008, matrix: m });
+}
+
+// A limb piece from point a to point b (template's base at a, top at b)
+const _Y = new THREE.Vector3(0, 1, 0);
+function segment(B, tpl, color, a, b, w) {
+  const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const len = d.length();
+  const m = new THREE.Matrix4().compose(new THREE.Vector3(a[0], a[1], a[2]), new THREE.Quaternion().setFromUnitVectors(_Y, d.normalize()), new THREE.Vector3(1, 1, 1));
+  B.shape(tpl, color, { sx: w, sy: len, sz: w, matrix: m });
 }
 
 function crossbowShape(B, x, y, z, wood, o = {}) {
@@ -58,7 +67,7 @@ function humanoid(spec) {
   const style = spec.hairStyle || (race.longHair ? 'long' : 'short');
   const ink = 0x1e1612;
 
-  const legH = race.legH, hipH = 0.07, torsoH = 0.28;
+  const legH = race.legH, hipH = 0.06, torsoH = 0.28;
   const torsoY = legH + hipH, torsoTop = torsoY + torsoH;
   const headR = 0.115, headH = 0.23;
   const hb = torsoTop + 0.025; // bottom of the head
@@ -101,17 +110,19 @@ function humanoid(spec) {
     B.shape(TPL.trap, spec.cape, { y: robe ? 0.03 : 0.06, z: -0.095, sx: 0.4 * W, sy: torsoTop - (robe ? 0.03 : 0.06) - 0.02, sz: 0.025, rx: 0.07, grad: 0.35 });
   }
 
-  // ---- arms and hands
+  // ---- arms and hands: bent at the elbow, hands forward at the waist,
+  // gripping along an axis tilted forward like a figure at the ready
   const shX = 0.15 * W, shY = torsoTop - 0.045;
-  const hx = 0.2 * W, hy = torsoY + 0.02, hz = 0.06;
+  const hx = 0.185 * W, hy = torsoY + 0.065, hz = 0.13;
+  const grip = 0.42;
   for (const s of [-1, 1]) {
     const sleeve = plate ? metal : shirt;
-    B.shape(TPL.ball, sleeve, { x: s * shX, y: shY, s: bones ? 0.06 : 0.1 });
-    const dx = s * hx - s * shX, dy = shY - (hy + 0.04), dz = -hz;
-    const len = Math.hypot(dx, dy, dz);
-    B.shape(bones ? TPL.cyl6 : TPL.limb, sleeve, { x: s * hx, y: hy + 0.03, z: hz, sx: bones ? 0.035 : 0.085, sy: len, sz: bones ? 0.035 : 0.085, rz: Math.atan2(dx, dy), rx: Math.atan2(dz, dy) });
+    const sh = [s * shX, shY, 0], el = [s * (shX + 0.035 * W), torsoY + 0.07, -0.01], ha = [s * hx, hy, hz];
+    B.shape(TPL.ball, sleeve, { x: sh[0], y: sh[1], s: bones ? 0.06 : 0.1 });
+    segment(B, bones ? TPL.cyl6 : TPL.capsule, sleeve, el, sh, bones ? 0.035 : 0.085);
+    segment(B, bones ? TPL.cyl6 : TPL.capsule, sleeve, el, ha, bones ? 0.035 : 0.08);
     if (plate) B.shape(TPL.dome, shade(metal, 1.05), { x: s * (shX + 0.01), y: shY - 0.02, sx: 0.13, sy: 0.07, sz: 0.17, rz: -s * 0.4 });
-    B.shape(TPL.toyHand, plate ? metal : skin, { x: s * hx, y: hy, z: hz, s: 0.085 });
+    B.shape(TPL.toyHand, plate ? metal : skin, { x: ha[0], y: ha[1], z: ha[2], s: 0.085, rx: grip });
   }
 
   // ---- head
@@ -205,45 +216,49 @@ function humanoid(spec) {
     B.shape(TPL.capsule, 0xf0e8d0, { x: 0.11, y: hb + 0.24, z: -0.05, sx: 0.022, sy: 0.18, sz: 0.05, rz: -0.6 });
   }
 
-  // ---- weapons (right hand = +x side), gripped in the C of the hand
-  const wx = hx, wy = hy, wz = hz;
+  // ---- weapons (right hand = +x side), built along the grip axis and
+  // placed in the hand: blades show their flat to the front
   const steel = 0xd8dce4;
   const wpn = spec.weapon || 'none';
   const wcol = spec.weaponColor;
+  const inHand = (tilt = grip, lean = -0.08) => new THREE.Matrix4().compose(new THREE.Vector3(hx, hy, hz), new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, 0, lean)), new THREE.Vector3(1, 1, 1));
+  const M = inHand();
   if (wpn === 'sword' || wpn === 'greatsword') {
-    const L = wpn === 'greatsword' ? 0.52 : 0.38;
-    B.shape(TPL.cyl8, 0x5a3a20, { x: wx, y: wy - 0.06, z: wz, sx: 0.03, sy: 0.11, sz: 0.03 });
-    B.shape(TPL.ball, 0xc8a040, { x: wx, y: wy - 0.065, z: wz, s: 0.04 });
-    B.box(0xc8a040, { x: wx, y: wy + 0.045, z: wz, sx: 0.035, sy: 0.025, sz: 0.14 });
-    B.shape(TPL.taper6, wcol ?? steel, { x: wx, y: wy + 0.07, z: wz, sx: 0.018, sy: L, sz: 0.06, flat: true });
-    if (spec.weaponGlow) G.shape(TPL.taper6, spec.weaponGlow, { x: wx, y: wy + 0.08, z: wz, sx: 0.026, sy: L * 0.95, sz: 0.07 });
+    const L = wpn === 'greatsword' ? 0.5 : 0.36;
+    B.shape(TPL.cyl8, 0x5a3a20, { y: -0.06, sx: 0.03, sy: 0.1, sz: 0.03, matrix: M });
+    B.shape(TPL.ball, 0xc8a040, { y: -0.065, s: 0.04, matrix: M });
+    B.box(0xc8a040, { y: 0.04, sx: 0.14, sy: 0.025, sz: 0.035, matrix: M });
+    B.shape(TPL.taper6, wcol ?? steel, { y: 0.065, sx: 0.06, sy: L, sz: 0.018, flat: true, matrix: M });
+    if (spec.weaponGlow) G.shape(TPL.taper6, spec.weaponGlow, { y: 0.075, sx: 0.07, sy: L * 0.95, sz: 0.026, matrix: M });
   } else if (wpn === 'dagger') {
-    B.shape(TPL.cyl8, 0x5a3a20, { x: wx, y: wy - 0.04, z: wz, sx: 0.028, sy: 0.08, sz: 0.028 });
-    B.shape(TPL.cone4, wcol ?? steel, { x: wx, y: wy + 0.04, z: wz, sx: 0.014, sy: 0.17, sz: 0.045, flat: true });
-    if (spec.weaponGlow) G.shape(TPL.cone4, spec.weaponGlow, { x: wx, y: wy + 0.05, z: wz, sx: 0.02, sy: 0.15, sz: 0.05 });
+    B.shape(TPL.cyl8, 0x5a3a20, { y: -0.04, sx: 0.028, sy: 0.08, sz: 0.028, matrix: M });
+    B.box(0x8a6a3a, { y: 0.035, sx: 0.08, sy: 0.018, sz: 0.03, matrix: M });
+    B.shape(TPL.cone4, wcol ?? steel, { y: 0.045, sx: 0.045, sy: 0.16, sz: 0.014, flat: true, matrix: M });
+    if (spec.weaponGlow) G.shape(TPL.cone4, spec.weaponGlow, { y: 0.05, sx: 0.05, sy: 0.15, sz: 0.02, matrix: M });
   } else if (wpn === 'axe') {
-    B.shape(TPL.cyl8, 0x6a4a2a, { x: wx, y: wy - 0.12, z: wz, sx: 0.035, sy: 0.55, sz: 0.035 });
-    B.shape(TPL.dome, wcol ?? steel, { x: wx, y: wy + 0.36, z: wz + 0.01, sx: 0.03, sy: 0.11, sz: 0.2, rx: Math.PI / 2, flat: true });
+    B.shape(TPL.cyl8, 0x6a4a2a, { y: -0.12, sx: 0.035, sy: 0.5, sz: 0.035, matrix: M });
+    B.shape(TPL.dome, wcol ?? steel, { x: 0.015, y: 0.3, sx: 0.22, sy: 0.12, sz: 0.03, rz: -Math.PI / 2, flat: true, matrix: M });
   } else if (wpn === 'hammer' || wpn === 'mace') {
-    B.shape(TPL.cyl8, 0x6a4a2a, { x: wx, y: wy - 0.1, z: wz, sx: 0.035, sy: 0.45, sz: 0.035 });
-    if (wpn === 'hammer') B.box(wcol ?? 0x8a8e96, { x: wx, y: wy + 0.3, z: wz, sx: 0.11, sy: 0.1, sz: 0.2 });
-    else B.shape(TPL.dodec, wcol ?? 0x8a8e96, { x: wx, y: wy + 0.36, z: wz, s: 0.14 });
+    B.shape(TPL.cyl8, 0x6a4a2a, { y: -0.1, sx: 0.035, sy: 0.42, sz: 0.035, matrix: M });
+    if (wpn === 'hammer') B.box(wcol ?? 0x8a8e96, { y: 0.27, sx: 0.2, sy: 0.1, sz: 0.11, matrix: M });
+    else B.shape(TPL.dodec, wcol ?? 0x8a8e96, { y: 0.33, s: 0.13, matrix: M });
   } else if (wpn === 'club') {
-    B.shape(TPL.limb, wcol ?? 0x7a5a36, { x: wx, y: wy - 0.08, z: wz, sx: 0.12, sy: 0.55, sz: 0.12, rx: Math.PI, grad: 0.3 });
-    B.shape(TPL.limb, wcol ?? 0x7a5a36, { x: wx, y: wy - 0.08, z: wz, sx: 0.12, sy: 0.02, sz: 0.12 });
-  } else if (wpn === 'staff') {
-    B.shape(TPL.cyl8, wcol ?? 0x7a5a36, { x: wx, y: 0.02, z: wz, sx: 0.04, sy: hb + headH + 0.18, sz: 0.04 });
-    G.shape(TPL.ico1, spec.weaponGlow ?? 0x80c0ff, { x: wx, y: hb + headH + 0.24, z: wz, s: 0.1 });
-  } else if (wpn === 'spear') {
-    B.shape(TPL.cyl8, 0x7a5a36, { x: wx, y: 0.0, z: wz, sx: 0.03, sy: hb + headH + 0.12, sz: 0.03 });
-    B.shape(TPL.cone8, wcol ?? steel, { x: wx, y: hb + headH + 0.12, z: wz, sx: 0.06, sy: 0.15, sz: 0.06 });
+    B.shape(TPL.limb, wcol ?? 0x7a5a36, { y: 0.45, sx: 0.12, sy: 0.52, sz: 0.12, rx: Math.PI, grad: 0.3, matrix: M });
+  } else if (wpn === 'staff' || wpn === 'spear') {
+    // long hafts are planted on the ground and held upright
+    const P = inHand(0.12, -0.04);
+    const down = (hy - 0.02) / Math.cos(0.12);
+    const up = wpn === 'staff' ? hb + headH + 0.2 - hy : hb + headH + 0.1 - hy;
+    B.shape(TPL.cyl8, wcol ?? 0x7a5a36, { y: -down, sx: wpn === 'staff' ? 0.04 : 0.03, sy: down + up, sz: wpn === 'staff' ? 0.04 : 0.03, matrix: P });
+    if (wpn === 'staff') G.shape(TPL.ico1, spec.weaponGlow ?? 0x80c0ff, { y: up + 0.06, s: 0.1, matrix: P });
+    else B.shape(TPL.cone8, wcol ?? steel, { y: up, sx: 0.06, sy: 0.15, sz: 0.06, matrix: P });
   } else if (wpn === 'bow') {
-    bowShape(B, -hx, hy + 0.08, hz + 0.02, wcol ?? 0x8a5a2a);
+    bowShape(B, -hx, hy + 0.06, hz + 0.03, wcol ?? 0x8a5a2a);
   } else if (wpn === 'crossbow') {
-    crossbowShape(B, wx - 0.08, hy + 0.08, wz + 0.08, wcol ?? 0x7a5030, { rx: -0.2 });
+    crossbowShape(B, hx - 0.07, hy + 0.03, hz + 0.05, wcol ?? 0x7a5030, { rx: -0.1 });
   } else if (wpn === 'sling') {
-    B.shape(TPL.cyl6, 0x8a6a42, { x: wx, y: wy - 0.18, z: wz, sx: 0.012, sy: 0.18, sz: 0.012 });
-    B.shape(TPL.ball, 0x8a6a42, { x: wx, y: wy - 0.19, z: wz, s: 0.05 });
+    B.shape(TPL.cyl6, 0x8a6a42, { y: -0.17, sx: 0.012, sy: 0.17, sz: 0.012, matrix: inHand(0, 0) });
+    B.shape(TPL.ball, 0x8a6a42, { y: -0.18, s: 0.05, matrix: inHand(0, 0) });
   }
   // a quiver for archers, and a ranged weapon slung across the back
   const rng = spec.ranged || (wpn === 'bow' ? 'bow' : wpn === 'crossbow' ? 'crossbow' : null);
@@ -257,10 +272,12 @@ function humanoid(spec) {
     else if (spec.ranged === 'sling') B.shape(TPL.ball, 0x8a6a42, { x: -0.17 * W, y: torsoY + 0.0, z: 0.09, sx: 0.07, sy: 0.06, sz: 0.05 });
   }
   if (spec.shield != null && spec.shield !== false && wpn !== 'bow' && wpn !== 'crossbow') {
-    const o = { x: -(hx + 0.035), y: hy + 0.1, z: hz, rz: Math.PI / 2, ry: -0.35 };
+    // strapped to the left forearm, facing forward and a little outward
+    const nx = -0.6, nz = 0.8;
+    const o = { x: -(hx + 0.05), y: hy + 0.06, z: hz - 0.01, rz: Math.PI / 2, ry: 0.93 };
     B.shape(TPL.cyl16, spec.shield, { ...o, sx: 0.3, sy: 0.04, sz: 0.3 });
-    B.shape(TPL.cyl16, shade(spec.shield, 0.62), { ...o, x: o.x + 0.004, sx: 0.315, sy: 0.03, sz: 0.315 });
-    B.shape(TPL.dome, 0xd0b040, { ...o, x: o.x - 0.02, sx: 0.08, sy: 0.04, sz: 0.08 });
+    B.shape(TPL.cyl16, shade(spec.shield, 0.62), { ...o, x: o.x - nx * 0.006, z: o.z - nz * 0.006, sx: 0.315, sy: 0.03, sz: 0.315 });
+    B.shape(TPL.dome, 0xd0b040, { ...o, x: o.x + nx * 0.035, z: o.z + nz * 0.035, sx: 0.08, sy: 0.04, sz: 0.08 });
   }
   return { B, G, height: hb + headH + 0.12 };
 }

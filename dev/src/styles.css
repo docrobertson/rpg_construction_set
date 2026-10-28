@@ -177,21 +177,34 @@ textarea { resize: vertical; line-height: 1.4; }
 .hud-side { position: absolute; top: var(--hud-top); right: 0; bottom: 0; width: var(--hud-side); display: flex; flex-direction: column;
   background: linear-gradient(90deg, #1e170f, #17110b); border-left: 1px solid var(--border-hi); overflow: hidden; }
 .side-head { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold-dim); padding: 8px 12px 4px; font-family: var(--font-ui); }
-.hud-party { display: flex; flex-direction: column; gap: 4px; padding: 0 8px 8px; flex: none; }
-.pcard { background: rgba(0,0,0,.28); border: 1px solid #3a2c1c; border-radius: 4px; padding: 4px 8px 5px; cursor: pointer; }
+.hud-party { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 10px; flex: 1; overflow-y: auto; scrollbar-width: thin; }
+.pcard { display: flex; gap: 8px; background: rgba(0,0,0,.28); border: 1px solid #3a2c1c; border-radius: 6px; padding: 5px 8px 6px 5px; cursor: pointer; flex: none; }
 .pcard:hover { border-color: var(--gold-dim); }
-.pcard.sel { border-color: var(--gold); background: rgba(232,192,105,.10); }
+.pcard.leader { border-color: #6b5530; background: rgba(232,192,105,.05); }
+.pcard.sel { border-color: var(--gold); background: rgba(232,192,105,.12); }
 .pcard.active { box-shadow: 0 0 0 1px #fff, 0 0 12px rgba(255,230,140,.55); border-color: #fff; }
 .pcard.dead { opacity: .55; }
-.pc-head { display: flex; align-items: baseline; gap: 6px; }
-.pc-name { font-size: 15px; color: #fff3d8; }
+.pcard.dead .pc-pic img { filter: grayscale(1); }
+.pc-pic { position: relative; width: 66px; height: 78px; flex: none; border-radius: 5px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 38%, #54422a, #1c140c 78%); box-shadow: inset 0 0 0 1px rgba(0,0,0,.6); }
+.pc-pic img { width: 100%; height: 100%; display: block; }
+.pc-crown { position: absolute; left: 4px; top: 1px; color: var(--gold); font-size: 15px; text-shadow: 0 1px 2px #000; }
+.pc-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pc-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.pc-name { font-size: 16px; color: #fff3d8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pc-lead { margin-left: auto; font: 10px var(--font-ui); letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
 .pc-pts { font: bold 11px var(--font-ui); color: #1a130c; background: var(--gold); border-radius: 8px; padding: 0 5px; }
-.pc-status { color: var(--green); font-family: var(--font-ui); }
-.pcard.dead .pc-status { color: var(--muted); }
-.pc-sub { margin-left: auto; font-size: 11px; color: var(--muted); font-family: var(--font-ui); white-space: nowrap; }
-.pc-bars { display: flex; gap: 4px; margin-top: 3px; }
-.pc-bars .bar { flex: 1; height: 13px; margin: 0; }
-.pc-bars .bar span { font-size: 9.5px; line-height: 11px; }
+.pc-status { font: 11px var(--font-ui); color: var(--red); }
+.pc-status.poisoned { color: #9fe09f; }
+.pc-status.asleep { color: #b0a8ff; }
+.pc-sub { font-size: 11px; color: var(--muted); font-family: var(--font-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcard .bar { height: 13px; margin-top: 1px; }
+.pcard .bar span { font-size: 9.5px; line-height: 11px; }
+.pc-xp { height: 3px; background: #0c0805; border-radius: 2px; overflow: hidden; margin-top: 2px; }
+.pc-xp i { display: block; height: 100%; background: linear-gradient(90deg, #b38a3c, #e8c069); }
+.pc-gear { display: flex; gap: 8px; margin-top: 2px; font: 11px var(--font-ui); color: #cfc2a4; white-space: nowrap; overflow: hidden; }
+.pc-gear span { overflow: hidden; text-overflow: ellipsis; }
+.pc-gear span:first-child { flex: none; }
 .bar { position: relative; height: 14px; background: #0c0805; border: 1px solid #000; border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .bar i { position: absolute; left: 0; top: 0; bottom: 0; transition: width .25s; }
 .bar.hp i { background: linear-gradient(#c44a3a, #7a2418); }
@@ -199,7 +212,12 @@ textarea { resize: vertical; line-height: 1.4; }
 .bar.xp i { background: linear-gradient(#c8a040, #7a5a18); }
 .bar span { position: relative; display: block; font: 10px/12px var(--font-ui); padding-left: 4px; color: #fff; text-shadow: 0 1px 1px #000; white-space: nowrap; }
 
-.hud-hero { flex: 1; overflow-y: auto; border-top: 1px solid #3a2c1c; padding: 8px 12px 12px; scrollbar-width: thin; }
+.hero-pop { position: absolute; right: calc(var(--hud-side) + 10px); width: 340px; max-height: calc(100% - 60px); overflow-y: auto; z-index: 15;
+  padding: 10px 14px 14px; background: linear-gradient(#2a2016, #1a130c); border: 2px solid var(--border-hi); border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.7); scrollbar-width: thin; }
+.pop-close { position: absolute; right: 6px; top: 4px; padding: 0 8px; font-size: 20px; line-height: 26px; background: none; border: none; color: var(--muted); }
+.pop-close:hover { color: #fff; background: none; }
+.hero-pop .sheet-title { padding-right: 26px; }
 .sheet-title { font-size: 19px; color: #fff3d8; display: flex; justify-content: space-between; align-items: baseline; }
 .sheet-title .status { font-size: 12px; color: var(--green); font-family: var(--font-ui); }
 .sheet-title .status.bad { color: var(--red); }
@@ -399,12 +417,15 @@ table.keys td:nth-child(odd) { color: var(--gold); font-weight: bold; }
 .magic-toggle small { color: var(--muted); }
 
 @media (max-width: 860px) {
-  #app { --hud-side: 0px; --hud-foot: 236px; --hud-top: 40px; --hud-strip: 52px; }
+  #app { --hud-side: 0px; --hud-foot: 236px; --hud-top: 40px; --hud-strip: 56px; }
   /* the company becomes a strip of cards above the log; the full sheet lives in the Pack */
   .hud-side { top: auto; bottom: var(--hud-foot); left: 0; width: auto; height: var(--hud-strip); border-left: none; border-top: 1px solid var(--border-hi); }
-  .side-head, .hud-hero { display: none; }
-  .hud-party { flex-direction: row; overflow-x: auto; padding: 4px 6px; }
-  .pcard { min-width: 140px; }
+  .side-head { display: none; }
+  .hud-party { flex-direction: row; overflow-x: auto; overflow-y: hidden; padding: 4px 6px; }
+  .pcard { min-width: 150px; padding: 3px 6px 3px 3px; }
+  .pc-pic { width: 34px; height: 40px; }
+  .pc-sub, .pc-gear, .pc-xp, .pcard .bar.mp { display: none; }
+  .hero-pop { left: 10px; right: 10px; width: auto; top: auto !important; bottom: calc(var(--hud-foot) + var(--hud-strip) + 6px); max-height: 70vh; }
   .hud-title { display: none; }
   .hud-hover { display: none; }
   .hud-foot { flex-wrap: wrap; height: var(--hud-foot); }

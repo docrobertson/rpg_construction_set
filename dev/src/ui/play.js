@@ -5,7 +5,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel,
-  statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, EQUIP_SLOTS, SLOT_NAMES,
+  statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
@@ -14,6 +14,7 @@ import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
 import { escapeHtml } from '../core/util.js';
 import { attachGestures } from '../render/gestures.js';
+import { portrait } from '../render/portrait.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -21,7 +22,6 @@ const MOVE_KEYS = {
   Numpad8: [0, -1], Numpad2: [0, 1], Numpad4: [-1, 0], Numpad6: [1, 0],
 };
 
-const STATUS_ICON = { ok: '', poisoned: '☠', asleep: 'z', dead: '✝' };
 const STAT_HELP = {
   str: 'Strength: melee damage and to-hit, and health',
   dex: 'Dexterity: armour, and to-hit with bows and daggers',
@@ -54,6 +54,8 @@ export class PlayUI {
     this.hoverEl = h('div.hud-hover');
     this.partyEl = h('div.hud-party');
     this.heroEl = h('div.hud-hero');
+    this.popEl = h('div.hero-pop', h('button.pop-close', { title: 'Close (Esc)', onclick: () => this.closeHero() }, '×'), this.heroEl);
+    this.popEl.hidden = true;
     this.logEl = h('div.hud-log');
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
@@ -65,7 +67,8 @@ export class PlayUI {
         this.hoverEl,
         h('button.hud-menu', { onclick: () => this.openMenu(), title: 'Menu (Esc)' }, '☰ Menu')),
       h('div.hud-frame'),
-      h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.heroEl),
+      h('div.hud-side', h('div.side-head', 'Company'), this.partyEl),
+      this.popEl,
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
         this.cmdEl,
@@ -78,6 +81,7 @@ export class PlayUI {
 
   destroy() {
     this.unbindInput();
+    document.removeEventListener('pointerdown', this.onOutside, true);
     closeAllModals();
     this.root.remove();
     this.view.showCursor(null);
@@ -119,40 +123,83 @@ export class PlayUI {
     ].filter(Boolean));
   }
 
-  selectHero(m) {
-    this.selected = m;
+  // Clicking a hero shows their full sheet in a pop-over beside the panel;
+  // clicking them again (or Esc, or anywhere else) puts it away
+  selectHero(m, card) {
     sfx('click');
+    if (this.popHero === m && !this.popEl.hidden) { this.closeHero(); return; }
+    this.selected = m;
+    this.popHero = m;
+    this.popEl.hidden = false;
     this.refreshParty();
-    this.refreshHero();
-    // on narrow screens the sheet is hidden: show it in the Pack instead
-    if (!this.heroEl.offsetParent && !anyModal()) this.openParty(m);
+    this.refreshHero(true);
+    const r = (card || this.partyEl.children[this.s.party.members.indexOf(m)])?.getBoundingClientRect();
+    const top = r ? Math.max(48, Math.min(r.top - 8, window.innerHeight - this.popEl.offsetHeight - 10)) : 52;
+    this.popEl.style.top = top + 'px';
+    if (!this.onOutside) {
+      this.onOutside = (e) => {
+        if (this.popEl.hidden || this.popEl.contains(e.target) || this.partyEl.contains(e.target) || e.target.closest?.('.modal-back')) return;
+        this.closeHero();
+      };
+      document.addEventListener('pointerdown', this.onOutside, true);
+    }
   }
 
+  closeHero() {
+    if (this.popEl.hidden) return false;
+    this.popEl.hidden = true;
+    this.popHero = null;
+    this.refreshParty();
+    return true;
+  }
+
+  // One card per hero: a portrait of their figure, then the numbers that
+  // matter at a glance. The first hero leads the company.
   refreshParty() {
     clear(this.partyEl);
     const g = this.s.game;
     const active = this.s.battle?.active?.member;
-    for (const m of this.s.party.members) {
+    this.s.party.members.forEach((m, i) => {
       const mhp = maxHp(g, m), mmp = maxMp(g, m);
-      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.selected ? '.sel' : '');
-      this.partyEl.appendChild(h('div' + cls, { onclick: () => this.selectHero(m), title: 'Show details' },
-        h('div.pc-head', h('span.pc-name', m.name), m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
-          h('span.pc-status', STATUS_ICON[m.status] || ''), h('span.pc-sub', `L${m.level} ${classOf(g, m).name}`)),
-        h('div.pc-bars', bar('HP', m.hp, mhp, 'hp'), mmp > 0 ? bar('MP', m.mp, mmp, 'mp') : null),
-      ));
-    }
+      const w = weaponOf(g, m), rw = rangedOf(g, m);
+      const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
+      const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
+      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '');
+      const pic = portrait(this.view, charLook(g, m));
+      const card = h('div' + cls, { title: `${m.name} — click for the full sheet` },
+        h('div.pc-pic', pic ? h('img', { src: pic, alt: '' }) : null, i === 0 ? h('span.pc-crown', { title: 'Party leader' }, '♛') : null),
+        h('div.pc-body',
+          h('div.pc-head', h('span.pc-name', m.name),
+            m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
+            m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
+            i === 0 ? h('span.pc-lead', 'Leader') : null),
+          h('div.pc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
+          bar('HP', m.hp, mhp, 'hp'),
+          mmp > 0 ? bar('MP', m.mp, mmp, 'mp') : null,
+          h('div.pc-xp', { title: isFinite(next) ? `${m.xp} / ${next} experience to level ${m.level + 1}` : `${m.xp} experience` }, h('i', { style: { width: Math.round(xpf * 100) + '%' } })),
+          h('div.pc-gear',
+            h('span', { title: 'Armour' }, '⛨ ', String(armorClass(g, m))),
+            h('span', { title: `${w.name} ${w.dmg}` }, '⚔ ', w.name),
+            rw ? h('span', { title: `${rw.name} ${rw.dmg}, range ${rw.range}` }, '➶ ', rw.name) : null),
+        ));
+      card.addEventListener('click', () => this.selectHero(m, card));
+      this.partyEl.appendChild(card);
+    });
   }
 
   refreshHero(force = false) {
     const s = this.s;
     if (!s.party.members.includes(this.selected)) this.selected = s.party.members[0] || null;
+    const m = this.popHero;
+    if (!m || this.popEl.hidden) return;
+    if (!s.party.members.includes(m)) { this.closeHero(); return; }
     // rebuild only when something on the sheet changed (keeps open dropdowns stable while walking)
-    const bu = s.battle?.partyUnits.find((u) => u.member === this.selected);
-    const sig = JSON.stringify([this.selected, s.party.inventory, s.party.members.indexOf(this.selected), !!s.battle, bu?.specialUsed]);
+    const bu = s.battle?.partyUnits.find((u) => u.member === m);
+    const sig = JSON.stringify([m, s.party.inventory, s.party.members.indexOf(m), !!s.battle, bu?.specialUsed]);
     if (!force && sig === this.heroSig) return;
     this.heroSig = sig;
     clear(this.heroEl);
-    if (this.selected) this.heroEl.appendChild(this.heroSheet(this.selected, () => this.refresh()));
+    this.heroEl.appendChild(this.heroSheet(m, () => this.refresh()));
   }
 
   // The character sheet: attributes, numbers that matter, equipment, special and spells
@@ -230,10 +277,13 @@ export class PlayUI {
     add(h('div.sheet-actions',
       h('button.small', { onclick: () => this.openParty(m) }, '🎒 Pack'),
       idx > 0 && !inBattle ? h('button.small', {
-        title: 'The first hero leads the party',
+        title: 'Lead the company: the leader walks in front and speaks for everyone',
+        onclick: () => { s.party.members.splice(idx, 1); s.party.members.unshift(m); changed(); },
+      }, '♛ Make leader') : null,
+      idx > 1 && !inBattle ? h('button.small', {
         onclick: () => { s.party.members.splice(idx, 1); s.party.members.splice(idx - 1, 0, m); changed(); },
       }, '▲ Move up') : null,
-      idx === 0 ? h('span.hint', 'Leads the party') : null,
+      idx === 0 ? h('span.hint', '♛ Leads the company') : null,
     ));
     return el;
   }
@@ -352,6 +402,7 @@ export class PlayUI {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape') {
       if (closeTopModal()) return;
+      if (this.closeHero()) return;
       if (this.pendingDir || this.targeting) { this.cancelTargeting(); return; }
       if (this.s.mode === 'explore') this.openMenu();
       return;

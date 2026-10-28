@@ -10,6 +10,19 @@ import { clamp } from '../core/util.js';
 
 const _tmpColor = new THREE.Color(), _bgColor = new THREE.Color();
 
+// where each member of a travelling company stands on its square, by size
+const PARTY_FORMATION = [
+  [[0, 0]],
+  [[0, 0.05]],
+  [[0, 0.17], [0, -0.17]],
+  [[0, 0.2], [-0.2, -0.1], [0.2, -0.1]],
+  [[0, 0.24], [-0.2, 0.0], [0.2, 0.0], [0, -0.26]],
+  [[0, 0.26], [-0.21, 0.04], [0.21, 0.04], [-0.17, -0.25], [0.17, -0.25]],
+  [[0, 0.28], [-0.22, 0.08], [0.22, 0.08], [-0.27, -0.22], [0, -0.26], [0.27, -0.22]],
+  [[0, 0.3], [-0.22, 0.1], [0.22, 0.1], [-0.3, -0.16], [0, -0.18], [0.3, -0.16], [-0.12, -0.36]],
+  [[0, 0.3], [-0.22, 0.1], [0.22, 0.1], [-0.3, -0.16], [0, -0.18], [0.3, -0.16], [-0.15, -0.36], [0.15, -0.36]],
+];
+
 const LIGHTING = {
   day: { bg: 0x8fbde6, hemiSky: 0xdcefff, hemiGround: 0x6a5a40, hemi: 1.5, sun: 2.6, sunColor: 0xfff0d8, amb: 0 },
   dusk: { bg: 0x5a4a6a, hemiSky: 0xffc8a0, hemiGround: 0x3a2a40, hemi: 1.1, sun: 1.6, sunColor: 0xffb070, amb: 0 },
@@ -98,7 +111,10 @@ export class View {
   setPitch(deg) {
     this.rig.pitch = clamp(deg, 45, 85);
     this.lean = -THREE.MathUtils.degToRad(Math.max(0, this.rig.pitch - 22));
-    for (const e of this.entities?.values?.() || []) if (!e.info.noLean) e.leanG.rotation.x = this.lean;
+    for (const e of this.entities?.values?.() || []) {
+      if (!e.info.noLean) e.leanG.rotation.x = this.lean;
+      for (const lg of e.model.userData.leanParts || []) lg.rotation.x = this.lean;
+    }
   }
 
   setLighting(name) {
@@ -303,7 +319,7 @@ export class View {
     const root = new THREE.Group();
     const leanG = new THREE.Group();
     const faceG = new THREE.Group();
-    const model = makeModel(spec, this.mats);
+    const model = spec.kind === 'party' ? this._partyModel(spec) : makeModel(spec, this.mats);
     model.traverse((o) => { o.layers.set(1); });
     const info = model.userData.info;
     faceG.add(model);
@@ -314,7 +330,8 @@ export class View {
     leanG.scale.setScalar(scale);
     // blob shadow
     if (!info.boat) {
-      const blob = new THREE.Mesh(new THREE.CircleGeometry(0.3 * scale * (spec.kind === 'dragon' ? 1.6 : 1), 16), this.mats.shadowBlob);
+      const r = info.group ? 0.46 : 0.3 * scale * (spec.kind === 'dragon' ? 1.6 : 1);
+      const blob = new THREE.Mesh(new THREE.CircleGeometry(r, 16), this.mats.shadowBlob);
       blob.rotation.x = -Math.PI / 2;
       blob.position.y = 0.012;
       blob.renderOrder = 1;
@@ -350,6 +367,33 @@ export class View {
     this.entities.set(id, e);
     if (opts.hpBar) this.setHpBar(id, opts.hpBar);
     return e;
+  }
+
+  // The whole company on one square, leader in front and the rest in ranks
+  // behind. Each figure leans toward the camera on its own, so the group
+  // stays on the ground.
+  _partyModel(spec) {
+    const looks = spec.members || [];
+    const spots = PARTY_FORMATION[Math.min(looks.length, PARTY_FORMATION.length - 1)] || [[0, 0]];
+    const group = new THREE.Group();
+    const leanParts = [];
+    const k = spec.figureScale ?? 0.62;
+    let height = 0;
+    looks.forEach((look, i) => {
+      const m = makeModel(look, this.mats);
+      const lg = new THREE.Group();
+      lg.add(m);
+      lg.rotation.x = this.lean;
+      lg.scale.setScalar(this.unitScale * k);
+      const [ox, oz] = spots[i] || [0, 0];
+      lg.position.set(ox, 0, oz);
+      group.add(lg);
+      leanParts.push(lg);
+      height = Math.max(height, m.userData.info.height * this.unitScale * k);
+    });
+    group.userData.leanParts = leanParts;
+    group.userData.info = { height: height || 1, noLean: true, group: true, float: false, hover: 0 };
+    return group;
   }
 
   _entityY(e, x, y) {
