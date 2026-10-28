@@ -19,7 +19,10 @@ const ev = (fn, arg) => page.evaluate(fn, arg);
 const log = (x) => console.log(JSON.stringify(x));
 await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await wait(1200);
-await ev(async () => { const app = window.__app; app.playGame(app.sample, { quick: true }); await new Promise((r) => setTimeout(r, 1500)); });
+// start, and wait until the opening fade has finished
+const ready = () => ev(async () => { for (let i = 0; i < 200; i++) { const s = window.__app.session; if (s && s.map && !s.transitioning) return true; await new Promise((r) => setTimeout(r, 100)); } return false; });
+await ev(() => { const app = window.__app; app.playGame(app.sample, { quick: true }); });
+await ready();
 // food: walk 30 steps back and forth on the world
 log(await ev(async () => {
   const s = window.__app.session;
@@ -59,7 +62,8 @@ log(await ev(async () => {
 }));
 await page.screenshot({ path: `${OUT}/60-title-continue.png` });
 await page.getByRole('button', { name: /Continue/ }).first().click();
-await wait(2000);
+await wait(500);
+await ready();
 log(await ev(() => { const s = window.__app.session; return { map: s.map.name, pos: s.state.pos, members: s.party.members.length }; }));
 // defeat → game over → rise again
 log(await ev(async () => {
@@ -67,7 +71,7 @@ log(await ev(async () => {
   for (const m of s.party.members) { m.hp = 1; m.status = 'ok'; }
   s.engage({ id: 'doom', monster: 'troll', count: '3', roaming: true });
   await new Promise((r) => setTimeout(r, 2500));
-  for (let i = 0; i < 300 && s.battle; i++) {
+  for (let i = 0; i < 900 && s.battle; i++) {
     const b = s.battle;
     if (b.active && !b.acting) b.actPass();
     await new Promise((r) => setTimeout(r, 100));

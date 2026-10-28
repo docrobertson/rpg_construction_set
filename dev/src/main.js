@@ -200,17 +200,19 @@ class App {
   }
 
   async startSession(game, state, opts) {
-    this.session = new PlaySession(this, game, state, opts);
-    this.playUI = new PlayUI(this, this.session);
+    const session = new PlaySession(this, game, state, opts);
+    this.session = session;
+    this.playUI = new PlayUI(this, session);
     const p = state.pos;
     if (!getMap(game, p.map)) {
       const s = game.settings.start;
       state.pos = { ...s };
     }
-    await this.session.enterMap(state.pos.map, state.pos.x, state.pos.y, { quiet: true });
-    this.session.log(`Welcome to ${game.meta.title}. Press ? for help.`, 'place');
-    this.session.log(`You stand in ${this.session.map.name}.`);
-    if (!opts.noSave && !opts.state) this.session.autosave();
+    await session.enterMap(state.pos.map, state.pos.x, state.pos.y, { quiet: true });
+    if (this.session !== session) return; // quit (or reloaded) while the map was fading in
+    session.log(`Welcome to ${game.meta.title}. Press ? for help.`, 'place');
+    session.log(`You stand in ${session.map.name}.`);
+    if (!opts.noSave && !opts.state) session.autosave();
   }
 
   continueGame() {
