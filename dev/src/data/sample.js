@@ -1,11 +1,14 @@
 // The sample adventure: "Shadow over Eldmark". Built with the same stamps and
-// generators the construction set uses, then hand-dressed with people and lore.
+// generators the construction set uses, then hand-dressed with people, lore,
+// quests and things to find. New entities get explicit ids and are added after
+// the original ones, so saves made before the quest update keep their places.
 import { newGame, findStart } from './schema.js';
 import { createMap, setTile, getTile, inBounds } from '../world/map.js';
 import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, defaultStock, npcLook } from '../world/generate.js';
 import { T, terrain } from './terrain.js';
 import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
+import { eventFromTemplate } from '../game/events.js';
 
 export const SAMPLE_ID = 'sample_shadow_over_eldmark';
 
@@ -23,7 +26,7 @@ function buildSample() {
     title: 'Shadow over Eldmark',
     author: 'The Realms Construction Set',
     description: 'A shadow stirs in the east. Gather a fellowship of Men, Elves and Dwarves, recover the stolen Rune-Key, and break the power of the Shadow Lord in his fortress of Dol Garoth.',
-    intro: 'In the Elder Days the realm of Eldmark knew peace. Men tilled the green lands, the Elves sang beneath the boughs of Silverwood, and the Dwarves delved deep beneath the Grey Mountains.\n\nBut now a shadow has fallen. In the blasted lands beyond the Ashen Peaks, the fortress of Dol Garoth wakes, and its master — the Shadow Lord Malgrath — gathers orcs and worse things to his banner.\n\nYour company has come to the harbour town of Westhold. Seek out King Aldric in Caer Aldon to the north, for it is said he looks for heroes...',
+    intro: 'In the Elder Days the realm of Eldmark knew peace. Men tilled the green lands, the Elves sang beneath the boughs of Silverwood, and the Dwarves delved deep beneath the Grey Mountains.\n\nBut now a shadow has fallen. In the blasted lands beyond the Ashen Peaks, the fortress of Dol Garoth wakes, and its master — the Shadow Lord Malgrath — gathers orcs and worse things to his banner.\n\nYour company has come to the harbour town of Westhold, where Mayor Hilda has sent word that she needs brave souls. The town gate lies just to the west...',
     victoryText: 'With a cry that shakes the very stones, Malgrath the Shadow Lord is unmade. The darkness over Dol Garoth breaks, and for the first time in an age the sun shines upon the Ashen Peaks.\n\nThe bells of Caer Aldon ring for seven days. In the halls of Hammerdeep and beneath the boughs of Silverwood, songs are made of your deeds — and they are sung still.',
   };
   const S = game.settings;
@@ -35,7 +38,27 @@ function buildSample() {
   game.items.push(
     { id: 'rune_key', name: 'Rune-Key of Hammerdeep', type: 'quest', unique: true, price: 0, desc: 'A heavy key of black iron, its runes glowing faintly blue. It opens the gate of Dol Garoth.' },
     { id: 'kings_seal', name: 'Seal of Aldric', type: 'quest', unique: true, price: 0, desc: 'The royal seal of Caer Aldon. The dwarves will honour it.' },
+    { id: 'merek_letter', name: 'Letter to Fennick', type: 'quest', unique: true, price: 0, desc: 'A letter from Merek the sage, sealed with green wax and smelling faintly of ink and pipe smoke.' },
+    { id: 'star_chart', name: 'Fennick\'s Star-Chart', type: 'quest', unique: true, price: 0, desc: 'A great roll of vellum crowded with stars, moons and furious annotations.' },
+    { id: 'wolfhide_jerkin', name: 'Shepherd\'s Wolfhide', type: 'armor', weight: 'leather', ac: 4, price: 160, unique: true, desc: 'A jerkin of thick black wolfhide. It has turned many a fang.' },
+    { id: 'serpent_shield', name: 'Serpent-scale Shield', type: 'shield', ac: 3, price: 220, unique: true, desc: 'Green-black scales sewn over oak. Light as driftwood, hard as stone.' },
   );
+  // named foes for the quests: each is a unique boss, never met at random
+  const monster = (id) => game.monsters.find((m) => m.id === id);
+  const named = (base, def) => { const m = { ...JSON.parse(JSON.stringify(monster(base))), ...def, boss: true, habitat: [] }; game.monsters.push(m); return m; };
+  named('wolf', { id: 'greyfang', name: 'Greyfang', plural: 'Greyfangs', level: 3, hp: '5d8+4', ac: 13, hit: 3, dmg: '1d8+2', xp: 70, gold: '0', group: [1, 1], escort: [{ id: 'wolf', min: 2, max: 3 }],
+    look: { kind: 'quadruped', color: 0x2e2a2c, eyes: 0xffd040, scale: 1.45 }, desc: 'A wolf as big as a pony, black as soot, with eyes like lamps.' });
+  named('orc_captain', { id: 'grishak', name: 'Grishak the Burner', plural: 'Grishaks', level: 4, hp: '5d8+8', xp: 110, gold: '8d10', escort: [{ id: 'orc', min: 2, max: 3 }, { id: 'orc_archer', min: 1, max: 1 }],
+    look: { kind: 'humanoid', race: 'orc', body: 0x6a1a10, armor: 'chain', hat: 'hornhelm', hatColor: 0x2a2a2a, weapon: 'axe', weaponGlow: 0xff7020, cape: 0x8a2a10, scale: 1.2 }, desc: 'An orc chieftain who laughs as he burns.' });
+  named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '8d8+6', ac: 15, hit: 5, dmg: '1d10+2', xp: 200, gold: '6d10', castChance: 0.35, escort: [{ id: 'skeleton', min: 2, max: 3 }],
+    look: { kind: 'wraith', color: 0x2a3436, eyes: 0x70ffb0, hat: 'crown', weapon: 'sword', weaponGlow: 0x70ffb0, scale: 1.3 }, desc: 'A king of the old days, crowned still, who will not stay dead.' });
+  named('sea_serpent', { id: 'west_serpent', name: 'Old Gulper', plural: 'Old Gulpers', level: 6, hp: '9d8', xp: 220, gold: '10d10', group: [1, 1],
+    look: { kind: 'serpent', color: 0x1a5a5a, scale: 1.8 }, desc: 'The great serpent of the western sea. It has eaten boats.' });
+  named('giant_spider', { id: 'spider_queen', name: 'Skarrith the Spider Queen', plural: 'Spider Queens', level: 5, hp: '7d8+6', ac: 14, hit: 4, dmg: '1d10', poison: 0.5, xp: 180, gold: '4d10', group: [1, 1], escort: [{ id: 'giant_spider', min: 2, max: 3 }], castChance: 0.35,
+    look: { kind: 'spider', color: 0x3a1a3a, mark: 0xe0c020, scale: 1.9 }, desc: 'Bloated and ancient, she fattens on the Shadow\'s malice.' });
+  named('skeleton', { id: 'mimic', name: 'Mimic', plural: 'Mimics', level: 3, hp: '4d8+4', ac: 14, hit: 3, dmg: '1d10', undead: false, xp: 60, gold: '6d10', group: [1, 1], escort: [],
+    look: { kind: 'chest', color: 0x7a3a22 }, desc: 'A chest with teeth. Lots of teeth.' });
+  Object.assign(monster('shadow_lord'), { name: 'Malgrath the Shadow Lord' });
 
   const world = game.maps[0];
   world.name = 'Eldmark';
@@ -97,7 +120,7 @@ function buildSample() {
   const village = placeFeature(game, w, 60, 56, 'village', 'Brookend', 105);
   // dungeons built by hand so we can dress them
   const barrow = addDungeon(game, w, 40, 72, 'cave', 'Grimholt Barrow', {
-    seed: 201, style: 'cave', monsters: ['goblin', 'giant_rat', 'giant_spider', 'skeleton', 'bat_swarm'], boss: 'barrow_wight', rooms: 9,
+    seed: 201, style: 'cave', monsters: ['goblin', 'giant_rat', 'giant_spider', 'skeleton', 'bat_swarm'], boss: 'hollow_king', rooms: 9,
   });
   const fortress = addDungeon(game, w, 84, 58, 'fortress', 'Dol Garoth', {
     seed: 202, style: 'fortress', monsters: ['orc', 'orc_archer', 'skeleton', 'orc_captain', 'dark_sorcerer'], boss: 'shadow_lord', rooms: 11, w: 40, h: 40,
@@ -141,14 +164,14 @@ function buildSample() {
   mon('warg', 68, 62, '2-3');
   mon('troll', 44, 64, '1');
   mon('bandit', 38, 52, '2-3');
-  mon('wolf', 30, 40, '3-4');
-  mon('giant_spider', 72, 38, '2');
-  mon('orc_captain', 78, 58, '1');
+  mon('wolf', 30, 40, '1', { monster: 'greyfang', boss: true, wander: 3 });
+  mon('giant_spider', 72, 38, '1', { monster: 'spider_queen', boss: true, wander: 2 });
+  mon('orc_captain', 78, 58, '1', { monster: 'grishak', boss: true, wander: 2 });
   mon('bog_lurker', 56, 72, '2');
   mon('drake', 62, 17, '1');
   // a sea serpent prowls the western sea, between Westhold and the Hermit's isle
   const sea = nearestWhere(w, 12, 66, (t) => t.key === 'ocean');
-  w.entities.push({ id: uid('mon'), type: 'monster', monster: 'sea_serpent', x: sea.x, y: sea.y, count: '1', wander: 6 });
+  w.entities.push({ id: uid('mon'), type: 'monster', monster: 'west_serpent', x: sea.x, y: sea.y, count: '1', wander: 6, boss: true });
   // hidden treasures
   const cache = nearestWhere(w, 31, 41, (t) => t.key === 'forest' || t.key === 'pines');
   w.entities.push({ id: 'chest_wolfwood', type: 'chest', x: cache.x, y: cache.y, gold: '40', items: [{ id: 'healing_draught', n: 2 }, { id: 'iron_key', n: 1 }] });
@@ -172,19 +195,225 @@ function buildSample() {
   S.start = { map: w.id, x: st.x, y: st.y };
   w.encounterRate = 1;
   void findStart;
+
+  // --- things to find, and the quests that tie it all together
+  placeWonders(game, w, { barrow, fortress, tower, village });
+  game.quests = buildQuests(barrow.map.id, fortress.map.id);
   return game;
+}
+
+// Points of interest and little events across Eldmark
+function placeWonders(game, w, { barrow, fortress, tower, village }) {
+  const open = (t) => t.walk && !t.water && !t.feature && t.key !== 'road' && t.key !== 'bridge';
+  const put = (map, id, tpl, x, y, extra = {}, pred = open) => {
+    const p = nearestWhere(map, x, y, pred);
+    const e = { ...eventFromTemplate(tpl), id, x: p.x, y: p.y, ...extra };
+    map.entities.push(e);
+    return e;
+  };
+  // places to rest along the roads
+  put(w, 'ev_camp_west', 'campfire', 31, 50, { name: 'Wayfarers\' Camp' });
+  put(w, 'ev_camp_north', 'campfire', 43, 37, { name: 'Kingsroad Camp' });
+  put(w, 'ev_camp_east', 'campfire', 63, 45, { name: 'Riverbend Camp' });
+  put(w, 'ev_camp_pass', 'campfire', 69, 53, { name: 'Last Camp before the Pass', text: 'A soldier\'s camp, abandoned in haste. The fire still smoulders. Beyond the ridge, the sky over Dol Garoth is the colour of a bruise.' });
+  put(w, 'ev_camp_south', 'campfire', 36, 62, { name: 'Shepherds\' Fold' });
+  // shrines that bless
+  put(w, 'ev_shrine_might', 'shrine_might', 47, 33, { name: 'Shrine of King Elendur', text: 'A statue of a crowned warrior kneels by the road, sword point-down. The inscription reads: "He held the Ashen stair." Pilgrims have left flowers.' });
+  put(w, 'ev_shrine_ward', 'shrine_ward', 43, 66);
+  put(w, 'ev_shrine_vigour', 'shrine_vigour', 65, 29);
+  put(w, 'ev_shrine_fortune', 'shrine_fortune', 57, 52);
+  // the Lay of Elendur: three verse-stones
+  put(w, 'ev_verse_1', 'lore', 48, 66, {
+    name: 'Verse-stone of the Downs', setsFlag: 'verse_1',
+    text: '"Elendur rode from the Westering gate, / a thousand spears and the dawn at his back; / the barrow-kings rose, but he would not wait, / and the downs ran red on the eastward track."',
+    choices: [{ label: 'Copy down the verse', text: 'You copy the first verse of the Lay of Elendur into your journal.', effects: { lore: true, xp: 20, flag: 'verse_1' } }, { label: 'Leave it be', leave: true }],
+  });
+  put(w, 'ev_verse_2', 'lore', 37, 23, {
+    name: 'Verse-stone of the Foothills', setsFlag: 'verse_2',
+    text: '"He met the Shadow upon the Ashen stair / where no bird sings and no grass grows; / and the Dwarves forged a key the dark could not bear, / and sealed the gate, as the old song goes."',
+    choices: [{ label: 'Copy down the verse', text: 'You copy the second verse of the Lay of Elendur into your journal.', effects: { lore: true, xp: 20, flag: 'verse_2' } }, { label: 'Leave it be', leave: true }],
+  });
+  put(w, 'ev_verse_3', 'lore', 14, 84, {
+    name: 'Verse-stone of the Isle', setsFlag: 'verse_3',
+    text: '"Yet sealed is not slain, and the Shadow shall wake; / then bind it with rune, and burn it with light — / for steel alone the dark will not break, / and only the two shall end the night."',
+    choices: [{ label: 'Copy down the verse', text: 'You copy the third verse of the Lay of Elendur into your journal. Rune and light together...', effects: { lore: true, xp: 20, flag: 'verse_3' } }, { label: 'Leave it be', leave: true }],
+  });
+  put(w, 'ev_lore_cross', 'lore', 42, 51, {
+    name: 'The Crossroads Stone',
+    text: 'An old milestone, worn smooth. "WESTHOLD 20 · CAER ALDON 22 · BROOKEND 18 · GRIMHOLT —" The last name has been chiselled away, and someone has scratched beneath it: DON\'T.',
+  });
+  // curiosities and encounters
+  put(w, 'ev_well', 'well', 46, 53, { name: 'The Crossroads Well' });
+  put(w, 'ev_traveller', 'traveller', 57, 46, { name: 'Dobbin the Pedlar\'s Cousin' }, (t) => t.walk && !t.water && !t.feature && t.key !== 'bridge');
+  put(w, 'ev_bandits', 'bandits', 34, 57, {}, (t) => t.walk && !t.water && !t.feature && t.key !== 'bridge');
+  // a troll has claimed the Eldwater bridge on the east road
+  put(w, 'ev_toll_troll', 'toll_troll', 52, 48, { name: 'Brugg the Toll Troll' }, (t) => t.key === 'bridge');
+  put(w, 'ev_cache_isle', 'cache', 9, 81, { name: 'Smugglers\' Cache', text: 'Half-buried in the sand above the tide line, a barrel stamped with a skull. Smugglers\' goods, long forgotten.', choices: [{ label: 'Break it open', text: 'Brandy, silk and a pouch of coins!', effects: { gold: 60, items: [{ id: 'mana_tonic', n: 1 }, { id: 'antidote', n: 1 }] } }, { label: 'Leave it', leave: true }] });
+
+  // a wandering merchant on the great road
+  addNpc(w, 39, 49, {
+    id: 'npc_pell', name: 'Pell', race: 'human', role: 'merchant', wander: 5, desc: 'a travelling merchant with an overloaded mule-pack on his back',
+    lookExtra: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x8a2a2a, cape: 0x5a3a1a },
+    greeting: 'Pell\'s Peerless Provisions! Rare goods from four kingdoms! Wouldst thou BUY?',
+    job: 'I walk the roads with the finest goods in Eldmark. Prices are fair — mostly. Ask to BUY.',
+    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'shadow_fang'], priceMod: 1.2 },
+    keywords: [kw('RUMOURS', 'They say a troll has claimed the Eldwater bridge. Pays to be clever with trolls — or rich.')],
+    rumour: 'Pell the pedlar walks the great road. He sells things you won\'t find in any shop.',
+  });
+
+  // Brookend's well
+  put(village, 'ev_well_brookend', 'well', Math.floor(village.w / 2) + 2, Math.floor(village.h / 2) + 1, { name: 'Brookend Well' }, (t) => t.walk && !t.door && !t.water);
+
+  // Grimholt Barrow: a warning by the door, and a chest that is not a chest
+  const bRooms = barrow.rooms || [];
+  const e0 = barrow.map.entry;
+  put(barrow.map, 'ev_barrow_lore', 'lore', e0.x + 1, e0.y - 1, {
+    name: 'Tomb-stone of Ulfgar',
+    text: '"Here lies Ulfgar, King of the Downs, who would not bow. Let no one wake him." Below, in fresher scratches: "GOBLINS KEEP OUT. THIS MEANS YOU, SNAGA."',
+  }, (t) => t.walk && !t.water);
+  if (bRooms.length > 3) {
+    const r = bRooms[Math.floor(bRooms.length / 2)];
+    put(barrow.map, 'ev_mimic', 'cache', r.x + 1, r.y + 1, {
+      name: 'Suspiciously Clean Chest', text: 'In an alcove sits an iron-bound chest. Unlike everything else in this barrow, it has not a speck of dust on it. Was that... a breath?',
+      choices: [
+        { label: 'Open it', text: 'The lid yawns open — onto rows of teeth! It\'s a MIMIC!', effects: { fight: 'mimic', count: '1' } },
+        { label: 'Have the burglar check it first', req: { type: 'class', value: 'burglar' }, text: '{who} slips a dagger under the lid and the chest SHRIEKS. A mimic! At least you know.', effects: { xp: 25, fight: 'mimic', count: '1' } },
+        { label: 'Leave it well alone', leave: true },
+      ],
+    }, (t) => t.walk && !t.water);
+  }
+  // Dol Garoth: one last rest before the end
+  const fRooms = fortress.rooms || [];
+  if (fRooms.length > 2) {
+    const r = fRooms[fRooms.length - 2];
+    put(fortress.map, 'ev_fortress_camp', 'campfire', r.cx, r.cy, {
+      name: 'Prisoners\' Brazier', text: 'Chained to the wall beside a guttering brazier, a long-dead prisoner has scratched a message: "IT FEARS THE RUNE AND THE LIGHT." The brazier still gives warmth. You could rest here, once.',
+      repeat: 'once',
+    }, (t) => t.walk && !t.water);
+    put(fortress.map, 'ev_fortress_shrine', 'shrine_ward', r.cx + 2, r.cy, { name: 'Defiled Altar', text: 'An altar of the old faith, cracked and blackened — yet a single candle still burns on it.', repeat: 'once' }, (t) => t.walk && !t.water);
+  }
+  void tower;
+}
+
+// The main quest and the side quests of Eldmark
+function buildQuests(barrowId, fortressId) {
+  const talk = (npc) => ({ type: 'talk', npc });
+  return [
+    {
+      id: 'q_main', name: 'The Shadow in the East', main: true, auto: true, giver: 'npc_hilda',
+      summary: 'A shadow is rising over Eldmark. Malgrath the Shadow Lord has woken in his fortress of Dol Garoth, and only a sealed gate stands between him and the free peoples.',
+      stages: [
+        { text: 'Speak to Mayor Hilda in Westhold, just to the west', goal: talk('npc_hilda'),
+          say: 'Thank the stars you\'ve come! Orcs burn farms on the east road, and the King himself is asking for heroes. Go north to Caer Aldon and speak with King Aldric — follow the road east to the crossroads, then north. And take these; the road is long.',
+          reward: { gold: 50, items: [{ id: 'healing_draught', n: 2 }] } },
+        { text: 'Speak to King Aldric in Caer Aldon, north of the crossroads', goal: talk('npc_aldric'),
+          say: 'So Hilda sends me heroes. Good. Hear me: Malgrath, the Shadow Lord, has woken in Dol Garoth. Its gate is sealed by sorcery, and only the dwarven Rune-Key can open it. Take my seal to King Durgan in Hammerdeep, in the Grey Mountains to the north-west. He will give thee the Key.',
+          reward: { xp: 30, items: [{ id: 'kings_seal', n: 1 }] } },
+        { text: 'Bring the Seal of Aldric to King Durgan in Hammerdeep, in the Grey Mountains', goal: { type: 'deliver', npc: 'npc_durgan', item: 'kings_seal' },
+          say: 'Aldric\'s seal... then thou art the King\'s champions, and I must tell thee a shameful thing. The Key is gone. Goblins crept in through the old mine and carried it south — to Grimholt Barrow. And something worse than goblins waits there: Ulfgar, the Hollow King, who will not stay dead. Take these, and bring it back.',
+          reward: { xp: 40, items: [{ id: 'wyrmroot', n: 4 }, { id: 'torch', n: 3 }] } },
+        { text: 'Find Grimholt Barrow in the southern hills — take the south road from the crossroads', goal: { type: 'reach', map: barrowId },
+          log: 'The air of the barrow is cold and stale. Somewhere below, something old is stirring.' },
+        { text: 'Destroy Ulfgar the Hollow King in the depths of Grimholt Barrow', goal: { type: 'kill', monster: 'hollow_king' } },
+        { text: 'Take the Rune-Key from the Hollow King\'s hoard', goal: { type: 'collect', item: 'rune_key' } },
+        { text: 'Bring the Rune-Key back to King Durgan in Hammerdeep', goal: talk('npc_durgan'),
+          say: 'The Rune-Key! The halls will sing of this for a hundred years. Take this Runeblade, forged in the deep fires to bite things of shadow. Now go — the black gate of Dol Garoth lies east, beyond the pass in the Ashen Peaks.',
+          reward: { xp: 150, items: [{ id: 'runeblade', n: 1 }] } },
+        { text: 'Open the black gate of Dol Garoth, east beyond the pass in the Ashen Peaks', goal: { type: 'reach', map: fortressId },
+          log: 'The Rune-Key turns with a sound like a bell. The gates of Dol Garoth groan open...' },
+        { text: 'Destroy Malgrath the Shadow Lord in the heart of Dol Garoth', goal: { type: 'kill', monster: 'shadow_lord' } },
+      ],
+      reward: { xp: 500 },
+      doneText: 'Malgrath is unmade, and the sun shines on the Ashen Peaks once more.',
+    },
+    {
+      id: 'q_wolf', name: 'The Wolf of the Old Forest', giver: 'npc_wynn',
+      offer: 'Have ye seen my sheep? No... they\'re gone. Greyfang took them — a great black wolf, big as a pony, with eyes like lamps. His pack dens in the old forest north-east of town. Please, kill him before he comes back for the lambs!',
+      accept: 'Oh, thank ye! Mind his teeth.',
+      summary: 'Wynn the shepherdess has lost her flock to Greyfang, a monstrous wolf whose pack dens in the old forest north-east of Westhold.',
+      stages: [
+        { text: 'Hunt down Greyfang in the old forest north-east of Westhold', goal: { type: 'kill', monster: 'greyfang' } },
+        { text: 'Tell Wynn in Westhold that Greyfang is dead', goal: talk(''),
+          say: 'He\'s really dead? The lambs are safe! I haven\'t much, but take this — my da made it from the hide of the last wolf that troubled us, and it\'s turned many a fang.' },
+      ],
+      reward: { gold: 40, xp: 80, items: [{ id: 'wolfhide_jerkin', n: 1 }] },
+    },
+    {
+      id: 'q_serpent', name: 'What Lurks in the West Sea', giver: 'npc_osric',
+      offer: 'Thirty years I\'ve fished these waters, and now I daren\'t put out past the harbour wall. There\'s a serpent out there — Old Gulper, we call him — and he\'s had two boats and a good man. The town ship lies idle by the west wall. Take her out and put an end to him, and I\'ll make it worth thy while.',
+      accept: 'Aim for the eyes. And don\'t fall in.',
+      summary: 'Osric the fisherman wants Old Gulper, the serpent of the western sea, dead. The town ship rides at anchor by Westhold\'s west wall.',
+      stages: [
+        { text: 'Take the ship from Westhold harbour and slay Old Gulper in the western sea', goal: { type: 'kill', monster: 'west_serpent' } },
+        { text: 'Bring the good news to Osric in Westhold', goal: talk(''),
+          say: 'Gulper\'s gone? Ha! Drinks are on me tonight — and take this. It came up in my nets years back, too fine for a fisherman.' },
+      ],
+      reward: { gold: 120, xp: 150, items: [{ id: 'serpent_shield', n: 1 }] },
+    },
+    {
+      id: 'q_brookend', name: 'Smoke over Brookend', giver: 'npc_hal',
+      offer: 'They came again last night. Grishak the Burner and his orcs — they took the grain, fired the barn, and laughed while they did it. They camp on the east road, near the pass. We\'re farmers, not fighters. Will ye help us?',
+      accept: 'Bless ye. Brookend will never forget it.',
+      summary: 'Orc raiders led by Grishak the Burner are terrorising the village of Brookend. They camp on the east road near the pass through the Ashen Peaks.',
+      stages: [
+        { text: 'Defeat Grishak the Burner at the orc camp on the east road, near the pass', goal: { type: 'kill', monster: 'grishak' } },
+        { text: 'Return to Farmer Hal in Brookend', goal: talk(''),
+          say: 'Grishak\'s dead? Then we\'ll plant again come spring! Take this bow — my grandfather took it off an orc in the old wars. And a ham. Ye look like ye need a ham.' },
+      ],
+      reward: { gold: 80, xp: 160, food: 40, items: [{ id: 'ember_bow', n: 1 }] },
+    },
+    {
+      id: 'q_spiders', name: 'The Spider Queen', giver: 'npc_ithilwen',
+      offer: 'A darkness nests at the eastern edge of our wood. Skarrith, the Spider Queen, has grown fat on the Shadow\'s malice, and her brood poisons the streams. My rangers cannot cut through her webs. Thou canst.',
+      accept: 'Go with the light of the stars. Elwen knows the way — she would gladly go with thee.',
+      summary: 'Lady Ithilwen of Lindaleth asks you to slay Skarrith the Spider Queen, whose brood poisons the eastern edge of Silverwood.',
+      stages: [
+        { text: 'Slay Skarrith the Spider Queen at the eastern edge of Silverwood', goal: { type: 'kill', monster: 'spider_queen' } },
+        { text: 'Return to Lady Ithilwen in Lindaleth', goal: talk(''),
+          say: 'The streams run clear again. Take this bow, strung with elven hair. It has not missed in a thousand years, and I think it will like thee.' },
+      ],
+      reward: { xp: 180, items: [{ id: 'elven_bow', n: 1 }, { id: 'antidote', n: 2 }] },
+    },
+    {
+      id: 'q_chart', name: 'The Hermit\'s Star-Chart', giver: 'npc_merek',
+      offer: 'Visitors! Just the thing. My old master Fennick lives in a tower on the isle south-west of Westhold — mad as a hatter, brilliant as the sun. He has a chart of the stars I need for my studies. Wouldst thou carry a letter to him? Westhold\'s ship can take thee — or, so the elves say, a waygate east of Lindaleth.',
+      accept: 'Splendid! Do mind the skeletons. They were his students.',
+      startItems: [{ id: 'merek_letter', n: 1 }],
+      summary: 'Merek the royal sage needs a star-chart from his old master Fennick, the hermit-wizard on the isle south-west of Westhold.',
+      stages: [
+        { text: 'Bring Merek\'s letter to Fennick in the Tower of the Hermit, on the isle south-west of Westhold', goal: { type: 'deliver', npc: 'npc_fennick', item: 'merek_letter' },
+          say: 'A letter from young Merek! He still cannot spell "astrolabe". The chart? Take it, take it. Tell him to mind the third moon — he always forgets the third moon.',
+          reward: { items: [{ id: 'star_chart', n: 1 }] } },
+        { text: 'Bring the star-chart back to Merek in Caer Aldon', goal: { type: 'deliver', npc: '', item: 'star_chart' },
+          say: 'The chart! And annotated! The third moon — of course! Here, take these from my stores, with a scholar\'s thanks.' },
+      ],
+      reward: { xp: 150, items: [{ id: 'scroll_seeing', n: 2 }, { id: 'mana_tonic', n: 3 }] },
+    },
+    {
+      id: 'q_lay', name: 'The Lay of Elendur', giver: 'npc_laurelin',
+      offer: 'The Lay of Elendur tells how the Shadow was bound in the Elder Days. Its verses were carved on standing stones across Eldmark, and our songs have forgotten them. Find the three verse-stones and bring the words to me, and I will sing the whole lay again.',
+      accept: 'Look for grey stones carved with runes: one among the ruins on the Barrow Downs, one in the foothills of the Grey Mountains, and one on the hermit\'s isle.',
+      summary: 'Laurelin the minstrel wants the three lost verses of the Lay of Elendur, carved on standing stones across Eldmark.',
+      stages: [
+        { text: 'Find the three verse-stones: on the Barrow Downs, in the Grey Mountain foothills and on the hermit\'s isle', goal: { type: 'flag', flags: 'verse_1,verse_2,verse_3' } },
+        { text: 'Bring the verses to Laurelin in Lindaleth', goal: talk(''),
+          say: '"...bind it with rune, and burn it with light." So that is how it ends! Then the Shadow can be beaten — a rune-forged blade and holy light together. Take this, with my thanks: a feather from the phoenix that nests above the falls.' },
+      ],
+      reward: { gold: 100, xp: 150, items: [{ id: 'phoenix_feather', n: 1 }] },
+    },
+  ];
 }
 
 function addDungeon(game, world, x, y, kind, name, opt) {
   const sub = placeFeature(game, world, x, y, kind, name, opt.seed);
   // replace the auto-generated dungeon with our tuned one
   const idx = game.maps.indexOf(sub);
-  const { map, last } = generateDungeon({ ...opt, name });
+  const { map, last, rooms } = generateDungeon({ ...opt, name });
   map.id = sub.id;
   map.exit = sub.exit;
   game.maps[idx] = map;
   const chest = map.entities.find((e) => e.type === 'chest' && e.x === last.cx && e.y === last.cy);
-  return { map, chest, last };
+  return { map, chest, last, rooms };
 }
 
 // Turn every entrance of a rectangular room into a locked door
@@ -268,7 +497,7 @@ function dressWesthold(game, map) {
     // Borin, the dwarf who would join
     const near = bar || inn || { x: 18, y: 18 };
     addNpc(map, near.x - 2, near.y + 2, {
-      name: 'Borin', race: 'dwarf', role: 'villager', wander: 1, desc: 'a stout dwarf nursing a tankard',
+      id: 'npc_borin', name: 'Borin', race: 'dwarf', role: 'villager', wander: 1, desc: 'a stout dwarf nursing a tankard',
       lookExtra: { body: 0x6a4a2a, armor: 'chain', hat: 'hornhelm', weapon: 'axe' },
       greeting: 'Hmph. Another band of would-be heroes?',
       job: 'I was a guard of HAMMERDEEP, till the goblins came and took the KEY on my watch. I drink to forget.',
@@ -281,11 +510,11 @@ function dressWesthold(game, map) {
     });
   }
   const healer = byRole(map, 'healer')[0];
-  if (healer) Object.assign(healer, { name: 'Sister Edith', desc: 'a kindly healer in white', greeting: 'Peace, travellers. Art thou hurt?' });
+  if (healer) Object.assign(healer, { id: 'npc_edith', name: 'Sister Edith', desc: 'a kindly healer in white', greeting: 'Peace, travellers. Art thou hurt?' });
   const guards = byRole(map, 'guard');
   if (guards[0]) Object.assign(guards[0], { name: 'Garret', desc: 'a weary town guard', job: 'I guard the gate. ORCS have been seen on the east road.', keywords: [kw('ORCS', 'Foul things, out of the east, from the Ashen Peaks. They say a SHADOW drives them.'), kw('SHADOW', 'Talk to the King at Caer Aldon. North along the road. He\'ll know more than a gate guard.')] });
   addNpc(map, 17, 20, {
-    name: 'Mayor Hilda', race: 'human', desc: 'the mayor of Westhold, wearing a chain of office',
+    id: 'npc_hilda', name: 'Mayor Hilda', race: 'human', desc: 'the mayor of Westhold, wearing a chain of office',
     lookExtra: { body: 0x2a4a7a, robe: true, trim: 0xe0c040 },
     greeting: 'Ah, adventurers! Westhold is glad of thee.',
     job: 'I keep this town running, as best I can in these dark days. The KING has sent word he seeks heroes.',
@@ -298,23 +527,26 @@ function dressWesthold(game, map) {
       kw('GOLD', 'Times are hard. Still... take this for the road.', { once: true, action: { type: 'give_gold', n: 50 }, afterText: 'I have given all I can spare.' }),
     ],
   });
-  addNpc(map, 9, 26, { name: 'Wynn', race: 'human', desc: 'a young shepherdess', greeting: 'Have ye seen my sheep?', job: 'I mind the sheep. WOLVES took three last week.', keywords: [kw('WOLVES', 'They come out of the old forest north of town. Hunt in packs, they do.')] });
+  addNpc(map, 9, 26, { id: 'npc_wynn', name: 'Wynn', race: 'human', desc: 'a young shepherdess', greeting: 'Have ye seen my sheep?', job: 'I mind the sheep. WOLVES took three last week.', keywords: [kw('WOLVES', 'They come out of the old forest north-east of town. Their leader is GREYFANG.'), kw('GREYFANG', 'Big as a pony, black as soot. Nobody can kill him!')] });
   const rumours = [
     'They say the dwarves of Hammerdeep lost something precious to goblins.',
     'Old Fennick the hermit has a waygate on his island. Or so the elves say.',
     'Trolls in the southern hills. Their wounds close up while you watch — hit them hard and fast!',
     'The barrow-wights hate holy light. A good cleric is worth ten swords in Grimholt.',
     'The provisioner sells iron keys. Handy, if you find a locked door.',
+    'A troll has claimed the Eldwater bridge on the east road. Wants a toll — or a riddle, if you\'re clever.',
+    'Pilgrims pray at King Elendur\'s shrine on the north road. They say it puts strength in your sword-arm.',
+    'There\'s a wishing well at the crossroads. Toss a coin, by all means — but I wouldn\'t drink from it.',
   ];
   let ri = 0;
   for (const e of byRole(map, 'villager')) if (!e.rumour) e.rumour = rumours[ri++ % rumours.length];
   nameNpcs(map, game, 1);
   for (const n of byRole(map, 'tavern')) n.rumour = n.rumour || 'Old Borin in the corner used to guard the dwarves\' treasure. Buy him a drink and ask about the KEY.';
   addNpc(map, 6, 17, {
-    name: 'Osric', desc: 'a fisherman mending his nets', wander: 1,
+    id: 'npc_osric', name: 'Osric', desc: 'a fisherman mending his nets', wander: 1,
     job: 'I fish. Or did, before the SERPENT came.',
     rumour: 'A sea-monster has been sighted off the west coast. Mind thy ship!',
-    keywords: [kw('SERPENT', 'A great sea-serpent haunts the western waters. Sail carefully!')],
+    keywords: [kw('SERPENT', 'Old Gulper, we call him. A great sea-serpent that haunts the western waters. He\'s had two boats already.')],
   });
 }
 
@@ -322,13 +554,13 @@ function dressCastle(game, map) {
   map.name = 'Caer Aldon';
   const king = byRole(map, 'lord')[0];
   Object.assign(king, {
-    name: 'King Aldric', desc: 'King Aldric of Eldmark, grey-bearded and stern',
+    id: 'npc_aldric', name: 'King Aldric', desc: 'King Aldric of Eldmark, grey-bearded and stern',
     greeting: 'Welcome, travellers. Thou comest at a dark hour.',
     job: 'I am King of Eldmark — while there is still an Eldmark to rule. A SHADOW grows in the east. I will HEAL thy wounds whenever thou dost return.',
     lookExtra: undefined,
     keywords: [
       kw('SHADOW', 'Malgrath, the Shadow Lord, has woken in DOL GAROTH beyond the Ashen Peaks. His orcs grow bolder by the day. Wilt thou take up this QUEST?'),
-      kw('QUEST', 'Then hear me. The gate of Dol Garoth is sealed by sorcery. Only the Rune-KEY forged by the dwarves can open it. Take my SEAL to King Durgan of HAMMERDEEP, and he will aid thee.', { once: true, action: { type: 'give_item', value: 'kings_seal' }, afterText: 'Go! Take my seal to Hammerdeep, find the KEY, and break the Shadow.' }),
+      kw('QUEST', 'The gate of Dol Garoth is sealed by sorcery. Only the Rune-KEY forged by the dwarves can open it. My SEAL will open the doors of HAMMERDEEP to thee.'),
       kw('KEY', 'The Rune-Key was kept by the dwarves of Hammerdeep. I have heard troubling tales that it was STOLEN.'),
       kw('STOLEN', 'Ask the dwarves. Or that gloomy dwarf who drinks in Westhold\'s tavern. Return to me with the Rune-Key and I shall give thee my BLESSING.'),
       kw('BLESSING', 'The Rune-Key! Thou hast done what my knights could not. Kneel — and rise, heroes of Eldmark!', {
@@ -343,7 +575,7 @@ function dressCastle(game, map) {
   });
   const sage = byRole(map, 'sage')[0];
   if (sage) Object.assign(sage, {
-    name: 'Merek', desc: 'the royal sage, ink-stained and absent-minded',
+    id: 'npc_merek', name: 'Merek', desc: 'the royal sage, ink-stained and absent-minded',
     greeting: 'Hmm? Oh — visitors! Do mind the scrolls.',
     job: 'I study the four ARTS of MAGIC, and the stars.',
     keywords: [
@@ -366,7 +598,7 @@ function dressCastle(game, map) {
 function dressElves(game, map) {
   map.name = 'Lindaleth';
   addNpc(map, 15, 10, {
-    name: 'Lady Ithilwen', race: 'elf', desc: 'the Lady of Silverwood, tall and shining', wander: 0,
+    id: 'npc_ithilwen', name: 'Lady Ithilwen', race: 'elf', desc: 'the Lady of Silverwood, tall and shining', wander: 0,
     lookExtra: { body: 0xf0f0ff, robe: true, trim: 0xc0d0ff, hat: 'circlet', cape: 0xd0e0ff },
     greeting: 'Mae govannen. We have watched thy coming.',
     job: 'I keep the woods of Silverwood, as I have for three thousand years. The SHADOW is not new to me.',
@@ -380,7 +612,7 @@ function dressElves(game, map) {
     ],
   });
   addNpc(map, 20, 18, {
-    name: 'Elwen', race: 'elf', desc: 'a keen-eyed elven ranger',
+    id: 'npc_elwen', name: 'Elwen', race: 'elf', desc: 'a keen-eyed elven ranger',
     lookExtra: { body: 0x3a6a3a, hat: 'hood', hatColor: 0x2a5a2a, weapon: 'bow', cape: 0x2a4a2a },
     greeting: 'Well met, strangers!',
     job: 'I guard the borders of Silverwood. The SPIDERS grow bold.',
@@ -397,12 +629,13 @@ function dressElves(game, map) {
   for (const e of map.entities) if (e.type === 'npc' && e.role === 'villager') e.look.race = 'elf';
   nameNpcs(map, game, 3);
   const singer = addNpc(map, 12, 22, {
-    name: 'Laurelin', race: 'elf', desc: 'an elven minstrel with a silver harp',
+    id: 'npc_laurelin', name: 'Laurelin', race: 'elf', desc: 'an elven minstrel with a silver harp',
     lookExtra: { body: 0x8a3a7a, hat: 'cap', hatColor: 0x6a2a5a, cape: 0xd0a040 },
     greeting: 'Wouldst thou hear a SONG?',
     job: 'I sing the old lays. Our songs have POWER.',
     keywords: [
-      kw('SONG', 'In the deep of the forest, where the silver leaves fall / the Lady keeps watch, the fairest of all...'),
+      kw('SONG', 'In the deep of the forest, where the silver leaves fall / the Lady keeps watch, the fairest of all... But the song I long to sing is the LAY of Elendur.'),
+      kw('LAY', 'The Lay of Elendur — how the Shadow was bound. Its verses were carved on standing stones, and lost.'),
       kw('POWER', 'An elven minstrel can sing a foe to sleep, or put fear in its heart, or heal a weary company.'),
     ],
   });
@@ -413,21 +646,15 @@ function dressDwarves(game, map) {
   map.name = 'Hammerdeep';
   const king = byRole(map, 'lord')[0];
   Object.assign(king, {
-    name: 'King Durgan', desc: 'King Durgan Ironhand, his beard braided with gold',
+    id: 'npc_durgan', name: 'King Durgan', desc: 'King Durgan Ironhand, his beard braided with gold',
     greeting: 'Who dares the halls of Hammerdeep? Speak!',
     job: 'I am King under the Mountain. The Rune-KEY was ours to keep... and we failed.',
     keywords: [
       kw('KEY', 'Goblins! Goblins crept in through the old mine and stole the Rune-Key. They fled south to GRIMHOLT barrow.'),
       kw('GRIMHOLT', 'An old barrow in the hills south of the great road. Something worse than goblins dwells there now — a WIGHT, they say.'),
       kw('WIGHT', 'A cold spirit of the old kings. Holy magic hurts it. Bring torches — it is dark.'),
-      kw('SEAL', 'Aldric\'s seal! Then thou art the King\'s champions. Take these reagents for thy runesmiths, and go with my blessing.', {
-        cond: { type: 'item', value: 'kings_seal' }, elseText: 'What seal? I see no seal.', once: true,
-        action: { type: 'give_item', value: 'wyrmroot', n: 5 }, afterText: 'Go! Bring back the KEY!',
-      }),
-      kw('REWARD', 'Thou hast the Key! Take it to the gates of Dol Garoth — and take this RUNEBLADE, forged in the deep fires. May it bite deep into the Shadow!', {
-        cond: { type: 'item', value: 'rune_key' }, elseText: 'Reward? Bring me the KEY first.', once: true,
-        action: { type: 'give_item', value: 'runeblade' }, afterText: 'Strike true with that blade.',
-      }),
+      kw('SEAL', 'Aldric\'s seal opens any door under the mountain.'),
+      kw('REWARD', 'Bring back the KEY, and thou shalt have a RUNEBLADE from my own forges.'),
       kw('RUNEBLADE', 'The finest work of our smiths. I will give one to whoever returns the KEY — ask me for thy REWARD then.'),
     ],
   });
@@ -444,11 +671,12 @@ function dressDwarves(game, map) {
 function dressVillage(game, map) {
   map.name = 'Brookend';
   addNpc(map, 14, 12, {
-    name: 'Farmer Hal', desc: 'a farmer with a bandaged arm',
+    id: 'npc_hal', name: 'Farmer Hal', desc: 'a farmer with a bandaged arm',
     greeting: 'Thank the stars — real fighters!',
     job: 'I farm, when the ORCS let me.',
     keywords: [
-      kw('ORCS', 'They come down through the PASS from the east and burn what they can\'t carry.'),
+      kw('ORCS', 'They come down through the PASS from the east and burn what they can\'t carry. Their chief is GRISHAK.'),
+      kw('GRISHAK', 'Grishak the Burner. He laughs while the barns burn.'),
       kw('PASS', 'The only way through the Ashen Peaks. Follow the road east. Beyond lies Dol Garoth.'),
     ],
   });
@@ -458,7 +686,7 @@ function dressVillage(game, map) {
 function dressTower(game, map) {
   const e = map.entry;
   addNpc(map, e.x + 1, e.y - 1, {
-    name: 'Fennick', race: 'human', desc: 'an old hermit-wizard in a patched blue robe', wander: 1,
+    id: 'npc_fennick', name: 'Fennick', race: 'human', desc: 'an old hermit-wizard in a patched blue robe', wander: 1,
     lookExtra: { body: 0x3a5a9a, robe: true, hat: 'wizard', hatColor: 0x3a5a9a, weapon: 'staff', beard: 0xe8e8e8 },
     greeting: 'Visitors! Splendid. Mind the skeletons — they were students once.',
     job: 'I am a wizard, retired. Mostly. My TREASURE lies above, if thou canst reach it.',

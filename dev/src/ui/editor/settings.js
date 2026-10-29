@@ -35,7 +35,7 @@ export function renderSettings(ed, left, main) {
     { key: 'settings.combatMoves', label: 'Squares a hero moves per battle turn', type: 'number', min: 1, max: 8, hint: 'Before attacking or casting. Dexterity 16+ adds one; plate armour costs one.' },
     { key: 'settings.dayNight', label: 'Day and night', type: 'check', hint: 'Outdoors the sun sets every 300 turns: at night you see less and more monsters roam.' },
     { key: 'settings.loot', label: 'Monsters drop weapons and armour', type: 'check', hint: 'Sometimes, scaled to the foes defeated. Mark special items as never dropped.' },
-    { key: 'settings.pitch', label: 'Camera angle', type: 'number', min: 50, max: 85, hint: 'Degrees above the horizon (70 is a good board-game view)' },
+    { key: 'settings.pitch', label: 'Camera angle', type: 'number', min: 35, max: 80, hint: 'Degrees above the horizon (52 gives a 3D diorama view; higher looks more straight down)' },
   ], changed)));
 
   const magic = h('div.magic-toggles');

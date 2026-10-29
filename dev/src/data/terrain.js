@@ -74,9 +74,9 @@ const defs = [
 
   // Dungeon
   [80, 'cave_floor', 'Cave Floor', 'dungeon', { h: 0, top: 0x7a6e60, side: 0x403a34, deco: 'cavefloor', arena: 'cave' }],
-  [81, 'cave_wall', 'Rock Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x3a332d, side: 0x4a4038, deco: 'rockwall' }],
-  [82, 'dungeon_floor', 'Dungeon Floor', 'dungeon', { h: 0, top: 0x6d6a64, side: 0x47443f, deco: 'flags', arena: 'indoor' }],
-  [83, 'dungeon_wall', 'Dungeon Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x45413b, side: 0x5a554d, deco: 'stonewall' }],
+  [81, 'cave_wall', 'Rock Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x2a2520, side: 0x4a4038, deco: 'rockwall' }],
+  [82, 'dungeon_floor', 'Dungeon Floor', 'dungeon', { h: 0, top: 0x5a5650, side: 0x47443f, deco: 'dflags', arena: 'indoor' }],
+  [83, 'dungeon_wall', 'Dungeon Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x24211f, side: 0x6a645a, deco: 'dwall' }],
   [84, 'rubble', 'Rubble', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'rubble', slow: 0.4, arena: 'cave' }],
   [85, 'chasm', 'Chasm', 'dungeon', { walk: false, h: -1.2, top: 0x0b0a0a, side: 0x1c1917 }],
   [86, 'web', 'Webs', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'web', slow: 0.6, arena: 'cave' }],

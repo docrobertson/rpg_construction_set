@@ -5,6 +5,7 @@ import { ACTIONS, CONDITIONS } from '../../game/dialog.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 import { MAP_TYPES } from '../../world/map.js';
 import { defaultStock } from '../../world/generate.js';
+import { inspectEvent, npcQuestSection } from './quests.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap']];
@@ -13,9 +14,9 @@ const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plat
 export const NPC_ROLES = [
   ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage'],
   ['weapons', 'Weaponsmith (shop)'], ['armor', 'Armourer (shop)'], ['provisions', 'Provisioner (shop)'], ['reagents', 'Herbalist (shop)'], ['bowyer', 'Bowyer (shop)'],
-  ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'],
+  ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'], ['merchant', 'Travelling merchant (shop)'],
 ];
-const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons' };
+const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons', merchant: 'mixed' };
 
 export const LOOK_FIELDS = [
   { key: 'look.race', label: 'Body', type: 'select', options: RACES },
@@ -44,12 +45,14 @@ function keywordFields(game) {
     { key: 'text', label: 'Reply', type: 'textarea', rows: 3, hint: 'Mention other keywords in your reply and they become clickable.' },
     { key: 'cond.type', label: 'Only if…', type: 'select', options: Object.entries(CONDITIONS), rerender: true },
     { key: 'cond.value', label: 'Item', type: 'select', options: items, show: (r) => r.cond?.type === 'item' },
-    { key: 'cond.value', label: 'Value', type: 'text', show: (r) => condNeeds(r) && r.cond.type !== 'item', placeholder: 'flag name or number' },
+    { key: 'cond.value', label: 'Quest', type: 'select', options: () => (game.quests || []).map((q) => [q.id, q.name]), show: (r) => ['quest', 'questdone', 'noquest'].includes(r.cond?.type) },
+    { key: 'cond.value', label: 'Value', type: 'text', show: (r) => condNeeds(r) && !['item', 'quest', 'questdone', 'noquest'].includes(r.cond.type), placeholder: 'flag name or number' },
     { key: 'elseText', label: 'Reply otherwise', type: 'textarea', rows: 2, show: condNeeds },
     { key: 'action.type', label: 'Then…', type: 'select', options: Object.entries(ACTIONS), rerender: true },
     { key: 'action.value', label: 'Item', type: 'select', options: items, show: (r) => ['give_item', 'take_item'].includes(act(r)) },
     { key: 'action.value', label: 'Fights as', type: 'select', options: monsters, show: (r) => act(r) === 'fight' },
     { key: 'action.value', label: 'Flag name', type: 'text', show: (r) => ['set_flag', 'clear_flag'].includes(act(r)) },
+    { key: 'action.value', label: 'Quest', type: 'select', options: () => (game.quests || []).map((q) => [q.id, q.name]), show: (r) => ['start_quest', 'advance_quest', 'complete_quest'].includes(act(r)) },
     { key: 'action.n', label: 'Amount', type: 'number', min: 1, show: (r) => ['give_item', 'take_item', 'give_gold', 'take_gold', 'give_xp'].includes(act(r)) },
     { key: 'action.map', label: 'To map', type: 'select', options: maps, show: (r) => act(r) === 'teleport' },
     { key: 'action.x', label: 'X', type: 'number', show: (r) => act(r) === 'teleport' },
@@ -119,6 +122,7 @@ export function inspectEntity(ed, ent, container) {
       rec.append(h('div.form-section', 'Companion'), h('label.field.check', cb, h('span.field-label', 'Can JOIN the party')), sub);
       renderRec();
       container.appendChild(rec);
+      container.appendChild(npcQuestSection(ed, ent));
       break;
     }
     case 'monster': {
@@ -147,6 +151,9 @@ export function inspectEntity(ed, ent, container) {
     case 'sign':
       container.appendChild(head('Signpost'));
       container.appendChild(buildForm(ent, [{ key: 'text', label: 'It reads', type: 'textarea', rows: 4 }], changed));
+      break;
+    case 'event':
+      inspectEvent(ed, ent, container, head, changed);
       break;
     case 'ship':
       container.appendChild(head('Ship'));

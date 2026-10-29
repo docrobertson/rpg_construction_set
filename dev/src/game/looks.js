@@ -1,6 +1,6 @@
-// Random appearances for heroes: who they are (skin, hair, beard) and what
-// they wear (outfit, hat and cape colours). Stored in a hero's `look`, which
-// overrides the race's and class's defaults.
+// Random appearances for heroes: who they are (face, skin, hair, beard) and
+// what they wear (outfit, hat and cape colours). Stored in a hero's `look`,
+// which overrides the race's and class's defaults.
 
 export const SKINS = {
   human: [0xf6d2b4, 0xf0c4a0, 0xe2aa84, 0xc88c64, 0x9c6a46, 0x74502f],
@@ -16,12 +16,15 @@ export const HAIRS = {
 
 export const OUTFITS = [0x8a2a2a, 0x2a4a8a, 0x3a5a2a, 0x6a3a7a, 0x7a5a2a, 0x2a6a6a, 0x55555c, 0x8a5a3a, 0xa8742a, 0x3a3a4a, 0xe0d8c0];
 
-export const STYLE_NAMES = { short: 'Short', long: 'Long', ponytail: 'Ponytail', bald: 'Bald' };
+export const STYLE_NAMES = { short: 'Short', long: 'Long', ponytail: 'Ponytail', braids: 'Braids', topknot: 'Topknot', bald: 'Bald' };
+
+// faces: 'bold' (strong brows, a square jaw) or 'fair' (softer, with lashes)
+export const FACE_NAMES = { bold: 'Bold', fair: 'Fair' };
 
 const STYLES = {
-  human: [['short', 4], ['long', 2], ['ponytail', 2], ['bald', 1]],
-  dwarf: [['short', 4], ['bald', 2], ['ponytail', 1]],
-  elf: [['long', 4], ['ponytail', 2], ['short', 1]],
+  human: [['short', 4], ['long', 2], ['ponytail', 2], ['braids', 1], ['topknot', 1], ['bald', 1]],
+  dwarf: [['short', 3], ['braids', 2], ['bald', 2], ['topknot', 1], ['ponytail', 1]],
+  elf: [['long', 4], ['ponytail', 2], ['braids', 2], ['short', 1]],
 };
 
 const kind = (raceLook) => (SKINS[raceLook] ? raceLook : 'human');
@@ -38,8 +41,11 @@ function weighted(rng, pairs) {
 export function randomPerson(raceLook, rng) {
   const k = kind(raceLook);
   const hair = rng.pick(HAIRS[k]);
-  const look = { skin: rng.pick(SKINS[k]), hair, hairStyle: weighted(rng, STYLES[k]) };
-  if (k === 'human' && rng.chance(0.3)) look.beard = hair;
+  const face = rng.chance(0.5) ? 'fair' : 'bold';
+  const look = { face, skin: rng.pick(SKINS[k]), hair, hairStyle: weighted(rng, STYLES[k]) };
+  if (face === 'fair' && look.hairStyle === 'bald') look.hairStyle = 'long';
+  if (k === 'human' && face === 'bold' && rng.chance(0.4)) look.beard = hair;
+  if (k === 'dwarf' && face === 'fair' && rng.chance(0.4)) look.beard = false;
   return look;
 }
 

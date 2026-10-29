@@ -29,6 +29,10 @@ await page.screenshot({ path: `${OUT}/${pre}-world-close.png` });
 await page.evaluate(() => { const s = window.__app.session; s.view.setZoom(40, true); });
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${OUT}/${pre}-world-far.png` });
+await page.evaluate(() => { const s = window.__app.session; s.view.setZoom(11, true); s.view.setDaylight(1); });
+await page.waitForTimeout(1000);
+await page.screenshot({ path: `${OUT}/${pre}-world-night.png` });
+await page.evaluate(() => { const s = window.__app.session; s.applyDaylight(); });
 for (const name of ['Westhold', 'Grimholt Barrow']) {
   await page.evaluate(async (name) => {
     const s = window.__app.session;

@@ -9,7 +9,7 @@ import { randomName } from '../world/generate.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { byId } from '../data/schema.js';
 import { sfx } from '../core/sound.js';
-import { randomPerson, randomOutfit, SKINS, HAIRS, OUTFITS, STYLE_NAMES } from '../game/looks.js';
+import { randomPerson, randomOutfit, SKINS, HAIRS, OUTFITS, STYLE_NAMES, FACE_NAMES } from '../game/looks.js';
 
 const BASE = 8, MAXBASE = 17;
 
@@ -62,7 +62,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
   // who they are (skin, hair) and what they wear (outfit colours)
   function newLook(hero, part = 'both') {
     const keep = hero.look || {};
-    const person = part === 'outfit' ? { skin: keep.skin, hair: keep.hair, hairStyle: keep.hairStyle, beard: keep.beard } : randomPerson(raceLook(hero.race), rng);
+    const person = part === 'outfit' ? { face: keep.face, skin: keep.skin, hair: keep.hair, hairStyle: keep.hairStyle, beard: keep.beard } : randomPerson(raceLook(hero.race), rng);
     const outfit = part === 'person' ? { body: keep.body, hatColor: keep.hatColor, cape: keep.cape } : randomOutfit(byId(classes, hero.cls), rng);
     hero.look = Object.fromEntries(Object.entries({ ...person, ...outfit }).filter(([, v]) => v !== undefined));
   }
@@ -207,12 +207,16 @@ export function partyCreation(app, game, { onDone, onBack }) {
         style: { background: css(c) }, title: label, onclick: () => { set(c); sfx('click'); render(); },
       }))));
     const style = lk.hairStyle || (kind === 'elf' ? 'long' : 'short');
+    const face = lk.face || 'bold';
     return h('div.looks',
+      h('div.look-row', h('span.look-label', 'Face'), h('div.dots',
+        ...Object.entries(FACE_NAMES).map(([k, n]) => h('button.small' + (k === face ? '.on' : ''), { onclick: () => { lk.face = k; sfx('click'); render(); } }, n)))),
       swatches('Skin', SKINS[kind], lk.skin, (c) => { lk.skin = c; }),
-      swatches('Hair', HAIRS[kind], lk.hair, (c) => { lk.hair = c; if (lk.beard != null) lk.beard = c; }),
+      swatches('Hair', HAIRS[kind], lk.hair, (c) => { lk.hair = c; if (lk.beard != null && lk.beard !== false) lk.beard = c; }),
       h('div.look-row', h('span.look-label', 'Style'), h('div.dots',
         ...Object.entries(STYLE_NAMES).map(([k, n]) => h('button.small' + (k === style ? '.on' : ''), { onclick: () => { lk.hairStyle = k; sfx('click'); render(); } }, n)),
-        kind === 'human' ? h('button.small' + (lk.beard != null ? '.on' : ''), { onclick: () => { if (lk.beard != null) delete lk.beard; else lk.beard = lk.hair ?? 0x5a3a20; sfx('click'); render(); } }, 'Beard') : null)),
+        kind === 'human' ? h('button.small' + (lk.beard != null ? '.on' : ''), { onclick: () => { if (lk.beard != null) delete lk.beard; else lk.beard = lk.hair ?? 0x5a3a20; sfx('click'); render(); } }, 'Beard') : null,
+        kind === 'dwarf' ? h('button.small' + (lk.beard !== false ? '.on' : ''), { onclick: () => { if (lk.beard === false) delete lk.beard; else lk.beard = false; sfx('click'); render(); } }, 'Beard') : null)),
       swatches('Outfit', OUTFITS, lk.body ?? cls?.look?.body, (c) => {
         lk.body = c;
         if (['hood', 'wizard', 'cap'].includes(cls?.look?.hat)) lk.hatColor = c;

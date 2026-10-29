@@ -15,6 +15,9 @@ import { loadState } from '../core/storage.js';
 import { escapeHtml } from '../core/util.js';
 import { attachGestures } from '../render/gestures.js';
 import { portrait } from '../render/portrait.js';
+import { CombatHud, sheetAbilities } from './combatHud.js';
+import { iconSvg } from './icons.js';
+import { QuestUI } from './journal.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -39,7 +42,9 @@ export class PlayUI {
     this.pendingDir = null;
     this.targeting = null;
     this.autoPath = null;
+    this.chud = new CombatHud(this);
     this.build();
+    this.quests = new QuestUI(this); // tracker, journal, quest offers, events
     this.bindInput();
     this.setMode('explore');
   }
@@ -80,7 +85,9 @@ export class PlayUI {
   }
 
   destroy() {
+    this.chud.stop();
     this.unbindInput();
+    this.quests?.destroy();
     document.removeEventListener('pointerdown', this.onOutside, true);
     closeAllModals();
     this.root.remove();
@@ -104,6 +111,7 @@ export class PlayUI {
     this.refreshParty();
     this.refreshHero();
     this.drawMinimap();
+    this.quests?.refresh();
   }
 
   onMapChanged() { this.drawMinimap(); }
@@ -171,6 +179,7 @@ export class PlayUI {
         h('div.pc-body',
           h('div.pc-head', h('span.pc-name', m.name),
             m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
+            m.perkPending > 0 ? h('span.pc-pts.perk', { title: 'A talent to choose — open the sheet', html: iconSvg('star') }) : null,
             m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
             i === 0 ? h('span.pc-lead', 'Leader') : null),
           h('div.pc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
@@ -195,7 +204,7 @@ export class PlayUI {
     if (!s.party.members.includes(m)) { this.closeHero(); return; }
     // rebuild only when something on the sheet changed (keeps open dropdowns stable while walking)
     const bu = s.battle?.partyUnits.find((u) => u.member === m);
-    const sig = JSON.stringify([m, s.party.inventory, s.party.members.indexOf(m), !!s.battle, bu?.specialUsed]);
+    const sig = JSON.stringify([m, s.party.inventory, s.party.members.indexOf(m), !!s.battle, bu?.uses, bu?.cd]);
     if (!force && sig === this.heroSig) return;
     this.heroSig = sig;
     clear(this.heroEl);
@@ -262,12 +271,8 @@ export class PlayUI {
       eq.appendChild(h('div.slot', h('span.slot-name', SLOT_NAMES[slot]), sel));
     }
     add(eq);
-    // special ability
-    const sp = specialOf(g, m);
-    if (sp) {
-      const used = s.battle?.partyUnits.find((u) => u.member === m)?.specialUsed;
-      add(h('div.special' + (used ? '.used' : ''), h('b', `★ ${sp.name}`), h('span', used ? ' — used this battle' : ' — once per battle (Q)'), h('p', sp.desc)));
-    }
+    // battle skills, special and talents
+    add(sheetAbilities(this, m, changed));
     // spells
     const spells = knownSpells(g, m);
     if (spells.length) {
@@ -313,6 +318,7 @@ export class PlayUI {
     ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
     ctx.fillStyle = '#f00';
     ctx.fillRect(p.x, p.y, 1, 1);
+    this.quests?.drawPins(ctx, 1);
   }
 
   // ------------------------------------------------------------ commands
@@ -321,14 +327,7 @@ export class PlayUI {
     clear(this.cmdEl);
     const btn = (label, key, fn, title, cls = '') => h('button.cmd' + cls, { title: title || label, onclick: () => { sfx('click'); fn(); } }, h('u', key), ' ', label);
     if (mode === 'combat') {
-      this.cmdEl.append(
-        btn('Attack', 'F', () => this.beginAttackTargeting(), 'Attack or shoot a foe (F) — or bump into an adjacent enemy'),
-        this.specialBtn = btn('Special', 'Q', () => this.combatSpecial(), 'Class special, once per battle (Q)', '.special'),
-        btn('Cast', 'C', () => this.combatCast()),
-        btn('Use', 'U', () => this.combatUse()),
-        btn('End turn', '␣', () => this.s.battle?.actPass(), 'End this hero\'s turn (Space)'),
-        btn('Help', '?', () => this.openHelp()),
-      );
+      this.chud.commands(this.cmdEl);
     } else {
       this.cmdEl.append(
         btn('Talk', 'T', () => this.askDirection('Talk', (dx, dy) => this.s.talkDirection(dx, dy))),
@@ -434,6 +433,7 @@ export class PlayUI {
       z: () => this.openParty(),
       h: () => this.s.camp(),
       m: () => this.openMap(),
+      j: () => this.quests.openJournal(),
       ' ': () => this.s.wait(),
       '.': () => this.s.wait(),
       '?': () => this.openHelp(),
@@ -447,12 +447,8 @@ export class PlayUI {
     const b = this.s.battle;
     if (b) {
       const u = b.unitAt(t.x, t.y);
-      let color = 0xffffff;
-      if (this.targeting) color = this.targetValid(t) ? 0xffe040 : 0x808080;
-      else if (u && u.side === 'enemy' && b.active && b.canAttack(b.active, u)) color = 0xff4040;
-      else if (b.active && !u && b.pathTo(b.active, t.x, t.y)) color = 0x80c8ff;
-      this.view.showCursor(t.x, t.y, color);
-      this.hoverEl.textContent = u ? `${u.name}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}${u.sleep > 0 ? ' (asleep)' : ''}${u.stun > 0 ? ' (stunned)' : ''}` : '';
+      this.hoverEl.textContent = u ? `${b.label(u)}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}` : '';
+      this.chud.hover(t, e);
       return;
     }
     if (!this.s.map) return;
@@ -506,114 +502,34 @@ export class PlayUI {
     }
   }
 
-  // ------------------------------------------------------------ combat input
-  combatKey(e, dir) {
-    const b = this.s.battle;
-    if (!b || !b.active || b.acting) return;
-    if (this.targeting) {
-      if (e.key === 'Tab') { e.preventDefault(); this.cycleTarget(e.shiftKey ? -1 : 1); return; }
-      if (e.key === 'Enter' || e.key === ' ' || e.key === 'f' || e.key === 'F') { e.preventDefault(); this.confirmTarget(); return; }
-      if (dir) {
-        e.preventDefault();
-        const c = this.targeting.cursor || { x: b.active.x, y: b.active.y };
-        this.targeting.cursor = { x: c.x + dir[0], y: c.y + dir[1] };
-        this.view.showCursor(this.targeting.cursor.x, this.targeting.cursor.y, this.targetValid(this.targeting.cursor) ? 0xffe040 : 0x808080);
-        return;
-      }
-      return;
-    }
-    if (dir) { e.preventDefault(); b.actMove(dir[0], dir[1]); return; }
-    const k = e.key.toLowerCase();
-    if (k === 'f') { e.preventDefault(); this.beginAttackTargeting(); }
-    else if (k === 'c') { e.preventDefault(); this.combatCast(); }
-    else if (k === 'u') { e.preventDefault(); this.combatUse(); }
-    else if (k === 'q') { e.preventDefault(); this.combatSpecial(); }
-    else if (k === '?') { e.preventDefault(); this.openHelp(); }
-    else if (k === ' ' || k === '.') { e.preventDefault(); b.actPass(); }
-  }
-
-  combatClick(t) {
-    const b = this.s.battle;
-    if (!b.active || b.acting) return;
-    if (this.targeting) {
-      if (this.targetValid(t)) this.pickTarget(t);
-      else sfx('error');
-      return;
-    }
-    const u = b.active;
-    const other = b.unitAt(t.x, t.y);
-    if (other && other.side === 'enemy') { b.actAttack(other); return; }
-    const dx = t.x - u.x, dy = t.y - u.y;
-    if (Math.abs(dx) + Math.abs(dy) === 1 && other) { b.actMove(dx, dy); return; } // swap with an ally
-    if (b.pathTo(u, t.x, t.y)) b.actMoveTo(t.x, t.y, u);
-    else if (dx || dy) sfx('bump');
-  }
+  // ------------------------------------------------------------ combat input (the battle HUD does the work)
+  combatKey(e, dir) { this.chud.key(e, dir); }
+  combatClick(t) { this.chud.click(t); }
+  combatEvent(type, data) { this.chud.event(type, data); }
 
   combatStart() {
     this.root.classList.add('combat');
+    this.chud.start();
     this.setMode('combat');
     this.refresh();
   }
 
   combatTurn(u) {
     this.cancelTargeting();
-    if (u && u.member !== this.selected) { this.selected = u.member; this.refreshHero(); }
-    this.refreshParty();
-    const b = this.s.battle;
-    if (!u || !b) { this.view.setHighlights(null); this.hint(''); return; }
-    const rw = rangedOf(this.s.game, u.member);
-    const sp = specialOf(this.s.game, u.member);
-    const spOk = sp && b.canSpecial(u).ok;
-    const mv = u.moves || 0;
-    this.hint(`${u.name}: ${mv} move${mv === 1 ? '' : 's'} left — click a blue square or use the arrows; bump or F to ${rw ? `attack (shoots with the ${rw.name.toLowerCase()})` : 'attack'}${spOk ? `, Q ${sp.name}` : ''}, C cast, U use, Space ends the turn.`);
-    if (this.specialBtn) {
-      this.specialBtn.classList.toggle('disabled', !spOk);
-      this.specialBtn.lastChild.textContent = ' ' + (sp ? sp.name : 'Special');
-      this.specialBtn.title = sp ? `${sp.name}: ${sp.desc}${u.specialUsed ? ' (used)' : ''}` : 'No special ability';
-    }
-    const moves = [...b.reachable(u).values()].filter((c) => c.d > 0 && !c.ally).map((c) => ({ x: c.x, y: c.y, color: 0x50a0ff }));
-    const atk = b.attackTargets(u).map((e) => ({ x: e.x, y: e.y, color: 0xff5040 }));
-    this.view.setHighlights([...moves, ...atk], 0x50a0ff, 0.34);
+    this.chud.turn(u);
   }
 
-  combatEnd() {
+  combatEnd(summary) {
     this.root.classList.remove('combat');
     this.cancelTargeting();
     this.view.setHighlights(null);
     this.hint('');
+    this.chud.end(summary);
   }
 
-  beginAttackTargeting() {
-    const b = this.s.battle;
-    if (!b || !b.active) return;
-    const u = b.active;
-    const targets = b.attackTargets(u);
-    if (!targets.length) { this.s.log('No foe within reach. Move closer, or use a ranged weapon.', 'warn'); sfx('error'); return; }
-    this.startTargeting({
-      units: targets,
-      label: 'Attack',
-      onPick: (t) => b.actAttack(b.unitAt(t.x, t.y), u),
-    });
-  }
-
-  async combatSpecial() {
-    const b = this.s.battle;
-    if (!b || !b.active || b.acting) return;
-    const u = b.active;
-    const can = b.canSpecial(u);
-    if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
-    const sp = can.special;
-    const tg = b.specialTargets(u);
-    const after = () => { if (b.active === u && this.s.battle === b) this.combatTurn(u); };
-    if (tg.kind === 'tile') {
-      this.startTargeting({ tiles: tg.tiles, label: sp.name, color: 0xb090ff, onPick: async (t) => { await b.actSpecial({ x: t.x, y: t.y }, u); after(); } });
-    } else if (tg.kind === 'enemy') {
-      this.startTargeting({ units: tg.units, label: sp.name, color: 0xb090ff, onPick: async (t) => { await b.actSpecial(b.unitAt(t.x, t.y), u); after(); } });
-    } else {
-      await b.actSpecial(null, u);
-      after();
-    }
-  }
+  beginAttackTargeting() { this.chud.beginAttack(); }
+  combatCast() { return this.chud.cast(); }
+  combatUse() { return this.chud.useItem(); }
 
   startTargeting(tg) {
     this.targeting = tg;
@@ -659,50 +575,6 @@ export class PlayUI {
     this.pendingDir = null;
     this.hint('');
     if (wasTargeting && this.s.battle?.active) this.combatTurn(this.s.battle.active);
-  }
-
-  async combatCast() {
-    const b = this.s.battle;
-    if (!b || !b.active || b.acting) return;
-    const u = b.active;
-    const spells = b.combatSpells(u);
-    if (!spells.length) { this.s.log(`${u.name} knows no battle magic.`, 'warn'); return; }
-    const spell = await this.chooseSpell(u.member, spells);
-    if (!spell || b.active !== u || this.s.battle !== b) return;
-    const can = canCast(this.s.game, u.member, spell, this.s.party.inventory);
-    if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
-    if (spell.target === 'enemy') {
-      const ts = b.spellTargets(u, spell);
-      if (!ts.length) { this.s.log('No foe in sight for that spell.', 'warn'); return; }
-      this.startTargeting({ units: ts, label: spell.name, color: spell.fx, onPick: (t) => b.actCast(spell, b.unitAt(t.x, t.y), u) });
-    } else if (spell.target === 'area') {
-      const tiles = [];
-      const r = spell.range || 7;
-      for (let y = 0; y < b.arena.h; y++) for (let x = 0; x < b.arena.w; x++) if (Math.max(Math.abs(x - u.x), Math.abs(y - u.y)) <= r) tiles.push({ x, y });
-      this.startTargeting({ tiles, label: `${spell.name} (area)`, color: spell.fx, onPick: (t) => b.actCast(spell, { x: t.x, y: t.y }, u) });
-      this.view.setHighlights(tiles.filter((c) => b.unitAt(c.x, c.y)?.side === 'enemy'), spell.fx || 0xffc030, 0.45);
-    } else if (spell.target === 'ally') {
-      const ts = b.spellTargets(u, spell);
-      if (!ts.length) { this.s.log(spell.effect === 'revive' ? 'No one has fallen.' : 'No one to target.', 'warn'); return; }
-      const pick = await this.chooseFrom(`${spell.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.s.game, t.member)} HP${t.dead ? ', fallen' : ''})`, value: t })));
-      if (pick) b.actCast(spell, pick, u);
-    } else {
-      b.actCast(spell, null, u);
-    }
-  }
-
-  async combatUse() {
-    const b = this.s.battle;
-    if (!b || !b.active || b.acting) return;
-    const u = b.active;
-    const items = b.combatItems();
-    if (!items.length) { this.s.log('You have nothing useful to hand.', 'warn'); return; }
-    const inv = this.s.party.inventory;
-    const item = await this.chooseFrom('Use which item?', items.map((it) => ({ label: `${it.name} ×${inv[it.id]}`, sub: it.desc, value: it })));
-    if (!item) return;
-    const ts = b.partyUnits.filter((p) => (item.effect === 'revive' ? p.dead && !p.fled : b.alive(p)));
-    const tgt = await this.chooseFrom(`${item.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.s.game, t.member)} HP)`, value: t })));
-    if (tgt) b.actUse(item, tgt, u);
   }
 
   // ------------------------------------------------------------ generic choosers
@@ -851,6 +723,7 @@ export class PlayUI {
     const m = modal(body, { cls: 'talk-modal', onClose: () => { s.mode = 'explore'; this.refresh(); } });
     add(h('p.note', `You meet ${npc.desc || 'someone'}.`));
     if (npc.greeting) sayLine(npc.greeting);
+    this.quests.dialogHook(npc, { add, sayLine });
     refreshChips();
     setTimeout(() => input.focus(), 30);
   }
@@ -1065,6 +938,7 @@ export class PlayUI {
     ctx.arc(p.x * scale + scale / 2, p.y * scale + scale / 2, Math.max(3, scale), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    this.quests.drawPins(ctx, scale, { events: true });
     modal(h('div.map-wrap', c), { title: map.name, cls: 'map-modal' });
   }
 
@@ -1164,8 +1038,13 @@ Step onto towns, caves and stairs to enter them; walk off the edge of a town to 
 <tr><td>C</td><td>Cast a spell</td><td>U</td><td>Use an item</td></tr>
 <tr><td>I</td><td>Pack &amp; equipment</td><td>H</td><td>Hole up (camp &amp; rest)</td></tr>
 <tr><td>M</td><td>Map</td><td>Space</td><td>Wait a turn</td></tr>
+<tr><td>J</td><td>Journal (quests, lore)</td><td></td><td></td></tr>
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Menu</td></tr>
 </table>
+<h3>Quests</h3>
+<p>Your current goal is always shown at the top left of the map, with an arrow pointing the way. People with a task for you
+are marked <b>!</b>; talk to them to take it on. Press <b>J</b> for the Journal: every quest, its steps and its reward.
+Shrines, campfires, standing stones and stranger things are scattered across the land — bump into them to see what they offer.</p>
 <h3>Your company</h3>
 <p>Click a hero on the right to see their sheet. Each hero carries a <b>hand weapon</b> for melee and a <b>ranged weapon</b>
 (bow, crossbow or sling) — change either, and armour and shield, straight from the sheet. Every level brings an
@@ -1174,14 +1053,21 @@ Step onto towns, caves and stairs to enter them; walk off the edge of a town to 
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company.</p>
 <h3>Battle</h3>
-<p>Each hero acts in turn, then the enemy. A hero can move up to three squares (four if nimble, two in plate armour) —
-click a blue square or use the arrows — and then strike, cast or use an item. Bump a foe to strike it. <b>F</b> attacks — with your bow if the foe is
-out of reach. <b>Space</b> ends a hero's turn early. <b>Q</b> uses your class special, once per battle: Whirlwind, Volley, Blink, Shadow Strike and more.
-<b>C</b> casts, <b>U</b> uses an item. Walk off the edge of the field to flee. Fallen foes sometimes leave gear behind.</p>
+<p>Everyone acts in turn: the strip along the top shows who acts now and who comes next. On a hero's turn, move up to their
+squares (click a blue square, or the arrows), then strike, shoot, cast, use a skill or an item. <b>Hover</b> any figure to see its
+health, conditions, what it is up to and your <b>chance to hit</b>; hover a square to see the path there.</p>
+<p><b>Tactics.</b> <b>Flanking</b>: +2 to hit a foe that a companion also stands beside. <b>From behind</b>: +2 and half as much
+damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: beside a tree, rock or wall, missiles from
+that side are −3 to hit. <b>Engaged</b>: shooting with a foe beside you is −4. <b>Breaking away</b>: stepping out of a foe's reach
+gives it a free strike (amber squares warn you).</p>
+<p><b>Skills</b> (keys 1, 2) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
+battle. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
+off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee.</p>
 <table class="keys">
-<tr><td>F</td><td>Attack / shoot</td><td>Q</td><td>Class special</td></tr>
+<tr><td>F</td><td>Attack / shoot</td><td>1, 2</td><td>Skills</td></tr>
+<tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
-<tr><td>Tab</td><td>Next target</td><td>Enter</td><td>Confirm target</td></tr>
+<tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>
 </table>
 <h3>Survival</h3>
 <p>Food runs down as you travel. Swamps may poison you. Rest at inns, or hole up in the wild (if no foes are near).

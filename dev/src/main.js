@@ -65,8 +65,8 @@ class App {
     const world = g.maps.find((m) => m.type === 'world') || g.maps[0];
     this.view.setMap(world);
     this.view.setVisibilityEnabled(false);
-    this.view.setPitch(62);
-    this.view.setZoom(22, true);
+    this.view.setPitch(44);
+    this.view.setZoom(19, true);
     const s = g.settings.start;
     let t = 0;
     const cx = s.x, cy = s.y;
@@ -173,7 +173,7 @@ class App {
     this.playOpts = opts;
     this.playing = game;
     if (!opts.noSave) setPref('lastPlayed', game.id);
-    this.view.setPitch(game.settings.pitch || 70);
+    this.view.setPitch(game.settings.pitch || 52);
     playMusic('title');
     if (opts.state) return this.startSession(game, opts.state, opts);
     if (opts.quick) {

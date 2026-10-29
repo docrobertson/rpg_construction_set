@@ -5,6 +5,7 @@ import { getTile, setTile, inBounds, createMap } from './map.js';
 import { fbm } from '../core/noise.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { uid } from '../core/util.js';
+import { eventFromTemplate } from '../game/events.js';
 
 const def = (id) => terrain(id);
 const isWaterT = (id) => def(id).water && def(id).key !== 'bridge';
@@ -324,7 +325,52 @@ export function generateWorld(w, h, seed, opt = {}) {
     carveRiver(map, elev, x, y, rng);
     riversLeft--;
   }
+  if (opt.wonders !== false) scatterWonders(map, seed + 31);
   return map;
+}
+
+// ---------------------------------------------------------------- points of interest
+const WORLD_LORE = [
+  ['Standing Stone', 'A lichen-spotted menhir. Carved at its foot: "Here the river-folk traded silver for salt, before the long winter."'],
+  ['Circle of Stones', 'Seven grey stones lean together like gossips. The tallest is cut with a single line: "Seek the high places, and see far."'],
+  ['Old Milestone', 'The distances have worn away, but someone has scratched a crude dragon beneath them, and the word RUN.'],
+  ['Hero\'s Cairn', 'A cairn of white stones over a fallen champion. "She held the ford alone. Remember her."'],
+  ['Weathered Obelisk', 'Runes spiral up a black obelisk, warm to the touch even in the rain: "What was bound shall wake. What wakes may be bound again."'],
+];
+
+// Shrines, campfires, lore stones and little encounters scattered over the land
+export function scatterWonders(map, seed, opt = {}) {
+  const rng = new RNG(seed);
+  const scale = Math.max(1, Math.round((map.w * map.h) / 1700));
+  const want = opt.list || [
+    ...Array(scale).fill('campfire'),
+    ...Array(Math.ceil(scale * 0.75)).fill('shrine'),
+    ...Array(Math.ceil(scale * 0.6)).fill('lore'),
+    'well', 'cache', 'traveller', 'toll_troll', 'bandits',
+  ];
+  const shrines = ['shrine_might', 'shrine_ward', 'shrine_vigour', 'shrine_fortune'];
+  const placed = [];
+  const free = (x, y) => {
+    const t = def(getTile(map, x, y));
+    if (!t.walk || t.water || t.feature || t.key === 'road' || t.key === 'bridge' || t.door) return false;
+    if (map.entities.some((e) => e.x === x && e.y === y)) return false;
+    return placed.every((p) => Math.abs(p.x - x) + Math.abs(p.y - y) > 7);
+  };
+  let n = 0;
+  for (const kind of want) {
+    for (let a = 0; a < 60; a++) {
+      const x = rng.int(2, map.w - 3), y = rng.int(2, map.h - 3);
+      if (!free(x, y)) continue;
+      const tpl = kind === 'shrine' ? rng.pick(shrines) : kind;
+      const e = { ...eventFromTemplate(tpl), id: opt.ids ? `${opt.ids}_${n}` : uid('ev'), x, y };
+      if (kind === 'lore') { const [name, text] = rng.pick(WORLD_LORE); Object.assign(e, { name, text }); }
+      map.entities.push(e);
+      placed.push(e);
+      n++;
+      break;
+    }
+  }
+  return placed;
 }
 
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
@@ -768,6 +814,20 @@ export function generateDungeon(opt = {}) {
     map.entities.push({ id: uid('mon'), type: 'monster', x: last.cx, y: Math.max(last.y, last.cy - 1), monster: opt.boss, count: '1', wander: 0, boss: true });
   }
   map.encounterRate = 0.6;
+  if (opt.wonders !== false && rooms.length > 4) {
+    const r2 = new RNG((opt.seed ?? 1) + 77);
+    const spots = [];
+    for (const r of rooms.slice(1, -1)) for (let k = 0; k < 4; k++) {
+      const x = r2.int(r.x, r.x + r.w - 1), y = r2.int(r.y, r.y + r.h - 1);
+      if (getTile(map, x, y) === T[style.floor] && !map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2)) { spots.push({ x, y }); break; }
+    }
+    const pick = (tpl, extra) => {
+      const s = spots.splice(r2.int(0, spots.length - 1), 1)[0];
+      if (s) map.entities.push({ ...eventFromTemplate(tpl), id: opt.seed != null ? `ev_${opt.seed}_${tpl}` : uid('ev'), x: s.x, y: s.y, ...extra });
+    };
+    if (spots.length) pick('lore', { name: 'Carved Pillar', text: r2.pick(['Scratched into the stone: "The deep ones sleep below. Light thy torch and pray."', 'A warning, half worn away: "...TREASURE...DEATH...DO NOT..."', 'A tally of marks, hundreds of them, ending in a single word: OUT.']) });
+    if (spots.length) pick('cache', { name: 'Loose Flagstone' });
+  }
   return { map, rooms, last };
 }
 
@@ -853,6 +913,7 @@ export function defaultStock(game, kind) {
     case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 500).map((it) => it.id);
     case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
+    case 'mixed': return items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id);
     default: return [];
   }
 }

@@ -15,6 +15,8 @@ import { Battle } from './combat.js';
 import { saveState } from '../core/storage.js';
 import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
+import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
+import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
 
 export function moodFor(map) {
   return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
@@ -69,6 +71,7 @@ export class PlaySession {
     this.ui = null; // set by PlayUI
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
+    ensureQuestState(state); // older saves have no quest log
   }
 
   get party() { return this.state.party; }
@@ -115,7 +118,7 @@ export class PlaySession {
   }
 
   async _enterMap(map, id, x, y, opts) {
-    const zoomFor = (m) => (m.type === 'world' ? 18 : 15);
+    const zoomFor = (m) => (m.type === 'world' ? 9.5 : 10.5);
     // swoop the camera in (entering a site) or out (returning to the wide world)
     const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
     if (dir && !opts.instant) this.view.setZoom(this.view.rig.tdist * (dir === 'in' ? 0.45 : 1.8));
@@ -126,7 +129,7 @@ export class PlaySession {
     this.view.setMap(map);
     this.applyDaylight();
     playMusic(moodFor(map));
-    this.view.setPitch(this.game.settings.pitch || 70);
+    this.view.setPitch(this.game.settings.pitch || 52);
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
     this.view.focus(x, y, true);
@@ -136,6 +139,9 @@ export class PlaySession {
     if (!opts.instant) await this.app.fade(false);
     if (!opts.quiet) this.log(map.type === 'world' ? `You are in ${map.name}.` : `You enter ${map.name}.`, 'place');
     this.ui && this.ui.onMapChanged();
+    // quests: the opening goals on a fresh game, and "reach a place" goals
+    if (this.ui && !this.state.questsBegun) { this.state.questsBegun = true; startAutoQuests(this); }
+    checkQuests(this);
   }
 
   persistExplored() {
@@ -151,6 +157,7 @@ export class PlaySession {
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
+      case 'event': return eventLook(e);
       default: return null;
     }
   }
@@ -280,7 +287,7 @@ export class PlaySession {
   entitiesAt(x, y) { return this.map.entities.filter((e) => e.x === x && e.y === y); }
 
   blockingAt(x, y) {
-    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign'));
+    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event'));
   }
 
   async move(dx, dy) {
@@ -316,6 +323,7 @@ export class PlaySession {
       if (blocker.type === 'npc') return this.talkTo(blocker);
       if (blocker.type === 'monster') return this.engage(blocker);
       if (blocker.type === 'sign') { this.log(`The sign reads: "${blocker.text || '...'}"`, 'say'); return; }
+      if (blocker.type === 'event') { this.queued = null; return this.ui.openEvent(blocker); }
     }
     const t = terrain(getTile(map, nx, ny));
     const gate = this.map.entities.find((e) => e.type === 'portal' && e.x === nx && e.y === ny && e.requires);
@@ -472,6 +480,7 @@ export class PlaySession {
       this.party.light--;
       if (this.party.light === 0) this.log('Your light goes out.', 'warn');
     }
+    blessingsTick(this);
     if (this.checkDefeat()) return;
     // the world moves
     const combat = await this.monstersAct();
@@ -479,6 +488,7 @@ export class PlaySession {
     this.npcsAct();
     this.maybeSpawnEncounter();
     this.updateVisibility();
+    checkQuests(this);
     this.ui.refresh();
     if (st.turn % 40 === 0) this.autosave();
   }
@@ -562,6 +572,7 @@ export class PlaySession {
     this.log(got.length ? `The chest holds: ${got.join(', ')}.` : 'The chest is empty.', 'good');
     this.removeEntity(chest);
     if (chest.flag) this.party.flags[chest.flag] = true;
+    checkQuests(this);
     this.checkVictory();
   }
 
@@ -584,7 +595,7 @@ export class PlaySession {
     } else if (!t.walk || t.door) {
       if (!(t.walk && t.door && e.type === 'npc')) return false;
     }
-    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship'))) return false;
+    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship' || o.type === 'event'))) return false;
     if (e.type === 'monster' && this.map.entities.some((o) => o.type === 'portal' && o.x === x && o.y === y)) return false;
     return true;
   }
@@ -734,15 +745,24 @@ export class PlaySession {
     playMusic('combat');
     await this.app.fade(true, 300);
     this.battle = new Battle(this, enemies, style, opts);
+    const battle = this.battle;
+    // shrine blessings last the whole fight (the battle clears buffs as it sets up)
+    const setup = battle.setup.bind(battle);
+    battle.setup = () => { setup(); blessBattle(this, battle); };
     this.ui.setMode('combat');
     const res = await this.battle.run();
+    if (res.outcome === 'victory' && battle.gold > 0 && hasBlessing(this, 'fortune')) {
+      const extra = Math.ceil(battle.gold / 2);
+      this.party.gold += extra;
+      this.log(`Fortune smiles: you find ${extra} more gold.`, 'good');
+    }
     this.battle = null;
     // restore the exploration view
     await this.app.fade(true, 200);
     this.view.setMap(this.map);
     this.applyDaylight();
     playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
-    this.view.setZoom(this.map.type === 'world' ? 18 : 15, true);
+    this.view.setZoom(this.map.type === 'world' ? 9.5 : 10.5, true);
     this.view.focus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
@@ -758,12 +778,14 @@ export class PlaySession {
     this.ui.refresh();
     await this.app.fade(false, 250);
     if (res.killedIds) for (const id of res.killedIds) this.onMonsterKilled(id);
+    checkQuests(this);
     this.checkVictory();
     return res;
   }
 
   onMonsterKilled(monsterId) {
     this.party.flags['killed_' + monsterId] = true;
+    onKill(this, monsterId);
   }
 
   checkVictory() {
@@ -865,11 +887,15 @@ export class PlaySession {
       case 'teleport': res.teleport = a; break;
       case 'fight': res.fight = a.value || npc.hostile || 'bandit'; break;
       case 'victory': res.victory = true; break;
+      case 'start_quest': if (!startQuest(this, a.value)) ok = !!this.state.quests[a.value]; break;
+      case 'advance_quest': advanceQuest(this, a.value); break;
+      case 'complete_quest': completeQuest(this, a.value); break;
       case 'shop': res.shop = true; break;
       case 'inn': res.inn = true; break;
       case 'healer': res.healer = true; break;
       default: break;
     }
+    checkQuests(this);
     this.ui.refresh();
     this.checkVictory();
     return ok;
@@ -879,6 +905,8 @@ export class PlaySession {
     if (!this.map.entities.includes(npc)) return `${npc.name} has already joined thee.`;
     const max = this.game.settings.maxParty || 6;
     if (this.party.members.length >= max) return `Thy company is full (${max}).`;
+    const busy = questNeeding(this, npc.id);
+    if (busy) return `${npc.name} cannot leave yet — there is still the matter of “${busy.name}”.`;
     const r = npc.recruit || {};
     const c = createCharacter(this.game, {
       name: npc.name,
@@ -1093,8 +1121,12 @@ export class PlaySession {
   findPathTo(x, y) {
     const p = this.state.pos;
     const ship = !!this.state.vehicle;
+    // a person or curiosity at the destination: walk up to it and bump (talk / interact)
+    const goal = this.blockingAt(x, y);
+    const bumpable = goal && (goal.type === 'npc' || goal.type === 'event' || goal.type === 'sign');
     return findPath(p.x, p.y, x, y, (tx, ty) => {
       if (!inBounds(this.map, tx, ty)) return false;
+      if (bumpable && tx === x && ty === y) return true;
       const t = terrain(getTile(this.map, tx, ty));
       if (ship ? !(t.water && t.key !== 'bridge') : !t.walk) return false;
       if (this.map.lighting === 'dark' && !this.map.explored[ty * this.map.w + tx]) return false;
@@ -1109,11 +1141,16 @@ export class PlaySession {
     const parts = [t.name];
     if (this.isVisible(x, y)) {
       for (const e of this.entitiesAt(x, y)) {
-        if (e.type === 'npc') parts.push(e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone');
+        if (e.type === 'npc') {
+          const mk = npcMarker(this, e);
+          const note = mk === 'quest' ? ' (!) — has a task for you' : mk === 'turnin' ? ' (?) — about your quest' : '';
+          parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
+        }
         else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? `${d.plural || d.name}` : 'monsters'); }
         else if (e.type === 'chest') parts.push('a chest');
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');
+        else if (e.type === 'event') parts.push(eventLabel(e));
         else if (e.type === 'portal' && e.label) parts.push(e.label);
       }
     }

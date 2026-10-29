@@ -4,6 +4,7 @@ import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
 import { T } from './terrain.js';
+import { migrateQuests } from '../game/quests.js';
 
 export const FORMAT = 'rpgcs-game';
 export const VERSION = 1;
@@ -21,7 +22,8 @@ export function defaultSettings() {
     creationPoints: 24,
     startLevel: 1,
     victory: { type: 'none', target: '' },
-    pitch: 72,
+    pitch: 52,
+    cameraV: 2,
     dayNight: true,
     combatMoves: 3,
     loot: true,
@@ -49,6 +51,7 @@ export function newGame(opts = {}) {
     items: deepClone(ITEMS),
     spells: deepClone(SPELLS),
     monsters: deepClone(MONSTERS),
+    quests: [],
     maps: [],
   };
   let world;
@@ -118,7 +121,13 @@ export function migrateGame(game) {
   game.version = VERSION;
   game.id = game.id || uid('game');
   game.meta = { title: 'Untitled Realm', author: '', description: '', intro: '', victoryText: '', ...(game.meta || {}) };
+  const oldCamera = !game.settings?.cameraV;
   game.settings = { ...defaultSettings(), ...(game.settings || {}) };
+  // the camera used to look almost straight down: bring old games to the new 3D view
+  if (oldCamera) {
+    if (!(game.settings.pitch < 70)) game.settings.pitch = defaultSettings().pitch;
+    game.settings.cameraV = 2;
+  }
   const ensure = (key, defs) => {
     if (!Array.isArray(game[key])) game[key] = deepClone(defs);
   };
@@ -131,6 +140,7 @@ export function migrateGame(game) {
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   // classes from before class specials existed get their default one
   for (const k of game.classes) if (k.special === undefined) k.special = CLASSES.find((d) => d.id === k.id)?.special || null;
+  migrateQuests(game); // quests arrived after the first files were saved
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;

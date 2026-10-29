@@ -3,14 +3,35 @@ import { h, clear, confirmDialog, toast } from '../dom.js';
 import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
-  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, CLASS_SPECIALS, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
+  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
+  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES,
 } from '../../data/defaults.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
+import { ensureCombatData } from '../../game/rules.js';
+import { ICON_NAMES } from '../icons.js';
+
+const TARGET_HELP = {
+  enemy: 'one foe', ally: 'one companion (or self)', self: 'the user', tile: 'a square (teleport, or a blow aimed at an area)',
+  adjacentFoes: 'every foe beside the user', nearbyFoes: 'every foe within the radius', nearbyAllies: 'every friend within the radius',
+  allAllies: 'the whole side', allEnemies: 'every foe', multi: 'the weakest few foes in range',
+};
+// conditions a battle ability or spell can inflict, as a list of rows
+const statusList = (label = 'Conditions inflicted') => ({
+  key: 'statuses', label, type: 'list', fields: [
+    { key: 'id', label: 'Condition', type: 'select', options: Object.entries(STATUS_EFFECTS).map(([k, v]) => [k, `${v.name} — ${v.desc}`]) },
+    { key: 'rounds', label: 'Turns', type: 'number', min: 1, max: 10 },
+    { key: 'power', label: 'Strength', type: 'number', min: 0, hint: 'Armour or to-hit bonus, or poison damage per turn' },
+    { key: 'chance', label: 'Chance', type: 'number', step: 0.05, min: 0, max: 1, nullable: true, hint: 'Leave empty: always' },
+    { key: 'self', label: 'On the user instead of the target', type: 'check' },
+  ], rowLabel: (r) => STATUS_EFFECTS[r.id]?.name || r.id, newRow: () => ({ id: 'stunned', rounds: 1 }), addLabel: '+ Add condition',
+});
 
 const WEAPON_MODELS = ['sword', 'greatsword', 'axe', 'hammer', 'mace', 'club', 'staff', 'spear', 'dagger', 'bow', 'crossbow', 'sling'];
 
 export function categories(game) {
+  ensureCombatData(game);
+  const abilities = () => game.abilities.map((a) => [a.id, `${a.name}${a.special ? ' ★' : ''}${a.monster ? ' (monster)' : ''}`]);
   const items = () => game.items.map((i) => [i.id, i.name]);
   const systems = () => game.magic.map((m) => [m.id, m.name]);
   const sysOf = (sp) => game.magic.find((m) => m.id === sp.system);
@@ -49,7 +70,8 @@ export function categories(game) {
         { key: 'armor', label: 'Heaviest armour', type: 'select', options: ARMOR_WEIGHTS },
         { key: 'shields', label: 'Can use shields', type: 'check' },
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
-        { key: 'special', label: 'Battle special (once per battle, key Q)', type: 'select', empty: '— none —', nullable: true, options: Object.entries(CLASS_SPECIALS).map(([k, v]) => [k, `${v.name} — ${v.desc}`]) },
+        { key: 'skills', label: 'Battle skills (keys 1, 2…)', type: 'ids', options: abilities, hint: 'Defined under Abilities. Most have a cooldown; free actions do not end the turn.' },
+        { key: 'special', label: 'Battle special (key Q)', type: 'select', empty: '— none —', nullable: true, options: abilities, hint: 'Usually a once-per-battle ability (★).' },
         { key: 'primary', label: 'Favoured attributes', type: 'multicheck', options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'Suggested when creating a hero. Players spend a point per level themselves.' },
         { key: 'start', label: 'Starting equipment', type: 'ids', options: items },
         { type: 'section', label: 'Appearance' },
@@ -99,6 +121,7 @@ export function categories(game) {
         { key: 'duration', label: 'Lasts (rounds)', type: 'number', min: 1, show: (o) => o.effect === 'shield' || o.effect === 'bless' },
         { key: 'chance', label: 'Chance to affect each foe', type: 'number', step: 0.05, min: 0, max: 1, show: (o) => o.effect === 'sleep' || o.effect === 'fear' },
         { key: 'autoHit', label: 'Never misses', type: 'check', show: (o) => o.effect === 'damage' },
+        { ...statusList('Also inflicts'), show: (o) => o.effect === 'damage' },
         { key: 'undeadOnly', label: 'Only harms the undead', type: 'check', show: (o) => o.effect === 'damage' },
         { key: 'undeadBonus', label: 'Double damage to the undead', type: 'check', show: (o) => o.effect === 'damage' },
         { key: 'combat', label: 'Usable in battle', type: 'check' },
@@ -122,7 +145,7 @@ export function categories(game) {
         { key: 'dmg', label: 'Damage', type: 'dice' },
         { key: 'range', label: 'Attack range', type: 'number', min: 1, hint: '>1 makes it an archer' },
         { key: 'speed', label: 'Actions per turn', type: 'number', min: 1, max: 3 },
-        { key: 'moves', label: 'Squares moved per turn', type: 'number', min: 1, max: 8, hint: 'Default 3. Monsters move, then strike.' },
+        { key: 'moves', label: 'Squares moved per turn', type: 'number', min: 1, max: 8, hint: 'Default 4. Monsters move, then strike.' },
         { key: 'xp', label: 'Experience', type: 'number', min: 0 },
         { key: 'gold', label: 'Gold carried', type: 'dice' },
         { key: 'habitat', label: 'Found in', type: 'multicheck', options: HABITATS },
@@ -135,6 +158,9 @@ export function categories(game) {
         ], rowLabel: (r) => game.monsters.find((m) => m.id === r.id)?.name || 'Escort', newRow: () => ({ id: game.monsters[0].id, min: 1, max: 2 }), addLabel: '+ Add escort' },
         { key: 'spells', label: 'Spells', type: 'ids', options: () => game.spells.map((s) => [s.id, s.name]) },
         { key: 'castChance', label: 'Chance to cast', type: 'number', step: 0.05, min: 0, max: 1 },
+        { key: 'ai', label: 'Behaviour in battle', type: 'select', options: Object.entries(AI_STYLES) },
+        { key: 'abilities', label: 'Battle abilities', type: 'ids', options: abilities, hint: 'Defined under Abilities. Used when ready (bosses more eagerly).' },
+        { key: 'init', label: 'Initiative bonus', type: 'number', min: -10, max: 20, hint: 'Higher acts earlier in each round' },
         { key: 'poison', label: 'Chance to poison', type: 'number', step: 0.05, min: 0, max: 1 },
         { key: 'regen', label: 'Regenerates per round', type: 'number', min: 0 },
         { key: 'fleeAt', label: 'Flees below (fraction of health)', type: 'number', step: 0.05, min: 0, max: 1 },
@@ -149,6 +175,49 @@ export function categories(game) {
         { key: 'look.color', label: 'Colour', type: 'color', show: (o) => o.look?.kind !== 'humanoid' },
         { key: 'look.eyes', label: 'Glowing eyes', type: 'color', nullable: true },
         ...LOOK_FIELDS.map((f) => ({ ...f, show: (o) => o.look?.kind === 'humanoid' && (!f.show || f.show(o)) })),
+      ],
+    },
+    abilities: {
+      label: 'Abilities', icon: '💥', list: game.abilities,
+      group: (a) => (a.monster ? 'Monster abilities' : a.special ? 'Class specials ★' : 'Class skills'),
+      blank: () => ({ name: 'New Ability', icon: 'star', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 2, statuses: [], vfx: 'slash', fx: 0xffe080, desc: '' }),
+      fields: [
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'desc', label: 'Description', type: 'textarea', rows: 2, hint: 'Shown on the battle button and the hero sheet' },
+        { key: 'icon', label: 'Icon', type: 'select', options: ICON_NAMES },
+        { key: 'special', label: 'A class special (★, key Q)', type: 'check' },
+        { key: 'monster', label: 'Monster ability (hidden from class lists)', type: 'check' },
+        { type: 'section', label: 'Targeting' },
+        { key: 'target', label: 'Affects', type: 'select', options: ABILITY_TARGETS.map((t) => [t, `${t} — ${TARGET_HELP[t]}`]), rerender: true },
+        { key: 'range', label: 'Range (squares)', type: 'number', min: 0, max: 12, show: (o) => ['enemy', 'ally', 'tile', 'multi'].includes(o.target), hint: '1 = beside; 0 = centred on the user' },
+        { key: 'radius', label: 'Radius', type: 'number', min: 0, max: 4, show: (o) => ['nearbyFoes', 'nearbyAllies', 'tile'].includes(o.target) },
+        { key: 'count', label: 'Number of foes', type: 'number', min: 1, max: 6, show: (o) => o.target === 'multi' },
+        { key: 'move', label: 'Movement', type: 'select', empty: '— none —', nullable: true, options: [['teleport', 'Teleport to the chosen square'], ['beside', 'Appear beside the target'], ['charge', 'Charge at the target']] },
+        { type: 'section', label: 'Effect' },
+        { key: 'attack', label: 'Weapon attack', type: 'select', empty: '— no attack roll —', nullable: true, options: [['melee', 'Melee weapon'], ['ranged', 'Ranged weapon']], rerender: true },
+        { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => !!o.attack },
+        { key: 'mult', label: 'Damage multiplier', type: 'number', step: 0.25, min: 0, show: (o) => !!o.attack },
+        { key: 'bonus', label: 'Extra damage dice', type: 'dice', placeholder: '1d6', show: (o) => !!o.attack },
+        { key: 'autoCrit', label: 'Always a critical hit', type: 'check', show: (o) => !!o.attack },
+        { key: 'ignoreCover', label: 'Ignores cover', type: 'check', show: (o) => o.attack === 'ranged' },
+        { key: 'needs', label: 'Needs a ranged weapon', type: 'select', empty: '— nothing —', nullable: true, options: [['ranged', 'A bow, crossbow or sling']] },
+        { key: 'damage', label: 'Sure damage (no roll to hit)', type: 'dice', placeholder: '1d8', show: (o) => !o.attack },
+        { key: 'heal', label: 'Healing', type: 'dice', placeholder: '1d6+1' },
+        { key: 'healPct', label: 'Heal a share of health', type: 'number', step: 0.05, min: 0, max: 1 },
+        { key: 'stat', label: 'Adds the modifier of', type: 'select', empty: '— none —', nullable: true, options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'For damage and healing; monsters add half their level' },
+        { key: 'undeadBonus', label: 'Multiplier against the undead', type: 'number', step: 0.5, min: 0 },
+        { key: 'lifesteal', label: 'Heals the user for this share of damage', type: 'number', step: 0.05, min: 0, max: 1 },
+        { key: 'cure', label: 'Cures poison', type: 'check' },
+        { key: 'knockback', label: 'Knock back (squares)', type: 'number', min: 0, max: 4 },
+        statusList(),
+        { type: 'section', label: 'Use' },
+        { key: 'cooldown', label: 'Cooldown (turns)', type: 'number', min: 0, max: 10 },
+        { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
+        { key: 'free', label: 'Free action (does not end the turn)', type: 'check' },
+        { key: 'windup', label: 'Telegraphed: lands next turn on the marked squares', type: 'check' },
+        { type: 'section', label: 'Look' },
+        { key: 'vfx', label: 'Effect', type: 'select', options: ABILITY_VFX },
+        { key: 'fx', label: 'Colour', type: 'color' },
       ],
     },
     magic: {

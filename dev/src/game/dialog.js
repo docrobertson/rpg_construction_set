@@ -13,6 +13,9 @@ export const ACTIONS = {
   join: 'Join the party',
   teleport: 'Teleport party',
   fight: 'Attack the party',
+  start_quest: 'Start a quest',
+  advance_quest: 'Complete the current step of a quest',
+  complete_quest: 'Complete a quest',
   victory: 'Win the game!',
 };
 
@@ -23,6 +26,9 @@ export const CONDITIONS = {
   item: 'Party has item',
   gold: 'Party has gold ≥',
   level: 'Party level ≥',
+  quest: 'Quest is under way',
+  questdone: 'Quest is finished',
+  noquest: 'Quest not yet begun',
 };
 
 const norm = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9 ]/g, '');
@@ -46,6 +52,9 @@ export function checkCond(cond, ctx) {
     case 'item': return (state.party.inventory[cond.value] || 0) > 0 || state.party.members.some((m) => Object.values(m.equip || {}).includes(cond.value));
     case 'gold': return state.party.gold >= (parseInt(cond.value, 10) || 0);
     case 'level': return ctx.partyLevel >= (parseInt(cond.value, 10) || 0);
+    case 'quest': return state.quests?.[cond.value]?.status === 'active';
+    case 'questdone': return state.quests?.[cond.value]?.status === 'done';
+    case 'noquest': return !state.quests?.[cond.value];
     default: return true;
   }
 }

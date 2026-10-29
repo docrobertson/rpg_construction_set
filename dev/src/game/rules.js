@@ -1,8 +1,8 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, CLASS_SPECIALS } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, ABILITIES, PERKS, CLASSES, MONSTERS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { roll } from '../core/rng.js';
-import { uid } from '../core/util.js';
+import { roll, RNG, hashString } from '../core/rng.js';
+import { uid, deepClone } from '../core/util.js';
 
 export const mod = (v) => Math.floor(((v || 10) - 10) / 2);
 
@@ -49,7 +49,68 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
 export function maxHp(game, c) {
   const k = classOf(game, c), r = raceOf(game, c);
   const per = (k.hpLevel || 6) + Math.max(-1, mod(c.str)) + (r.hp || 0);
-  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per));
+  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5);
+}
+
+// --- talents chosen on levelling up
+export function perkCount(c, id) {
+  let n = 0;
+  for (const p of c.perks || []) if (p === id) n++;
+  return n;
+}
+
+export function perkOf(id) { return PERKS.find((p) => p.id === id) || null; }
+
+// The two talents offered for the next pending level: fixed per hero and
+// level so that closing the window and coming back offers the same pair
+export function perkChoices(game, c) {
+  const ok = PERKS.filter((p) => (p.stack || !perkCount(c, p.id))
+    && (p.needs !== 'mana' || maxMp(game, c) > 0)
+    && (p.needs !== 'ranged' || classOf(game, c).weapons?.some((w) => ['bow', 'crossbow', 'sling'].includes(w))));
+  const r = new RNG(hashString(`${c.id}:${c.level}:${(c.perks || []).length}`));
+  return r.shuffle([...ok]).slice(0, 2);
+}
+
+export function choosePerk(game, c, id) {
+  if (!(c.perkPending > 0) || !perkOf(id)) return false;
+  const oldHp = maxHp(game, c), oldMp = maxMp(game, c);
+  c.perks = [...(c.perks || []), id];
+  c.perkPending--;
+  if (c.status !== 'dead') {
+    c.hp = Math.max(1, c.hp + maxHp(game, c) - oldHp);
+    c.mp = Math.max(0, c.mp + maxMp(game, c) - oldMp);
+  }
+  return true;
+}
+
+// --- battle abilities (data in game.abilities)
+// Games made before abilities existed get the defaults, and their classes and
+// monsters the default skills of the same id. Safe to call often.
+export function ensureCombatData(game) {
+  if (!Array.isArray(game.abilities)) game.abilities = deepClone(ABILITIES);
+  for (const k of game.classes || []) {
+    if (k.skills === undefined) k.skills = [...(CLASSES.find((d) => d.id === k.id)?.skills || [])];
+  }
+  for (const m of game.monsters || []) {
+    const d = MONSTERS.find((x) => x.id === m.id);
+    if (m.abilities === undefined) m.abilities = [...(d?.abilities || [])];
+    if (m.ai === undefined && d?.ai) m.ai = d.ai;
+  }
+  return game.abilities;
+}
+
+export function abilityOf(game, id) { return id ? byId(ensureCombatData(game), id) || null : null; }
+
+// A hero's battle abilities: class skills first, then the once-per-battle special
+export function heroAbilities(game, c) {
+  const k = classOf(game, c);
+  ensureCombatData(game);
+  const out = [];
+  for (const id of [...(k.skills || []), k.special]) {
+    const a = abilityOf(game, id);
+    if (a && !out.includes(a)) out.push(a);
+  }
+  return out;
 }
 
 // Casting ability per magic system (only enabled systems count)
@@ -73,7 +134,7 @@ export function maxMp(game, c) {
     const statMod = Math.max(0, mod(c[ci.sys.stat] || 10));
     best = Math.max(best, Math.floor(3 + ci.castLevel * (2 + statMod * 0.5)));
   }
-  return best;
+  return best > 0 ? best + perkCount(c, 'arcane') * 4 : 0;
 }
 
 export function knownSpells(game, c) {
@@ -186,6 +247,8 @@ export function normalizeMember(game, c, inv) {
     c.equip.weapon = null;
   }
   c.points = c.points || 0;
+  c.perks = Array.isArray(c.perks) ? c.perks : [];
+  c.perkPending = c.perkPending || 0;
 }
 
 export function weaponOf(game, c) {
@@ -196,7 +259,8 @@ export function rangedOf(game, c) { return itemOf(game, c.equip.ranged); }
 
 export function specialOf(game, c) {
   const key = classOf(game, c).special;
-  return key && CLASS_SPECIALS[key] ? { key, ...CLASS_SPECIALS[key] } : null;
+  const a = abilityOf(game, key);
+  return a ? { key, ...a } : null;
 }
 
 export function isRanged(w) { return (w.range || 1) > 1; }
@@ -206,6 +270,7 @@ export function isRanged(w) { return (w.range || 1) > 1; }
 export function combatMoves(game, c) {
   let n = game.settings.combatMoves ?? 3;
   if ((c.dex || 10) >= 16) n++;
+  if (perkCount(c, 'fleet')) n++;
   if (itemOf(game, c.equip?.armor)?.weight === 'plate') n--;
   return Math.max(1, n);
 }
@@ -219,24 +284,29 @@ export function buffTotal(c, kind) {
 export function attackBonus(game, c, w = weaponOf(game, c)) {
   const k = classOf(game, c);
   const stat = isRanged(w) || w.wkind === 'dagger' ? c.dex : c.str;
-  let b = Math.floor(c.level * (k.hitRate ?? 0.75)) + mod(stat) + (w.hit || 0) + buffTotal(c, 'bless');
+  let b = Math.floor(c.level * (k.hitRate ?? 0.75)) + mod(stat) + (w.hit || 0) + buffTotal(c, 'bless') + perkCount(c, 'precise');
   if (w.wkind === 'bow' && hasTrait(game, c, 'keenSight')) b += 1;
   return b;
 }
 
 export function armorClass(game, c) {
   const a = itemOf(game, c.equip.armor), s = itemOf(game, c.equip.shield);
-  let ac = 10 + (a?.ac || 0) + (s?.ac || 0) + mod(c.dex) + buffTotal(c, 'shield');
+  let ac = 10 + (a?.ac || 0) + (s?.ac || 0) + mod(c.dex) + buffTotal(c, 'shield') + perkCount(c, 'guard');
   if (hasAbility(game, c, 'layHands') && c.hp < maxHp(game, c) / 2) ac += 2;
   return ac;
 }
 
 export function damageRoll(game, c, w = weaponOf(game, c)) {
   const melee = !isRanged(w);
-  return Math.max(1, roll(w.dmg || '1d2') + (melee ? mod(c.str) : Math.floor(mod(c.dex) / 2)));
+  return Math.max(1, roll(w.dmg || '1d2') + damageBonus(game, c, w));
 }
 
-export function critRange(game, c) { return hasAbility(game, c, 'backstab') ? 18 : 20; }
+// the flat part of a weapon's damage (for previews: dice range plus this)
+export function damageBonus(game, c, w = weaponOf(game, c)) {
+  return !isRanged(w) ? mod(c.str) + perkCount(c, 'brutal') * 2 : Math.floor(mod(c.dex) / 2) + perkCount(c, 'marksman');
+}
+
+export function critRange(game, c) { return (hasAbility(game, c, 'backstab') ? 18 : 20) - (perkCount(c, 'deadly') ? 1 : 0); }
 
 // --- experience
 export function xpForLevel(l) { return XP_TABLE[Math.min(l, MAX_LEVEL)] ?? Infinity; }
@@ -252,6 +322,8 @@ export function gainXp(game, c, amount) {
     c.level++;
     // every level brings an attribute point to spend on the character sheet
     c.points = (c.points || 0) + 1;
+    // ...and a choice of talent
+    c.perkPending = (c.perkPending || 0) + 1;
     c.hp += maxHp(game, c) - oldHp;
     c.mp += maxMp(game, c) - oldMp;
     gained.push(c.level);

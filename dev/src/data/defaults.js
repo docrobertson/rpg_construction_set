@@ -24,17 +24,140 @@ export const CLASS_ABILITIES = {
   layHands: 'Steadfast: +2 AC when below half health',
 };
 
-// One special move per class, usable once in every battle (key Q)
-export const CLASS_SPECIALS = {
-  whirlwind: { name: 'Whirlwind', desc: 'Strike every foe standing beside you.' },
-  volley: { name: 'Volley', desc: 'Loose arrows at up to three foes in range. Needs a ranged weapon.' },
-  blink: { name: 'Blink', desc: 'Step through the air to any open square within 5. Does not use up your turn.' },
-  mending: { name: 'Prayer of Mending', desc: 'Heal every companion for a quarter of their health.' },
-  shadowstrike: { name: 'Shadow Strike', desc: 'Vanish and reappear beside a foe within 4 squares for a certain critical blow.' },
-  rally: { name: 'Rally', desc: 'The whole company gains +2 to hit and +2 armour for 3 rounds.' },
-  dazzle: { name: 'Dazzling Air', desc: 'Foes within 3 squares are spellbound and lose their next turn.' },
-  earthshaker: { name: 'Earthshaker', desc: 'Slam the ground: every adjacent foe takes 1d8 damage and is stunned.' },
+// ---------------------------------------------------------------- battle abilities
+// Active abilities used in battle by heroes (class skills and once-per-battle
+// specials) and by monsters. They are data, editable in the construction set:
+//   target   enemy | ally | self | tile | adjacentFoes | nearbyFoes | nearbyAllies | allAllies | allEnemies | multi
+//   attack   melee | ranged (rolls to hit with the user's weapon) — or none for sure effects
+//   mult/bonus/hit  weapon damage multiplier, extra dice and to-hit bonus
+//   damage/heal     dice plus the user's stat modifier (stat); healPct heals a share of max health
+//   statuses [{ id, rounds, power, chance, self }] applied to each target (self: to the user instead)
+//   move     teleport (to the chosen tile) | beside (appear next to the target) | charge (rush at it)
+//   cooldown rounds before it can be used again; perBattle limits uses; free keeps the turn going
+//   windup   the blow lands a turn later on whoever still stands in the marked squares
+export const ABILITIES = [
+  // Warrior
+  { id: 'shield_bash', name: 'Shield Bash', icon: 'bash', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 3, knockback: 1,
+    statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'impact', fx: 0xffe0a0, desc: 'Slam a foe beside you: it reels back a square and loses its next turn.' },
+  { id: 'taunt', name: 'Taunt', icon: 'shout', target: 'nearbyFoes', radius: 3, cooldown: 4, free: true,
+    statuses: [{ id: 'taunted', rounds: 2 }, { id: 'shielded', rounds: 2, power: 2, self: true }], vfx: 'shout', fx: 0xff7050,
+    desc: 'Free action. Foes within 3 must come for you for two turns, and you gain +2 armour.' },
+  { id: 'whirlwind', name: 'Whirlwind', icon: 'whirl', special: true, target: 'adjacentFoes', attack: 'melee', mult: 1, perBattle: 1, vfx: 'slash', fx: 0xffffff,
+    desc: 'Once per battle. Strike every foe standing beside you.' },
+  // Ranger
+  { id: 'aimed_shot', name: 'Aimed Shot', icon: 'aim', target: 'enemy', range: 8, attack: 'ranged', hit: 4, bonus: '1d6', ignoreCover: true, needs: 'ranged', cooldown: 2, vfx: 'arrow', fx: 0xfff0b0,
+    desc: 'A careful shot: +4 to hit, +1d6 damage, and cover does not help the target.' },
+  { id: 'pinning_shot', name: 'Pinning Shot', icon: 'pin', target: 'enemy', range: 8, attack: 'ranged', mult: 1, needs: 'ranged', cooldown: 3,
+    statuses: [{ id: 'rooted', rounds: 2 }], vfx: 'arrow', fx: 0xc0a070, desc: 'Nail a foe in place: it cannot move for two turns.' },
+  { id: 'volley', name: 'Volley', icon: 'volley', special: true, target: 'multi', count: 3, range: 8, attack: 'ranged', mult: 1, needs: 'ranged', perBattle: 1, vfx: 'arrow', fx: 0xfff0b0,
+    desc: 'Once per battle. Loose arrows at up to three foes in range.' },
+  // Wizard
+  { id: 'firebolt', name: 'Firebolt', icon: 'fire', target: 'enemy', range: 6, damage: '1d8', stat: 'int', cooldown: 1,
+    statuses: [{ id: 'burning', rounds: 2, chance: 0.5 }], vfx: 'fire', fx: 0xff7020, desc: 'Hurl a bolt of flame (1d8 + Intellect) that may set the target alight. No mana needed.' },
+  { id: 'frost_nova', name: 'Frost Nova', icon: 'frost', target: 'nearbyFoes', radius: 1, damage: '1d6', stat: 'int', cooldown: 4,
+    statuses: [{ id: 'slowed', rounds: 2 }], vfx: 'frost', fx: 0x9ae8ff, desc: 'Every foe around you is chilled (1d6 + Intellect) and slowed for two turns.' },
+  { id: 'blink', name: 'Blink', icon: 'blink', special: true, target: 'tile', range: 5, move: 'teleport', perBattle: 1, free: true, vfx: 'arcane', fx: 0xc0a0ff,
+    desc: 'Once per battle. Step through the air to any open square within 5. Does not use up your turn.' },
+  // Cleric
+  { id: 'healing_word', name: 'Healing Word', icon: 'heart', target: 'ally', range: 5, heal: '1d6+1', stat: 'wis', cooldown: 3, free: true, vfx: 'heal', fx: 0x80ffa0,
+    desc: 'Free action. A word of comfort heals a companion within 5 (1d6+1 + Wisdom).' },
+  { id: 'smite', name: 'Smite', icon: 'sun', target: 'enemy', range: 1, attack: 'melee', mult: 1, bonus: '1d6', undeadBonus: 2, cooldown: 2, vfx: 'holy', fx: 0xfff0a0,
+    desc: 'A blow wreathed in holy light: +1d6 damage, double against the undead.' },
+  { id: 'mending', name: 'Prayer of Mending', icon: 'cross', special: true, target: 'allAllies', healPct: 0.3, perBattle: 1, vfx: 'heal', fx: 0x80ffa0,
+    desc: 'Once per battle. Heal every companion for a third of their health.' },
+  // Burglar
+  { id: 'poison_blade', name: 'Poisoned Blade', icon: 'poison', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 3,
+    statuses: [{ id: 'poisoned', rounds: 3, power: 2 }], vfx: 'poison', fx: 0x90e060, desc: 'A strike with a venomed edge: the foe also loses 2 health a turn for three turns.' },
+  { id: 'smoke_bomb', name: 'Smoke Bomb', icon: 'smoke', target: 'self', cooldown: 4, free: true, statuses: [{ id: 'hidden', rounds: 2, self: true }], vfx: 'smoke', fx: 0x9a9aaa,
+    desc: 'Free action. Vanish in smoke: foes lose sight of you, you slip away without provoking, and your next attack is a backstab.' },
+  { id: 'shadowstrike', name: 'Shadow Strike', icon: 'dagger', special: true, target: 'enemy', range: 4, move: 'beside', attack: 'melee', autoCrit: true, perBattle: 1, vfx: 'shadow', fx: 0x9a70ff,
+    desc: 'Once per battle. Vanish and reappear beside a foe within 4 squares for a certain critical blow.' },
+  // Paladin
+  { id: 'holy_strike', name: 'Holy Strike', icon: 'sun', target: 'enemy', range: 1, attack: 'melee', mult: 1, bonus: '1d6', lifesteal: 0.5, cooldown: 2, vfx: 'holy', fx: 0xfff0a0,
+    desc: '+1d6 radiant damage, and the paladin is healed for half the damage dealt.' },
+  { id: 'lay_on_hands', name: 'Lay on Hands', icon: 'hands', target: 'ally', range: 1, heal: '2d6+2', stat: 'wis', cure: true, cooldown: 4, vfx: 'heal', fx: 0xfff0a0,
+    desc: 'Touch yourself or a companion beside you: heal 2d6+2 + Wisdom and draw out poison.' },
+  { id: 'rally', name: 'Rally', icon: 'banner', special: true, target: 'allAllies', perBattle: 1, statuses: [{ id: 'blessed', rounds: 4, power: 2 }, { id: 'shielded', rounds: 4, power: 2 }], vfx: 'holy', fx: 0xffe080,
+    desc: 'Once per battle. The whole company gains +2 to hit and +2 armour for three rounds.' },
+  // Minstrel
+  { id: 'cutting_words', name: 'Cutting Words', icon: 'note', target: 'enemy', range: 5, damage: '1d4', stat: 'wis', cooldown: 2,
+    statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'song', fx: 0xd080ff, desc: 'A mocking verse (1d4 + Wisdom) that leaves a foe weakened: −2 to hit and damage.' },
+  { id: 'inspire', name: 'Inspire', icon: 'star', target: 'ally', range: 5, cooldown: 3, free: true, statuses: [{ id: 'blessed', rounds: 3, power: 3 }], vfx: 'song', fx: 0x8affc0,
+    desc: 'Free action. A rousing refrain: you or a companion gain +3 to hit for two rounds.' },
+  { id: 'dazzle', name: 'Dazzling Air', icon: 'sparkle', special: true, target: 'nearbyFoes', radius: 3, perBattle: 1, statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'song', fx: 0xff90ff,
+    desc: 'Once per battle. Foes within 3 squares are spellbound and lose their next turn.' },
+  // Runesmith
+  { id: 'thunder_hammer', name: 'Thunder Blow', icon: 'hammer', target: 'enemy', range: 1, attack: 'melee', mult: 1, bonus: '1d4', knockback: 2, cooldown: 2, vfx: 'shock', fx: 0xa0d0ff,
+    desc: 'A rune-charged blow: +1d4 damage and the foe is hurled back two squares.' },
+  { id: 'ward_rune', name: 'Rune of Warding', icon: 'rune', target: 'ally', range: 3, cooldown: 3, free: true, statuses: [{ id: 'shielded', rounds: 3, power: 3 }], vfx: 'arcane', fx: 0xd0e0ff,
+    desc: 'Free action. Carve a ward on yourself or a companion within 3: +3 armour for two rounds.' },
+  { id: 'earthshaker', name: 'Earthshaker', icon: 'quake', special: true, target: 'nearbyFoes', radius: 1, damage: '1d8', stat: 'str', perBattle: 1, statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'earth', fx: 0x9a8a70,
+    desc: 'Once per battle. Slam the ground: every foe around you takes 1d8 + Strength and is stunned.' },
+  // Monsters
+  { id: 'pounce', name: 'Pounce', icon: 'claw', monster: true, target: 'enemy', range: 5, move: 'charge', attack: 'melee', mult: 1, cooldown: 3,
+    statuses: [{ id: 'stunned', rounds: 1, chance: 0.35 }], vfx: 'impact', fx: 0xd0c0a0, desc: 'Leaps on a foe up to 5 squares away and may knock it down.' },
+  { id: 'war_cry', name: 'War Cry', icon: 'shout', monster: true, target: 'nearbyAllies', radius: 5, cooldown: 4, statuses: [{ id: 'blessed', rounds: 3, power: 2 }], vfx: 'shout', fx: 0xff5030,
+    desc: 'Bellows to its kin: allies within 5 gain +2 to hit.' },
+  { id: 'brutal_smash', name: 'Crushing Blow', icon: 'hammer', monster: true, target: 'tile', range: 1, radius: 0, windup: true, damage: '3d6', cooldown: 3, knockback: 1,
+    statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'earth', fx: 0xc08040, desc: 'Raises its weapon high — next turn it crashes down on the marked square. Step aside!' },
+  { id: 'mend', name: 'Mend', icon: 'heart', monster: true, target: 'ally', range: 5, heal: '2d4+2', cooldown: 2, vfx: 'heal', fx: 0x80ff60, desc: 'Heals a wounded ally.' },
+  { id: 'hex', name: 'Hex', icon: 'eye', monster: true, target: 'enemy', range: 5, damage: '1d4', cooldown: 2, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'shadow', fx: 0xa060ff,
+    desc: 'A spiteful curse: −2 to hit and damage.' },
+  { id: 'engulf', name: 'Engulf', icon: 'pin', monster: true, target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 3, statuses: [{ id: 'rooted', rounds: 2 }], vfx: 'poison', fx: 0x6a9a4a,
+    desc: 'Smothers a foe in slime; it cannot move.' },
+  { id: 'tail_sweep', name: 'Tail Sweep', icon: 'whirl', monster: true, target: 'adjacentFoes', attack: 'melee', mult: 1, knockback: 1, cooldown: 3, vfx: 'slash', fx: 0xffd080,
+    desc: 'Sweeps every foe beside it backwards.' },
+  { id: 'inferno', name: 'Inferno', icon: 'fire', monster: true, target: 'tile', range: 6, radius: 1, windup: true, damage: '4d6', cooldown: 3, statuses: [{ id: 'burning', rounds: 2 }], vfx: 'fire', fx: 0xff5010,
+    desc: 'Draws a deep breath — next turn the marked squares are engulfed in flame.' },
+  { id: 'dark_wave', name: 'Wave of Night', icon: 'skull', monster: true, target: 'tile', range: 0, radius: 2, windup: true, damage: '3d8', cooldown: 3, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'shadow', fx: 0x8040ff,
+    desc: 'Gathers darkness about itself — next turn it bursts outward over the marked squares.' },
+];
+export const ABILITY_TARGETS = ['enemy', 'ally', 'self', 'tile', 'adjacentFoes', 'nearbyFoes', 'nearbyAllies', 'allAllies', 'allEnemies', 'multi'];
+export const ABILITY_VFX = ['slash', 'impact', 'arrow', 'fire', 'frost', 'holy', 'heal', 'shadow', 'poison', 'smoke', 'arcane', 'song', 'shock', 'earth', 'shout'];
+
+// Older games stored a special key per class; these are the same ids in ABILITIES
+export const CLASS_SPECIALS = Object.fromEntries(ABILITIES.filter((a) => a.special).map((a) => [a.id, { name: a.name, desc: a.desc }]));
+
+// Conditions in battle. Their effects are rules of the game; names and icons can be restyled.
+export const STATUS_EFFECTS = {
+  stunned: { name: 'Stunned', icon: 'stun', color: '#ffd860', bad: true, desc: 'Loses its next turn. Attacks against it always hit.' },
+  asleep: { name: 'Asleep', icon: 'sleep', color: '#b0a0ff', bad: true, desc: 'Sleeps until struck. Attacks against it always hit.' },
+  afraid: { name: 'Afraid', icon: 'fear', color: '#d0a0ff', bad: true, desc: 'Runs from the fight.' },
+  rooted: { name: 'Pinned', icon: 'pin', color: '#d0a070', bad: true, desc: 'Cannot move, but may still fight.' },
+  slowed: { name: 'Slowed', icon: 'frost', color: '#80d8ff', bad: true, desc: 'Moves half as far.' },
+  poisoned: { name: 'Poisoned', icon: 'poison', color: '#9be070', bad: true, desc: 'Loses health at the start of each turn.' },
+  burning: { name: 'Burning', icon: 'fire', color: '#ff9040', bad: true, desc: 'Takes 1d4 fire damage at the start of each turn.' },
+  weakened: { name: 'Weakened', icon: 'down', color: '#c090ff', bad: true, desc: '−2 to hit and −2 damage.' },
+  taunted: { name: 'Taunted', icon: 'shout', color: '#ff7060', bad: true, desc: 'Must attack whoever taunted it.' },
+  blessed: { name: 'Blessed', icon: 'star', color: '#ffe080', desc: 'Bonus to hit.' },
+  shielded: { name: 'Shielded', icon: 'shield', color: '#90b8ff', desc: 'Bonus to armour.' },
+  hidden: { name: 'Hidden', icon: 'smoke', color: '#b8b8d0', desc: 'Foes cannot see it. Slips away without provoking; its next attack is a backstab.' },
 };
+
+// How monsters fight (editable per monster)
+export const AI_STYLES = {
+  brute: 'Brute: charges the nearest foe',
+  pack: 'Pack hunter: gangs up and flanks',
+  archer: 'Archer: keeps its distance and shoots the weakest',
+  caster: 'Caster: hangs back, heals and curses',
+  coward: 'Coward: picks on the weak, flees when hurt',
+  boss: 'Boss: uses its terrible powers often',
+};
+
+// Talents: on every level-up a hero chooses one of two
+export const PERKS = [
+  { id: 'tough', name: 'Tough', icon: 'heart', stack: true, desc: '+5 maximum health.' },
+  { id: 'precise', name: 'Precise', icon: 'aim', stack: true, desc: '+1 to hit with every weapon.' },
+  { id: 'guard', name: 'Guarded', icon: 'shield', stack: true, desc: '+1 armour.' },
+  { id: 'brutal', name: 'Brutal', icon: 'hammer', stack: true, desc: '+2 melee damage.' },
+  { id: 'fleet', name: 'Fleet-footed', icon: 'boot', desc: '+1 square of movement in battle.' },
+  { id: 'deadly', name: 'Deadly', icon: 'dagger', desc: 'Critical hits on one more number of the die.' },
+  { id: 'marksman', name: 'Marksman', icon: 'bow', needs: 'ranged', desc: '+1 range and +1 damage with bows, crossbows and slings.' },
+  { id: 'arcane', name: 'Deep Well', icon: 'rune', stack: true, needs: 'mana', desc: '+4 maximum mana.' },
+  { id: 'quick', name: 'Quick Recovery', icon: 'hourglass', desc: 'Skill cooldowns are one round shorter.' },
+  { id: 'iron_will', name: 'Iron Will', icon: 'star', desc: 'Cannot be stunned, put to sleep or frightened.' },
+  { id: 'alert', name: 'Alert', icon: 'eye', desc: '+4 initiative: acts earlier in battle.' },
+];
 
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
@@ -71,36 +194,36 @@ export const RACES = [
 export const CLASSES = [
   { id: 'warrior', name: 'Warrior', desc: 'A master of arms and armour, the shield-wall of any fellowship.',
     hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], armor: 'plate', shields: true,
-    abilities: ['cleave'], special: 'whirlwind', start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
-    look: { body: 0x8a2a2a, hat: 'helm', weapon: 'sword', shield: 0x8a6a2a } },
+    abilities: ['cleave'], special: 'whirlwind', skills: ['shield_bash', 'taunt'], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
+    look: { body: 0xa8302a, hat: 'helm', weapon: 'sword', shield: 0x9a6a30, pauldrons: 'plate' } },
   { id: 'ranger', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow and wise in woodcraft. Learns a little Prayer.',
     hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
-    abilities: ['tracker'], special: 'volley', start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
-    look: { body: 0x3a5a2a, hat: 'hood', hatColor: 0x2e4a24, weapon: 'bow', cape: 0x2e4a24 } },
+    abilities: ['tracker'], special: 'volley', skills: ['aimed_shot', 'pinning_shot'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
+    look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
   { id: 'wizard', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
     requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], armor: 'cloth', shields: false,
-    abilities: [], special: 'blink', start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
-    look: { body: 0x3a3a8a, robe: true, hat: 'wizard', hatColor: 0x3a3a8a, weapon: 'staff' } },
+    abilities: [], special: 'blink', skills: ['firebolt', 'frost_nova'], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
+    look: { body: 0x3446a8, robe: true, hat: 'wizard', hatColor: 0x3446a8, trim: 0xe2b24a, weapon: 'staff' } },
   { id: 'cleric', name: 'Cleric', desc: 'A servant of the Powers, healer of wounds and scourge of the restless dead.',
     requires: 'divine', hpBase: 12, hpLevel: 6, hitRate: 0.6, magic: [{ system: 'divine', rate: 1 }], weapons: ['blunt', 'staff', 'sling'], armor: 'chain', shields: true,
-    abilities: [], special: 'mending', start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
-    look: { body: 0xe8e0c8, robe: true, trim: 0xd0a040, weapon: 'mace', shield: 0xe8d090 } },
+    abilities: [], special: 'mending', skills: ['healing_word', 'smite'], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
+    look: { body: 0xf0ead6, robe: true, trim: 0xd8a83a, weapon: 'mace', shield: 0xe8c860, mantle: 0xd8a83a } },
   { id: 'burglar', name: 'Burglar', desc: 'Quick of hand and quiet of foot. Picks locks, finds traps, and strikes from the shadows.',
     hpBase: 10, hpLevel: 5, hitRate: 0.75, magic: [], weapons: ['dagger', 'blade', 'sling', 'bow'], armor: 'leather', shields: false,
-    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
-    look: { body: 0x4a4a3a, hat: 'hood', hatColor: 0x3a3a30, weapon: 'dagger', cape: 0x2a2a24 } },
+    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: ['poison_blade', 'smoke_bomb'], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
+    look: { body: 0x5a5448, hat: 'hood', hatColor: 0x3e3a44, weapon: 'dagger', offhand: 'dagger', cape: 0x3e3a44, scarf: 0xb03a2a } },
   { id: 'paladin', name: 'Paladin', desc: 'A holy knight sworn to a cause, mighty in arms and gifted with a little Prayer.',
     requires: null, hpBase: 15, hpLevel: 7, hitRate: 0.9, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'greatblade', 'blunt', 'spear', 'axe'], armor: 'plate', shields: true,
-    abilities: ['layHands'], special: 'rally', start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
+    abilities: ['layHands'], special: 'rally', skills: ['holy_strike', 'lay_on_hands'], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
     look: { body: 0xd8d8e0, armor: 'plate', hat: 'helm', plume: 0xc03030, weapon: 'sword', shield: 0xe8e8f0, cape: 0x2a4a9a } },
   { id: 'minstrel', name: 'Minstrel', desc: 'A singer of the old lays whose songs of power hearten friends and dismay foes.',
     requires: 'song', hpBase: 10, hpLevel: 5, hitRate: 0.65, magic: [{ system: 'song', rate: 1 }], weapons: ['blade', 'dagger', 'bow', 'sling'], armor: 'leather', shields: false,
-    abilities: [], special: 'dazzle', start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
-    look: { body: 0x8a3a7a, hat: 'cap', hatColor: 0x6a2a5a, weapon: 'sword', cape: 0xd0a040 } },
+    abilities: [], special: 'dazzle', skills: ['cutting_words', 'inspire'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
+    look: { body: 0x9a3a8a, hat: 'cap', hatColor: 0x7a2a6a, weapon: 'sword', cape: 0xd8a83a, back: 'lute' } },
   { id: 'runesmith', name: 'Runesmith', desc: 'A forge-priest of the dwarves who carves runes of power, fuelled by rare reagents.',
     requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], armor: 'chain', shields: true,
-    abilities: [], special: 'earthshaker', start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
-    look: { body: 0x7a4a2a, armor: 'chain', hat: 'helm', hatColor: 0xb08a40, weapon: 'hammer', shield: 0x7a5a3a } },
+    abilities: [], special: 'earthshaker', skills: ['thunder_hammer', 'ward_rune'], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
+    look: { body: 0x9a5a2a, armor: 'chain', hat: 'helm', hatColor: 0xd0a040, weapon: 'hammer', shield: 0x8a5a32, runes: 0xff9a40 } },
 ];
 
 export const ITEMS = [
@@ -161,9 +284,9 @@ export const SPELLS = [
   { id: 'magic_missile', name: 'Magic Missile', system: 'arcane', level: 1, cost: 2, target: 'enemy', effect: 'damage', power: '1d6+2', range: 7, autoHit: true, combat: true, field: false, fx: 0x8ab8ff, desc: 'A dart of force that never misses.' },
   { id: 'sleep', name: 'Sleep', system: 'arcane', level: 1, cost: 3, target: 'area', radius: 1, effect: 'sleep', power: '3', range: 6, combat: true, field: false, fx: 0xc080ff, desc: 'Foes near the target fall into an enchanted slumber.' },
   { id: 'light', name: 'Light', system: 'arcane', level: 1, cost: 2, target: 'self', effect: 'light', power: '150', combat: false, field: true, fx: 0xfff0a0, desc: 'Conjures a floating light for a long while.' },
-  { id: 'frost_lance', name: 'Frost Lance', system: 'arcane', level: 2, cost: 4, target: 'enemy', effect: 'damage', power: '2d6+2', range: 6, combat: true, field: false, fx: 0x80e8ff, desc: 'A spear of ice.' },
+  { id: 'frost_lance', name: 'Frost Lance', system: 'arcane', level: 2, cost: 4, target: 'enemy', effect: 'damage', power: '2d6+2', range: 6, statuses: [{ id: 'slowed', rounds: 2 }], combat: true, field: false, fx: 0x80e8ff, desc: 'A spear of ice that slows its target.' },
   { id: 'mage_shield', name: 'Mage Shield', system: 'arcane', level: 2, cost: 3, target: 'ally', effect: 'shield', power: '3', duration: 6, combat: true, field: false, fx: 0x80a0ff, desc: '+3 armour class for several rounds.' },
-  { id: 'fireball', name: 'Fireball', system: 'arcane', level: 3, cost: 7, target: 'area', radius: 1, effect: 'damage', power: '3d6', range: 7, combat: true, field: false, fx: 0xff7020, desc: 'A roaring ball of flame bursts at the target.' },
+  { id: 'fireball', name: 'Fireball', system: 'arcane', level: 3, cost: 7, target: 'area', radius: 1, effect: 'damage', power: '3d6', range: 7, statuses: [{ id: 'burning', rounds: 2, chance: 0.5 }], combat: true, field: false, fx: 0xff7020, desc: 'A roaring ball of flame bursts at the target, setting foes alight.' },
   { id: 'far_sight', name: 'Far Sight', system: 'arcane', level: 3, cost: 6, target: 'self', effect: 'reveal', combat: false, field: true, fx: 0xc0e0ff, desc: 'See the land from on high.' },
   { id: 'lightning_storm', name: 'Lightning Storm', system: 'arcane', level: 4, cost: 10, target: 'allEnemies', effect: 'damage', power: '2d8', combat: true, field: false, fx: 0xe0e0ff, desc: 'Lightning strikes every foe.' },
   { id: 'recall', name: 'Recall', system: 'arcane', level: 4, cost: 10, target: 'self', effect: 'recall', combat: false, field: true, fx: 0xa0c0ff, desc: 'Returns the party to where the journey began.' },
@@ -204,43 +327,46 @@ export const SPELLS = [
 const L = (o) => ({ kind: 'humanoid', ...o });
 
 export const MONSTERS = [
-  { id: 'giant_rat', name: 'Giant Rat', plural: 'Giant Rats', level: 1, hp: '1d6+1', ac: 10, hit: 0, dmg: '1d3', xp: 4, gold: '0', habitat: ['grass', 'dungeon', 'swamp', 'ruins'], group: [3, 6], poison: 0.1,
+  { id: 'giant_rat', name: 'Giant Rat', plural: 'Giant Rats', level: 1, hp: '2d4+2', ac: 10, hit: 2, dmg: '1d4', xp: 4, gold: '0', habitat: ['grass', 'dungeon', 'swamp', 'ruins'], group: [3, 6], poison: 0.1, ai: 'pack', moves: 4,
     look: { kind: 'quadruped', color: 0x6a5040, scale: 0.55, tail: 'long', long: 0.45 }, desc: 'A rat the size of a dog.' },
-  { id: 'wolf', name: 'Wolf', plural: 'Wolves', level: 1, hp: '2d6', ac: 12, hit: 1, dmg: '1d6', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], speed: 2,
+  { id: 'wolf', name: 'Wolf', plural: 'Wolves', level: 1, hp: '3d6+3', ac: 12, hit: 3, dmg: '1d6+1', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], ai: 'pack', moves: 5,
     look: { kind: 'quadruped', color: 0x7a7470 }, desc: 'Grey wolves hunt in packs.' },
-  { id: 'bat_swarm', name: 'Giant Bat', plural: 'Giant Bats', level: 1, hp: '1d6', ac: 13, hit: 1, dmg: '1d3', xp: 5, gold: '0', habitat: ['dungeon', 'swamp'], group: [3, 6], fly: true, speed: 2,
+  { id: 'bat_swarm', name: 'Giant Bat', plural: 'Giant Bats', level: 1, hp: '2d4+2', ac: 13, hit: 3, dmg: '1d4', xp: 5, gold: '0', habitat: ['dungeon', 'swamp'], group: [3, 6], fly: true, speed: 2, ai: 'pack',
     look: { kind: 'bat', color: 0x3a2a2a, scale: 1.2 }, desc: 'Leathery wings in the dark.' },
-  { id: 'goblin', name: 'Goblin', plural: 'Goblins', level: 1, hp: '1d8', ac: 12, hit: 1, dmg: '1d6', xp: 7, gold: '1d6', habitat: ['hills', 'forest', 'dungeon'], group: [3, 6],
+  { id: 'goblin', name: 'Goblin', plural: 'Goblins', level: 1, hp: '2d6+3', ac: 12, hit: 3, dmg: '1d6+1', xp: 7, gold: '1d6', habitat: ['hills', 'forest', 'dungeon'], group: [3, 6], ai: 'coward', fleeAt: 0.3, escort: [{ id: 'goblin_shaman', min: 0, max: 1 }],
     look: L({ race: 'goblin', body: 0x5a4a2a, weapon: 'dagger' }), desc: 'Small, cruel and cowardly — except in numbers.' },
-  { id: 'bandit', name: 'Bandit', plural: 'Bandits', level: 2, hp: '2d8', ac: 13, hit: 2, dmg: '1d6+1', xp: 14, gold: '3d6', habitat: ['grass', 'forest'], group: [2, 4], fleeAt: 0.25,
+  // (combat stream) a support caster so that goblin bands are worth thinking about; its look is a placeholder for the art stream
+  { id: 'goblin_shaman', name: 'Goblin Shaman', plural: 'Goblin Shamans', level: 2, hp: '2d6', ac: 11, hit: 1, dmg: '1d4', xp: 12, gold: '1d8', habitat: [], group: [1, 1], ai: 'caster', abilities: ['mend', 'hex'],
+    look: L({ race: 'goblin', body: 0x5a2a4a, robe: true, hat: 'hood', hatColor: 0x3a1a30, weapon: 'staff', weaponGlow: 0x80ff60 }), desc: 'A wizened goblin hung with bones, who patches up its kin and curses their foes.' },
+  { id: 'bandit', name: 'Bandit', plural: 'Bandits', level: 2, hp: '3d8+4', ac: 13, hit: 4, dmg: '1d8+1', xp: 14, gold: '3d6', habitat: ['grass', 'forest'], group: [2, 4], fleeAt: 0.25, ai: 'coward',
     look: L({ race: 'human', body: 0x3a3028, hat: 'hood', hatColor: 0x2a2420, weapon: 'sword' }), desc: 'Outlaws who prey on travellers.' },
-  { id: 'orc', name: 'Orc', plural: 'Orcs', level: 2, hp: '2d8+2', ac: 13, hit: 2, dmg: '1d8', xp: 16, gold: '2d6', habitat: ['hills', 'forest', 'grass', 'ash', 'dungeon'], group: [2, 5], escort: [{ id: 'orc_archer', min: 0, max: 2 }],
+  { id: 'orc', name: 'Orc', plural: 'Orcs', level: 2, hp: '3d8+2', ac: 13, hit: 3, dmg: '1d8', xp: 16, gold: '2d6', habitat: ['hills', 'forest', 'grass', 'ash', 'dungeon'], group: [2, 5], ai: 'brute', escort: [{ id: 'orc_archer', min: 0, max: 1 }],
     look: L({ race: 'orc', body: 0x3a2a24, armor: 'leather', weapon: 'axe' }), desc: 'Servants of the Shadow, bred for war.' },
-  { id: 'orc_archer', name: 'Orc Archer', plural: 'Orc Archers', level: 2, hp: '2d6+1', ac: 12, hit: 3, dmg: '1d6', range: 5, xp: 16, gold: '2d6', habitat: ['hills', 'ash'], group: [2, 3],
+  { id: 'orc_archer', name: 'Orc Archer', plural: 'Orc Archers', level: 2, hp: '2d6+4', ac: 12, hit: 3, dmg: '1d6+1', range: 5, xp: 16, gold: '2d6', habitat: ['hills', 'ash'], group: [2, 3], ai: 'archer',
     look: L({ race: 'orc', body: 0x4a3a24, weapon: 'bow' }), desc: 'Orcs with black-feathered arrows.' },
-  { id: 'giant_spider', name: 'Giant Spider', plural: 'Giant Spiders', level: 3, hp: '3d8', ac: 13, hit: 3, dmg: '1d6', poison: 0.4, xp: 24, gold: '0', habitat: ['forest', 'dungeon'], group: [1, 3], spells: ['web'], castChance: 0.25,
+  { id: 'giant_spider', name: 'Giant Spider', plural: 'Giant Spiders', level: 3, hp: '5d8', ac: 13, hit: 4, dmg: '1d8', poison: 0.4, xp: 24, gold: '0', habitat: ['forest', 'dungeon'], group: [1, 3], spells: ['web'], castChance: 0.25,
     look: { kind: 'spider', color: 0x2a2424, mark: 0xa02020, scale: 1.2 }, desc: 'Bloated spiders with venomous fangs.' },
-  { id: 'skeleton', name: 'Skeleton', plural: 'Skeletons', level: 3, hp: '2d8+4', ac: 13, hit: 3, dmg: '1d8', undead: true, sleepImmune: true, xp: 20, gold: '1d10', habitat: ['dungeon', 'ruins'], group: [2, 5],
+  { id: 'skeleton', name: 'Skeleton', plural: 'Skeletons', level: 3, hp: '4d8+4', ac: 13, hit: 4, dmg: '1d8+1', undead: true, sleepImmune: true, xp: 20, gold: '1d10', habitat: ['dungeon', 'ruins'], group: [2, 5],
     moves: 2, look: L({ race: 'skeleton', weapon: 'sword', shield: 0x5a4a3a, eyes: 0xff5030 }), desc: 'Bones bound by an evil will.' },
-  { id: 'warg', name: 'Warg', plural: 'Wargs', level: 3, hp: '3d8+3', ac: 13, hit: 3, dmg: '1d8+1', xp: 28, gold: '0', habitat: ['hills', 'grass', 'snow', 'ash'], group: [2, 4], speed: 2,
+  { id: 'warg', name: 'Warg', plural: 'Wargs', level: 3, hp: '4d8+4', ac: 13, hit: 4, dmg: '1d8+1', xp: 28, gold: '0', habitat: ['hills', 'grass', 'snow', 'ash'], group: [2, 4], ai: 'pack', moves: 5, abilities: ['pounce'],
     look: { kind: 'quadruped', color: 0x3a3430, spikes: true, scale: 1.35, eyes: 0xffd040 }, desc: 'Great evil wolves, ridden by orcs.' },
-  { id: 'bog_lurker', name: 'Bog Lurker', plural: 'Bog Lurkers', level: 3, hp: '4d8', ac: 11, hit: 3, dmg: '1d8', poison: 0.3, xp: 26, gold: '1d8', habitat: ['swamp'], group: [1, 3],
+  { id: 'bog_lurker', name: 'Bog Lurker', plural: 'Bog Lurkers', level: 3, hp: '5d8', ac: 11, hit: 4, dmg: '1d8', poison: 0.3, xp: 26, gold: '1d8', habitat: ['swamp'], group: [1, 3], abilities: ['engulf'],
     moves: 2, look: { kind: 'blob', color: 0x4a6a3a }, desc: 'A heap of slime and reeds that lunges from the mire.' },
-  { id: 'orc_captain', name: 'Orc Captain', plural: 'Orc Captains', level: 4, hp: '4d8+6', ac: 15, hit: 4, dmg: '1d10+1', xp: 50, gold: '5d10', habitat: ['ash', 'hills', 'dungeon'], group: [1, 1], escort: [{ id: 'orc', min: 2, max: 4 }, { id: 'orc_archer', min: 1, max: 2 }],
+  { id: 'orc_captain', name: 'Orc Captain', plural: 'Orc Captains', level: 4, hp: '4d8+6', ac: 15, hit: 4, dmg: '1d10+1', xp: 50, gold: '5d10', habitat: ['ash', 'hills', 'dungeon'], group: [1, 1], abilities: ['war_cry', 'brutal_smash'], escort: [{ id: 'orc', min: 2, max: 4 }, { id: 'orc_archer', min: 1, max: 2 }],
     look: L({ race: 'orc', body: 0x4a1a1a, armor: 'chain', hat: 'hornhelm', hatColor: 0x3a3a3a, weapon: 'greatsword', scale: 1.15 }), desc: 'A brutal leader of orcs.' },
-  { id: 'troll', name: 'Troll', plural: 'Trolls', level: 5, hp: '6d8+10', ac: 14, hit: 5, dmg: '2d6+2', regen: 3, xp: 90, gold: '4d10', habitat: ['hills', 'forest', 'dungeon'], group: [1, 2],
-    moves: 2, look: L({ race: 'troll', body: 0x5a4a3a, weapon: 'club' }), desc: 'Huge, stupid and terribly strong. Its wounds close as you watch.' },
-  { id: 'barrow_wight', name: 'Barrow Wight', plural: 'Barrow Wights', level: 5, hp: '5d8', ac: 14, hit: 4, dmg: '1d8', undead: true, sleepImmune: true, xp: 80, gold: '3d10', habitat: ['dungeon', 'ruins', 'swamp'], group: [1, 3], spells: ['drain_life'], castChance: 0.3,
+  { id: 'troll', name: 'Troll', plural: 'Trolls', level: 5, hp: '7d8+16', ac: 14, hit: 5, dmg: '2d6+2', regen: 3, xp: 90, gold: '4d10', habitat: ['hills', 'forest', 'dungeon'], group: [1, 2], abilities: ['brutal_smash'], init: -4,
+    moves: 3, look: L({ race: 'troll', body: 0x5a4a3a, weapon: 'club' }), desc: 'Huge, stupid and terribly strong. Its wounds close as you watch.' },
+  { id: 'barrow_wight', name: 'Barrow Wight', plural: 'Barrow Wights', level: 5, hp: '5d8', ac: 14, hit: 4, dmg: '1d8', undead: true, sleepImmune: true, xp: 80, gold: '3d10', habitat: ['dungeon', 'ruins', 'swamp'], group: [1, 3], spells: ['drain_life'], castChance: 0.3, ai: 'caster',
     look: { kind: 'wraith', color: 0x2a2e30, eyes: 0x70ff90 }, desc: 'A cold spirit that haunts the old tombs.' },
   { id: 'sea_serpent', name: 'Sea Serpent', plural: 'Sea Serpents', level: 5, hp: '6d8', ac: 14, hit: 5, dmg: '2d6', swim: true, xp: 85, gold: '0', habitat: ['water'], group: [1, 2],
     look: { kind: 'serpent', color: 0x2a7a6a, scale: 1.3 }, desc: 'Coils rise from the deep.' },
-  { id: 'dark_sorcerer', name: 'Dark Sorcerer', plural: 'Dark Sorcerers', level: 6, hp: '4d8+4', ac: 12, hit: 3, dmg: '1d6', xp: 110, gold: '6d10', habitat: ['ash', 'ruins', 'dungeon'], group: [1, 1], spells: ['fireball', 'magic_missile'], castChance: 0.6, escort: [{ id: 'skeleton', min: 1, max: 3 }],
+  { id: 'dark_sorcerer', name: 'Dark Sorcerer', plural: 'Dark Sorcerers', level: 6, hp: '4d8+4', ac: 12, hit: 3, dmg: '1d6', xp: 110, gold: '6d10', habitat: ['ash', 'ruins', 'dungeon'], group: [1, 1], spells: ['fireball', 'magic_missile'], castChance: 0.6, ai: 'caster', abilities: ['hex'], escort: [{ id: 'skeleton', min: 1, max: 3 }],
     look: L({ race: 'human', body: 0x1a1a20, robe: true, hat: 'hood', hatColor: 0x1a1a20, weapon: 'staff', weaponGlow: 0xff3020, eyes: 0xff4020 }), desc: 'A man who sold his soul for power.' },
-  { id: 'drake', name: 'Fire Drake', plural: 'Fire Drakes', level: 7, hp: '8d8', ac: 16, hit: 6, dmg: '2d8', xp: 200, gold: '10d10', habitat: ['ash', 'hills'], group: [1, 1], spells: ['fire_breath'], castChance: 0.35, fly: true,
+  { id: 'drake', name: 'Fire Drake', plural: 'Fire Drakes', level: 7, hp: '8d8', ac: 16, hit: 6, dmg: '2d8', xp: 200, gold: '10d10', habitat: ['ash', 'hills'], group: [1, 1], spells: ['fire_breath'], castChance: 0.25, fly: true, abilities: ['inferno', 'tail_sweep'],
     look: { kind: 'dragon', color: 0x6a8a2a, belly: 0xd0c070, scale: 0.85 }, desc: 'A lesser wyrm, still deadly.' },
-  { id: 'dragon', name: 'Great Dragon', plural: 'Great Dragons', level: 10, hp: '20d8', ac: 18, hit: 8, dmg: '3d8', xp: 800, gold: '40d10', habitat: [], group: [1, 1], spells: ['fire_breath'], castChance: 0.45, fly: true, boss: true, sleepImmune: true,
+  { id: 'dragon', name: 'Great Dragon', plural: 'Great Dragons', level: 10, hp: '20d8', ac: 18, hit: 8, dmg: '3d8', xp: 800, gold: '40d10', habitat: [], group: [1, 1], spells: ['fire_breath'], castChance: 0.3, fly: true, boss: true, sleepImmune: true, ai: 'boss', abilities: ['inferno', 'tail_sweep'],
     look: { kind: 'dragon', color: 0xa83a2a, scale: 1.5 }, desc: 'Ancient, cunning and greedy beyond measure.' },
-  { id: 'shadow_lord', name: 'The Shadow Lord', plural: 'Shadow Lords', level: 10, hp: '24d8', ac: 17, hit: 8, dmg: '2d10', undead: true, sleepImmune: true, xp: 1000, gold: '50d10', habitat: [], group: [1, 1], spells: ['drain_life', 'fireball'], castChance: 0.45, boss: true, escort: [{ id: 'barrow_wight', min: 2, max: 2 }],
+  { id: 'shadow_lord', name: 'The Shadow Lord', plural: 'Shadow Lords', level: 10, hp: '24d8', ac: 17, hit: 8, dmg: '2d10', undead: true, sleepImmune: true, xp: 1000, gold: '50d10', habitat: [], group: [1, 1], spells: ['drain_life', 'fireball'], castChance: 0.35, boss: true, ai: 'boss', abilities: ['dark_wave'], escort: [{ id: 'barrow_wight', min: 2, max: 2 }],
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
 ];
 

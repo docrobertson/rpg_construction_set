@@ -1,21 +1,26 @@
 // Small pictures of heroes for the side panel: each figure is rendered once
 // (per look) off-screen with the game's own renderer, then kept as an image.
+// Heroes are framed head-and-shoulders in a three-quarter view, lit like a
+// painted portrait: warm key from the upper left, sky fill, cool rim behind.
 import * as THREE from 'three';
 import { makeModel } from './models.js';
 import { shared } from './materials.js';
 
-const W = 176, H = 208; // rendered at twice the stored size, for smooth edges
+const W = 264, H = 312; // rendered at twice the stored size, for smooth edges
 const cache = new Map();
 let rig = null;
 
 function setup() {
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff2e0, 0x4a3c30, 1.7));
-  const sun = new THREE.DirectionalLight(0xffffff, 2.3);
-  sun.position.set(1.6, 3, 4);
-  scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0xfff4e4, 0x50402e, 1.6));
+  const key = new THREE.DirectionalLight(0xfff0dc, 2.5);
+  key.position.set(-1.8, 2.6, 3.2);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 1.3);
+  rim.position.set(2.5, 1.5, -2.5);
+  scene.add(rim);
   const cam = new THREE.PerspectiveCamera(24, W / H, 0.05, 20);
-  const rt = new THREE.WebGLRenderTarget(W, H);
+  const rt = new THREE.WebGLRenderTarget(W, H, { samples: 4 });
   rt.texture.colorSpace = THREE.SRGBColorSpace;
   return { scene, cam, rt, buf: new Uint8Array(W * H * 4) };
 }
@@ -32,14 +37,27 @@ export function portrait(view, look) {
 function render(view, look) {
   rig ||= setup();
   const { scene, cam, rt, buf } = rig;
-  const model = makeModel(look, view.mats);
-  const h = model.userData.info.height || 1;
-  model.rotation.y = -0.42; // a three-quarter view
+  // a portrait is about the face: leave weapons, shields and packs out of it
+  const bust = look.kind === 'humanoid' || !look.kind ? { ...look, weapon: 'none', shield: null, offhand: null, ranged: null, back: null } : look;
+  const model = makeModel(bust, view.mats);
+  const info = model.userData.info;
+  const h = info.height || 1;
+  model.rotation.y = -0.42; // a three-quarter view, turned towards the key light
   scene.add(model);
-  // frame the figure from the knees up, seen from a little above
-  const ty = h * 0.58;
-  cam.position.set(0, ty + h * 0.26, h * 1.95);
-  cam.lookAt(0, ty, 0);
+  if (info.head) {
+    // head and shoulders: from mid-chest to just above the crown
+    const [, hy, hz, hr] = info.head;
+    const span = hr * 4.6;
+    const ty = hy - hr * 0.55;
+    const d = (span / 2) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
+    cam.position.set(0, ty + d * 0.17, hz + d);
+    cam.lookAt(0, ty, hz);
+  } else {
+    // beasts: frame the whole creature from a little above
+    const ty = h * 0.55;
+    cam.position.set(0, ty + h * 0.4, h * 2.6);
+    cam.lookAt(0, ty, 0);
+  }
 
   const r = view.renderer;
   const prevTarget = r.getRenderTarget();
