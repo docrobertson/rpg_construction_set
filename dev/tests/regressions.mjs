@@ -128,7 +128,7 @@ await ev(async () => {
   const s = window.__app.session;
   for (let i = 0; i < 300 && s.battle; i++) {
     const b = s.battle;
-    if (b.active && !b.acting) { for (const e of b.enemies) e.hp = 1; const t = b.attackTargets(b.active)[0]; if (t) b.actAttack(t); else { const foe = b.enemies.find((e) => b.alive(e)); if (!foe) break; const u = b.active; const dy = Math.sign(foe.y - u.y), dx = Math.sign(foe.x - u.x); if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy); else if (dx && b.walkable(u.x + dx, u.y, u)) b.actMove(dx, 0); else b.actPass(); } }
+    if (b.active && !b.acting) { for (const e of b.enemies) e.hp = 1; const t = b.attackTargets(b.active)[0]; if (t) b.actAttack(t); else { const foe = b.enemies.find((e) => b.alive(e)); if (!foe) break; const u = b.active; const dy = Math.sign(foe.y - u.y), dx = Math.sign(foe.x - u.x); if (!(u.moves > 0)) b.actPass(); else if (dy && b.walkable(u.x, u.y + dy, u)) b.actMove(0, dy); else if (dx && b.walkable(u.x + dx, u.y, u)) b.actMove(dx, 0); else b.actPass(); } }
     await new Promise((r2) => setTimeout(r2, 100));
   }
 });

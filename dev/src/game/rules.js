@@ -201,6 +201,15 @@ export function specialOf(game, c) {
 
 export function isRanged(w) { return (w.range || 1) > 1; }
 
+// Squares a hero may move in one battle turn before attacking or casting:
+// nimble heroes (Dexterity 16+) get one more, plate armour costs one.
+export function combatMoves(game, c) {
+  let n = game.settings.combatMoves ?? 3;
+  if ((c.dex || 10) >= 16) n++;
+  if (itemOf(game, c.equip?.armor)?.weight === 'plate') n--;
+  return Math.max(1, n);
+}
+
 export function buffTotal(c, kind) {
   let t = 0;
   for (const b of c.buffs || []) if (b.kind === kind) t += b.power;

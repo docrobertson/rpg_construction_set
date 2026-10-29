@@ -9,7 +9,7 @@ import { DIR4 } from '../core/util.js';
 import { stepToward } from './path.js';
 import {
   attackBonus, armorClass, damageRoll, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
-  canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf,
+  canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf, combatMoves,
 } from './rules.js';
 import { sfx } from '../core/sound.js';
 
@@ -117,12 +117,17 @@ export class Battle {
   unitAt(x, y) { return this.units.find((u) => this.alive(u) && u.x === x && u.y === y); }
 
   walkable(x, y, unit) {
+    return this.groundOk(x, y, unit) && !this.unitAt(x, y);
+  }
+
+  // can this unit stand on the terrain here (ignoring who else is there)?
+  groundOk(x, y, unit) {
     if (!inBounds(this.arena, x, y)) return false;
     const t = terrain(getTile(this.arena, x, y));
     const def = unit && unit.def;
-    if (def?.swim) { if (!t.water) return false; }
-    else if (!t.walk) { if (!(def?.fly && t.water)) return false; }
-    return !this.unitAt(x, y);
+    if (def?.swim) return !!t.water;
+    if (!t.walk) return !!(def?.fly && t.water);
+    return true;
   }
 
   lineClear(a, b) {
@@ -162,6 +167,8 @@ export class Battle {
         if (end) return this.finish(end);
         if (skip) continue;
         this.active = u;
+        u.moves = combatMoves(this.game, u.member);
+        u.maxMoves = u.moves;
         this.view.setRing(u.id, 0xffffff);
         this.s.ui.combatTurn(u);
         await new Promise((res) => { this.pending = res; });
@@ -179,7 +186,8 @@ export class Battle {
         if (skip) continue;
         const actions = m.def.speed > 1 ? 2 : 1;
         for (let a = 0; a < actions && this.alive(m); a++) {
-          await this.monsterAct(m);
+          // a fast monster's second action is a short lunge, not another full charge
+          await this.monsterAct(m, a === 0 ? (m.def.moves ?? 3) : 1);
           end = this.checkEnd();
           if (end) return this.finish(end);
         }
@@ -279,7 +287,7 @@ export class Battle {
       const p = this.pending;
       this.pending = null;
       p();
-    }
+    } else if (!used && this.active && !this.over) this.s.ui.combatTurn(this.active);
     return used;
   }
 
@@ -296,19 +304,77 @@ export class Battle {
       }
       const other = this.unitAt(nx, ny);
       if (other && other.side === 'enemy') return this.attack(u, other);
+      if (!(u.moves > 0)) { this.log(`${u.name} has no moves left — attack, cast, or press Space to end the turn.`, 'warn'); sfx('bump'); return false; }
       if (other && other.side === 'party') {
         // swap places with an ally
         [other.x, other.y, u.x, u.y] = [u.x, u.y, nx, ny];
+        u.moves--;
         this.view.moveEntity(other.id, other.x, other.y, 0.15);
         await this.view.moveEntity(u.id, u.x, u.y, 0.15);
-        return true;
+        return this.turnDone(u);
       }
       if (!this.walkable(nx, ny, u)) { sfx('bump'); return false; }
       u.x = nx; u.y = ny;
+      u.moves--;
       sfx('step');
-      await this.view.moveEntity(u.id, nx, ny, 0.15);
-      return true;
+      await this.view.moveEntity(u.id, nx, ny, 0.13);
+      return this.turnDone(u);
     });
+  }
+
+  // Walk to a square within this turn's moves, along the shortest path
+  actMoveTo(x, y, expect) {
+    return this.perform(async (u) => {
+      const path = this.pathTo(u, x, y);
+      if (!path || path.length - 1 > (u.moves || 0)) { sfx('bump'); return false; }
+      for (const [px, py] of path.slice(1)) {
+        u.x = px; u.y = py;
+        u.moves--;
+        sfx('step');
+        await this.view.moveEntity(u.id, px, py, 0.12);
+      }
+      return this.turnDone(u);
+    }, expect);
+  }
+
+  // Squares the unit can reach this turn: Map "x,y" -> { x, y, d, from }
+  reachable(u, budget = u.moves || 0) {
+    const out = new Map([[`${u.x},${u.y}`, { x: u.x, y: u.y, d: 0, from: null }]]);
+    const queue = [out.get(`${u.x},${u.y}`)];
+    while (queue.length) {
+      const c = queue.shift();
+      if (c.d >= budget) continue;
+      for (const [dx, dy] of DIR4) {
+        const nx = c.x + dx, ny = c.y + dy, k = `${nx},${ny}`;
+        if (out.has(k) || !this.groundOk(nx, ny, u)) continue;
+        // friends can be passed through but not stood on; foes block
+        const occ = this.unitAt(nx, ny);
+        if (occ && occ.side !== u.side) continue;
+        const n = { x: nx, y: ny, d: c.d + 1, from: c, ally: !!occ };
+        out.set(k, n);
+        queue.push(n);
+      }
+    }
+    return out;
+  }
+
+  pathTo(u, x, y) {
+    let c = this.reachable(u).get(`${x},${y}`);
+    if (!c || c.ally || c.d === 0) return null;
+    const path = [];
+    for (; c; c = c.from) path.unshift([c.x, c.y]);
+    return path;
+  }
+
+  // A move ends the turn only when nothing else is left to do: no moves,
+  // no foe in reach, no spell to cast and no special ready
+  turnDone(u) {
+    if (u.moves > 0) return false;
+    if (this.attackTargets(u).length) return false;
+    if (this.canSpecial(u).ok) return false;
+    const inv = this.s.party.inventory;
+    if (this.combatSpells(u).some((sp) => canCast(this.game, u.member, sp, inv).ok)) return false;
+    return true;
   }
 
   actAttack(target, expect) {
@@ -772,14 +838,14 @@ export class Battle {
     return best;
   }
 
-  async monsterAct(m) {
+  async monsterAct(m, steps = 3) {
     const def = m.def;
     const target = this.nearestFoe(m);
     if (!target) return;
     // fear: run away
     if (m.fear > 0) {
       m.fear--;
-      await this.stepAway(m, target);
+      for (let i = 0; i < Math.max(1, steps - 1); i++) await this.stepAway(m, target);
       return;
     }
     // fleeing when badly hurt
@@ -792,7 +858,7 @@ export class Battle {
         this.view.removeEntity(m.id);
         return;
       }
-      await this.stepAway(m, target);
+      for (let i = 0; i < steps; i++) await this.stepAway(m, target);
       return;
     }
     // spells
@@ -813,40 +879,53 @@ export class Battle {
         }
       }
     }
-    // ranged
-    if ((def.range || 1) > 1) {
-      const shots = this.partyUnits.filter((p) => this.alive(p) && this.dist(m, p) <= def.range && this.lineClear(m, p));
-      if (shots.length) {
-        const t = shots.reduce((a, b) => (this.hpOf(a) <= this.hpOf(b) ? a : b));
+    const archer = (def.range || 1) > 1;
+    const shots = () => this.partyUnits.filter((p) => this.alive(p) && this.dist(m, p) <= def.range && this.lineClear(m, p));
+    const adjacent = () => this.partyUnits.filter((p) => this.alive(p) && this.adjacent(m, p));
+    // close in: several squares, stopping once a foe is in reach
+    for (let i = 0; i < steps; i++) {
+      if (adjacent().length || (archer && shots().length)) break;
+      const foe = this.nearestFoe(m);
+      if (!foe || !(await this.stepToward(m, foe))) break;
+    }
+    // then strike
+    const adj = adjacent();
+    if (adj.length) {
+      const t = rng.pick(adj);
+      await this.view.attackAnim(m.id, t.x, t.y);
+      return this.monsterHit(m, t);
+    }
+    if (archer) {
+      const sh = shots();
+      if (sh.length) {
+        const t = sh.reduce((a, b) => (this.hpOf(a) <= this.hpOf(b) ? a : b));
         this.view.face(m.id, t.x - m.x, t.y - m.y);
         sfx('shoot');
         await this.view.arrow(m.x, m.y, t.x, t.y, { fletch: 0x2a2a2a, shaft: 0x4a3a2a });
         return this.monsterHit(m, t);
       }
     }
-    // melee
-    const adj = this.partyUnits.filter((p) => this.alive(p) && Math.abs(p.x - m.x) + Math.abs(p.y - m.y) === 1);
-    if (adj.length) {
-      const t = rng.pick(adj);
-      await this.view.attackAnim(m.id, t.x, t.y);
-      return this.monsterHit(m, t);
-    }
-    // approach
+  }
+
+  // one step toward a foe; false when boxed in
+  async stepToward(m, target) {
     const step = stepToward(m.x, m.y, target.x, target.y, (x, y) => this.walkable(x, y, m), ARENA_W);
-    if (step && !(step[0] === target.x && step[1] === target.y) && this.walkable(step[0], step[1], m)) {
-      m.x = step[0]; m.y = step[1];
-      await this.view.moveEntity(m.id, m.x, m.y, 0.14);
-    } else {
+    let to = null;
+    if (step && !(step[0] === target.x && step[1] === target.y) && this.walkable(step[0], step[1], m)) to = step;
+    else {
       // try any step that gets closer
-      let best = null, bd = this.dist(m, target);
+      let bd = this.dist(m, target);
       for (const [dx, dy] of DIR4) {
         const nx = m.x + dx, ny = m.y + dy;
         if (!this.walkable(nx, ny, m)) continue;
         const d = Math.max(Math.abs(nx - target.x), Math.abs(ny - target.y));
-        if (d < bd) { bd = d; best = [nx, ny]; }
+        if (d < bd) { bd = d; to = [nx, ny]; }
       }
-      if (best) { m.x = best[0]; m.y = best[1]; await this.view.moveEntity(m.id, m.x, m.y, 0.14); }
     }
+    if (!to) return false;
+    m.x = to[0]; m.y = to[1];
+    await this.view.moveEntity(m.id, m.x, m.y, 0.11);
+    return true;
   }
 
   async stepAway(m, from) {

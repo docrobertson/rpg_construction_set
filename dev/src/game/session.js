@@ -169,10 +169,15 @@ export class PlaySession {
     this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale });
   }
 
+  // Out in the wide world the whole company travels together; in towns and
+  // dungeons the leader stands for them all
   addPartyVisual() {
     const p = this.state.pos;
     if (this.state.vehicle) this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
-    else this.view.addEntity('party', charLook(this.game, this.leader), p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+    else if (this.map?.type === 'world' && partyAlive(this.party).length > 1) {
+      const members = partyAlive(this.party).map((m) => charLook(this.game, m));
+      this.view.addEntity('party', { kind: 'party', members }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+    } else this.view.addEntity('party', charLook(this.game, this.leader), p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
   }
 
   refreshPartyVisual() {
@@ -486,7 +491,7 @@ export class PlaySession {
       m.status = 'dead';
       this.log(`${m.name} has died${why ? ' of ' + why : ''}!`, 'bad');
       sfx('die');
-      if (m === this.party.members[0] || !partyAlive(this.party).length) this.refreshPartyVisual();
+      this.refreshPartyVisual();
     }
   }
 
@@ -889,6 +894,7 @@ export class PlaySession {
     c.look = {};
     this.party.members.push(c);
     this.removeEntity(npc);
+    this.refreshPartyVisual();
     sfx('level');
     this.ui.refresh();
     return null;

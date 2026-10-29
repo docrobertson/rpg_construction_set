@@ -31,15 +31,22 @@ const kits = await ev(() => window.__app.session.party.members.map((m) => ({ cls
 const ranger = kits.find((k) => k.cls === 'ranger');
 check('ranger carries sword and bow', ranger && ranger.equip.weapon === 'short_sword' && ranger.equip.ranged === 'short_bow', ranger);
 check('layout is docked', await ev(() => document.getElementById('app').dataset.layout === 'play' && document.getElementById('viewport').getBoundingClientRect().width < window.innerWidth));
-check('character sheet shows four slots', (await ev(() => document.querySelectorAll('.hud-hero .slot select').length)) === 4);
+// the sheet lives in a pop-over opened from the roster
+const openSheet = (cls) => ev((cls) => { const ui = window.__app.playUI; const m = ui.s.party.members.find((x) => !cls || x.cls === cls); if (ui.popHero !== m || ui.popEl.hidden) ui.selectHero(m); }, cls);
+check('roster shows a portrait for every hero', await ev(() => [...document.querySelectorAll('.pcard .pc-pic img')].filter((i) => i.src.startsWith('data:image/png')).length === window.__app.session.party.members.length));
+check('leader is marked', await ev(() => document.querySelector('.pcard')?.classList.contains('leader') && !!document.querySelector('.pcard .pc-lead')));
+await openSheet(null);
+check('character sheet pops over with four slots', (await ev(() => !document.querySelector('.hero-pop').hidden && document.querySelectorAll('.hero-pop .slot select').length)) === 4);
+await page.keyboard.press('Escape');
+check('Esc closes the pop-over', await ev(() => document.querySelector('.hero-pop').hidden));
 
 // select the ranger and take the bow off, then put it back, via the sheet
-await ev(() => { const ui = window.__app.playUI; ui.selectHero(ui.s.party.members.find((m) => m.cls === 'ranger')); });
+await openSheet('ranger');
 await wait(200);
-await ev(() => { const sel = document.querySelectorAll('.hud-hero .slot select')[1]; sel.value = ''; sel.dispatchEvent(new Event('change')); });
+await ev(() => { const sel = document.querySelectorAll('.hero-pop .slot select')[1]; sel.value = ''; sel.dispatchEvent(new Event('change')); });
 let st = await ev(() => { const s = window.__app.session; const r = s.party.members.find((m) => m.cls === 'ranger'); return { ranged: r.equip.ranged, inv: s.party.inventory.short_bow || 0 }; });
 check('unequip bow puts it in the pack', st.ranged === null && st.inv === 1, st);
-await ev(() => { const sel = document.querySelectorAll('.hud-hero .slot select')[1]; sel.value = 'short_bow'; sel.dispatchEvent(new Event('change')); });
+await ev(() => { const sel = document.querySelectorAll('.hero-pop .slot select')[1]; sel.value = 'short_bow'; sel.dispatchEvent(new Event('change')); });
 st = await ev(() => { const s = window.__app.session; const r = s.party.members.find((m) => m.cls === 'ranger'); return { ranged: r.equip.ranged, inv: s.party.inventory.short_bow || 0 }; });
 check('equip bow from the pack', st.ranged === 'short_bow' && st.inv === 0, st);
 
@@ -59,12 +66,13 @@ await ev(async () => {
   // use the rules directly if the session has no helper
   const s = window.__app.session; const r = s.party.members.find((m) => m.cls === 'ranger');
   if (r.level === 1) { r.level = 2; r.points = (r.points || 0) + 1; }
-  s.ui.selectHero(r);
+  s.ui.refresh();
 });
+await openSheet('ranger');
 await wait(200);
-const plus = await ev(() => document.querySelectorAll('.hud-hero .attr .plus').length);
+const plus = await ev(() => document.querySelectorAll('.hero-pop .attr .plus').length);
 check('plus buttons appear with points', plus === 4, plus);
-await ev(() => document.querySelectorAll('.hud-hero .attr .plus')[1].click());
+await ev(() => document.querySelectorAll('.hero-pop .attr .plus')[1].click());
 const after = await ev(() => { const r = window.__app.session.party.members.find((m) => m.cls === 'ranger'); return { dex: r.dex, points: r.points }; });
 check('spending a point raises Dexterity', after.dex === lv.before.dex + 1 && after.points === 0, { before: lv.before, after });
 
@@ -86,6 +94,16 @@ await ev(() => { const s = window.__app.session; s.state.turn = 10; s.applyDayli
 // --- battle: ranged attack, specials
 await ev(() => { const s = window.__app.session; for (const m of s.party.members) { m.hp = 60; } s.engage({ id: 'x', monster: 'goblin', count: '4', roaming: true }); });
 await wait(2500);
+await shot('feat-moves');
+const mv = await ev(async () => {
+  const b = window.__app.session.battle; const u = b && b.active;
+  if (!u) return { none: true };
+  const start = u.moves;
+  const dest = [...b.reachable(u).values()].find((c) => c.d === 2);
+  if (dest) await b.actMoveTo(dest.x, dest.y, u);
+  return { start, stillActive: b.active === u, left: u.moves, moved: !!dest && u.x === dest.x && u.y === dest.y };
+});
+check('heroes move several squares in one turn', mv.start >= 2 && mv.moved && mv.stillActive && mv.left === mv.start - 2, mv);
 const active = () => ev(() => { const b = window.__app.session.battle; return b && b.active ? b.active.member.cls : null; });
 const waitActive = async (cls) => {
   for (let i = 0; i < 80; i++) {

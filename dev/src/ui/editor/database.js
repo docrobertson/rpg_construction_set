@@ -122,6 +122,7 @@ export function categories(game) {
         { key: 'dmg', label: 'Damage', type: 'dice' },
         { key: 'range', label: 'Attack range', type: 'number', min: 1, hint: '>1 makes it an archer' },
         { key: 'speed', label: 'Actions per turn', type: 'number', min: 1, max: 3 },
+        { key: 'moves', label: 'Squares moved per turn', type: 'number', min: 1, max: 8, hint: 'Default 3. Monsters move, then strike.' },
         { key: 'xp', label: 'Experience', type: 'number', min: 0 },
         { key: 'gold', label: 'Gold carried', type: 'dice' },
         { key: 'habitat', label: 'Found in', type: 'multicheck', options: HABITATS },

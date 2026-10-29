@@ -49,6 +49,28 @@ function rawTempl(p) {
   return templ(g, false, 'flat');
 }
 
+// Toy-figure parts: a cylinder head with softened rims, a C-shaped hand
+// (its opening faces +z, the grip runs along y) and a smile arc facing +z.
+function toyHead() {
+  const prof = [[0, 0], [0.4, 0], [0.47, 0.02], [0.5, 0.07], [0.5, 0.93], [0.47, 0.98], [0.4, 1], [0, 1]].map(([x, y]) => new THREE.Vector2(x, y));
+  return new THREE.LatheGeometry(prof, 20);
+}
+function toyHand() {
+  const arc = Math.PI * 1.45;
+  const g = new THREE.TorusGeometry(0.5, 0.2, 8, 14, arc);
+  g.rotateX(Math.PI / 2);
+  const gap = arc + (Math.PI * 2 - arc) / 2;
+  const d = new THREE.Vector3(Math.cos(gap), Math.sin(gap), 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  g.rotateY(-Math.atan2(d.x, d.z));
+  return g;
+}
+function smileArc() {
+  const arc = Math.PI * 0.8;
+  const g = new THREE.TorusGeometry(0.5, 0.1, 5, 12, arc);
+  g.rotateZ(-Math.PI / 2 - arc / 2);
+  return g;
+}
+
 // Template shapes: unit-sized, base at y=0 (except balls/icosahedra: centred)
 export const TPL = {
   box: templ(new THREE.BoxGeometry(1, 1, 1)),
@@ -67,6 +89,8 @@ export const TPL = {
   limb: templ(new THREE.CylinderGeometry(0.42, 0.5, 1, 10)),
   thigh: templ(new THREE.CylinderGeometry(0.5, 0.38, 1, 10)),
   torso: templ(new THREE.CylinderGeometry(0.5, 0.4, 1, 14)),
+  vtorso: templ(new THREE.CylinderGeometry(0.5, 0.37, 1, 16)),
+  flare: templ(new THREE.CylinderGeometry(0.34, 0.5, 1, 16)),
   capsule: templ(new THREE.CapsuleGeometry(0.5, 1, 4, 10).scale(1, 0.5, 1)),
   ico0: templ(new THREE.IcosahedronGeometry(0.5, 0), false, 'flat'),
   blob: templ(new THREE.IcosahedronGeometry(0.5, 0), false, 'sphere'),
@@ -76,6 +100,24 @@ export const TPL = {
   hemi: templ(new THREE.SphereGeometry(0.5, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2)),
   dome: templ(new THREE.SphereGeometry(0.5, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 2, 1)),
   torus: templ(new THREE.TorusGeometry(0.4, 0.1, 6, 16), false),
+  toyHead: templ(toyHead()),
+  toyHand: templ(toyHand(), false),
+  smile: templ(smileArc(), false),
+  // trapezoid block: 1 x 1 at the base, 0.74 wide (x) at the top, same depth
+  trap: rawTempl((() => {
+    const p = [];
+    const t = 0.37;
+    const A = [-0.5, 0, 0.5], B = [0.5, 0, 0.5], C = [0.5, 0, -0.5], D = [-0.5, 0, -0.5];
+    const E = [-t, 1, 0.5], F = [t, 1, 0.5], G = [t, 1, -0.5], H = [-t, 1, -0.5];
+    const quad = (a, b, c, d) => p.push(...a, ...b, ...c, ...a, ...c, ...d);
+    quad(A, B, F, E); // front
+    quad(C, D, H, G); // back
+    quad(B, C, G, F); // right
+    quad(D, A, E, H); // left
+    quad(E, F, G, H); // top
+    quad(D, C, B, A); // bottom
+    return p;
+  })()),
   prism: rawTempl((() => {
     // triangular prism (roof): base 1x1 at y=0, ridge along X at y=1
     const p = [];
