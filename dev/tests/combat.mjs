@@ -100,8 +100,13 @@ if (await ev(() => !!window.__app.session.battle) && await waitActive() && await
   const g = await ev(() => { const b = window.__app.session.battle; return { name: b.active.name, ac: b.acOf(b.active) }; });
   await page.keyboard.press('g');
   await wait(600);
-  const g2 = await ev((n) => { const b = window.__app.session.battle; const u = b?.partyUnits.find((p) => p.name === n); return u ? { ac: b.acOf(u), shielded: b.has(u, 'shielded') } : 'over'; }, g.name);
-  expect('G guards', g2 === 'over' || (g2.shielded && g2.ac === g.ac + 3), { g, g2 });
+  // the guard lasts until the hero's next turn, which can come round within the wait on a fast machine
+  const g2 = await ev((n) => {
+    const b = window.__app.session.battle; const u = b?.partyUnits.find((p) => p.name === n);
+    const logged = [...document.querySelectorAll('.log-line')].some((el) => el.textContent.includes(`${n} stands guard`));
+    return u ? { ac: b.acOf(u), shielded: b.has(u, 'shielded'), logged } : 'over';
+  }, g.name);
+  expect('G guards', g2 === 'over' || (g2.shielded ? g2.ac === g.ac + 3 : g2.logged), { g, g2 });
 }
 // the action bar explains why an action is out of reach
 const why = await ev(() => [...document.querySelectorAll('.cbt-btn.off .cb-sub')].map((x) => x.textContent));
