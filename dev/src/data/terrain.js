@@ -71,6 +71,12 @@ const defs = [
   [65, 'crops', 'Crops', 'town', { h: 0, top: 0x7a5e34, side: 0x5a4127, deco: 'crops', arena: 'grass' }],
   [66, 'fence', 'Fence', 'town', { walk: false, h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'fence' }],
   [67, 'palisade', 'Palisade', 'town', { walk: false, sight: true, wall: true, h: 0.05, top: 0x7a5a36, side: 0x5a4127, deco: 'palisade' }],
+  // street furniture (ids from 100 so they never meet other additions)
+  [100, 'well', 'Well', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'well' }],
+  [101, 'stall', 'Market Stall', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'stall', talkOver: true }],
+  [102, 'lamppost', 'Lamp Post', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'lamppost', light: 2 }],
+  [103, 'cart', 'Cart', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cart' }],
+  [104, 'hay', 'Hay Bales', 'town', { walk: false, h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'hay' }],
 
   // Dungeon
   [80, 'cave_floor', 'Cave Floor', 'dungeon', { h: 0, top: 0x7a6e60, side: 0x403a34, deco: 'cavefloor', arena: 'cave' }],

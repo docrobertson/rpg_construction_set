@@ -3,7 +3,10 @@
 import * as THREE from 'three';
 import { createMaterials, shared, silhouetteMaterial } from './materials.js';
 import { TerrainView, WATER_Y, LAVA_Y } from './terrainView.js';
+import { BuildingsView } from './houses.js';
 import { makeModel } from './models.js';
+import { Followers } from './followers.js';
+import { HeadMarkers, PathPreview, HoverGlow } from './markers.js';
 import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import { clamp } from '../core/util.js';
@@ -13,19 +16,6 @@ export const DEFAULT_PITCH = 52;
 
 const _tmpColor = new THREE.Color();
 const _v3 = new THREE.Vector3();
-
-// where each member of a travelling company stands on its square, by size
-const PARTY_FORMATION = [
-  [[0, 0]],
-  [[0, 0.05]],
-  [[-0.14, 0.12], [0.14, -0.12]],
-  [[0, 0.2], [-0.22, -0.1], [0.22, -0.1]],
-  [[-0.13, 0.2], [0.17, 0.16], [-0.2, -0.16], [0.12, -0.2]],
-  [[0, 0.26], [-0.25, 0.06], [0.25, 0.06], [-0.16, -0.24], [0.16, -0.24]],
-  [[-0.14, 0.28], [0.16, 0.26], [-0.3, -0.02], [0.3, -0.02], [-0.12, -0.28], [0.16, -0.26]],
-  [[0, 0.3], [-0.24, 0.12], [0.24, 0.12], [-0.32, -0.16], [0, -0.14], [0.32, -0.16], [-0.14, -0.36]],
-  [[0, 0.3], [-0.24, 0.12], [0.24, 0.12], [-0.32, -0.16], [0, -0.14], [0.32, -0.16], [-0.16, -0.36], [0.16, -0.36]],
-];
 
 // bg: haze/fog colour, sky: colour mirrored in water, light: strength of
 // torch and lava pools, party: the glow carried by the party
@@ -68,6 +58,7 @@ export class View {
     this.sun.layers.enableAll();
 
     this.terrain = new TerrainView(this.scene, this.mats);
+    this.buildings = new BuildingsView(this.scene, this.mats, this.terrain);
     this.entities = new Map();
     this.entityGroup = new THREE.Group();
     this.scene.add(this.entityGroup);
@@ -165,7 +156,11 @@ export class View {
     this.map = map;
     this.clearEntities();
     this.clearFx();
+    // buildings claim their walls before the terrain is built round them
+    this.buildings.prepare(map);
     this.terrain.setMap(map);
+    this.buildings.build();
+    this._buildingsDirty = false;
     this.setLighting(map.lighting || 'day');
     this._initVisibility(map.w, map.h);
     this.rig.maxDist = Math.max(30, Math.max(map.w, map.h) * 1.2);
@@ -173,10 +168,70 @@ export class View {
 
   refreshTiles(x0, y0, x1, y1) {
     this.terrain.markDirty(x0, y0, x1, y1);
+    this._buildingsDirty = true;
   }
 
   refreshAll() {
     this.terrain.markAllDirty();
+    this._buildingsDirty = true;
+  }
+
+  // ---- settlement buildings ----
+  // The buildings of a town or castle (from findBuildings). setMap works them
+  // out itself; passing the same list again costs nothing.
+  setBuildings(list) {
+    if (!this.map || !BuildingsView.enabledFor(this.map)) return;
+    const b = this.buildings;
+    if (list && b.sig === BuildingsView.sig(list.slice(0, 48))) return;
+    this._rebuildBuildings(list);
+  }
+
+  _rebuildBuildings(list) {
+    const b = this.buildings;
+    const before = this.terrain.owned ? this.terrain.owned.slice() : null;
+    const sig = b.sig;
+    b.prepare(this.map, list);
+    const after = this.terrain.owned;
+    // tiles whose walls changed hands are rebuilt by the terrain
+    const m = this.map;
+    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+    for (let i = 0; i < m.w * m.h; i++) {
+      const a = before ? before[i] : 0, c = after ? after[i] : 0;
+      if (!a !== !c) { const x = i % m.w, y = Math.floor(i / m.w); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    }
+    if (x1 >= 0) this.terrain.markDirty(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    // the walls themselves may have changed even when the plan has not
+    void sig;
+    b.build();
+  }
+
+  // a glow round the building the player points at (-1: none)
+  highlightBuilding(i) { this.buildings.setHover(i ?? -1); }
+
+  // hold a building open (roof off) whatever the party does (-1: none)
+  openBuilding(i) { this.buildings.setOpen(i ?? -1); }
+
+  // index of the building on a square (its floor or walls), or -1
+  buildingAt(x, y) { return this.buildings.at(x, y); }
+
+  // index of the building under the pointer (its walls and roof), or -1
+  pickBuilding(clientX, clientY) {
+    if (!this.buildings.list.length) return -1;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.buildings.pick(this.raycaster.ray);
+  }
+
+  _updateBuildings(dt) {
+    const b = this.buildings;
+    if (!b.list.length) return;
+    // the party's building stands open; in the editor (no party), the one
+    // under the cursor
+    const party = this.entities.get('party');
+    const inside = party ? b.at(party.x, party.y) : -1;
+    const cursor = !party && this.cursor.visible && this._cursorTile ? b.at(this._cursorTile.x, this._cursorTile.y) : -1;
+    b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null });
   }
 
   heightAt(x, y) {
@@ -412,7 +467,7 @@ export class View {
     const root = new THREE.Group();
     const leanG = new THREE.Group(); // scale group (squash on hurt, topple on death)
     const faceG = new THREE.Group();
-    const model = spec.kind === 'party' ? this._partyModel(spec) : makeModel(spec, this.mats);
+    const model = makeModel(spec, this.mats);
     const info = model.userData.info;
     faceG.add(model);
     leanG.add(faceG);
@@ -463,26 +518,40 @@ export class View {
     return e;
   }
 
-  // The whole company on one square, leader in front and the rest in ranks
-  // behind, every figure standing upright.
-  _partyModel(spec) {
-    const looks = spec.members || [];
-    const spots = PARTY_FORMATION[Math.min(looks.length, PARTY_FORMATION.length - 1)] || [[0, 0]];
-    const group = new THREE.Group();
-    const k = spec.figureScale ?? 0.78;
-    let height = 0;
-    looks.forEach((look, i) => {
-      const m = makeModel(look, this.mats);
-      const lg = new THREE.Group();
-      lg.add(m);
-      lg.scale.setScalar(this.unitScale * k);
-      const [ox, oz] = spots[i] || [0, 0];
-      lg.position.set(ox, 0, oz);
-      group.add(lg);
-      height = Math.max(height, m.userData.info.height * this.unitScale * k);
-    });
-    group.userData.info = { height: height || 1, noLean: true, group: true, float: false, hover: 0 };
-    return group;
+  // The company walking behind the leader, the marks above people's heads,
+  // the path preview and the hover glow (made on first use)
+  get followers() { return this._followers || (this._followers = new Followers(this)); }
+  get markers() { return this._markers || (this._markers = new HeadMarkers(this)); }
+  get pathPreview() { return this._pathPreview || (this._pathPreview = new PathPreview(this)); }
+  get hoverGlow() { return this._hoverGlow || (this._hoverGlow = new HoverGlow(this)); }
+
+  // items: [{ key, look }] for everyone after the leader ('party')
+  // (opts.aboard: looks for the crew on the deck of the party's ship)
+  setFollowers(items, opts = {}) {
+    this.followers.set(items || [], opts);
+    if (opts.aboard) this.followers.aboard(opts.aboard);
+  }
+  setMarker(id, kind, always) { this.markers.set(id, kind, always); }
+
+  // The figure under the pointer (screen space, so a click on a head counts),
+  // nearest the camera first; filter(entity) can rule some out
+  pickEntity(clientX, clientY, filter) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mx = clientX - rect.left, my = clientY - rect.top;
+    let best = null, bestZ = -Infinity;
+    for (const e of this.entities.values()) {
+      if (!e.root.visible || (filter && !filter(e))) continue;
+      const p = e.root.position;
+      const h = Math.max(0.35, e.info.height * e.scale);
+      const foot = this.worldToScreen(p.x, p.y, p.z);
+      if (foot.behind) continue;
+      const head = this.worldToScreen(p.x, p.y + h, p.z);
+      const side = this.worldToScreen(p.x + (e.info.boat ? 0.5 : 0.3) * Math.max(0.8, e.scale), p.y, p.z);
+      const w = Math.max(10, Math.abs(side.x - foot.x));
+      if (mx < foot.x - w || mx > foot.x + w || my < head.y - 6 || my > foot.y + w * 0.45) continue;
+      if (p.z > bestZ) { bestZ = p.z; best = e; }
+    }
+    return best ? best.id : null;
   }
 
   _entityY(e, x, y) {
@@ -677,6 +746,9 @@ export class View {
         e.hpBar.el.style.transform = `translate(${p.x - 18}px, ${p.y}px)`;
       }
     }
+    if (this._followers) this._followers.update(dt);
+    if (this._markers) this._markers.update();
+    if (this._hoverGlow) this._hoverGlow.update();
   }
 
   // ---- cutaway & carried light ----
@@ -703,7 +775,7 @@ export class View {
       add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
     };
     const party = this.entities.get('party');
-    if (party) ent(party, party.info.group ? 26 : 0);
+    if (party) ent(party, party.info.group || this._followers?.count ? 26 : 0);
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
     if (this.cursor.visible && this.map?.type === 'arena') {
       const c = this.cursor.position, s = this.cursor.scale.x;
@@ -760,7 +832,8 @@ export class View {
   }
 
   showCursor(x, y, color = 0xffffff, size = 1) {
-    if (x == null) { this.cursor.visible = false; return; }
+    if (x == null) { this.cursor.visible = false; this._cursorTile = null; return; }
+    this._cursorTile = { x, y };
     this.cursor.visible = true;
     const off = Math.floor((size - 1) / 2);
     // sit on the highest point of the square so the frame is never buried
@@ -1021,6 +1094,7 @@ export class View {
       }
     }
     if (this.onTick) this.onTick(dt);
+    if (this._buildingsDirty) { this._buildingsDirty = false; if (this.map) this._rebuildBuildings(); }
     this.terrain.update();
     this._updateCamera(dt);
     this._updateEntities(dt);
@@ -1028,6 +1102,7 @@ export class View {
     this._updateFloaters(dt);
     this._updateVisibility(dt);
     this._updateCutaway();
+    this._updateBuildings(dt);
     const r = this.renderer;
     r.shadowMap.needsUpdate = true;
     // one pass: figures are depth-tested against the scenery like everything

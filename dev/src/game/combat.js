@@ -84,7 +84,8 @@ export class Battle {
       m.buffs = [];
       u.init = (m.dex || 10) + rng.int(1, 6) + perkCount(m, 'alert') * 4;
       this.units.push(u);
-      v.addEntity(u.id, charLook(this.game, m), x, y, { ring: 0xffd040, facing: [0, -1] });
+      // (art) heroes stand turned towards the middle and a little towards the camera, so their faces and shields show
+      v.addEntity(u.id, charLook(this.game, m), x, y, { ring: 0xffd040, facing: [x < ARENA_W / 2 ? 1 : -1, 0.45] });
     }
     // enemies
     for (const grp of this.enemyList) {
@@ -1320,7 +1321,7 @@ export class Battle {
     u.st = {};
     const [x, y] = this.freeSpot([u.x, u.y]);
     u.x = x; u.y = y;
-    this.view.addEntity(u.id, charLook(this.game, m), x, y, { ring: 0xffd040, facing: [0, -1] });
+    this.view.addEntity(u.id, charLook(this.game, m), x, y, { ring: 0xffd040, facing: [x < ARENA_W / 2 ? 1 : -1, 0.45] });
     this.view.sparkle(x, y, 0xffffff, 26);
     this.fx.beam(x, y, 0xffffff);
     this.emit('update');

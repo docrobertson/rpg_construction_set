@@ -289,20 +289,41 @@ export function createMaterials() {
         float rim = 1.0 - clamp(dot(normal, V), 0.0, 1.0);
         rim = smoothstep(0.55, 1.0, rim);
         gl_FragColor.rgb += rimSky * rim * (0.1 + 0.3 * diffuseColor.rgb);
-        // metal (tagged through the uvs): a crisp painted glint from the sun
+        #ifdef USE_MAP
+          // skin and painted faces (tagged through the uvs) never sink into
+          // shadow: a hood, a brim or a turn from the sun only softens them
+          float skin = step(0.875, vMapUv.x) * step(0.75, vMapUv.y) * (1.0 - step(0.875, vMapUv.y));
+          float face = (1.0 - step(0.875, vMapUv.y)) * (1.0 - step(0.75, vMapUv.x)) * step(0.125, vMapUv.y);
+          float amb = clamp(dot(rimSky, vec3(0.3, 0.5, 0.2)), 0.0, 1.0);
+          gl_FragColor.rgb = max(gl_FragColor.rgb, diffuseColor.rgb * 0.84 * amb * max(skin, face));
+        #endif
+        // metal (tagged through the uvs): a small, crisp painted glint from the
+        // sun, so steel reads as steel rather than a white blob
         #if defined( USE_MAP ) && NUM_DIR_LIGHTS > 0
           float metal = step(0.875, vMapUv.x) * step(0.875, vMapUv.y);
           vec3 Hh = normalize(directionalLights[0].direction + V);
           float sp = max(dot(normal, Hh), 0.0);
-          float glint = smoothstep(0.88, 0.94, sp) * 0.75 + pow(sp, 6.0) * 0.35;
-          gl_FragColor.rgb += metal * glint * directionalLights[0].color * 0.3 * (0.4 + diffuseColor.rgb);
+          float glint = smoothstep(0.972, 0.99, sp) * 0.85 + pow(sp, 48.0) * 0.12;
+          // steel and gold sit a shade darker than cloth, with a deeper turn
+          // away from the sun, so domes keep their form
+          gl_FragColor.rgb *= 1.0 - metal * (0.16 + 0.14 * (1.0 - smoothstep(0.35, 0.85, sp)));
+          // and never burns out to white under a strong key: only the glint may
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, min(gl_FragColor.rgb, diffuseColor.rgb * 1.3), metal);
+          gl_FragColor.rgb += metal * glint * directionalLights[0].color * 0.28 * (0.45 + diffuseColor.rgb);
         #endif
       }
     `,
   });
+  // The ink line keeps a steady width on screen (about 1.7 px), so it stays
+  // crisp both in close-ups and on a zoomed-out map.
   const outline = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, color: new THREE.Color().setRGB(0.075, 0.06, 0.055) }), {
     key: 'outline',
-    vertexPre: 'transformed += normalize(normal) * 0.0105;',
+    vertexPre: `{
+      vec4 mvp0 = modelViewMatrix * vec4(transformed, 1.0);
+      float sc = max(1e-4, length((modelViewMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz));
+      float w = 0.0043 * -mvp0.z / projectionMatrix[1][1];
+      transformed += normalize(normal) * clamp(w / sc, 0.0045, 0.02);
+    }`,
   });
   const entityGlow = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true }), { key: 'eglow' });
 

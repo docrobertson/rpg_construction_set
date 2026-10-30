@@ -329,6 +329,18 @@ const mig = await ev(() => {
 });
 check('old saves migrate bows to the ranged slot', mig.equip.ranged === 'long_bow' && mig.equip.weapon === null && mig.points === 0, mig);
 
+// --- the help explains the mouse as well as the keys
+const help = await ev(async () => {
+  const ui = window.__app.playUI;
+  if (!ui) return '';
+  ui.openHelp();
+  await new Promise((r) => setTimeout(r, 200));
+  const t = document.querySelector('.help')?.textContent || '';
+  document.querySelector('.help')?.closest('.modal-back')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return t;
+});
+check('help explains pointing, clicking, right-click and the Nearby bar', /Point at anything/.test(help) && /Right-click/.test(help) && /Nearby/.test(help) && /E, 1–4/.test(help));
+
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');
 await browser.close();

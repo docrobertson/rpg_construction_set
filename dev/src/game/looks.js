@@ -21,6 +21,10 @@ export const STYLE_NAMES = { short: 'Short', long: 'Long', ponytail: 'Ponytail',
 // faces: 'bold' (strong brows, a square jaw) or 'fair' (softer, with lashes)
 export const FACE_NAMES = { bold: 'Bold', fair: 'Fair' };
 
+// eye colours, as swatches; a look stores the index (`iris`), which picks
+// the painted eyes in the face atlas (brown, blue, green, grey, amber, violet)
+export const EYE_COLOURS = [0x6b4126, 0x3f7ec4, 0x4c8f3c, 0x7d8c98, 0xb8801e, 0x7a4ab4];
+
 const STYLES = {
   human: [['short', 4], ['long', 2], ['ponytail', 2], ['braids', 1], ['topknot', 1], ['bald', 1]],
   dwarf: [['short', 3], ['braids', 2], ['bald', 2], ['topknot', 1], ['ponytail', 1]],
@@ -42,7 +46,7 @@ export function randomPerson(raceLook, rng) {
   const k = kind(raceLook);
   const hair = rng.pick(HAIRS[k]);
   const face = rng.chance(0.5) ? 'fair' : 'bold';
-  const look = { face, skin: rng.pick(SKINS[k]), hair, hairStyle: weighted(rng, STYLES[k]) };
+  const look = { face, skin: rng.pick(SKINS[k]), hair, hairStyle: weighted(rng, STYLES[k]), iris: rng.pick(k === 'elf' ? [1, 2, 5, 3] : [0, 0, 1, 2, 3, 4]) };
   if (face === 'fair' && look.hairStyle === 'bald') look.hairStyle = 'long';
   if (k === 'human' && face === 'bold' && rng.chance(0.4)) look.beard = hair;
   if (k === 'dwarf' && face === 'fair' && rng.chance(0.4)) look.beard = false;

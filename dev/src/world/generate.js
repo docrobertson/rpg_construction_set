@@ -408,11 +408,11 @@ const SHOP_ROLES = {
 };
 
 export const SETTLEMENT_STYLES = {
-  town: { ground: 'grass', street: 'cobble', wall: 'wall_stone', bwall: 'wall_wood', floor: 'floor_wood', shops: ['inn', 'tavern', 'healer', 'weapons', 'armor', 'provisions', 'reagents'], houses: 3, race: 'human', w: 38, h: 38 },
-  village: { ground: 'grass', street: 'road', wall: 'palisade', bwall: 'wall_wood', floor: 'floor_wood', shops: ['provisions', 'inn', 'healer'], houses: 4, race: 'human', w: 30, h: 30 },
-  castle: { ground: 'grass', street: 'cobble', wall: 'wall_stone', bwall: 'wall_stone', floor: 'floor_stone', shops: ['healer', 'weapons', 'armor'], houses: 1, race: 'human', w: 38, h: 38 },
-  elfhall: { ground: 'meadow', street: 'road', wall: 'tree', bwall: 'wall_wood', floor: 'floor_wood', shops: ['inn', 'healer', 'bowyer', 'reagents'], houses: 3, race: 'elf', w: 34, h: 34 },
-  dwarfgate: { ground: 'floor_stone', street: 'floor_stone', wall: 'cave_wall', bwall: 'wall_stone', floor: 'floor_stone', shops: ['tavern', 'healer', 'weapons', 'armor', 'provisions'], houses: 2, race: 'dwarf', w: 36, h: 36, underground: true },
+  town: { ground: 'grass', street: 'cobble', wall: 'wall_stone', bwall: 'wall_wood', floor: 'floor_wood', shops: ['inn', 'tavern', 'healer', 'weapons', 'armor', 'provisions', 'reagents'], houses: 7, race: 'human', w: 38, h: 38 },
+  village: { ground: 'grass', street: 'road', wall: 'palisade', bwall: 'wall_wood', floor: 'floor_wood', shops: ['provisions', 'inn', 'healer'], houses: 5, race: 'human', w: 30, h: 30 },
+  castle: { ground: 'grass', street: 'cobble', wall: 'wall_stone', bwall: 'wall_stone', floor: 'floor_stone', shops: ['healer', 'weapons', 'armor'], houses: 2, race: 'human', w: 38, h: 38 },
+  elfhall: { ground: 'meadow', street: 'road', wall: 'tree', bwall: 'wall_wood', floor: 'floor_wood', shops: ['inn', 'healer', 'bowyer', 'reagents'], houses: 4, race: 'elf', w: 34, h: 34 },
+  dwarfgate: { ground: 'floor_stone', street: 'floor_stone', wall: 'cave_wall', bwall: 'wall_stone', floor: 'floor_stone', shops: ['tavern', 'healer', 'weapons', 'armor', 'provisions'], houses: 3, race: 'dwarf', w: 36, h: 36, underground: true },
 };
 
 const OUTFITS = [0x7a2a2a, 0x2a4a7a, 0x3a6a3a, 0x7a6a2a, 0x5a3a6a, 0x6a4a2a, 0x2a6a6a, 0x8a5a3a];
@@ -525,7 +525,8 @@ export function furnish(map, b, role, rng) {
     const ay = back ?? iy;
     setIf(ax, ay, 'altar');
     for (let y = iy; y < iy + ih; y++) if (y !== ay && inside(ax, y)) setTile(map, ax, y, T.carpet);
-    spot = { x: ax, y: door.side === 's' ? ay + 1 : ay - 1 };
+    // the healer stands before the altar, inside the room whichever way the door faces
+    spot = { x: ax, y: door.side === 'n' ? ay - 1 : ay + 1 };
     if (iw > 4) { setIf(ix, ay, 'brazier'); setIf(ix + iw - 1, ay, 'brazier'); }
   } else {
     // house
@@ -680,7 +681,7 @@ export function generateSettlement(kind, opt = {}) {
   if (!S.underground) {
     const green = (tt) => tt === T.grass || tt === T.meadow || tt === T.garden || tt === T.tree;
     const elvish = kind === 'elfhall';
-    for (let i = 0; i < (elvish ? 260 : 14); i++) {
+    for (let i = 0; i < (elvish ? 260 : kind === 'town' ? 30 : 16); i++) {
       const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
       const t = getTile(map, x, y);
       if (t !== T.grass && t !== T.meadow) continue;
@@ -721,10 +722,59 @@ export function generateSettlement(kind, opt = {}) {
       }
     }
   }
+  streetFurniture(map, kind, S, new RNG((opt.seed ?? 7) * 7 + 3), npcs, cx, cy);
   map.entities.push(...npcs);
   map.entry = { x: cx - 1, y: h - 2 };
   if (S.underground) map.entry = { x: cx, y: h - 2 };
   return { map, buildings, npcs };
+}
+
+// Lamps along the streets, a market round the fountain, carts and hay by the
+// roads: the things that make a settlement look lived in. Only bare ground
+// next to a street is used, so no doorway or path is ever blocked.
+function streetFurniture(map, kind, S, rng, npcs, cx, cy) {
+  const { w, h } = map;
+  const st = T[S.street];
+  const bare = (x, y) => {
+    if (!inBounds(map, x, y)) return false;
+    const t = getTile(map, x, y);
+    if (S.underground ? t !== T.floor_stone : t !== T.grass && t !== T.meadow) return false;
+    if (npcs.some((n) => Math.abs(n.x - x) + Math.abs(n.y - y) <= 1)) return false;
+    // never against a door or another prop
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const d = def(getTile(map, x + dx, y + dy));
+      if (d.door || ['lamppost', 'cart', 'hay', 'stall', 'well'].includes(d.key)) return false;
+    }
+    return true;
+  };
+  const byStreet = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(map, x + dx, y + dy) && getTile(map, x + dx, y + dy) === st);
+  const put = (x, y, key) => { setTile(map, x, y, T[key]); return true; };
+  if (!S.underground) {
+    // lamp posts down both sides of the high street, and along the cross street
+    const step = kind === 'village' ? 7 : 5;
+    for (let y = 4, i = 0; y < h - 4; y += step, i++) {
+      const x = i % 2 ? cx + 1 : cx - 2;
+      if (bare(x, y) && byStreet(x, y)) put(x, y, 'lamppost');
+    }
+    if (kind !== 'castle') for (let x = 4, i = 0; x < w - 4; x += step, i++) {
+      const y = i % 2 ? cy + 1 : cy - 2;
+      if (bare(x, y) && byStreet(x, y)) put(x, y, 'lamppost');
+    }
+    // market stalls at the corners of the town square
+    if (kind === 'town') {
+      for (const [x, y] of [[cx - 3, cy - 4], [cx + 2, cy - 4], [cx - 3, cy + 1], [cx + 2, cy + 1]]) {
+        if (getTile(map, x, y) === st && !npcs.some((n) => n.x === x && n.y === y)) put(x, y, 'stall');
+      }
+    }
+  }
+  // carts and hay by the roadside
+  const n = kind === 'village' ? 5 : kind === 'elfhall' ? 0 : 3;
+  for (let i = 0, tries = 0; i < n && tries < 300; tries++) {
+    const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
+    if (!bare(x, y) || !byStreet(x, y)) continue;
+    put(x, y, S.underground ? 'cart' : rng.chance(kind === 'village' || kind === 'castle' ? 0.55 : 0.35) ? 'hay' : 'cart');
+    i++;
+  }
 }
 
 // ---------------------------------------------------------------- dungeons

@@ -14,6 +14,11 @@ export const WHITE_UV = [0.5 / N, 1 - 0.5 / N];
 // a second white cell in the top-right corner marks metal (the shader adds
 // a crisp highlight wherever uvs fall in it)
 export const METAL_UV = [1 - 0.5 / N, 1 - 0.5 / N];
+// and a third, just below it, marks skin: the shader keeps faces bright even
+// when they turn from the sun or sit in a hood
+export const SKIN_UV = [1 - 0.5 / N, 1 - 1.5 / N];
+// painted lashes, an overlay so any face can have them (or not)
+export const LASHES = { human: [1, 6], elf: [2, 6] };
 
 export const IRIS = { brown: 0, blue: 1, green: 2, grey: 3, amber: 4, violet: 5 };
 const IRIS_COLS = ['#6b4126', '#3f7ec4', '#4c8f3c', '#7d8c98', '#b8801e', '#7a4ab4'];
@@ -32,10 +37,13 @@ export function faceAtlas() {
   g.fillStyle = '#ffffff';
   g.fillRect(0, 0, S, S);
   g.fillRect((N - 1) * S, 0, S, S);
+  g.fillRect((N - 1) * S, S, S, S);
   for (const [name, col] of Object.entries(BROWS)) cell(g, 0, col, (c) => drawBrows(c, name));
   for (const [style, row] of Object.entries(FACE_ROWS)) {
     for (let i = 0; i < IRIS_COLS.length; i++) cell(g, row, i, (c) => drawFace(c, style, i));
   }
+  cell(g, LASHES.human[0], LASHES.human[1], (c) => drawLashes(c, false));
+  cell(g, LASHES.elf[0], LASHES.elf[1], (c) => drawLashes(c, true));
   atlas = new THREE.CanvasTexture(cv);
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.anisotropy = 4;
@@ -75,7 +83,7 @@ function almond(g, ex, ey, s, w, top, bot, lift) {
 }
 
 function eye(g, ex, ey, s, o) {
-  const { w, top, bot, lift = 0, iris, irisR, sclera = '#f7f2ea', lid = '#2a1a12', lidW = 0.05, slit = false, lashes = false } = o;
+  const { w, top, bot, lift = 0, iris, irisR, sclera = '#fbf6ee', lid = '#2a1a12', lidW = 0.05, slit = false } = o;
   almond(g, ex, ey, s, w, top, bot, lift);
   g.fillStyle = sclera;
   g.fill();
@@ -83,26 +91,30 @@ function eye(g, ex, ey, s, o) {
   g.save();
   almond(g, ex, ey, s, w, top, bot, lift);
   g.clip();
-  const cx = ex - s * w * 0.08, cy = ey + top * 0.12;
-  const gr = g.createRadialGradient(cx, cy + irisR * 0.3, irisR * 0.1, cx, cy, irisR);
-  gr.addColorStop(0, shadeHex(iris, 1.45));
-  gr.addColorStop(0.65, iris);
-  gr.addColorStop(1, shadeHex(iris, 0.45));
+  const cx = ex - s * w * 0.06, cy = ey + top * 0.1;
+  const gr = g.createRadialGradient(cx, cy - irisR * 0.35, irisR * 0.1, cx, cy, irisR);
+  gr.addColorStop(0, shadeHex(iris, 1.6));
+  gr.addColorStop(0.6, iris);
+  gr.addColorStop(1, shadeHex(iris, 0.4));
   g.fillStyle = gr;
   g.beginPath(); g.arc(cx, cy, irisR, 0, Math.PI * 2); g.fill();
+  // a dark ring round the iris reads as a bigger, brighter eye at a distance
+  g.strokeStyle = shadeHex(iris, 0.35);
+  g.lineWidth = irisR * 0.16;
+  g.beginPath(); g.arc(cx, cy, irisR * 0.92, 0, Math.PI * 2); g.stroke();
   g.fillStyle = '#140c0a';
   g.beginPath();
   if (slit) g.ellipse(cx, cy, irisR * 0.18, irisR * 0.8, 0, 0, Math.PI * 2);
-  else g.arc(cx, cy, irisR * 0.46, 0, Math.PI * 2);
+  else g.arc(cx, cy, irisR * 0.44, 0, Math.PI * 2);
   g.fill();
   // shadow of the upper lid on the eyeball
-  g.fillStyle = 'rgba(60,30,20,0.16)';
-  g.beginPath(); g.ellipse(ex, ey + top * 1.05, w * 1.2, top * 0.45, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(60,30,20,0.18)';
+  g.beginPath(); g.ellipse(ex, ey + top * 1.05, w * 1.2, top * 0.42, 0, 0, Math.PI * 2); g.fill();
   g.restore();
-  // catch-lights (the light comes from the upper left)
+  // two catch-lights (the light comes from the upper left)
   g.fillStyle = '#ffffff';
-  g.beginPath(); g.arc(cx - irisR * 0.38, cy + irisR * 0.38, irisR * 0.3, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(cx + irisR * 0.4, cy - irisR * 0.42, irisR * 0.13, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(cx - irisR * 0.36, cy + irisR * 0.36, irisR * 0.36, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(cx + irisR * 0.42, cy - irisR * 0.4, irisR * 0.17, 0, Math.PI * 2); g.fill();
   // upper lid line, heavier towards the outer corner
   const ix = ex - s * w, ox = ex + s * w;
   g.strokeStyle = lid;
@@ -114,15 +126,8 @@ function eye(g, ex, ey, s, o) {
   g.lineWidth = lidW * 1.5;
   g.beginPath();
   g.moveTo(ex + s * w * 0.35, ey + top * 0.92 + lift * 0.5);
-  g.quadraticCurveTo(ox - s * w * 0.05, ey + top * 0.6 + lift, ox + s * (lashes ? 0.08 : 0.025), ey + lift + (lashes ? 0.05 : 0));
+  g.quadraticCurveTo(ox - s * w * 0.05, ey + top * 0.6 + lift, ox + s * 0.025, ey + lift);
   g.stroke();
-  if (lashes) {
-    g.lineWidth = 0.03;
-    for (let i = 0; i < 2; i++) {
-      const bx = ox - s * w * (0.12 + i * 0.28), by = ey + top * (0.85 + i * 0.1) + lift * 0.8;
-      g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + s * 0.06, by + 0.06); g.stroke();
-    }
-  }
   // a hint of the lower lid at the outer half
   g.lineWidth = lidW * 0.45;
   g.strokeStyle = 'rgba(70,35,25,0.75)';
@@ -132,57 +137,81 @@ function eye(g, ex, ey, s, o) {
   g.stroke();
 }
 
-function drawFace(g, style, ic) {
+// eye shapes per face style (shared by the face and the lash overlay)
+function eyeShape(style, fair, ic) {
   const iris = IRIS_COLS[ic];
+  if (style === 'orc') return { dy: -0.02, w: 0.16, top: 0.08, bot: 0.065, lift: 0.06, iris: ['#d02818', '#e0a020'][ic % 2], irisR: 0.08, sclera: '#efe2b0', lidW: 0.07, lid: '#1a120c' };
+  if (style === 'goblin') return { kx: 1.05, w: 0.21, top: 0.18, bot: 0.16, lift: 0.04, iris: ['#f0c820', '#e04020', '#f0c820', '#a0e030', '#f0c820', '#e04020'][ic], irisR: 0.16, sclera: '#fff8d8', slit: true, lidW: 0.05, lid: '#1a140a' };
+  if (style === 'troll') return { w: 0.15, top: 0.09, bot: 0.065, lift: 0.07, iris: ['#e03020', '#e0a020'][ic % 2], irisR: 0.075, sclera: '#f2e8c0', lidW: 0.06, lid: '#1a140c' };
+  if (style === 'elf') return { dy: 0.01, w: 0.225, top: fair ? 0.205 : 0.18, bot: 0.145, lift: 0.07, iris, irisR: 0.15, lidW: fair ? 0.058 : 0.052 };
+  return { w: 0.225, top: fair ? 0.215 : 0.19, bot: 0.155, lift: fair ? 0.03 : 0.015, iris, irisR: 0.155, lidW: fair ? 0.058 : 0.052 };
+}
+
+function drawFace(g, style, ic) {
   const fair = style === 'fair' || style === 'elfFair';
   const elf = style === 'elf' || style === 'elfFair';
-  for (const s of [-1, 1]) {
-    const ex = s * 0.37, ey = -0.04;
-    if (style === 'orc') {
-      eye(g, ex, ey - 0.02, s, { w: 0.15, top: 0.07, bot: 0.06, lift: 0.06, iris: ['#d02818', '#e0a020', '#d02818', '#e0a020', '#d02818', '#e0a020'][ic], irisR: 0.075, sclera: '#efe2b0', lidW: 0.07, lid: '#1a120c' });
-    } else if (style === 'goblin') {
-      eye(g, ex * 1.05, ey, s, { w: 0.2, top: 0.17, bot: 0.15, lift: 0.04, iris: ['#f0c820', '#e04020', '#f0c820', '#a0e030', '#f0c820', '#e04020'][ic], irisR: 0.15, sclera: '#fff8d8', slit: true, lidW: 0.05, lid: '#1a140a' });
-    } else if (style === 'troll') {
-      eye(g, ex, ey, s, { w: 0.14, top: 0.08, bot: 0.06, lift: 0.07, iris: ['#e03020', '#e0a020', '#e03020', '#e0a020', '#e03020', '#e0a020'][ic], irisR: 0.07, sclera: '#f2e8c0', lidW: 0.06, lid: '#1a140c' });
-    } else if (elf) {
-      eye(g, ex, ey + 0.01, s, { w: 0.22, top: fair ? 0.19 : 0.16, bot: 0.13, lift: 0.07, iris, irisR: 0.135, lashes: fair, lidW: fair ? 0.06 : 0.052 });
-    } else {
-      eye(g, ex, ey, s, { w: 0.21, top: fair ? 0.2 : 0.17, bot: 0.14, lift: fair ? 0.03 : 0.015, iris, irisR: 0.14, lashes: fair, lidW: fair ? 0.06 : 0.052 });
-    }
-  }
-  // mouths
+  const shape = eyeShape(elf ? 'elf' : style, fair, ic);
+  for (const s of [-1, 1]) eye(g, s * 0.37 * (shape.kx || 1), -0.04 + (shape.dy || 0), s, shape);
+  // mouths: a little variety, keyed to the eye colour so faces differ
+  const v = ic % 3;
   g.lineCap = 'round';
   if (style === 'goblin') {
     g.fillStyle = '#3a1410';
-    g.beginPath(); g.moveTo(-0.34, -0.42); g.quadraticCurveTo(0, -0.78, 0.34, -0.42); g.quadraticCurveTo(0, -0.55, -0.34, -0.42); g.fill();
+    g.beginPath(); g.moveTo(-0.36, -0.42); g.quadraticCurveTo(0, -0.8, 0.36, -0.42); g.quadraticCurveTo(0, -0.55, -0.36, -0.42); g.fill();
     g.fillStyle = '#f4ecd0';
     for (const x of [-0.18, -0.06, 0.06, 0.18]) { g.beginPath(); g.moveTo(x - 0.045, -0.475 - Math.abs(x) * 0.1 + 0.02); g.lineTo(x + 0.045, -0.475 - Math.abs(x) * 0.1 + 0.02); g.lineTo(x, -0.56 + Math.abs(x) * 0.25); g.fill(); }
   } else if (style === 'orc' || style === 'troll') {
     g.strokeStyle = '#2a120c';
-    g.lineWidth = 0.05;
-    g.beginPath(); g.moveTo(-0.24, -0.5); g.quadraticCurveTo(0, -0.43, 0.24, -0.5); g.stroke();
+    g.lineWidth = 0.055;
+    g.beginPath(); g.moveTo(-0.26, -0.5); g.quadraticCurveTo(0, -0.42 + v * 0.02, 0.26, -0.5); g.stroke();
   } else if (fair) {
     // soft lips: a rosy lower lip under a fine mouth line
+    const k = [0, 0.025, -0.01][v];
     g.save();
     g.translate(0, 0.06);
     g.fillStyle = '#d0706a';
-    g.beginPath(); g.moveTo(-0.16, -0.5); g.quadraticCurveTo(0, -0.66, 0.16, -0.5); g.quadraticCurveTo(0, -0.53, -0.16, -0.5); g.fill();
+    g.beginPath(); g.moveTo(-0.16, -0.5 + k); g.quadraticCurveTo(0, -0.66, 0.16, -0.5 + k); g.quadraticCurveTo(0, -0.53, -0.16, -0.5 + k); g.fill();
     g.fillStyle = '#bc5c56';
-    g.beginPath(); g.moveTo(-0.16, -0.5); g.quadraticCurveTo(-0.07, -0.43, 0, -0.47); g.quadraticCurveTo(0.07, -0.43, 0.16, -0.5); g.quadraticCurveTo(0, -0.52, -0.16, -0.5); g.fill();
+    g.beginPath(); g.moveTo(-0.16, -0.5 + k); g.quadraticCurveTo(-0.07, -0.43, 0, -0.47); g.quadraticCurveTo(0.07, -0.43, 0.16, -0.5 + k); g.quadraticCurveTo(0, -0.52, -0.16, -0.5 + k); g.fill();
     g.strokeStyle = '#5a2420';
     g.lineWidth = 0.03;
-    g.beginPath(); g.moveTo(-0.17, -0.492); g.quadraticCurveTo(0, -0.535, 0.17, -0.492); g.stroke();
+    g.beginPath(); g.moveTo(-0.17, -0.492 + k); g.quadraticCurveTo(0, -0.535 - k, 0.17, -0.492 + k); g.stroke();
     g.fillStyle = '#f4b4ac';
     g.beginPath(); g.ellipse(0.035, -0.57, 0.045, 0.016, 0, 0, Math.PI * 2); g.fill();
     g.restore();
   } else {
-    // a confident half-smile
+    // a confident half-smile, a grin or a level, thoughtful mouth
     g.strokeStyle = '#5a261c';
-    g.lineWidth = 0.042;
-    g.beginPath(); g.moveTo(-0.18, -0.42); g.quadraticCurveTo(0.0, -0.52, 0.2, -0.4); g.stroke();
+    g.lineWidth = 0.044;
+    g.beginPath();
+    if (v === 0) { g.moveTo(-0.18, -0.42); g.quadraticCurveTo(0.0, -0.52, 0.2, -0.4); }
+    else if (v === 1) { g.moveTo(-0.21, -0.4); g.quadraticCurveTo(0.0, -0.55, 0.21, -0.4); }
+    else { g.moveTo(-0.17, -0.45); g.quadraticCurveTo(0.02, -0.48, 0.18, -0.43); }
+    g.stroke();
     g.strokeStyle = 'rgba(90,38,28,0.7)';
     g.lineWidth = 0.026;
-    g.beginPath(); g.moveTo(-0.07, -0.55); g.quadraticCurveTo(0, -0.57, 0.07, -0.55); g.stroke();
+    g.beginPath(); g.moveTo(-0.07, -0.56); g.quadraticCurveTo(0, -0.58, 0.07, -0.56); g.stroke();
+  }
+}
+
+// upper lashes, painted dark and laid over the face
+function drawLashes(g, elf) {
+  const o = eyeShape(elf ? 'elf' : 'bold', true, 0);
+  g.strokeStyle = '#1e120c';
+  g.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    const ex = s * 0.37, ey = -0.04 + (o.dy || 0);
+    const ox = ex + s * o.w;
+    g.lineWidth = 0.075;
+    g.beginPath();
+    g.moveTo(ex + s * o.w * 0.1, ey + o.top * 0.98 + o.lift * 0.4);
+    g.quadraticCurveTo(ox - s * o.w * 0.05, ey + o.top * 0.7 + o.lift, ox + s * 0.07, ey + o.lift + 0.05);
+    g.stroke();
+    g.lineWidth = 0.035;
+    for (let i = 0; i < 3; i++) {
+      const bx = ox - s * o.w * (0.08 + i * 0.26), by = ey + o.top * (0.82 + i * 0.1) + o.lift * 0.8;
+      g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + s * 0.07, by + 0.07); g.stroke();
+    }
   }
 }
 
@@ -328,18 +357,27 @@ export function sculptHead(B, F, o) {
     Bd.col.push(col.r, col.g, col.b);
     if (uv) Bd.uv.push(uv[0], uv[1]);
   };
-  // skin: a little warmer and darker under the jaw and at the back
-  const nth = 12, nph = 18;
+  // skin: a little warmer and darker under the jaw and at the back, with
+  // painted form: soft hollows under the cheekbones, along the jaw and
+  // under the nose, so a face reads as modelled rather than a flat oval
+  const nth = 16, nph = 24;
   const grid = [];
+  const shadow = new THREE.Color(o.skin).multiplyScalar(0.72).lerp(new THREE.Color(0x8a3a3a), 0.12);
   for (let i = 0; i <= nth; i++) {
     const row = [];
     for (let j = 0; j <= nph; j++) {
       const th = (i / nth) * Math.PI, ph = (j / nph) * Math.PI * 2;
       const s = surf(Math.min(Math.PI - 1e-3, Math.max(1e-3, th)), ph, sh);
-      const k = 0.86 + 0.14 * Math.min(1, Math.max(0, (s.p[1] + 0.9) / 1.3));
+      const k = 0.88 + 0.12 * Math.min(1, Math.max(0, (s.p[1] + 0.9) / 1.3));
       const c = sk.clone().multiplyScalar(k);
-      if (o.blush && s.p[2] > 0) {
-        const q = surf0(Math.min(Math.PI - 1e-3, Math.max(1e-3, th)), ph, sh).p;
+      const q = surf0(Math.min(Math.PI - 1e-3, Math.max(1e-3, th)), ph, sh).p;
+      if (q[2] > 0 && o.form !== 0) {
+        const f = o.form ?? 1;
+        const cheek = Math.exp(-(((Math.abs(q[0]) - 0.62) ** 2) / 0.03 + ((q[1] + 0.48) ** 2) / 0.05));
+        const nose = Math.exp(-((q[0] - 0.04) ** 2 / 0.006 + ((q[1] + 0.33) ** 2) / 0.004));
+        c.lerp(shadow, Math.min(0.6, (cheek * 0.45 + nose * 0.5) * f));
+      }
+      if (o.blush && q[2] > 0) {
         const b = Math.exp(-(((Math.abs(q[0]) - 0.44) ** 2) / 0.02 + ((q[1] + 0.25) ** 2) / 0.02));
         c.lerp(blush, b * o.blush);
       }
@@ -347,11 +385,13 @@ export function sculptHead(B, F, o) {
     }
     grid.push(row);
   }
+  const skin0 = B.count;
   for (let i = 0; i < nth; i++) for (let j = 0; j < nph; j++) {
     const a = grid[i][j], b = grid[i + 1][j], c = grid[i + 1][j + 1], d = grid[i][j + 1];
     put(B, a.s, a.c); put(B, b.s, b.c); put(B, c.s, c.c);
     put(B, a.s, a.c); put(B, c.s, c.c); put(B, d.s, d.c);
   }
+  if (o.skinTag !== false) (B.skin ||= []).push([skin0, B.count]);
   // decals
   const decal = (cellRow, cellCol, rect, lift, colour) => {
     if (!F) return;
@@ -381,6 +421,7 @@ export function sculptHead(B, F, o) {
   };
   if (o.row != null) decal(o.row, o.iris ?? 0, [FX0 + 0.02, FX1 - 0.02, FY0 + 0.02, 0.2], 0.012, 0xffffff);
   if (o.brow != null) decal(0, o.brow, [FX0 + 0.02, FX1 - 0.02, 0.12, FY1 - 0.02], 0.02, o.browColor ?? 0x3a2414);
+  if (o.lashes) decal(o.lashes[0], o.lashes[1], [FX0 + 0.02, FX1 - 0.02, -0.3, 0.3], 0.016, 0xffffff);
   return {
     // world position of a point on the face, given unit-face x, y (+ lift)
     at: (x, y, lift = 0) => {

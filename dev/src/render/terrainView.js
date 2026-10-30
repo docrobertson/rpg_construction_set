@@ -85,6 +85,11 @@ export class TerrainView {
     this.skirt = null;
     this.M = 0;
     this.lightTex = null;
+    // settlement buildings draw their own walls: owned[tile] marks them, and
+    // groundSubst(x, y) says what ground shows round their feet
+    this.owned = null;
+    this.groundSubst = null;
+    this.extraLights = [];
   }
 
   dispose() {
@@ -258,6 +263,8 @@ export class TerrainView {
 
   inMap(x, y) { return x >= 0 && y >= 0 && x < this.map.w && y < this.map.h; }
 
+  _own(x, y) { return !!this.owned && this.inMap(x, y) && this.owned[y * this.map.w + x] > 0; }
+
   // Made-up scenery beyond the map's edge
   _surround(x, y) {
     const m = this.map;
@@ -328,7 +335,7 @@ export class TerrainView {
     const xs = (i & 1) ? [(i - 1) / 2 - M] : [i / 2 - 1 - M, i / 2 - M];
     const ys = (j & 1) ? [(j - 1) / 2 - M] : [j / 2 - 1 - M, j / 2 - M];
     let w = 0;
-    for (const y of ys) for (const x of xs) { const t = this.tileAt(x, y); if (t.wall) w++; }
+    for (const y of ys) for (const x of xs) { const t = this.tileAt(x, y); if (t.wall && !this._own(x, y)) w++; }
     return w ? 0.62 : 1;
   }
 
@@ -374,7 +381,7 @@ export class TerrainView {
     const w = TW * R, h = TH * R;
     const acc = new Float32Array(w * h * 3);
     let any = false;
-    for (const ch of this.chunks) for (const L of ch.lights || []) {
+    for (const L of [...this.chunks.flatMap((ch) => ch.lights || []), ...(this.extraLights || [])]) {
       any = true;
       const [px, pz, rad, c, s] = L;
       const gx = (px + M) * R, gz = (pz + M) * R, gr = rad * R;
@@ -427,7 +434,11 @@ export class TerrainView {
   }
 
   _buildTile(ground, P, W, G, x, y, lights, Lv) {
-    const t = this.tileAt(x, y);
+    const own = this._own(x, y);
+    const t0 = this.tileAt(x, y);
+    // under a building's own wall (or a street prop), show the ground beside it
+    const sub = this.groundSubst && this.inMap(x, y) ? this.groundSubst(x, y) : null;
+    const t = sub || t0;
     const nb = (dx, dy) => this.tileAt(x + dx, y + dy);
     const i0 = this._gi(x), j0 = this._gi(y);
     const center = this.gh(i0 + 1, j0 + 1);
@@ -517,6 +528,7 @@ export class TerrainView {
     }
 
     // --- walls stand on the ground as blocks
+    if (own) return;
     let top = center;
     if (t.wall) {
       top = center + t.h;
@@ -531,13 +543,13 @@ export class TerrainView {
       lights.push([x + 0.5, y + 0.5, r, lin(c), s]);
     }
 
-    if (t.deco && DECOR[t.deco]) {
+    if (t0.deco && DECOR[t0.deco]) {
       const ctx = {
         B: P, W, G, x, z: y, cx: x + 0.5, cz: y + 0.5,
         y: t.water ? WATER_Y : top,
         g: center,
         gy: (px, pz) => this.heightAtPoint(px, pz),
-        t, map: this.map, nb, outside, dark,
+        t: t0, map: this.map, nb, outside, dark,
         r: (k) => hash2(x * 7 + k * 13, y * 11 - k * 5, 4242),
         nbCount: (fn) => {
           let n = 0;
@@ -550,7 +562,7 @@ export class TerrainView {
       P.auxAt = null;
       // scenery beyond the edge is seen from afar: lighter trees
       P.cheap = outside;
-      DECOR[t.deco](ctx);
+      DECOR[t0.deco](ctx);
       P.auxAt = null;
     }
   }

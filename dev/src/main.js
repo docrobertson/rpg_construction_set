@@ -1,7 +1,11 @@
 // Realms Construction Set — app shell: title screen, play mode, construction set.
 import { View } from './render/view.js';
-import { h, clear, modal, toast, confirmDialog, closeAllModals } from './ui/dom.js';
+import { h, clear, modal, toast, confirmDialog, closeAllModals, initTooltips } from './ui/dom.js';
+import { iconSvg } from './ui/icons.js';
+import { loadFonts } from './ui/fonts.js';
+import { terrain } from './data/terrain.js';
 import { PlayUI } from './ui/play.js';
+import { showHowTo } from './ui/help.js';
 import { partyCreation, quickParty } from './ui/partyCreate.js';
 import { PlaySession, newPlayState } from './game/session.js';
 import { newGame, deserializeGame, serializeGame, cloneGame, getMap } from './data/schema.js';
@@ -23,6 +27,8 @@ class App {
     this.embedded = readEmbedded();
     this._sample = null;
     window.__app = this;
+    loadFonts();
+    initTooltips();
     this.showTitle();
   }
 
@@ -76,20 +82,36 @@ class App {
       this.view.focus(cx + Math.sin(t) * 14, cy + Math.cos(t * 0.8) * 9);
     };
     playMusic('title');
+    // the featured adventure: the embedded game in a shared file, else the sample
+    const feat = g;
+    const featSaved = loadState(feat.id);
+    const ico = (name) => h('span.tb-ico', { html: iconSvg(name) });
+    const tbtn = (cls, icon, label, sub, onclick, title) => h('button.tbtn' + cls, { onclick: () => { sfx('click'); onclick(); }, title },
+      ico(icon), h('span.tb-text', h('span.tb-label', label), sub ? h('small.tb-sub', sub) : null));
     const el = h('div.title-screen',
+      h('div.title-vignette'),
+      h('div.title-frame'),
       h('div.title-card',
-        h('div.logo', h('span.l1', 'Realms'), h('span.l2', 'Construction Set')),
-        h('p.tagline', 'Forge your own legend in the style of the classic tile-based role-playing games — then share it with your friends.'),
-        this.embedded ? h('div.embedded-title', h('b', this.embedded.meta.title), this.embedded.meta.author ? h('span', ' by ' + this.embedded.meta.author) : null) : null,
+        h('div.logo',
+          h('span.l0', { html: iconSvg('castle') }),
+          h('span.l1', 'Realms'),
+          h('span.l2', 'Construction Set'),
+          h('span.logo-rule')),
+        h('p.tagline', 'Gather a company of heroes, roam a living world and fight tactical battles — or forge your own realm and share it with friends.'),
         h('div.title-menu',
           this.continueButton(),
-          h('button.primary.big', { onclick: () => { sfx('click'); this.embedded ? this.adventureMenu(this.embedded) : this.pickAdventure(); } }, '▶  Play an Adventure'),
-          h('button.big', { onclick: () => { sfx('click'); this.pickProject(); } }, '⚒  Construction Set'),
-          h('button', { onclick: () => this.importFile('play') }, '⤓  Load a game file to play'),
-          h('button', { onclick: () => this.about() }, 'About'),
+          tbtn('.primary.cta', 'play', `Play ${feat.meta.title}`,
+            featSaved ? 'Start over, or carry on from your save' : this.embedded ? (feat.meta.author ? `An adventure by ${feat.meta.author}` : 'Begin the adventure') : 'The ready-made adventure — start here',
+            () => (featSaved ? this.adventureMenu(feat) : this.playGame(feat, {}))),
+          h('div.title-row',
+            tbtn('', 'book', 'Play an Adventure', 'Choose any realm', () => this.pickAdventure(), 'Choose any adventure saved in this browser'),
+            tbtn('', 'anvil', 'Construction Set', 'Build your own', () => this.pickProject(), 'Paint lands, found towns, write quests')),
+          h('div.title-row.small',
+            tbtn('', 'upload', 'Load a game file', null, () => this.importFile('play'), 'Play a .json game file a friend sent you'),
+            tbtn('', 'quill', 'About', null, () => this.about())),
         ),
       ),
-      h('div.title-foot', 'Runs entirely in your browser · Saves to browser storage · Share games as files'),
+      h('div.title-foot', h('span', { html: iconSvg('sparkle') }), ' Runs entirely in your browser · Saves to browser storage · Share games as files'),
     );
     this.ui.appendChild(el);
     this.titleEl = el;
@@ -102,16 +124,35 @@ class App {
     if (!saved) return null;
     const game = this.embedded?.id === id ? this.embedded : id === SAMPLE_ID ? this.sample : loadProject(id);
     if (!game) return null;
-    return h('button.big', { onclick: () => { sfx('click'); this.playGame(game, { state: saved }); } },
-      '⟳  Continue', h('small.cont-sub', ` ${game.meta.title} — ${saved.party.members[0]?.name || ''}'s company`));
+    const lead = saved.party.members[0];
+    return h('button.tbtn.cont', { onclick: () => { sfx('click'); this.playGame(game, { state: saved }); } },
+      h('span.tb-ico', { html: iconSvg('end') }),
+      h('span.tb-text', h('span.tb-label', 'Continue'),
+        h('small.tb-sub.cont-sub', `${game.meta.title} — ${lead?.name || ''}'s company${lead ? `, level ${lead.level}` : ''}`)));
   }
 
   about() {
-    modal(h('div.help',
+    modal(h('div.help.about',
       h('p', 'Realms Construction Set lets you build and play top-down fantasy role-playing adventures in the spirit of the early Ultima games: a party of up to six heroes, a sprawling overworld, towns full of folk to question, dark dungeons and tactical battles.'),
       h('p', 'Use the Construction Set to paint continents, raise mountains, found towns and castles, people them with characters who answer to keywords, and tune the races, classes, items, spells, magic systems and monsters.'),
       h('p', 'Everything lives in your browser. Export your game to a .json file to back it up or share it, or export a single self-contained .html file your friends can simply open and play.'),
-    ), { title: 'About', cls: 'wide' });
+      h('p.hint', 'Display type: Cinzel and Alegreya, under the SIL Open Font License.'),
+    ), { title: 'About', icon: 'quill', cls: 'wide' });
+  }
+
+  // a tiny painted map of an adventure's world, for the picker
+  worldThumb(game) {
+    const map = game.maps.find((m) => m.type === 'world') || game.maps[0];
+    const c = h('canvas.adv-thumb', { width: map?.w || 1, height: map?.h || 1 });
+    if (!map) return c;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(map.w, map.h);
+    for (let i = 0; i < map.w * map.h; i++) {
+      const col = terrain(map.tiles[i]).top;
+      img.data[i * 4] = (col >> 16) & 255; img.data[i * 4 + 1] = (col >> 8) & 255; img.data[i * 4 + 2] = col & 255; img.data[i * 4 + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
   }
 
   allAdventures() {
@@ -127,32 +168,53 @@ class App {
 
   pickAdventure() {
     const body = h('div.adv-list');
-    const m = modal(body, { title: 'Choose an Adventure', cls: 'wide' });
+    const m = modal(body, { title: 'Choose an Adventure', icon: 'book', sub: 'Every adventure in this browser — the ready-made one, and the realms you build', cls: 'wide adv-modal' });
     for (const a of this.allAdventures()) {
-      const title = a.game ? a.game.meta.title : a.title;
-      const desc = a.game ? a.game.meta.description : `Your creation · last edited ${new Date(a.modified).toLocaleDateString()}`;
-      body.appendChild(h('div.adv-row',
-        h('div.adv-info', h('b', title), h('p', desc || '')),
+      const g = a.game;
+      const title = g ? g.meta.title : a.title;
+      const desc = g ? g.meta.description : `Your own creation · last edited ${new Date(a.modified).toLocaleDateString()}`;
+      const saved = loadState(g ? g.id : a.id);
+      const meta = g ? [
+        `${g.maps.length} map${g.maps.length === 1 ? '' : 's'}`,
+        g.quests?.length ? `${g.quests.length} quest${g.quests.length === 1 ? '' : 's'}` : null,
+        g.meta.author ? `by ${g.meta.author}` : null,
+      ].filter(Boolean) : [];
+      body.appendChild(h('div.adv-row' + (a.builtin ? '.featured' : ''),
+        h('div.adv-pic', g ? this.worldThumb(g) : h('span.adv-crest', { html: iconSvg('castle') })),
+        h('div.adv-info',
+          h('b', title),
+          h('p', desc || ''),
+          h('div.adv-meta',
+            a.builtin ? h('span.adv-tag.gold', g === this.embedded ? 'Shared with you' : 'Ready to play') : h('span.adv-tag', 'Your realm'),
+            ...meta.map((x) => h('span.adv-tag', x)),
+            saved ? h('span.adv-tag.saved', { html: iconSvg('save') }, ` Saved: ${saved.party.members[0]?.name || 'a company'}`) : null)),
         h('button.primary', {
           onclick: () => {
-            const g = a.game || loadProject(a.id);
-            if (!g) { toast('Could not load that game.', 'bad'); return; }
+            const gg = a.game || loadProject(a.id);
+            if (!gg) { toast('Could not load that game.', 'bad'); return; }
             m.close();
-            this.adventureMenu(g);
+            this.adventureMenu(gg);
           },
         }, 'Play')));
     }
-    body.appendChild(h('p.hint', 'Adventures you build in the Construction Set appear here too.'));
+    body.appendChild(h('p.hint', 'Adventures you build in the Construction Set appear here too. Friends can send you a game file: use “Load a game file” on the title screen.'));
   }
 
   adventureMenu(game) {
     const saved = loadState(game.id);
-    const body = h('div',
-      h('p', game.meta.description || ''),
-      saved ? h('p.hint', `Saved game: ${saved.party.members.map((x) => x.name).join(', ')} — turn ${saved.turn}`) : null,
+    const lead = saved?.party.members[0];
+    const body = h('div.adv-menu',
+      h('div.adv-banner', this.worldThumb(game)),
+      h('p.adv-desc', game.meta.description || ''),
+      saved ? h('div.adv-save',
+        h('span.as-ico', { html: iconSvg('save') }),
+        h('div', h('b', 'Saved game'), h('span', `${saved.party.members.map((x) => x.name).join(', ')}${lead ? ` · level ${lead.level}` : ''} · turn ${saved.turn}`)))
+        : h('p.hint', 'You will gather a company of heroes, then set out. Your progress saves itself as you go.'),
     );
     modal(body, {
       title: game.meta.title,
+      icon: 'castle',
+      cls: 'adv-menu-modal',
       buttons: [
         { label: 'Cancel' },
         saved ? { label: 'Continue', primary: true, onClick: () => this.playGame(game, { state: saved }) } : null,
@@ -196,7 +258,7 @@ class App {
     const text = (game.meta.intro || '').trim();
     if (!text) return next();
     const body = h('div.intro', ...text.split(/\n+/).map((p) => h('p', p)));
-    modal(body, { title: game.meta.title, cls: 'wide intro-modal', closeOnBack: false, buttons: [{ label: 'Begin', primary: true }], onClose: next });
+    modal(body, { title: game.meta.title, cls: 'wide intro-modal', closeOnBack: false, closeX: false, buttons: [{ label: 'Begin', primary: true }], onClose: next });
   }
 
   async startSession(game, state, opts) {
@@ -213,6 +275,8 @@ class App {
     session.log(`Welcome to ${game.meta.title}. Press ? for help.`, 'place');
     session.log(`You stand in ${session.map.name}.`);
     if (!opts.noSave && !opts.state) session.autosave();
+    // newcomers get a short how-to-play card over the map (once)
+    if (!opts.quick && !opts.fromEditor) showHowTo(this.playUI);
   }
 
   continueGame() {
@@ -238,23 +302,23 @@ class App {
   // ------------------------------------------------------------ construction set
   pickProject() {
     const body = h('div.adv-list');
-    const m = modal(body, { title: 'Construction Set', cls: 'wide' });
-    const row = (title, desc, ...btns) => h('div.adv-row', h('div.adv-info', h('b', title), desc ? h('p', desc) : null), ...btns);
+    const m = modal(body, { title: 'Construction Set', icon: 'anvil', sub: 'Build a realm of your own: lands, towns, people, quests and monsters', cls: 'wide adv-modal' });
+    const row = (icon, title, desc, ...btns) => h('div.adv-row.compact', h('div.adv-pic.small', h('span.adv-crest', { html: iconSvg(icon) })), h('div.adv-info', h('b', title), desc ? h('p', desc) : null), ...btns);
     body.append(
       h('div.sub', 'Start something new'),
-      row('New realm', 'A freshly generated continent, ready for towns and dungeons.',
+      row('map', 'New realm', 'A freshly generated continent, ready for towns and dungeons.',
         h('button.primary', { onclick: () => { m.close(); this.newProject(false); } }, 'Create')),
-      row('Empty realm', 'A lonely island in an endless sea. Build everything yourself.',
+      row('compass', 'Empty realm', 'A lonely island in an endless sea. Build everything yourself.',
         h('button', { onclick: () => { m.close(); this.newProject(true); } }, 'Create')),
-      row('Remix the sample adventure', `“${this.sample.meta.title}” — see how it was made, then change anything.`,
+      row('quill', 'Remix the sample adventure', `“${this.sample.meta.title}” — see how it was made, then change anything.`,
         h('button', { onclick: () => { m.close(); const g = cloneGame(this.sample); g.id = uid('game'); g.meta.title += ' (remix)'; this.openEditor(g); } }, 'Open copy')),
-      row('Open a game file', 'Import a .json game shared by a friend.',
+      row('upload', 'Open a game file', 'Import a .json game shared by a friend.',
         h('button', { onclick: () => { m.close(); this.importFile('edit'); } }, 'Import…')),
     );
     const projects = listProjects();
     if (projects.length) body.appendChild(h('div.sub', 'Your realms (saved in this browser)'));
     for (const p of projects) {
-      body.appendChild(row(p.title, `Last edited ${new Date(p.modified).toLocaleString()} · ${(p.size / 1024).toFixed(0)} KB`,
+      body.appendChild(row('castle', p.title, `Last edited ${new Date(p.modified).toLocaleString()} · ${(p.size / 1024).toFixed(0)} KB`,
         h('button.primary', { onclick: () => { const g = loadProject(p.id); if (!g) return toast('Could not load.', 'bad'); m.close(); this.openEditor(g); } }, 'Edit'),
         h('button.danger', {
           onclick: async () => {

@@ -73,8 +73,21 @@ function describe(map, tiles, n) {
   for (const [x, y] of [...tiles, ...rim]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
   const keeper = pickKeeper(map, inside);
   const [kind, info] = (keeper && KEEPERS[keeper.role]) || ['House', ''];
-  const name = keeper?.shopName || (keeper && KEEPERS[keeper.role] ? `${keeper.name}'s ${kind}` : keeper ? `${keeper.name}'s house` : 'House');
+  const name = keeper?.shopName || signName(keeper) || (keeper && KEEPERS[keeper.role] ? `${keeper.name}'s ${kind}` : keeper ? `${keeper.name}'s house` : 'House');
   return { id: `b${n}`, tiles, rim, doors, box: { x0, y0, x1, y1 }, keeper, kind, name, info };
+}
+
+// Inns and taverns go by the name on their sign, made up from the keeper's
+// id so it never changes between visits
+const SIGN_A = ['Golden', 'Prancing', 'Sleeping', 'Green', 'Jolly', 'Silver', 'Crooked', 'Red', 'Wandering', 'Laughing', 'Drowsy', 'Gilded'];
+const SIGN_B = ['Griffin', 'Pony', 'Dragon', 'Tankard', 'Stag', 'Goose', 'Lantern', 'Boar', 'Oak', 'Fiddler', 'Kettle', 'Hart'];
+function signName(keeper) {
+  if (!keeper || (keeper.role !== 'inn' && keeper.role !== 'tavern')) return null;
+  let h = 7;
+  for (const ch of String(keeper.id || keeper.name || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0;
+  return `The ${SIGN_A[h % SIGN_A.length]} ${SIGN_B[(h >>> 12) % SIGN_B.length]}`;
 }
 
 // the most important person indoors: a shopkeeper beats a villager

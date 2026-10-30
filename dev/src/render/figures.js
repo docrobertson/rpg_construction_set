@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GeoBuilder } from './builder.js';
 import { tube, lathe, sheet, ball, extrude, mat, along, tint, blend, deep } from './sculpt.js';
-import { sculptHead, headSurf, setHeadTilt, FACE_ROWS, BROWS } from './faces.js';
+import { sculptHead, headSurf, setHeadTilt, FACE_ROWS, BROWS, LASHES } from './faces.js';
 
 // Body plans per race. Lengths are before the race's overall `scale`.
 //  leg: ankle to hip, torso: hip to shoulder, sw/hw: shoulder/hip half-width,
@@ -16,15 +16,17 @@ export const RACE_LOOKS = {
   dwarf: { scale: 0.8, skin: 0xeab48e, hair: 0x9a4a22, leg: 0.21, torso: 0.25, sw: 0.195, hw: 0.088, headR: 0.138, limb: 1.32, shape: 'dwarf', beard: true, belly: 0.035 },
   elf: { scale: 1.04, skin: 0xf6dcc4, hair: 0xeedc98, leg: 0.39, torso: 0.25, sw: 0.148, hw: 0.066, headR: 0.122, limb: 0.86, shape: 'elf', ears: 'elf', longHair: true },
   hobbit: { scale: 0.72, skin: 0xf0c4a0, hair: 0x6a4020, leg: 0.22, torso: 0.22, sw: 0.14, hw: 0.075, headR: 0.14, limb: 0.98, shape: 'hero', belly: 0.04, bareFeet: true, curly: true },
-  orc: { scale: 1.08, skin: 0x6f8f42, hair: 0x1a1a1a, leg: 0.31, torso: 0.28, sw: 0.215, hw: 0.085, headR: 0.118, limb: 1.42, shape: 'orc', tusks: true, ears: 'orc', hunch: 0.05, mohawk: true },
-  goblin: { scale: 0.74, skin: 0x9aaa44, hair: 0x2a2a1a, leg: 0.23, torso: 0.2, sw: 0.12, hw: 0.062, headR: 0.155, limb: 0.78, shape: 'goblin', ears: 'goblin', nose: 'goblin', hunch: 0.04 },
-  troll: { scale: 1.32, skin: 0x7a8a76, hair: 0x3a3a2a, leg: 0.36, torso: 0.3, sw: 0.185, hw: 0.08, headR: 0.102, limb: 1.18, shape: 'troll', tusks: true, ears: 'troll', nose: 'troll', hunch: 0.08, mohawk: true, longArms: true },
-  skeleton: { scale: 1, skin: 0xece4cc, hair: null, leg: 0.35, torso: 0.25, sw: 0.15, hw: 0.068, headR: 0.118, limb: 0.55, shape: 'skull', bones: true },
+  orc: { scale: 1.08, skin: 0x6f8f42, hair: 0x1a1a1a, leg: 0.31, torso: 0.28, sw: 0.215, hw: 0.085, headR: 0.124, limb: 1.42, shape: 'orc', tusks: true, ears: 'orc', hunch: 0.05, topknot: true },
+  // goblins and skeletons get big heads: they must read at 30 px in battle
+  goblin: { scale: 0.8, skin: 0x8cc43c, hair: 0x2a2a1a, leg: 0.22, torso: 0.2, sw: 0.12, hw: 0.062, headR: 0.205, limb: 0.8, shape: 'goblin', ears: 'goblin', nose: 'goblin', hunch: 0.04 },
+  troll: { scale: 1.5, skin: 0x8a948a, hair: 0x3a3a2a, leg: 0.34, torso: 0.32, sw: 0.2, hw: 0.08, headR: 0.1, limb: 1.25, shape: 'troll', tusks: true, ears: 'troll', nose: 'troll', hunch: 0.11, mohawk: true, longArms: true },
+  skeleton: { scale: 1, skin: 0xece4cc, hair: null, leg: 0.35, torso: 0.25, sw: 0.15, hw: 0.068, headR: 0.158, limb: 0.6, shape: 'skull', bones: true },
 };
 
 export const HAIR_STYLES = ['short', 'long', 'ponytail', 'braids', 'topknot', 'bald'];
 
-const STEEL = 0xc9d0da, IRON = 0x8a9098, GOLD = 0xe2b24a, LEATHER = 0x7a4e2c, DARKLEATHER = 0x4e321e, WOOD = 0x8a5a30, BONE = 0xf0e6cc;
+// steel is a mid grey that the painted glint lifts; pure white plate blows out
+const STEEL = 0xaeb6c2, IRON = 0x787e88, GOLD = 0xe2b24a, BRASS = 0xb88a3c, LEATHER = 0x7a4e2c, DARKLEATHER = 0x4e321e, WOOD = 0x8a5a30, BONE = 0xf0e6cc;
 
 // a stable little hash of a look, for choices it doesn't spell out
 function hashLook(spec) {
@@ -93,7 +95,8 @@ function shell(B, hd, o) {
     // outward direction: from the interior neighbour to the edge
     const na = norm([A.p[0] - inA.p[0], A.p[1] - inA.p[1], A.p[2] - inA.p[2]]);
     const nb = norm([Bp.p[0] - inB.p[0], Bp.p[1] - inB.p[1], Bp.p[2] - inB.p[2]]);
-    const ca = cc.clone().multiplyScalar(o.lipShade ?? 0.8);
+    const ca = o.lipCol != null ? new THREE.Color(o.lipCol) : cc.clone().multiplyScalar(o.lipShade ?? 0.8);
+    if (o.lipCol != null) cc = ca;
     // wind so that the face points along the outward direction
     const e1 = sub(Bp.p, A.p), e2 = sub(A.skin, A.p);
     const f = cross(e1, e2);
@@ -131,9 +134,15 @@ function hairline(front, side, back) {
 }
 
 // ---------------------------------------------------------------- hair
+// the light catching hair: a warm cream on fair hair, but a soft brown on
+// black hair, which would otherwise turn a cold grey (a helmet, not hair)
+function sheen(hair, k) {
+  const lum = (((hair >> 16) & 255) * 0.3 + ((hair >> 8) & 255) * 0.55 + (hair & 255) * 0.15) / 255;
+  return lum < 0.2 ? blend(hair, 0x8a5e3e, k * 1.2) : tint(blend(hair, 0xfff4dc, k), 1.12);
+}
 function hairShade(hair) {
   // painted hair: deep at the roots and edges, a band of sheen on the crown
-  const lo = deep(hair, 0.62), hi = tint(blend(hair, 0xfff4dc, 0.18), 1.12);
+  const lo = deep(hair, 0.62), hi = sheen(hair, 0.18);
   return (u, v) => {
     const base = v < 0.35 ? blend(hair, hi, Math.sin((v / 0.35) * Math.PI) * 0.8) : blend(hair, lo, (v - 0.35) / 0.65 * 0.75);
     const strand = Math.sin(u * Math.PI * 2 * 11) * 0.5 + 0.5;
@@ -144,7 +153,7 @@ function hairShade(hair) {
 function buildHair(B, hd, style, hair, race, opts) {
   if (style === 'bald' || hair == null) return;
   const shade = hairShade(hair);
-  const lo = deep(hair, 0.66), hi = tint(blend(hair, 0xfff4dc, 0.15), 1.1);
+  const lo = deep(hair, 0.66), hi = sheen(hair, 0.15);
   const r = hd.r;
   const covered = opts.covered;
   if (!covered && style !== 'mohawk') {
@@ -166,7 +175,7 @@ function buildHair(B, hd, style, hair, race, opts) {
         ball(B, k % 2 ? hair : hi, p[0], p[1], p[2], 0.2 * r);
       }
     }
-    // side locks in front of the ears for long hair
+    // side locks in front of the ears for long hair (under a hood they spill out below)
     if (style === 'long' || style === 'braids') {
       for (const s of [-1, 1]) {
         const a = onHead(hd, 1.2, s * 1.2, 0.12), b = onHead(hd, 1.85, s * 1.3, 0.12);
@@ -174,12 +183,21 @@ function buildHair(B, hd, style, hair, race, opts) {
       }
     }
   }
+  if (opts.hood && !race.curly) {
+    // a fringe peeking from under the hood
+    const sweep = opts.fair ? -1 : 1;
+    for (let k = 0; k < 3; k++) {
+      const ph0 = sweep * (-0.5 + k * 0.4);
+      const pts = [onHead(hd, 0.62, ph0 * 0.8, 0.16), onHead(hd, 0.92, ph0, 0.15), onHead(hd, 1.1 + (k === 1 ? 0.05 : 0), ph0 + sweep * 0.32, 0.09)];
+      tube(B, pts, [0.19 * r, 0.16 * r, 0.04 * r], [hi, hair], { sq: 0.55, segs: 8, up: [1, 0, 0] });
+    }
+  }
   const back = (y) => onHead(hd, 1.9, Math.PI, 0.1).map((v, i) => (i === 1 ? hd.y + y * r : v));
   if (style === 'long') {
     // a mane of three broad locks falling down the back, fanning out a little
     for (let k = -1; k <= 1; k++) {
-      const ph = Math.PI + k * 0.7;
-      const a = onHead(hd, 1.25, ph, 0.12), b = onHead(hd, 2.25, ph, 0.2);
+      const ph = Math.PI + k * (covered ? 0.5 : 0.7);
+      const a = onHead(hd, covered ? 1.75 : 1.25, ph, 0.12), b = onHead(hd, 2.25, ph, 0.2);
       const c = [hd.x + Math.sin(ph) * r * (1.05 + Math.abs(k) * 0.08), hd.y - 1.9 * r, hd.z + Math.cos(ph) * r * 0.75 - 0.06 * r];
       tube(B, [a, b, c], [0.5 * r, 0.46 * r, 0.12 * r], [hair, lo], { sq: 0.55, segs: 8, up: [1, 0, 0] });
     }
@@ -195,6 +213,11 @@ function buildHair(B, hd, style, hair, race, opts) {
       const e = pts[2];
       MT(B, () => ball(B, GOLD, e[0], e[1] - 0.02 * r, e[2], 0.11 * r));
     }
+  } else if (style === 'topknot' && race.tusks) {
+    // the orc's warrior topknot: a shaved scalp and a tall bound tail of hair
+    const a = onHead(hd, 0.35, Math.PI, 0.12);
+    lathe(B, [[0.2 * r, a[1] - 0.02 * r, 0.2 * r, a[2]], [0.22 * r, a[1] + 0.12 * r, 0.22 * r, a[2]]], opts.tie ?? 0xb08a3a, { dx: () => a[0] });
+    tube(B, [add(a, [0, 0.1 * r, 0]), add(a, [0, 0.75 * r, -0.15 * r]), add(a, [0.05 * r, 1.15 * r, -0.6 * r]), add(a, [0.1 * r, 0.9 * r, -1.1 * r])], [0.24 * r, 0.26 * r, 0.16 * r, 0.03 * r], [hi, hair, lo], { segs: 9, steps: 14 });
   } else if (style === 'topknot') {
     const a = onHead(hd, 0.2, Math.PI, 0.1);
     ball(B, hair, a[0], a[1] + 0.12 * r, a[2], 0.28 * r);
@@ -205,16 +228,17 @@ function buildHair(B, hd, style, hair, race, opts) {
   }
 }
 
-function buildBeard(B, hd, beard, big, race) {
+function buildBeard(B, hd, beard, big, race, long = false) {
   const r = hd.r;
-  const lo = deep(beard, 0.68), hi = tint(blend(beard, 0xfff4dc, 0.12), 1.08);
+  // lit from above: a light top so the beard never merges with a helm's shade
+  const lo = deep(beard, 0.72), hi = sheen(beard, 0.22);
   // jaw cover from sideburn to sideburn, below the cheekbones
   shell(B, hd, {
     ph0: -1.75, ph1: 1.75,
-    thA: (ph) => (Math.abs(ph) > 1.25 ? 1.5 : 1.5 + (1.25 - Math.abs(ph)) * 0.4 * (big ? 0.95 : 1)),
+    thA: (ph) => (Math.abs(ph) > 1.25 ? 1.56 : 1.56 + (1.25 - Math.abs(ph)) * 0.42 * (big ? 0.95 : 1)),
     thB: () => Math.PI * 0.97,
     lift: (u, v) => (big ? 0.16 : 0.09) + (big ? 0.12 : 0.04) * Math.sin(v * Math.PI) * Math.sin(u * Math.PI),
-    col: (u, v) => blend(beard, lo, v * 0.5), nu: 16, nv: 6,
+    col: (u, v) => blend(hi, lo, v * 0.6), nu: 16, nv: 6,
   });
   // moustache: two swooping locks under the nose
   for (const s of [-1, 1]) {
@@ -226,13 +250,21 @@ function buildBeard(B, hd, beard, big, race) {
     // the great dwarven beard: a mass down the chest, forking into braids
     const chin = onHead(hd, 2.55, 0, 0.2);
     const pts = [chin, add(chin, [0, -0.55 * r, 0.12 * r]), add(chin, [0, -1.25 * r, 0.1 * r])];
-    tube(B, pts, [0.62 * r, 0.6 * r, 0.32 * r], [beard, lo], { sq: 0.55, segs: 12, up: [1, 0, 0] });
+    tube(B, pts, [0.62 * r, 0.6 * r, 0.32 * r], [hi, beard, lo], { sq: 0.55, segs: 12, up: [1, 0, 0] });
+    // a gold bead and a ring braided into the middle of it
+    MT(B, () => lathe(B, [[0.2 * r, pts[1][1] - 0.08 * r, 0.12 * r, pts[1][2] + 0.1 * r], [0.22 * r, pts[1][1], 0.13 * r, pts[1][2] + 0.11 * r], [0.2 * r, pts[1][1] + 0.08 * r, 0.12 * r, pts[1][2] + 0.1 * r]], GOLD, { segs: 10 }));
+    MT(B, () => ball(B, tint(GOLD, 1.1), pts[0][0] + 0.32 * r, pts[0][1] - 0.15 * r, pts[0][2] + 0.12 * r, 0.09 * r));
+    MT(B, () => ball(B, tint(GOLD, 1.1), pts[0][0] - 0.32 * r, pts[0][1] - 0.15 * r, pts[0][2] + 0.12 * r, 0.09 * r));
     for (const s of [-1, 1]) {
       const a = add(pts[2], [s * 0.2 * r, 0.1 * r, 0]);
       const e = add(a, [s * 0.08 * r, -0.65 * r, 0.04 * r]);
       tube(B, [a, lerp3(a, e, 0.5), e], (t) => (0.16 + 0.04 * Math.abs(Math.sin(t * Math.PI * 4))) * r * (1 - t * 0.3), [beard, lo], { segs: 8, steps: 14 });
       lathe(B, [[0.12 * r, e[1] - 0.06 * r, 0.12 * r, e[2]], [0.13 * r, e[1] + 0.06 * r, 0.13 * r, e[2]]], GOLD, { dx: () => e[0], segs: 10 });
     }
+  } else if (long) {
+    // a wizard's long beard, tapering to a point below the chest
+    const chin = onHead(hd, 2.6, 0, 0.18);
+    tube(B, [chin, add(chin, [0, -0.6 * r, 0.1 * r]), add(chin, [0.04 * r, -1.25 * r, 0.06 * r]), add(chin, [0.1 * r, -1.75 * r, 0.02 * r])], [0.55 * r, 0.45 * r, 0.25 * r, 0.03 * r], [hi, beard, lo], { sq: 0.55, segs: 10, up: [1, 0, 0], steps: 14 });
   } else {
     const chin = onHead(hd, 2.7, 0, 0.12);
     tube(B, [chin, add(chin, [0, -0.3 * r, 0.06 * r])], [0.3 * r, 0.12 * r], [beard, lo], { sq: 0.6, segs: 10, up: [1, 0, 0] });
@@ -240,6 +272,9 @@ function buildBeard(B, hd, beard, big, race) {
 }
 
 // ---------------------------------------------------------------- headgear
+// Headgear frames the face rather than covering it: the 52° game camera looks
+// down on every figure, so brims are cocked up at the front, hoods are pulled
+// back with a light lining, and helms leave the eyes and mouth open.
 function buildHeadgear(B, G, hd, spec, TPL) {
   const hat = spec.hat || 'none';
   const r = hd.r;
@@ -247,82 +282,112 @@ function buildHeadgear(B, G, hd, spec, TPL) {
   if (hat === 'wizard') {
     const hc = spec.hatColor ?? 0x3a3a8a;
     const lo = deep(hc, 0.6);
-    const by = hd.y + 0.66 * r;
-    // a wide brim, tipped back to show the face, and a tall crooked crown
-    const tip = mat(hd.x, by, hd.z - 0.1 * r, -0.3, 0, 0);
-    lathe(B, [[0.05, -0.02], [1.75 * r, -0.08 * r], [1.85 * r, -0.03 * r], [1.3 * r, 0.06 * r], [0.9 * r, 0.14 * r]], [lo, hc], { segs: 20, sq: 0.95, matrix: tip });
-    const base = [hd.x, by + 0.1 * r, hd.z - 0.12 * r];
-    const pts = [base, add(base, [0, 1.1 * r, -0.3 * r]), add(base, [0.08 * r, 2.0 * r, -0.65 * r]), add(base, [0.45 * r, 2.4 * r, -1.05 * r])];
-    tube(B, pts, [0.92 * r, 0.62 * r, 0.32 * r, 0.04 * r], [hc, tint(hc, 1.25)], { segs: 14, cap0: false, steps: 16 });
-    lathe(B, [[0.93 * r, 0.06 * r], [0.96 * r, 0.16 * r], [0.9 * r, 0.26 * r]], spec.hatBand ?? trim, { segs: 18, matrix: tip });
-    const st = add(base, [0.35 * r, 0.25 * r, 0.82 * r]);
+    const by = hd.y + 0.6 * r;
+    // a brim tipped well back and set back on the head, so its front edge
+    // rides above the brows, and a tall crooked crown leaning away
+    const tip = mat(hd.x, by, hd.z - 0.24 * r, -0.5, 0, 0);
+    lathe(B, [[0.05, -0.02], [1.48 * r, -0.07 * r], [1.56 * r, -0.02 * r], [1.12 * r, 0.06 * r], [0.84 * r, 0.13 * r]], [lo, hc], { segs: 20, sq: 0.95, matrix: tip });
+    const base = [hd.x, by + 0.1 * r, hd.z - 0.3 * r];
+    // the crown rises nearly straight and the tip flops to one side, so the
+    // cone reads from the front, the side and from behind
+    const pts = [base, add(base, [0, 1.2 * r, -0.22 * r]), add(base, [0.12 * r, 2.25 * r, -0.4 * r]), add(base, [0.62 * r, 2.75 * r, -0.5 * r])];
+    tube(B, pts, [0.84 * r, 0.58 * r, 0.3 * r, 0.04 * r], [hc, tint(hc, 1.25)], { segs: 14, cap0: false, steps: 16 });
+    lathe(B, [[0.86 * r, 0.06 * r], [0.89 * r, 0.14 * r], [0.84 * r, 0.22 * r]], spec.hatBand ?? trim, { segs: 18, matrix: mat(base[0], base[1] - 0.08 * r, base[2], -0.36, 0, 0) });
+    const st = add(base, [0.38 * r, 0.32 * r, 0.7 * r]);
     G.shape(TPL.ico0, 0xfff0a0, { x: st[0], y: st[1], z: st[2], s: 0.16 * r });
     return { top: pts[3][1] };
   }
   if (hat === 'helm' || hat === 'hornhelm') {
     const m = spec.hatColor ?? (hat === 'hornhelm' ? 0x5a5a62 : STEEL);
-    const hi = tint(m, 1.18), lo = deep(m, 0.62);
+    const hi = tint(m, 1.14), lo = deep(m, 0.58);
     const dwarfish = spec.race === 'dwarf';
-    // dome down to the brow, with cheek guards that frame the face
+    const kettle = hat === 'helm' && spec.plume == null && !spec.wings && !spec.horns;
+    // dome down to the brow; cheek guards begin outside the eyes and stand off
+    // the cheeks, so the face stays open to the camera
+    const brow = Math.acos(kettle ? 0.4 : 0.42);
     const line = (ph) => {
       const a = Math.abs(ph);
-      if (a < 0.62) return Math.acos(0.36);
-      if (a < 1.25) return Math.acos(0.36) + (a - 0.62) / 0.63 * 1.05;
-      return Math.acos(-0.62);
+      if (kettle) return a < 1.2 ? brow : brow + Math.min(1, (a - 1.2) / 0.6) * 0.5;
+      if (a < 0.86) return brow;
+      if (a < 1.35) return brow + (a - 0.86) / 0.49 * (dwarfish ? 0.75 : 0.9);
+      return brow + (dwarfish ? 0.75 : 0.9);
     };
-    MT(B, () => shell(B, hd, { thB: line, lift: (u, v) => 0.17 + 0.03 * (1 - v), col: (u, v) => blend(hi, lo, v * 0.8), nu: 26, nv: 8, lipShade: 0.7 }));
-    // a brow band in trim and a nose guard
+    const lift = (u, v, ph) => 0.17 + 0.03 * (1 - v) + 0.05 * v * Math.min(1, Math.max(0, Math.abs(ph) - 0.86) * 2);
+    MT(B, () => shell(B, hd, { thB: line, lift, col: (u, v) => blend(hi, lo, v * 0.75), nu: 26, nv: 8, lipShade: 0.62 }));
+    // a brow band in the trim colour
     const band = [];
     for (let k = 0; k <= 16; k++) {
-      const ph = -0.75 + (k / 16) * 1.5;
-      band.push(onHead(hd, Math.acos(0.36) - 0.02, ph, 0.22));
+      const ph = -0.82 + (k / 16) * 1.64;
+      band.push(onHead(hd, brow - 0.02, ph, 0.22));
     }
-    MT(B, () => tube(B, band, 0.075 * r, spec.helmTrim ?? (spec.plume ? trim : tint(m, 0.85)), { segs: 6, steps: 20 }));
-    const n0 = onHead(hd, Math.acos(0.36), 0, 0.22), n1 = onHead(hd, 1.95, 0, 0.32);
-    MT(B, () => tube(B, [n0, lerp3(n0, n1, 0.5), n1], [0.09 * r, 0.08 * r, 0.06 * r], [hi, m], { sq: 0.45, segs: 6, up: [1, 0, 0] }));
-    // a crest ridge along the top
-    const ridge = [onHead(hd, 1.05, 0, 0.2), onHead(hd, 0.35, 0, 0.24), onHead(hd, 0.4, Math.PI, 0.24), onHead(hd, 1.2, Math.PI, 0.2)];
-    MT(B, () => tube(B, ridge, 0.045 * r, [hi, m], { sq: 2.2, segs: 6, up: [1, 0, 0] }));
+    const bandC = spec.helmTrim ?? (spec.plume != null || spec.wings ? trim : tint(m, 0.82));
+    MT(B, () => tube(B, band, 0.07 * r, bandC, { segs: 6, steps: 20 }));
+    // a short nose guard only on a dwarf's helm, and never in a portrait
+    if (dwarfish && !kettle && !spec.portrait && spec.nasal !== false) {
+      const n0 = onHead(hd, brow, 0, 0.22), n1 = onHead(hd, brow + 0.4, 0, 0.26);
+      MT(B, () => tube(B, [n0, n1], [0.06 * r, 0.035 * r], [bandC, m], { sq: 0.45, segs: 6, up: [1, 0, 0] }));
+    }
+    if (kettle) {
+      // a kettle hat: the town guard's (and the runesmith's) broad brim,
+      // narrow at the front so it never shades the eyes
+      MT(B, () => lathe(B, [[1.02 * r, hd.y + 0.5 * r, 0.88 * r, -0.16 * r], [1.46 * r, hd.y + 0.4 * r, 1.08 * r, -0.42 * r], [1.52 * r, hd.y + 0.34 * r, 1.12 * r, -0.46 * r], [1.42 * r, hd.y + 0.36 * r, 1.04 * r, -0.44 * r]], [hi, lo], { segs: 22 }));
+    } else {
+      // a crest ridge along the top
+      const ridge = [onHead(hd, 1.0, 0, 0.2), onHead(hd, 0.35, 0, 0.24), onHead(hd, 0.4, Math.PI, 0.24), onHead(hd, 1.2, Math.PI, 0.2)];
+      MT(B, () => tube(B, ridge, 0.045 * r, [hi, m], { sq: 2.2, segs: 6, up: [1, 0, 0] }));
+    }
     if (hat === 'hornhelm' || (dwarfish && spec.horns)) {
       for (const s of [-1, 1]) {
         const a = onHead(hd, 1.0, s * 1.45, 0.15);
         tube(B, [a, add(a, [s * 0.55 * r, 0.2 * r, 0]), add(a, [s * 0.9 * r, 0.8 * r, -0.1 * r]), add(a, [s * 0.78 * r, 1.35 * r, -0.2 * r])], [0.28 * r, 0.22 * r, 0.13 * r, 0.02 * r], [blend(BONE, 0x8a7a5a, 0.3), BONE, 0xfff8e8], { segs: 9, cap0: false });
       }
     }
+    if (spec.wings) {
+      // a warrior's winged helm: swept-back wings of steel feathers
+      for (const s of [-1, 1]) {
+        const a = onHead(hd, 0.95, s * 1.5, 0.18);
+        for (let k = 0; k < 3; k++) {
+          const e = add(a, [s * (0.5 - k * 0.08) * r, (0.75 - k * 0.22) * r, -(0.55 + k * 0.12) * r]);
+          MT(B, () => tube(B, [add(a, [0, -k * 0.08 * r, -k * 0.05 * r]), lerp3(a, e, 0.5), e], [0.14 * r, 0.11 * r, 0.015 * r], [m, hi], { sq: 0.35, segs: 6, up: [s, 0, 0] }));
+        }
+      }
+    }
     if (spec.plume != null) {
       // a tall horsehair crest from brow to nape, the paladin's mark
       const top = [onHead(hd, 0.75, 0, 0.42), onHead(hd, 0.05, 0, 0.75), onHead(hd, 0.7, Math.PI, 0.75), onHead(hd, 1.35, Math.PI, 0.5), add(onHead(hd, 1.6, Math.PI, 0.5), [0, -0.8 * r, -0.5 * r])];
       tube(B, top, [0.05 * r, 0.11 * r, 0.11 * r, 0.08 * r, 0.02 * r], [tint(spec.plume, 1.2), spec.plume, deep(spec.plume, 0.6)], { sq: 3.0, segs: 10, steps: 20, up: [1, 0, 0] });
+      return { top: hd.y + 1.75 * r };
     }
-    return { top: hd.y + 1.3 * r };
+    return { top: hd.y + (spec.wings ? 1.6 : hat === 'hornhelm' ? 1.9 : 1.3) * r };
   }
   if (hat === 'hood') {
     const hc = spec.hatColor ?? 0x3a4a2a;
     const hi = tint(hc, 1.15), lo = deep(hc, 0.55);
-    // a deep cowl: down to the brow at the front, to the shoulders elsewhere
+    // a light lining, so the opening of the hood frames the face
+    const lining = blend(tint(hc, 1.3), 0xf0e2c4, 0.38);
+    // a cowl pulled back off the brow: the forehead, fringe and eyes show
     const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
     const face = (ph) => Math.abs(Math.atan2(Math.sin(ph), Math.cos(ph)));
-    const line = (ph) => 1.05 + 1.7 * sm(0.5, 1.05, face(ph));
+    const line = (ph) => 0.72 + 2.0 * sm(0.62, 1.25, face(ph));
     shell(B, hd, {
       thB: line,
-      lift: (u, v, ph) => 0.26 + 0.12 * Math.sin(v * Math.PI) + 0.05 * (1 - sm(0.4, 1.3, face(ph))),
-      offset: (u, v, ph) => [0, 0, 0.16 * (1 - sm(0.3, 1.4, face(ph)))],
-      col: (u, v) => blend(hi, lo, Math.min(1, v * 0.75)), nu: 30, nv: 10, lipShade: 0.4,
+      lift: (u, v, ph) => 0.24 + 0.1 * Math.sin(v * Math.PI) + 0.04 * (1 - sm(0.4, 1.3, face(ph))),
+      offset: (u, v, ph) => [0, 0, 0.04 * (1 - sm(0.3, 1.4, face(ph)))],
+      col: (u, v) => blend(hi, lo, Math.min(1, v * 0.75)), nu: 30, nv: 10, lipCol: lining,
     });
-    // a soft roll of cloth framing the face
+    // a soft roll of cloth framing the face, lining side out
     const rim = [];
     for (let k = 0; k <= 16; k++) {
-      const ph = -1.08 + (k / 16) * 2.16;
-      const th = line(ph) - 0.05;
-      const p = onHead(hd, th, ph, 0.33);
-      p[2] += 0.16 * hd.r * (1 - sm(0.3, 1.4, face(ph)));
+      const ph = -1.2 + (k / 16) * 2.4;
+      const p = onHead(hd, line(ph) - 0.05, ph, 0.3);
+      p[2] += 0.04 * hd.r * (1 - sm(0.3, 1.4, face(ph)));
       rim.push(p);
     }
-    tube(B, rim, 0.11 * r, [tint(hc, 1.08), hi, tint(hc, 1.08)], { segs: 7, steps: 26 });
+    tube(B, rim, 0.1 * r, [lining, tint(lining, 1.06), lining], { segs: 7, steps: 26 });
     // the point of the hood hanging down the back
-    const a = onHead(hd, 0.9, Math.PI, 0.33);
-    tube(B, [a, add(a, [0, 0.02 * r, -0.4 * r]), add(a, [0, -0.55 * r, -0.62 * r])], [0.42 * r, 0.3 * r, 0.04 * r], [hc, lo], { segs: 10 });
-    return { top: hd.y + 1.32 * r, hood: true };
+    const a = onHead(hd, 0.9, Math.PI, 0.3);
+    tube(B, [a, add(a, [0, 0.04 * r, -0.45 * r]), add(a, [0, -0.6 * r, -0.7 * r])], [0.42 * r, 0.3 * r, 0.04 * r], [hc, lo], { segs: 10 });
+    return { top: hd.y + 1.3 * r, hood: true };
   }
   if (hat === 'crown' || hat === 'circlet') {
     const gold = spec.hatColor ?? GOLD;
@@ -333,21 +398,23 @@ function buildHeadgear(B, G, hd, spec, TPL) {
       for (let k = 0; k < 6; k++) {
         const a = (k / 6) * Math.PI * 2;
         const p = [hd.x + Math.sin(a) * R, y0 + 0.3 * r, hd.z + Math.cos(a) * R * 0.95];
-        tube(B, [p, add(p, [Math.sin(a) * 0.06 * r, 0.42 * r, Math.cos(a) * 0.06 * r])], [0.14 * r, 0.02 * r], [gold, tint(gold, 1.2)], { segs: 5, cap1: false });
-        ball(B, tint(gold, 1.2), p[0] + Math.sin(a) * 0.08 * r, p[1] + 0.46 * r, p[2] + Math.cos(a) * 0.08 * r, 0.06 * r);
+        MT(B, () => tube(B, [p, add(p, [Math.sin(a) * 0.08 * r, 0.5 * r, Math.cos(a) * 0.08 * r])], [0.16 * r, 0.02 * r], [gold, tint(gold, 1.2)], { segs: 5, cap1: false }));
+        ball(B, tint(gold, 1.2), p[0] + Math.sin(a) * 0.1 * r, p[1] + 0.55 * r, p[2] + Math.cos(a) * 0.1 * r, 0.07 * r);
       }
-      G.shape(TPL.ico0, 0xff4060, { x: hd.x, y: y0 + 0.18 * r, z: hd.z + R * 1.0, s: 0.18 * r });
+      // a velvet cap inside the crown
+      ball(B, spec.capColor ?? 0xa01a2a, hd.x, y0 + 0.28 * r, hd.z, 0.92 * r, 0.42 * r, 0.9 * r);
+      G.shape(TPL.ico0, 0xff4060, { x: hd.x, y: y0 + 0.18 * r, z: hd.z + R * 1.0, s: 0.2 * r });
     } else {
       G.shape(TPL.ico0, 0x80e0ff, { x: hd.x, y: y0 + 0.1 * r, z: hd.z + R * 1.0, s: 0.18 * r });
     }
-    return { top: y0 + 0.6 * r };
+    return { top: y0 + (hat === 'crown' ? 0.8 : 0.4) * r };
   }
   if (hat === 'cap') {
     const hc = spec.hatColor ?? 0x6a2a5a;
-    // a jaunty beret with a long plume
-    const c = onHead(hd, 0.35, -0.6, 0.15);
-    ball(B, hc, c[0], c[1] + 0.05 * r, c[2], 1.15 * r, 0.42 * r, 1.05 * r, { rz: 0.25, rx: -0.15 });
-    lathe(B, [[0.92 * r, hd.y + 0.55 * r, 0.92 * r, 0.1 * r], [0.97 * r, hd.y + 0.66 * r, 0.97 * r, 0.1 * r], [0.9 * r, hd.y + 0.76 * r, 0.9 * r, 0.1 * r]], deep(hc, 0.7), { segs: 18 });
+    // a jaunty beret with a long plume, worn to the side and off the brow
+    const c = onHead(hd, 0.42, -0.9, 0.15);
+    ball(B, hc, c[0], c[1] + 0.06 * r, c[2] - 0.05 * r, 1.12 * r, 0.4 * r, 1.02 * r, { rz: 0.3, rx: -0.3 });
+    lathe(B, [[0.9 * r, hd.y + 0.58 * r, 0.9 * r, -0.04 * r], [0.95 * r, hd.y + 0.68 * r, 0.95 * r, -0.05 * r], [0.88 * r, hd.y + 0.78 * r, 0.88 * r, -0.06 * r]], deep(hc, 0.7), { segs: 18 });
     const f0 = onHead(hd, 0.75, 1.2, 0.3);
     const feather = spec.feather ?? 0xf4f0e0;
     tube(B, [f0, add(f0, [0.25 * r, 0.65 * r, -0.3 * r]), add(f0, [0.4 * r, 1.3 * r, -0.9 * r]), add(f0, [0.35 * r, 1.45 * r, -1.6 * r])], [0.06 * r, 0.24 * r, 0.2 * r, 0.03 * r], [feather, tint(feather, 1.05), blend(feather, 0xd04040, 0.5)], { sq: 0.25, segs: 8, steps: 18, up: [1, 0, 0.4] });
@@ -356,8 +423,8 @@ function buildHeadgear(B, G, hd, spec, TPL) {
   if (hat === 'mitre') {
     const hc = spec.hatColor ?? 0xf0ead8;
     const p = [[0.95 * r, hd.y + 0.35 * r], [1.0 * r, hd.y + 0.7 * r], [0.85 * r, hd.y + 1.3 * r], [0.35 * r, hd.y + 1.75 * r], [0.02, hd.y + 1.85 * r]];
-    lathe(B, p.map(([a, y]) => [a, y, a * 0.7]), [hc, tint(hc, 1.05)], { segs: 16 });
-    lathe(B, [[1.02 * r, hd.y + 0.35 * r, 0.78 * r], [1.04 * r, hd.y + 0.55 * r, 0.8 * r]], trim, { segs: 16 });
+    lathe(B, p.map(([a, y]) => [a, y, a * 0.7, -0.1 * r]), [hc, tint(hc, 1.05)], { segs: 16 });
+    lathe(B, [[1.02 * r, hd.y + 0.35 * r, 0.78 * r, -0.1 * r], [1.04 * r, hd.y + 0.55 * r, 0.8 * r, -0.1 * r]], trim, { segs: 16 });
     return { top: hd.y + 1.85 * r };
   }
   return { top: hd.y + 1.05 * r };
@@ -368,7 +435,9 @@ function buildHeadgear(B, G, hd, spec, TPL) {
 function weapon(B, G, kind, M, spec, size = 1) {
   const steel = spec.weaponColor ?? STEEL;
   const glow = spec.weaponGlow;
-  const hilt = spec.hilt ?? GOLD;
+  // gold hilts only on knightly blades; others are brass, and kept small so a
+  // fist reads as a hand round a grip rather than a gold blob
+  const hilt = spec.hilt ?? (spec.armor === 'plate' ? GOLD : BRASS);
   const grip = DARKLEATHER;
   const S = size;
   const at = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(M).toArray();
@@ -379,9 +448,10 @@ function weapon(B, G, kind, M, spec, size = 1) {
     const W = (kind === 'greatsword' ? 0.085 : kind === 'dagger' ? 0.05 : 0.07) * S;
     const g0 = kind === 'dagger' ? 0.05 : 0.07;
     T([[0, -g0, 0], [0, g0 * 0.9, 0]], 0.022 * S, grip, { segs: 6 });
-    MT(B, () => ball(B, hilt, ...at(0, -g0 - 0.02 * S, 0), 0.032 * S));
+    MT(B, () => ball(B, hilt, ...at(0, -g0 - 0.022 * S, 0), 0.024 * S));
     // crossguard with flared ends
-    MT(B, () => T([[-W * 1.1, g0 + 0.026, 0], [0, g0 + 0.01, 0], [W * 1.1, g0 + 0.026, 0]], [0.024 * S, 0.02 * S, 0.024 * S], [hilt, tint(hilt, 1.2), hilt], { segs: 6 }));
+    const cg = kind === 'dagger' ? 0.62 : 1;
+    MT(B, () => T([[-W * 1.2, g0 + 0.03, 0], [0, g0 + 0.014, 0], [W * 1.2, g0 + 0.03, 0]], [0.018 * S * cg, 0.015 * S * cg, 0.018 * S * cg], [deep(hilt, 0.85), hilt, deep(hilt, 0.85)], { segs: 6 }));
     // blade: diamond section, wide then tapering to a point
     const b0 = g0 + 0.025;
     const bl = [[0, b0, 0], [0, b0 + L * 0.5, 0], [0, b0 + L * 0.86, 0], [0, b0 + L, 0]];
@@ -421,11 +491,13 @@ function weapon(B, G, kind, M, spec, size = 1) {
     if (kind === 'hammer') {
       // a dwarven warhammer: a big bevelled block with banded faces
       const hm = new THREE.Matrix4().multiplyMatrices(M, mat(0, 0.36 * S, 0, 0, 0, Math.PI / 2));
-      MT(B, () => lathe(B, [[0.002, -0.115 * S], [0.05 * S, -0.115 * S], [0.068 * S, -0.1 * S], [0.068 * S, -0.03 * S], [0.06 * S, -0.02 * S], [0.06 * S, 0.02 * S], [0.068 * S, 0.03 * S], [0.068 * S, 0.1 * S], [0.05 * S, 0.115 * S], [0.002, 0.115 * S]], [tint(m, 1.2), tint(m, 0.95), tint(m, 1.2)], { segs: 4, keepSegs: true, matrix: hm, rot: Math.PI / 4, flat: true }));
-      MT(B, () => lathe(B, [[0.072 * S, -0.075 * S], [0.072 * S, -0.045 * S]], GOLD, { segs: 4, keepSegs: true, matrix: hm, rot: Math.PI / 4, flat: true }));
-      MT(B, () => lathe(B, [[0.072 * S, 0.045 * S], [0.072 * S, 0.075 * S]], GOLD, { segs: 4, keepSegs: true, matrix: hm, rot: Math.PI / 4, flat: true }));
+      // eight-sided with chamfered corners and rounded striking faces
+      MT(B, () => lathe(B, [[0.002, -0.122 * S], [0.04 * S, -0.12 * S], [0.062 * S, -0.105 * S], [0.07 * S, -0.085 * S], [0.07 * S, -0.03 * S], [0.062 * S, -0.02 * S], [0.062 * S, 0.02 * S], [0.07 * S, 0.03 * S], [0.07 * S, 0.085 * S], [0.062 * S, 0.105 * S], [0.04 * S, 0.12 * S], [0.002, 0.122 * S]], [tint(m, 1.15), tint(m, 0.92), tint(m, 1.15)], { segs: 8, keepSegs: true, matrix: hm, rot: Math.PI / 8 }));
+      MT(B, () => lathe(B, [[0.073 * S, -0.075 * S], [0.075 * S, -0.06 * S], [0.073 * S, -0.045 * S]], GOLD, { segs: 8, keepSegs: true, matrix: hm, rot: Math.PI / 8 }));
+      MT(B, () => lathe(B, [[0.073 * S, 0.045 * S], [0.075 * S, 0.06 * S], [0.073 * S, 0.075 * S]], GOLD, { segs: 8, keepSegs: true, matrix: hm, rot: Math.PI / 8 }));
       MT(B, () => T([[0, 0.42 * S, 0], [0, 0.5 * S, 0]], [0.03 * S, 0.002], tint(m, 1.2), { segs: 4 }));
-      if (spec.runes != null) for (const s of [-1, 1]) G.shape(GTPL.box, spec.runes, { matrix: new THREE.Matrix4().multiplyMatrices(M, mat(0, 0.33 * S, s * 0.07 * S, 0, 0, 0, [0.035 * S, 0.06 * S, 0.006])) });
+      // glowing runes set into the faces between the bands
+      if (spec.runes != null) for (const s of [-1, 1]) for (const dy of [-0.02, 0.02]) G.shape(GTPL.box, spec.runes, { matrix: new THREE.Matrix4().multiplyMatrices(M, mat(dy * S, 0.36 * S, s * 0.066 * S, 0, 0, dy > 0 ? 0.5 : -0.5, [0.012 * S, 0.06 * S, 0.008])) });
     } else {
       // flanged mace
       MT(B, () => ball(B, m, ...at(0, 0.38 * S, 0), 0.07 * S));
@@ -444,13 +516,14 @@ function weapon(B, G, kind, M, spec, size = 1) {
 const GTPL = {};
 
 // ---------------------------------------------------------------- humanoid
-export function humanoid(spec, TPL) {
-  GTPL.taper ||= TPL.cone4; GTPL.box ||= TPL.box; GTPL.ball ||= TPL.sphere;
+export function humanoid(spec0, TPL) {
+  GTPL.taper ||= TPL.cone4; GTPL.box ||= TPL.box; GTPL.ball ||= TPL.sphere; GTPL.ico ||= TPL.ico1;
   const B = new GeoBuilder(), G = new GeoBuilder(), F = new GeoBuilder();
   F.uv = [];
   B.detail = new GeoBuilder();
-  const race = RACE_LOOKS[spec.race] || RACE_LOOKS.human;
-  const hsh = hashLook(spec);
+  const race = RACE_LOOKS[spec0.race] || RACE_LOOKS.human;
+  const hsh = hashLook(spec0);
+  const spec = folk(spec0, race, hsh);
   const bones = !!race.bones;
   const fair = spec.face ? spec.face === 'fair' : (!race.tusks && !bones && spec.race !== 'goblin' && hsh > 0.55 && spec.beard == null && !race.beard);
   const skin = spec.eyes != null && !race.bones ? blend(spec.skin ?? race.skin, 0x2a2a3a, 0.55) : spec.skin ?? race.skin;
@@ -461,8 +534,11 @@ export function humanoid(spec, TPL) {
   const plate = armour === 'plate', chain = armour === 'chain', leatherA = armour === 'leather';
   const metal = plate ? STEEL : IRON;
   const trim = spec.trim ?? (plate ? GOLD : null);
-  const limb = race.limb * (fair ? 0.9 : 1) * (spec.width ?? 1);
-  const W = (spec.width ?? 1) * (fair ? 0.92 : 1);
+  const wpn = spec.weapon || 'none';
+  // archers travel light
+  const lithe = race.tusks && wpn === 'bow' ? 0.86 : 1;
+  const limb = race.limb * (fair ? 0.9 : 1) * (spec.width ?? 1) * lithe;
+  const W = (spec.width ?? 1) * (fair ? 0.92 : 1) * lithe;
   const sw = race.sw * W * (plate ? 1.04 : 1), hw = race.hw * (spec.width ?? 1) * (fair ? 1.04 : 1);
   const hunch = race.hunch || 0;
   const legs = spec.legs ?? (robe ? deep(body, 0.5) : blend(deep(body, 0.45), 0x4a3a2a, 0.5));
@@ -479,16 +555,18 @@ export function humanoid(spec, TPL) {
   for (const s of [-1, 1]) {
     const P = legPts(s);
     if (bones) {
-      tube(B, P, 0.022, BONE, { segs: 6 });
-      ball(B, BONE, ...P[1], 0.035);
+      tube(B, P, 0.024, BONE, { segs: 6 });
+      ball(B, BONE, ...P[1], 0.037);
     } else if (!robe || spec.race === 'goblin') {
       tube(B, P, [0.07 * limb, 0.064 * limb, 0.05 * limb, 0.05 * limb, 0.042 * limb], [deep(legs, 0.8), legs], { segs: 10 });
     }
     // boots: a sturdy shaft with a turned-down cuff, and a big rounded foot
     const fx = s * (hw + 0.016);
     if (race.bareFeet) {
-      ball(B, skin, fx, 0.035, 0.04, 0.055 * limb, 0.04, 0.09 * limb);
-      ball(B, hair ?? 0x6a4020, fx, 0.06, 0.03, 0.045 * limb, 0.03, 0.06 * limb);
+      // big bare hairy feet
+      ball(B, skin, fx, 0.035, 0.045, 0.06 * limb, 0.042, 0.1 * limb);
+      for (let k = -1; k <= 1; k++) ball(B, tint(skin, 1.04), fx + k * 0.022, 0.03, 0.12 * limb + 0.02, 0.018, 0.016, 0.018);
+      ball(B, hair ?? 0x6a4020, fx, 0.064, 0.03, 0.048 * limb, 0.026, 0.065 * limb);
     } else if (bones) {
       ball(B, BONE, fx, 0.025, 0.04, 0.035, 0.025, 0.07);
     } else if (robe) {
@@ -511,16 +589,16 @@ export function humanoid(spec, TPL) {
   const bellyK = race.belly || 0;
   if (bones) {
     // spine, ribs, pelvis
-    tube(B, [[0, hipY, -0.03], [0, hipY + 0.12, -0.05], [0, shY + 0.02, -0.03]], 0.022, BONE, { segs: 6 });
+    tube(B, [[0, hipY, -0.03], [0, hipY + 0.12, -0.05], [0, shY + 0.02, -0.03]], 0.024, BONE, { segs: 6 });
     for (let k = 0; k < 4; k++) {
       const y = shY - 0.04 - k * 0.045, R = sw * (0.82 - k * 0.07);
       const pts = [];
       for (let a = -2.6; a <= 2.6; a += 0.4) pts.push([Math.sin(a) * R, y - Math.abs(a) * 0.006, Math.cos(a) * R * 0.62 - 0.03]);
-      tube(B, pts, 0.014, BONE, { segs: 5, steps: 20 });
+      tube(B, pts, 0.016, BONE, { segs: 5, steps: 20 });
     }
-    tube(B, [[0, shY - 0.02, 0.06], [0, shY - 0.15, 0.055]], 0.016, BONE, { segs: 5 });
+    tube(B, [[0, shY - 0.02, 0.06], [0, shY - 0.15, 0.055]], 0.017, BONE, { segs: 5 });
     ball(B, BONE, 0, hipY + 0.01, -0.01, hw + 0.03, 0.045, 0.06);
-    tube(B, [[-sw, shY - 0.01, -0.02], [0, shY + 0.01, 0.02], [sw, shY - 0.01, -0.02]], 0.017, BONE, { segs: 5 });
+    tube(B, [[-sw, shY - 0.01, -0.02], [0, shY + 0.01, 0.02], [sw, shY - 0.01, -0.02]], 0.019, BONE, { segs: 5 });
     // a rotten loincloth and belt
     lathe(B, [[hw + 0.04, hipY + 0.03], [hw + 0.045, hipY - 0.12, null]], [0x4a3a2a, 0x3a2e22], { segs: 10, sq: 0.8 });
   } else {
@@ -534,12 +612,12 @@ export function humanoid(spec, TPL) {
       [sw * 0.8, shY + 0.01, 0.075],
       [0.05, shY + 0.04, 0.045],
     ].map(([a, y, b, dz = 0]) => [a, y, b, dz + hunch * Math.max(0, (y - hipY) / race.torso) * 0.6]);
-    const torsoCol = plate ? [deep(metal, 0.7), metal, tint(metal, 1.2)] : chain ? [deep(shirt, 0.7), shirt] : leatherA ? [deep(LEATHER, 0.7), LEATHER, tint(LEATHER, 1.1)] : [bodyLo, body, bodyHi];
+    const torsoCol = plate ? [deep(metal, 0.62), metal, tint(metal, 1.12)] : chain ? [deep(shirt, 0.7), shirt] : leatherA ? [deep(LEATHER, 0.7), LEATHER, tint(LEATHER, 1.1)] : [bodyLo, body, bodyHi];
     MT(B, () => lathe(B, prof, torsoCol, { segs: 16 }), plate || chain);
     if (bellyK) ball(B, leatherA ? LEATHER : body, 0, hipY + 0.1, 0.035 + bellyK, sw * 0.62, 0.1, 0.07);
     // chest plate details: a raised breastplate with a central ridge
     if (plate) {
-      MT(B, () => ball(B, tint(metal, 1.12), 0, hipY + race.torso * 0.62, 0.035 + hunch * 0.4, sw * 0.78, race.torso * 0.36, 0.08));
+      MT(B, () => ball(B, tint(metal, 1.06), 0, hipY + race.torso * 0.62, 0.035 + hunch * 0.4, sw * 0.78, race.torso * 0.36, tabard != null ? 0.058 : 0.08));
       if (trim != null) lathe(B, [[sw * 0.73, shY + 0.0, 0.074], [sw * 0.7, shY + 0.02, 0.07]], trim, { segs: 16 });
     }
     if (leatherA) {
@@ -556,7 +634,7 @@ export function humanoid(spec, TPL) {
         sheet(B, (u, v) => {
           const x = (u - 0.5) * (sw * 1.0 - v * 0.03);
           const y = shY - 0.02 - v * (race.torso + race.leg * 0.45);
-          const z = zs * (0.1 + (v < 0.55 ? Math.sin((v / 0.55) * Math.PI * 0.5) * 0.015 : 0.015 + (v - 0.55) * 0.1)) + hunch * (1 - v) * 0.5;
+          const z = zs * (0.1 + (zs > 0 ? chestZ + 0.008 : 0) + (v < 0.55 ? Math.sin((v / 0.55) * Math.PI * 0.5) * 0.015 : 0.015 + (v - 0.55) * 0.1)) + hunch * (1 - v) * 0.5;
           return [x, y, z];
         }, [tint(tabard, 1.1), tabard, deep(tabard, 0.7)], { nu: 3, nv: 8, thick: 0.01, flipN: zs > 0 });
       }
@@ -576,12 +654,12 @@ export function humanoid(spec, TPL) {
       sheet(B, (u, v) => {
         const y = hipY + 0.08 - v * (hipY + 0.06);
         const rz = 0.087 + (0.145 - 0.087) * Math.min(1, v * 1.1);
-        return [(u - 0.5) * 0.06 * (1 + v * 0.8), y, rz + 0.004];
+        return [(u - 0.5) * 0.045 * (1 + v * 0.8), y, rz + 0.004];
       }, trim, { nu: 1, nv: 5, thick: 0.006, flipN: true });
     }
   } else if (!bones) {
     // a short skirt or tunic flaps over the thighs
-    const sk = plate ? [tint(metal, 1.1), deep(metal, 0.7)] : chain ? [0x9aa0a8, 0x70767e] : [body, deep(body, 0.7)];
+    const sk = plate ? [tint(metal, 1.05), deep(metal, 0.62)] : chain ? [0x9aa0a8, 0x70767e] : [body, deep(body, 0.7)];
     const len = race.leg * (plate || chain ? 0.36 : 0.27);
     MT(B, () => lathe(B, [[hw + 0.05, hipY + 0.06, 0.088], [hw + 0.06, hipY - 0.02, 0.095], [hw + 0.085, hipY - len, 0.112]], sk, { segs: 16 }), plate || chain);
     // a hem band: the trim colour, or a lighter, warmer shade of the cloth
@@ -597,60 +675,88 @@ export function humanoid(spec, TPL) {
     if (!robe) ball(B, LEATHER, -(br + 0.0), by - 0.04, 0.04, 0.025, 0.035, 0.03);
   }
 
-  // ---- arms
-  const wpn = spec.weapon || 'none';
+  // ---- arms, posed by what the hands hold (a raised sword, a planted
+  // staff and an open casting hand, a bow held across the body, a hand on
+  // the hip), so a line-up never stands stiffly to attention
   const ranged = spec.ranged || null;
-  const longArm = race.longArms ? 0.05 : 0;
+  const longArm = race.longArms ? 0.06 : 0;
   const S = (s) => [s * sw, shY - 0.025, hunch * 0.6];
   let RH, LH, RE, LE;
   const planted = wpn === 'staff' || wpn === 'spear';
+  const pose = spec.pose ?? (wpn === 'bow' ? 'bow' : null);
+  const melee = ['sword', 'greatsword', 'dagger', 'axe', 'hammer', 'mace', 'club'].includes(wpn);
   // right (weapon) hand
   if (planted) { RE = [sw + 0.05, shY - 0.13, 0.0 + hunch * 0.5]; RH = [sw + 0.075, hipY + 0.11, 0.06]; }
-  else if (wpn === 'bow' || wpn === 'crossbow') { RE = [sw + 0.04, shY - 0.15, -0.03]; RH = [sw + 0.02, hipY + 0.04 - longArm, 0.07]; }
+  else if (pose === 'raise' && melee) { RE = [sw + 0.08, shY - 0.1, 0.02 + hunch * 0.5]; RH = [sw + 0.03, shY - 0.03, 0.15 + hunch * 0.6]; }
+  else if (pose === 'overhead' && melee) { RE = [sw + 0.1, shY + 0.06, -0.02]; RH = [sw * 0.55, shY + 0.2, 0.02]; }
+  else if (pose === 'bow') { RE = [sw + 0.05, shY - 0.14, 0.0]; RH = [sw * 0.55, hipY + 0.1, 0.13]; }
+  else if (wpn === 'crossbow') { RE = [sw + 0.04, shY - 0.15, -0.03]; RH = [sw + 0.02, hipY + 0.04 - longArm, 0.07]; }
   else { RE = [sw + 0.05, shY - 0.15 - longArm * 0.5, -0.04 + hunch * 0.5]; RH = [sw + 0.035, hipY + 0.03 - longArm, 0.1 + hunch * 0.6]; }
-  // left hand: shield arm, bow arm or relaxed
+  // left hand: shield arm, bow arm, casting hand, hand on hip or relaxed
   const hasShield = spec.shield != null && spec.shield !== false && wpn !== 'bow' && wpn !== 'crossbow';
-  if (wpn === 'bow') { LE = [-(sw + 0.08), shY - 0.11, 0.03]; LH = [-(sw + 0.13), hipY + 0.12, 0.1]; }
+  const casting = pose === 'cast' && !hasShield;
+  const onHip = pose === 'hip' && !hasShield && spec.offhand == null;
+  if (pose === 'bow') { LE = [-(sw + 0.06), shY - 0.13, 0.06]; LH = [-(sw * 0.3), hipY + race.torso * 0.55, 0.17]; }
+  else if (wpn === 'bow') { LE = [-(sw + 0.08), shY - 0.11, 0.03]; LH = [-(sw + 0.13), hipY + 0.12, 0.1]; }
   else if (hasShield) { LE = [-(sw + 0.05), shY - 0.15, -0.02 + hunch * 0.5]; LH = [-(sw + 0.02), hipY + 0.07, 0.11 + hunch * 0.5]; }
+  else if (casting) { LE = [-(sw + 0.07), shY - 0.13, 0.03]; LH = [-(sw + 0.02), hipY + race.torso * 0.62, 0.17]; }
+  else if (onHip) { LE = [-(sw + 0.12), shY - 0.12, -0.05]; LH = [-(hw + 0.075), hipY + 0.07, 0.01]; }
   else { LE = [-(sw + 0.045), shY - 0.15 - longArm * 0.5, -0.025 + hunch * 0.5]; LH = [-(sw + 0.06), hipY - 0.0 - longArm, 0.04 + hunch * 0.5]; }
-  const sleeveR = bones ? 0.02 : 0.058 * limb;
+  const sleeveR = bones ? 0.022 : 0.058 * limb;
+  // shoulders under pauldrons are broad; bare cloth ones are softer
+  const pd0 = spec.pauldrons ?? (leatherA || (race.tusks && wpn !== 'bow'));
   for (const [s, E, H] of [[1, RE, RH], [-1, LE, LH]]) {
     const sh = S(s);
     if (bones) {
-      tube(B, [sh, E, H], 0.018, BONE, { segs: 6 });
-      ball(B, BONE, ...E, 0.028);
-      ball(B, BONE, ...sh, 0.04);
+      tube(B, [sh, E, H], 0.02, BONE, { segs: 6 });
+      ball(B, BONE, ...E, 0.03);
+      ball(B, BONE, ...sh, 0.042);
+      ball(B, BONE, ...H, 0.032, 0.036, 0.032);
     } else {
-      // deltoid, upper arm and forearm in one smooth sweep
-      ball(B, sleeve, sh[0] + s * 0.004, sh[1] + 0.004, sh[2], sleeveR * 1.2, sleeveR * 1.12, sleeveR * 1.15);
+      // deltoid, upper arm and forearm in one smooth sweep; robes hang
+      // in soft folds rather than ballooning
       const wideSleeve = robe && !plate;
-      tube(B, [sh, E, lerp3(E, H, 0.78)], wideSleeve ? [sleeveR, sleeveR * 1.0, sleeveR * 1.25, sleeveR * 1.5] : [sleeveR, sleeveR * 0.9, sleeveR * 0.85, sleeveR * 0.75], wideSleeve ? [body, tint(body, 0.9)] : [sleeve, plate ? tint(metal, 1.1) : deep(sleeve, 0.85)], { segs: 10, cap1: !wideSleeve });
+      const dk = wideSleeve ? (spec.mantle != null ? 0.9 : 1.0) : plate || chain || pd0 ? 1.2 : 1.08;
+      ball(B, sleeve, sh[0] + s * 0.004, sh[1] + 0.004, sh[2], sleeveR * dk, sleeveR * (dk - 0.08), sleeveR * (dk - 0.05));
+      tube(B, [sh, E, lerp3(E, H, 0.78)], wideSleeve ? [sleeveR, sleeveR * 0.95, sleeveR * 1.05, sleeveR * 1.2] : [sleeveR, sleeveR * 0.9, sleeveR * 0.85, sleeveR * 0.75], wideSleeve ? [body, tint(body, 0.9)] : [sleeve, plate ? tint(metal, 1.06) : deep(sleeve, 0.85)], { segs: 10, cap1: !wideSleeve });
       if (wideSleeve) {
-        // the bell of the sleeve, dark inside, trimmed at the cuff
-        tube(B, [lerp3(E, H, 0.7), lerp3(E, H, 0.79)], [sleeveR * 1.42, sleeveR * 1.55], trim ?? tint(body, 1.15), { segs: 10, cap0: false });
-        ball(B, deep(body, 0.35), ...lerp3(E, H, 0.8), sleeveR * 1.3, sleeveR * 1.3, sleeveR * 1.3);
+        // the mouth of the sleeve, dark inside, with a thin trim band
+        const m0 = lerp3(E, H, 0.74), m1 = lerp3(E, H, 0.8);
+        const cuff = trim != null ? deep(trim, 0.8) : tint(body, 1.15);
+        lathe(B, [[sleeveR * 0.9, 0.0], [sleeveR * 1.06, 0.004], [sleeveR * 1.1, 0.014], [sleeveR * 1.0, 0.02], [sleeveR * 0.84, 0.018]], [tint(body, 1.05), cuff], { matrix: along(m0, m1), segs: 12 });
+        ball(B, deep(body, 0.3), ...lerp3(E, H, 0.79), sleeveR * 0.86, sleeveR * 0.86, sleeveR * 0.86);
       }
       // bracers / gauntlets with a flared cuff
       const gaunt = plate || spec.pauldrons === 'plate';
       const brC = gaunt ? (plate ? metal : STEEL) : leatherA || chain || spec.pauldrons ? LEATHER : null;
       if (brC != null && !wideSleeve) {
         MT(B, () => tube(B, [lerp3(E, H, 0.25), lerp3(E, H, 0.8)], [sleeveR * 0.95, sleeveR * 1.05], [deep(brC, 0.8), brC], { segs: 10 }), gaunt);
-        MT(B, () => tube(B, [lerp3(E, H, 0.72), lerp3(E, H, 0.86)], [sleeveR * 1.15, sleeveR * 1.32], tint(brC, 1.12), { segs: 10, cap1: false }), gaunt);
+        MT(B, () => tube(B, [lerp3(E, H, 0.72), lerp3(E, H, 0.86)], [sleeveR * 1.15, sleeveR * 1.32], tint(brC, 1.08), { segs: 10, cap1: false }), gaunt);
       }
-      // a big fist (gloved for armoured folk)
+      // a big fist (gloved for armoured folk) that closes round the grip
       const fist = gaunt ? metal : (leatherA || chain) && !robe ? DARKLEATHER : skin;
-      const hr = 0.043 * Math.max(0.9, limb);
-      MT(B, () => ball(B, fist, H[0], H[1], H[2], hr * 1.0, hr * 1.12, hr * 1.1), gaunt);
-      MT(B, () => ball(B, fist, H[0] - s * hr * 0.3, H[1] + hr * 0.25, H[2] + hr * 0.55, hr * 0.42), gaunt);
+      const hr = 0.046 * Math.max(0.9, limb);
+      if ((s < 0 && casting)) {
+        // an open hand, palm up, with magic gathering above it
+        ball(B, skin, H[0], H[1], H[2], hr * 1.15, hr * 0.55, hr * 1.2);
+        for (let k = -1; k <= 1; k++) tube(B, [add(H, [k * hr * 0.55, 0.0, hr * 0.7]), add(H, [k * hr * 0.7, hr * 0.5, hr * 1.4])], [hr * 0.3, hr * 0.22], skin, { segs: 6 });
+        tube(B, [add(H, [hr * 0.9, 0, 0]), add(H, [hr * 1.4, hr * 0.5, hr * 0.4])], [hr * 0.32, hr * 0.24], skin, { segs: 6 });
+        const gc = spec.weaponGlow ?? 0x8ad0ff;
+        G.shape(TPL.ico1, gc, { x: H[0], y: H[1] + hr * 2.2, z: H[2] + hr * 0.3, s: hr * 2.2 });
+        G.shape(TPL.ico1, 0xffffff, { x: H[0], y: H[1] + hr * 2.2, z: H[2] + hr * 0.6, s: hr * 1.0 });
+      } else {
+        MT(B, () => ball(B, fist, H[0], H[1], H[2], hr * 1.0, hr * 1.12, hr * 1.1), gaunt);
+        MT(B, () => ball(B, fist, H[0] - s * hr * 0.3, H[1] + hr * 0.25, H[2] + hr * 0.55, hr * 0.42), gaunt);
+      }
     }
   }
 
   // ---- pauldrons
-  const pd = spec.pauldrons ?? (plate ? 'plate' : chain ? 'leather' : leatherA ? 'leather' : race.tusks && !bones ? 'spiked' : null);
+  const pd = spec.pauldrons ?? (plate ? 'plate' : chain ? 'leather' : leatherA ? 'leather' : race.tusks && !bones && wpn !== 'bow' ? 'spiked' : null);
   if (pd && !bones && !(robe && !plate && !spec.pauldrons)) {
     for (const s of [-1, 1]) {
       const sh = S(s);
-      const big = pd === 'plate' ? 1.0 : pd === 'spiked' ? 0.9 : 0.85;
+      const big = (pd === 'plate' ? 0.92 : pd === 'spiked' ? 0.9 : 0.85) * (spec.portrait ? 0.78 : 1);
       const pc = pd === 'plate' ? (plate ? metal : STEEL) : pd === 'spiked' ? 0x5a4a3a : LEATHER;
       const R = 0.1 * big * Math.max(1, limb * 0.9);
       const c = [sh[0] + s * 0.02, sh[1] + 0.025, sh[2]];
@@ -658,25 +764,33 @@ export function humanoid(spec, TPL) {
       const isPlate = pd === 'plate';
       const lip = isPlate && trim != null ? trim : pd === 'spiked' ? IRON : tint(pc, 0.8);
       const dome = (m, k, col) => {
-        MT(B, () => lathe(B, [[0.002, R * 0.78 * k], [R * 0.55 * k, R * 0.72 * k], [R * 0.88 * k, R * 0.45 * k], [R * 1.02 * k, R * 0.08 * k], [R * 1.02 * k, -R * 0.06 * k]], [tint(col, 0.85), tint(col, 1.15)], { segs: 14, sq: 1.08, matrix: m }), isPlate);
+        MT(B, () => lathe(B, [[0.002, R * 0.78 * k], [R * 0.55 * k, R * 0.72 * k], [R * 0.88 * k, R * 0.45 * k], [R * 1.02 * k, R * 0.08 * k], [R * 1.02 * k, -R * 0.06 * k]], [deep(col, 0.58), col, tint(col, 1.04)], { segs: 14, sq: 1.08, matrix: m }), isPlate);
         MT(B, () => lathe(B, [[R * 1.0 * k, -R * 0.1 * k], [R * 1.1 * k, -R * 0.03 * k], [R * 1.08 * k, R * 0.08 * k], [R * 0.98 * k, R * 0.12 * k]], lip, { segs: 14, sq: 1.08, matrix: m }), isPlate || pd === 'spiked');
       };
       dome(mat(c[0] + s * R * 0.32, c[1] - R * 0.42, c[2], 0, 0, -s * 0.95), 0.8, deep(pc, 0.9));
-      dome(mat(c[0], c[1] - R * 0.1, c[2], 0, 0, -s * 0.5), 1, pc);
+      const top = mat(c[0], c[1] - R * 0.1, c[2], 0, 0, -s * 0.5);
+      dome(top, 1, pc);
+      if (isPlate) {
+        // a raised ridge over the crown of the pauldron and a pair of rivets,
+        // so plate reads as hammered steel rather than a soft ball
+        const at = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(top).toArray();
+        MT(B, () => tube(B, [at(0, R * 0.2, R * 0.98), at(0, R * 0.8, R * 0.25), at(0, R * 0.82, -R * 0.2), at(0, R * 0.3, -R * 0.95)], R * 0.09, [tint(pc, 1.08), deep(pc, 0.8)], { segs: 6, steps: 12 }));
+        for (const z of [-0.55, 0.55]) MT(B, () => ball(B, trim ?? tint(pc, 1.15), ...at(R * 0.9, R * 0.12, R * z), R * 0.1));
+      }
       if (pd === 'spiked') {
         for (let k = -1; k <= 1; k++) tube(B, [[c[0] + s * R * 0.25, c[1] + R * 0.45, c[2] + k * R * 0.5], [c[0] + s * R * 0.8, c[1] + R * 1.3, c[2] + k * R * 0.65]], [R * 0.2, 0.002], BONE, { segs: 6 });
       }
     }
   }
 
-  // ---- neck and head
+  // ---- neck and head (tipped back about 16 degrees to meet the camera)
   const headR = race.headR * (fair ? 0.97 : 1);
-  setHeadTilt(bones ? 0.05 : 0.2);
+  setHeadTilt(bones ? 0.12 : 0.28);
   const hd = { x: 0, y: shY + 0.03 + headR * 1.12 - hunch * 0.5, z: hunch * 1.6 + 0.005, r: headR, shape: race.shape };
   if (!bones && race.shape === 'hero') hd.shape = fair ? 'fair' : (spec.pauldrons || plate) ? 'strong' : 'hero';
   if (race.shape === 'elf') hd.shape = 'elf';
   if (!bones) tube(B, [[0, shY - 0.02, hunch * 0.6], [0, hd.y - headR * 0.6, hd.z - 0.01]], 0.045 * Math.max(0.85, limb * 0.9), [deep(skin, 0.8), skin], { segs: 10 });
-  else tube(B, [[0, shY, -0.02], [0, hd.y - headR * 0.7, hd.z - 0.02]], 0.016, BONE, { segs: 5 });
+  else tube(B, [[0, shY, -0.02], [0, hd.y - headR * 0.7, hd.z - 0.02]], 0.018, BONE, { segs: 5 });
   // face paint choice
   const elfish = spec.race === 'elf';
   const row = bones ? null : race.shape === 'orc' ? FACE_ROWS.orc : race.shape === 'goblin' ? FACE_ROWS.goblin : race.shape === 'troll' ? FACE_ROWS.troll
@@ -685,18 +799,21 @@ export function humanoid(spec, TPL) {
   const iris = spec.iris ?? irisPool[Math.floor(hashLook({ ...spec, race: 'x' + spec.race }) * irisPool.length)];
   const browName = race.shape === 'orc' || race.shape === 'goblin' || race.shape === 'troll' ? 'angry' : spec.race === 'dwarf' ? 'bushy' : elfish ? (fair ? 'fair' : 'elf') : fair ? 'fair' : 'bold';
   const browCol = row == null ? null : race.tusks || race.shape === 'goblin' ? deep(skin, 0.35) : hair != null ? deep(hair, (hair & 0xff) > 0xa0 ? 0.7 : 0.8) : 0x3a2a1a;
+  const human = row != null && !race.tusks && race.shape !== 'goblin' && race.shape !== 'troll';
+  const lashes = human && spec.eyes == null && (spec.lashes ?? fair) ? LASHES[elfish ? 'elf' : 'human'] : null;
   sculptHead(B, spec.eyes != null && !bones ? null : F, {
     x: hd.x, y: hd.y, z: hd.z, r: headR, skin: bones ? BONE : skin, shape: hd.shape,
-    row, iris, brow: row == null ? null : BROWS[browName], browColor: browCol,
+    row, iris, brow: row == null ? null : BROWS[browName], browColor: browCol, lashes,
     blush: bones || race.tusks || spec.eyes != null || race.shape === 'goblin' ? 0 : fair ? 0.32 : 0.2,
+    form: bones ? 0 : 1, skinTag: !bones && spec.eyes == null,
   });
   const r = headR;
   // nose, ears, tusks
   if (bones) {
     for (const s of [-1, 1]) {
       const e = onHead(hd, 1.55, s * 0.36, -0.02);
-      ball(B, 0x1a1210, e[0], e[1], e[2], 0.2 * r, 0.22 * r, 0.12 * r);
-      G.shape(TPL.sphere, spec.eyes ?? 0xff5030, { x: e[0], y: e[1], z: e[2] + 0.02 * r, s: 0.16 * r });
+      ball(B, 0x1a1210, e[0], e[1], e[2], 0.22 * r, 0.24 * r, 0.12 * r);
+      G.shape(TPL.sphere, spec.eyes ?? 0xff5030, { x: e[0], y: e[1], z: e[2] + 0.02 * r, s: 0.18 * r });
     }
     const n = onHead(hd, 1.95, 0, 0);
     ball(B, 0x2a1e18, n[0], n[1], n[2], 0.08 * r, 0.1 * r, 0.06 * r);
@@ -729,79 +846,121 @@ export function humanoid(spec, TPL) {
       ball(B, tint(skin, 1.02), a[0], a[1], a[2] + 0.04 * r, (fair ? 0.1 : 0.12) * r, (fair ? 0.09 : 0.11) * r, 0.1 * r);
     }
     const ears = race.ears || 'human';
+    const hat0 = spec.hat || 'none';
+    const tucked = hat0 === 'helm' || hat0 === 'hornhelm' || hat0 === 'hood';
     for (const s of [-1, 1]) {
       const e = onHead(hd, 1.62, s * 1.52, -0.05);
       if (ears === 'elf') {
-        tube(B, [e, add(e, [s * 0.35 * r, 0.25 * r, -0.12 * r]), add(e, [s * 0.85 * r, 0.62 * r, -0.3 * r])], [0.2 * r, 0.14 * r, 0.015 * r], [skin, tint(skin, 0.95)], { sq: 0.4, segs: 8, up: [0, 1, 0] });
+        // swept up and back, like a leaf; shorter and tucked against a helm
+        if (tucked) {
+          const e2 = onHead(hd, 1.5, s * 1.48, hat0 === 'hood' ? 0.26 : 0.2);
+          tube(B, [e2, add(e2, [s * 0.14 * r, 0.22 * r, -0.16 * r]), add(e2, [s * 0.24 * r, 0.52 * r, -0.36 * r])], [0.15 * r, 0.1 * r, 0.012 * r], [skin, tint(skin, 0.95)], { sq: 0.4, segs: 8, up: [0, 1, 0] });
+        } else {
+          tube(B, [e, add(e, [s * 0.26 * r, 0.3 * r, -0.18 * r]), add(e, [s * 0.5 * r, 0.78 * r, -0.44 * r])], [0.2 * r, 0.13 * r, 0.014 * r], [skin, tint(skin, 0.95)], { sq: 0.4, segs: 8, up: [0, 1, 0] });
+        }
       } else if (ears === 'goblin') {
-        tube(B, [e, add(e, [s * 0.6 * r, 0.12 * r, -0.12 * r]), add(e, [s * 1.35 * r, 0.32 * r, -0.2 * r])], [0.3 * r, 0.32 * r, 0.02 * r], [skin, blend(skin, 0xd08080, 0.25)], { sq: 0.3, segs: 8, up: [0, 1, 0] });
+        // great sideways ears: the goblin's silhouette at any size
+        tube(B, [e, add(e, [s * 0.6 * r, 0.14 * r, -0.08 * r]), add(e, [s * 1.5 * r, 0.36 * r, -0.16 * r])], [0.34 * r, 0.36 * r, 0.02 * r], [skin, blend(skin, 0xd08080, 0.3)], { sq: 0.3, segs: 8, up: [0, 1, 0] });
       } else if (ears === 'orc' || ears === 'troll') {
-        const L = ears === 'troll' ? 1.0 : 0.45;
+        const L = ears === 'troll' ? 1.0 : 0.5;
         tube(B, [e, add(e, [s * 0.3 * L * r, 0.12 * r, -0.12 * r]), add(e, [s * 0.75 * L * r, (ears === 'troll' ? -0.05 : 0.3) * r, -0.28 * r])], [0.2 * r, 0.16 * r, 0.02 * r], skin, { sq: 0.4, segs: 8, up: [0, 1, 0] });
-      } else {
+      } else if (!tucked) {
         ball(B, tint(skin, 0.95), e[0] + s * 0.04 * r, e[1], e[2], 0.12 * r, 0.2 * r, 0.12 * r);
       }
     }
     if (race.tusks) {
       for (const s of [-1, 1]) {
         const t = onHead(hd, 2.35, s * 0.32, 0.02);
-        tube(B, [t, add(t, [s * 0.05 * r, 0.25 * r, 0.12 * r]), add(t, [s * 0.02 * r, 0.42 * r, 0.06 * r])], [0.1 * r, 0.08 * r, 0.015 * r], [0xe8dcbc, 0xfff8e8], { segs: 7, cap0: false });
+        tube(B, [t, add(t, [s * 0.06 * r, 0.3 * r, 0.14 * r]), add(t, [s * 0.03 * r, 0.52 * r, 0.06 * r])], [0.12 * r, 0.09 * r, 0.015 * r], [0xe8dcbc, 0xfff8e8], { segs: 7, cap0: false });
       }
     }
   }
 
   // ---- hair, beard, headgear
   const hat = spec.hat || 'none';
-  const style = spec.hairStyle || (race.mohawk ? 'mohawk' : race.longHair ? 'long' : race.curly ? 'short' : hsh < 0.18 ? 'long' : hsh > 0.82 ? 'ponytail' : 'short');
+  const style = spec.hairStyle || (race.topknot ? 'topknot' : race.mohawk ? 'mohawk' : race.longHair ? 'long' : race.curly ? 'short' : hsh < 0.18 ? 'long' : hsh > 0.82 ? 'ponytail' : 'short');
   const covered = hat === 'hood' || hat === 'helm' || hat === 'hornhelm' || hat === 'mitre';
   if (!bones) {
     const hstyle = covered && (style === 'mohawk' || style === 'topknot' || style === 'ponytail') ? 'short' : style;
-    if (!(covered && hat !== 'helm' && hat !== 'hornhelm')) buildHair(B, hd, hstyle, hair, race, { covered, fair });
-    else if (hat === 'hood' && (style === 'long' || style === 'braids')) {
-      // long hair spilling out of the hood
-      for (const s of [-1, 1]) {
-        const a = onHead(hd, 1.5, s * 1.0, 0.18);
-        tube(B, [a, add(a, [s * 0.05 * r, -0.6 * r, 0.12 * r]), add(a, [s * 0.04 * r, -1.2 * r, 0.12 * r])], [0.22 * r, 0.2 * r, 0.06 * r], [hair, deep(hair, 0.66)], { sq: 0.6, segs: 8 });
+    if (hat === 'hood') {
+      buildHair(B, hd, hstyle, hair, race, { covered: true, hood: true, fair });
+      if (style === 'long' || style === 'braids') {
+        // long hair spilling out of the hood
+        for (const s of [-1, 1]) {
+          const a = onHead(hd, 1.5, s * 1.0, 0.18);
+          tube(B, [a, add(a, [s * 0.05 * r, -0.6 * r, 0.12 * r]), add(a, [s * 0.04 * r, -1.2 * r, 0.12 * r])], [0.22 * r, 0.2 * r, 0.06 * r], [hair, deep(hair, 0.66)], { sq: 0.6, segs: 8 });
+        }
       }
-    }
-    const beard = spec.beard === true ? hair : spec.beard ?? (race.beard ? hair : null);
-    if (beard != null && beard !== false) buildBeard(B, hd, beard, !!race.beard, race);
+    } else if (hat !== 'mitre') buildHair(B, hd, hstyle, hair, race, { covered, fair });
+    // a bearded wizard wears it long, down to the belt
+    // and a bold-faced man under a wizard's hat is an old bearded wizard
+    const sage = hat === 'wizard' && spec.beard === undefined && !fair && (spec.race ?? 'human') === 'human';
+    const beard = spec.beard === true || sage ? hair : spec.beard ?? (race.beard ? hair : null);
+    const longBeard = spec.longBeard ?? (hat === 'wizard' && !race.beard);
+    if (beard != null && beard !== false) buildBeard(B, hd, beard, !!race.beard, race, longBeard);
   }
   const hg = buildHeadgear(B, G, hd, spec, TPL);
 
-  // ---- cape (and the cleric's mantle)
+  // ---- cape (two-sided, with a darker lining, sweeping wide and long so
+  // the class still reads from behind)
   if (spec.cape != null && !bones) {
     const cc = spec.cape;
-    const top = shY + 0.015, bot = robe ? 0.04 : 0.1;
+    const top = shY + 0.015, bot = robe ? 0.03 : 0.05;
     const bz = 0.125 + hunch * 0.6;
-    // draped over the shoulders, wrapping round the back, falling in folds
     sheet(B, (u, v) => {
       const a = (u - 0.5) * 2;
-      const wv = sw * (1.0 + v * 0.5);
-      const fold = Math.sin(u * Math.PI * 6) * 0.014 * v;
-      const z = -(0.035 + (bz - 0.035) * (1 - a * a)) - v * (robe ? 0.1 : 0.075) + fold + hunch * (1 - v) * 0.6;
+      const wv = sw * (1.05 + v * 0.9);
+      const fold = Math.sin(u * Math.PI * 7) * 0.02 * v;
+      const z = -(0.035 + (bz - 0.035) * (1 - a * a)) - v * (robe ? 0.15 : 0.13) + fold + hunch * (1 - v) * 0.6;
       return [a * wv, top - v * (top - bot) - (1 - a * a) * 0.012, z];
-    }, [tint(cc, 1.08), cc, deep(cc, 0.62)], { nu: 12, nv: 7, thick: 0.014, back: deep(cc, 0.7) });
+    }, [tint(cc, 1.1), cc, deep(cc, 0.66)], { nu: 14, nv: 8, thick: 0.014, back: deep(cc, 0.5), backShade: 0.9 });
     // a collar and clasps
     tube(B, [[-sw * 0.92, top + 0.005, -0.04 + hunch * 0.6], [0, top + 0.03, -0.12 + hunch * 0.6], [sw * 0.92, top + 0.005, -0.04 + hunch * 0.6]], 0.03, [cc, tint(cc, 1.1), cc], { segs: 7 });
     if (!pd) for (const s of [-1, 1]) MT(B, () => ball(B, GOLD, s * sw * 0.7, top, 0.06 + hunch * 0.6, 0.022));
   }
   if (spec.scarf != null && !bones) {
-    lathe(B, [[0.07, shY - 0.0, 0.07, 0.01 + hunch * 0.6], [0.085, shY + 0.03, 0.085, 0.01 + hunch * 0.6], [0.07, shY + 0.06, 0.07, 0.012 + hunch * 0.6]], [spec.scarf, tint(spec.scarf, 1.15)], { segs: 12 });
-    tube(B, [[-0.05, shY + 0.02, 0.07], [-0.07, shY - 0.06, 0.1], [-0.06, shY - 0.13, 0.11]], [0.03, 0.026, 0.018], [spec.scarf, deep(spec.scarf, 0.7)], { sq: 0.4, segs: 6, up: [1, 0, 0] });
+    // a neckerchief wound round the neck, knotted at the side, its tails
+    // thrown back over the shoulder
+    const sc = spec.scarf, z0 = 0.01 + hunch * 0.6;
+    lathe(B, [[0.072, shY - 0.012, 0.074, z0], [0.09, shY + 0.012, 0.09, z0], [0.078, shY + 0.04, 0.078, z0 - 0.004]], [deep(sc, 0.8), tint(sc, 1.12)], { segs: 12 });
+    const kn = [-0.075, shY + 0.008, 0.045 + z0];
+    ball(B, tint(sc, 1.08), ...kn, 0.032, 0.03, 0.03);
+    tube(B, [kn, add(kn, [-0.05, 0.025, -0.07]), add(kn, [-0.07, -0.05, -0.15]), add(kn, [-0.06, -0.15, -0.17])], [0.03, 0.028, 0.024, 0.01], [sc, deep(sc, 0.7)], { sq: 0.4, segs: 6, up: [1, 0, 0] });
+    tube(B, [kn, add(kn, [-0.02, 0.02, -0.09]), add(kn, [-0.025, -0.06, -0.16]), add(kn, [0.0, -0.11, -0.17])], [0.026, 0.024, 0.02, 0.008], [sc, deep(sc, 0.7)], { sq: 0.4, segs: 6, up: [1, 0, 0] });
   }
   if (spec.mantle != null && !bones) {
-    lathe(B, [[0.05, shY + 0.05, 0.05], [sw * 0.8, shY + 0.01, 0.12], [sw * 1.2, shY - 0.06, 0.15], [sw * 1.22, shY - 0.09, 0.155]], [tint(spec.mantle, 1.1), spec.mantle], { segs: 18 });
+    // a cleric's short shoulder cape with a crisp trimmed edge, and a stole
+    // hanging down the front
+    const mc = spec.mantle, z0 = hunch * 0.6;
+    const edge = sw + 0.07;
+    // it caps the shoulders, so the sleeves come out from under it rather
+    // than puffing up through it
+    lathe(B, [[0.055, shY + 0.06, 0.055, z0], [sw * 0.6, shY + 0.05, 0.11, z0], [sw * 0.95, shY + 0.028, 0.13, z0], [edge, shY - 0.035, 0.142, z0], [edge + 0.004, shY - 0.07, 0.146, z0]], [deep(mc, 0.74), mc, tint(mc, 1.03)], { segs: 22 });
+    lathe(B, [[edge + 0.002, shY - 0.082, 0.148, z0], [edge + 0.008, shY - 0.07, 0.152, z0], [edge + 0.0, shY - 0.06, 0.147, z0]], spec.mantleTrim ?? deep(0xfff2d0, 0.9), { segs: 22 });
+    const sc = spec.stole ?? mc;
+    for (const s of [-1, 1]) {
+      sheet(B, (u, v) => {
+        const y = shY - 0.04 - v * (race.torso + race.leg * (robe ? 0.55 : 0.3));
+        const zf = robe ? 0.095 + Math.max(0, v - 0.35) * 0.07 : 0.1;
+        return [s * (0.045 + u * 0.04) + s * v * 0.01, y, zf + 0.012 + z0 * (1 - v)];
+      }, [tint(sc, 1.05), deep(sc, 0.75)], { nu: 1, nv: 6, thick: 0.006, flipN: true });
+    }
+    MT(B, () => ball(B, GOLD, 0, shY + 0.03, 0.075 + z0, 0.024, 0.024, 0.012));
   }
 
   // ---- weapons, shield and things carried on the back
   const inHand = (H, rx, rz, ry = 0) => new THREE.Matrix4().compose(new THREE.Vector3(...H), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(1, 1, 1));
-  const big = race.tusks ? 1.15 : spec.race === 'goblin' ? 0.85 : spec.race === 'dwarf' ? 1.15 : 1.08;
-  if (['sword', 'greatsword', 'dagger', 'axe', 'hammer', 'mace', 'club'].includes(wpn)) {
-    const tilt = wpn === 'greatsword' ? -0.35 : wpn === 'club' ? -0.1 : -0.3;
-    weapon(B, G, wpn, inHand(RH, tilt, -0.42), spec, big * (wpn === 'club' ? 1.25 : 1));
+  const big = race.tusks ? 1.15 : spec.race === 'goblin' ? 0.95 : spec.race === 'dwarf' ? 1.15 : 1.08;
+  if (melee) {
+    let tilt = wpn === 'greatsword' ? -0.35 : wpn === 'club' ? -0.1 : -0.3, lean = -0.42;
+    // a raised blade points up past the shoulder; an axe swung overhead leans over the head
+    if (pose === 'raise') { tilt = -0.15; lean = -0.32; }
+    else if (pose === 'overhead') { tilt = -0.25; lean = 0.95; }
+    const sz = big * (wpn === 'club' ? (spec.race === 'troll' ? 1.3 : 1.2) : 1);
+    weapon(B, G, wpn, inHand(RH, tilt, lean), spec, sz);
   } else if (planted) {
-    const top = Math.max(hg.top + 0.05, hd.y + headR * 1.6);
+    // a staff stands a head above its bearer, but never towers over a tall hat
+    const top = Math.min(Math.max(hg.top + 0.05, hd.y + headR * 1.6), hd.y + headR * 2.4);
     const base = [RH[0] + 0.03, 0.0, RH[2] + 0.01];
     const tip = [RH[0] + 0.005, top, RH[2] - 0.01];
     if (wpn === 'staff') {
@@ -821,7 +980,9 @@ export function humanoid(spec, TPL) {
       sheet(B, (u, v) => [tip[0] + 0.01 + u * 0.16, tip[1] - 0.05 - v * 0.08 + u * 0.02 - u * v * 0.03, tip[2] - 0.005 + Math.sin(u * 4) * 0.012], [pc, deep(pc, 0.7)], { nu: 4, nv: 1, thick: 0.006 });
     }
   } else if (wpn === 'bow') {
-    bow(B, inHand(LH, -0.25, 0.12, 1.25), spec.weaponColor ?? 0xa0703a, 0.42);
+    // held across the body, ready to nock
+    if (pose === 'bow') bow(B, inHand(LH, -0.35, -0.95, 0.35), spec.weaponColor ?? 0xa0703a, 0.42);
+    else bow(B, inHand(LH, -0.25, 0.12, 1.25), spec.weaponColor ?? 0xa0703a, 0.42);
   } else if (wpn === 'crossbow') {
     crossbow(B, inHand([RH[0] - 0.06, RH[1] + 0.03, RH[2] + 0.05], -0.15, 0), spec.weaponColor ?? 0x7a5030);
   } else if (wpn === 'sling') {
@@ -838,8 +999,8 @@ export function humanoid(spec, TPL) {
     lathe(B, [[0.054, -0.02], [0.054, 0.02]], GOLD, { matrix: along(q1, add(q1, [q1[0] - q0[0], q1[1] - q0[1], q1[2] - q0[2]])), segs: 9 });
     for (let k = 0; k < 4; k++) {
       const off = [(k - 1.5) * 0.016, 0, (k % 2) * 0.016];
-      const a = add(q1, off), b = add(a, [(q1[0] - q0[0]) * 0.22, (q1[1] - q0[1]) * 0.22, (q1[2] - q0[2]) * 0.22]);
-      tube(B, [a, b], [0.016, 0.004], k % 2 ? 0xf0e8d8 : 0xc03a2a, { sq: 0.3, segs: 4 });
+      const a = add(q1, off), b = add(a, [(q1[0] - q0[0]) * 0.26, (q1[1] - q0[1]) * 0.26, (q1[2] - q0[2]) * 0.26]);
+      tube(B, [a, b], [0.018, 0.004], k % 2 ? 0xf0e8d8 : spec.fletch ?? 0xc03a2a, { sq: 0.3, segs: 4 });
     }
   }
   if (ranged && ranged !== wpn && !bones) {
@@ -848,19 +1009,38 @@ export function humanoid(spec, TPL) {
     else if (ranged === 'sling') ball(B, 0x8a6a42, -(hw + 0.07), hipY + 0.02, 0.06, 0.03, 0.035, 0.025);
   }
   if (spec.back === 'lute' && !bones) {
-    const m = mat(0.02, hipY + race.torso * 0.45, -0.15 - hunch * 0.3, 0, 0, 0.6);
+    // a round-backed lute slung diagonally: bowl, soundboard with a rose,
+    // a long neck and a bent-back peg box
+    const m = mat(0.02, hipY + race.torso * 0.45, -0.15 - hunch * 0.3, 0.1, 0, 0.62);
     const at = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(m).toArray();
-    ball(B, 0xb07a3a, ...at(0, 0, 0), 0.085, 0.11, 0.04, { matrix: null, rz: 0.6 });
-    ball(B, 0x3a2414, ...at(0, 0.02, -0.03), 0.025, 0.025, 0.01);
-    tube(B, [at(0, 0.08, -0.01), at(0, 0.3, -0.01)], 0.016, 0x6a4020, { segs: 6 });
-    tube(B, [at(0, 0.3, -0.01), at(0, 0.36, -0.03)], [0.022, 0.02], 0x5a3418, { segs: 6, sq: 0.5 });
+    ball(B, 0x9a6230, ...at(0, 0, 0.008), 0.095, 0.12, 0.05, { rz: 0.62, rx: 0.1, grad: 0.3 });
+    ball(B, 0xd8a860, ...at(0, 0, -0.03), 0.085, 0.108, 0.018, { rz: 0.62, rx: 0.1 });
+    ball(B, 0x2a1408, ...at(0, 0.02, -0.046), 0.026, 0.026, 0.008, { rz: 0.62 });
+    tube(B, [at(0, 0.1, -0.03), at(0, 0.3, -0.03)], [0.02, 0.016], [0x6a4020, 0x5a3418], { segs: 6, sq: 0.6 });
+    tube(B, [at(0, 0.3, -0.03), at(0, 0.38, -0.0)], [0.022, 0.02], 0x4a2a14, { segs: 6, sq: 0.5 });
   }
 
   setHeadTilt(0);
   const height = Math.max(hg.top, hd.y + headR * 1.1);
-  return { B, G, F, height, head: [hd.x, hd.y, hd.z, headR] };
+  return { B, G, F, height, head: [hd.x, hd.y, hd.z, headR], top: hg.top };
 }
 
+// Townsfolk who are not dressed in full get a little variety from a hash of
+// their look: skin tones, and among the grey-haired, old men who are bald
+// with long beards.
+const FOLK_SKINS = [0xf6d2b4, 0xf0c4a0, 0xe8b890, 0xe2aa84, 0xc88c64, 0x9c6a46];
+function folk(spec, race, hsh) {
+  if (race.tusks || race.bones || race.shape === 'goblin' || spec.eyes != null) return spec;
+  const out = { ...spec };
+  if (out.skin == null && (spec.race === 'human' || spec.race == null)) out.skin = FOLK_SKINS[Math.floor(((hsh * 7919) % 1) * FOLK_SKINS.length)];
+  const grey = out.hair != null && ((out.hair >> 16) & 255) > 0x80 && Math.abs(((out.hair >> 16) & 255) - (out.hair & 255)) < 0x18;
+  if (spec.face == null && spec.hairStyle == null && grey && spec.race !== 'elf') {
+    out.face = 'bold';
+    if (out.beard == null) out.beard = out.hair;
+    if (hsh < 0.6 && !spec.hat) out.hairStyle = 'bald';
+  }
+  return out;
+}
 // a recurve bow, upright in matrix M (grip at the origin)
 function bow(B, M, wood, H) {
   const at = (x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(M).toArray();

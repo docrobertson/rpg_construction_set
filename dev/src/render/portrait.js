@@ -12,11 +12,13 @@ let rig = null;
 
 function setup() {
   const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff4e4, 0x50402e, 1.6));
-  const key = new THREE.DirectionalLight(0xfff0dc, 2.5);
-  key.position.set(-1.8, 2.6, 3.2);
+  // evenly exposed: white robes, steel and gold keep their form instead of
+  // burning out, and the side away from the key falls into a soft shade
+  scene.add(new THREE.HemisphereLight(0xfff2e0, 0x4a3c30, 1.1));
+  const key = new THREE.DirectionalLight(0xfff0dc, 1.85);
+  key.position.set(-1.8, 2.4, 3.4);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xbcd4ff, 1.3);
+  const rim = new THREE.DirectionalLight(0xbcd4ff, 1.0);
   rim.position.set(2.5, 1.5, -2.5);
   scene.add(rim);
   const cam = new THREE.PerspectiveCamera(24, W / H, 0.05, 20);
@@ -37,18 +39,24 @@ export function portrait(view, look) {
 function render(view, look) {
   rig ||= setup();
   const { scene, cam, rt, buf } = rig;
-  // a portrait is about the face: leave weapons, shields and packs out of it
-  const bust = look.kind === 'humanoid' || !look.kind ? { ...look, weapon: 'none', shield: null, offhand: null, ranged: null, back: null } : look;
+  // a portrait is about the face: shields and packs stay out of it, the
+  // weapon shows at the edge of the bust, and helms lose their nose guards
+  const bust = look.kind === 'humanoid' || !look.kind ? { ...look, shield: null, offhand: null, ranged: null, back: null, portrait: true } : look;
   const model = makeModel(bust, view.mats);
   const info = model.userData.info;
   const h = info.height || 1;
-  model.rotation.y = -0.42; // a three-quarter view, turned towards the key light
+  model.rotation.y = -0.5; // a three-quarter view, turned towards the key light
   scene.add(model);
   if (info.head) {
-    // head and shoulders: from mid-chest to just above the crown
+    // head and shoulders: from mid-chest to just above the crown; tall hats
+    // and crests widen the frame so they are not cropped (only a very tall
+    // tip may leave it)
     const [, hy, hz, hr] = info.head;
-    const span = hr * 4.6;
-    const ty = hy - hr * 0.55;
+    const top = Math.min(info.top ?? hy + hr, hy + hr * 3.3);
+    const lo = hy - hr * 2.75;
+    const need = top + hr * 0.2 - lo;
+    const span = Math.max(hr * 4.6, need);
+    const ty = need > hr * 4.6 ? (top + hr * 0.2 + lo) / 2 : hy - hr * 0.55;
     const d = (span / 2) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
     cam.position.set(0, ty + d * 0.17, hz + d);
     cam.lookAt(0, ty, hz);

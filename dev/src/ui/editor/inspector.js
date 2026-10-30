@@ -8,8 +8,8 @@ import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
-const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap']];
-const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow']];
+const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
+const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
 export const NPC_ROLES = [
   ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage'],
@@ -32,6 +32,23 @@ export const LOOK_FIELDS = [
   { key: 'look.weapon', label: 'Carries', type: 'select', options: WEAPONS },
   { key: 'look.shield', label: 'Shield', type: 'color', nullable: true },
   { key: 'look.cape', label: 'Cape', type: 'color', nullable: true },
+  // (art) finer touches of the figure builder
+  { key: 'look.face', label: 'Face', type: 'select', options: [['bold', 'Bold'], ['fair', 'Fair']], empty: 'Any', nullable: true },
+  { key: 'look.hairStyle', label: 'Hair style', type: 'select', options: [['short', 'Short'], ['long', 'Long'], ['ponytail', 'Ponytail'], ['braids', 'Braids'], ['topknot', 'Topknot'], ['bald', 'Bald']], empty: 'Any', nullable: true },
+  { key: 'look.iris', label: 'Eyes', type: 'select', options: [[0, 'Brown'], [1, 'Blue'], [2, 'Green'], [3, 'Grey'], [4, 'Amber'], [5, 'Violet']], empty: 'Any', nullable: true, number: true },
+  { key: 'look.lashes', label: 'Eyelashes', type: 'check' },
+  { key: 'look.pose', label: 'Stance', type: 'select', options: [['raise', 'Weapon raised'], ['overhead', 'Weapon overhead'], ['cast', 'Casting hand'], ['hip', 'Hand on hip'], ['bow', 'Bow across the body']], empty: 'Natural', nullable: true },
+  { key: 'look.pauldrons', label: 'Pauldrons', type: 'select', options: [['plate', 'Plate'], ['leather', 'Leather'], ['spiked', 'Spiked']], empty: 'By armour', nullable: true },
+  { key: 'look.plume', label: 'Helm plume', type: 'color', nullable: true, show: (o) => o.look?.hat === 'helm' },
+  { key: 'look.wings', label: 'Winged helm', type: 'check', show: (o) => o.look?.hat === 'helm' },
+  { key: 'look.tabard', label: 'Tabard', type: 'color', nullable: true },
+  { key: 'look.mantle', label: 'Mantle and stole', type: 'color', nullable: true },
+  { key: 'look.scarf', label: 'Scarf', type: 'color', nullable: true },
+  { key: 'look.shieldShape', label: 'Shield shape', type: 'select', options: [['round', 'Round'], ['kite', 'Kite']], empty: 'By armour', nullable: true, show: (o) => o.look?.shield != null },
+  { key: 'look.emblem', label: 'Shield emblem', type: 'color', nullable: true, show: (o) => o.look?.shield != null },
+  { key: 'look.offhand', label: 'Off hand', type: 'select', options: [['dagger', 'Dagger']], empty: 'Nothing', nullable: true },
+  { key: 'look.back', label: 'On the back', type: 'select', options: [['lute', 'Lute']], empty: 'Nothing', nullable: true },
+  { key: 'look.runes', label: 'Glowing runes', type: 'color', nullable: true },
 ];
 
 function keywordFields(game) {
@@ -68,6 +85,7 @@ export function npcFields(game) {
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'desc', label: 'Description', type: 'text', placeholder: 'a grizzled dwarf smith', hint: 'Shown as “You meet …”' },
     { key: 'role', label: 'Role', type: 'select', options: NPC_ROLES, rerender: true },
+    { key: 'shopName', label: 'Name over the door', type: 'text', placeholder: 'The Gilded Griffin', show: (o) => !['villager', 'guard'].includes(o.role || 'villager'), hint: 'Names the building this person keeps (blank: a name is made up).' },
     { key: 'wander', label: 'Wanders up to', type: 'number', min: 0, max: 30, hint: 'tiles from home (0 = stays put)' },
     { type: 'section', label: 'Conversation' },
     { key: 'greeting', label: 'Greeting', type: 'textarea', rows: 2 },

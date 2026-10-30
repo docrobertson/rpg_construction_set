@@ -176,15 +176,33 @@ export class PlaySession {
     this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale });
   }
 
-  // Out in the wide world the whole company travels together; in towns and
-  // dungeons the leader stands for them all
+  // The company: the leader stands on the party's square and everyone else
+  // walks behind as a figure of their own (render/followers.js). Afloat, the
+  // ship carries them all.
   addPartyVisual() {
     const p = this.state.pos;
-    if (this.state.vehicle) this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
-    else if (this.map?.type === 'world' && partyAlive(this.party).length > 1) {
-      const members = partyAlive(this.party).map((m) => charLook(this.game, m));
-      this.view.addEntity('party', { kind: 'party', members }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
-    } else this.view.addEntity('party', charLook(this.game, this.leader), p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+    if (this.state.vehicle) {
+      this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+      this.view.setFollowers?.([], { aboard: partyAlive(this.party).map((m) => charLook(this.game, m)) });
+      return;
+    }
+    const alive = partyAlive(this.party);
+    const lead = alive[0] || this.leader;
+    const world = this.map?.type === 'world';
+    const scale = world ? 0.8 : 1;
+    this.view.addEntity('party', charLook(this.game, lead), p.x, p.y, { ring: 0xffd040, facing: this.state.facing, scale });
+    this.view.setFollowers?.(alive.slice(1).map((m) => ({ key: m.id || m.name, look: charLook(this.game, m) })), {
+      scale, spacing: world ? 0.5 : 0.58,
+      walkable: (x, y) => this.followerGround(x, y),
+      taken: (x, y) => this.map.entities.some((e) => e.x === x && e.y === y),
+    });
+  }
+
+  // open ground where a companion may stand (not water, lava, doors or sites)
+  followerGround(x, y) {
+    if (!this.map || !inBounds(this.map, x, y)) return false;
+    const t = terrain(getTile(this.map, x, y));
+    return t.walk && !t.door && !t.dmg && !t.feature && !(t.water && t.key !== 'bridge');
   }
 
   refreshPartyVisual() {

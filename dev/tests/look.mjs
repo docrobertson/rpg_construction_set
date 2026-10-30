@@ -43,6 +43,14 @@ for (const name of ['Westhold', 'Grimholt Barrow']) {
   await page.waitForTimeout(1500);
   await page.screenshot({ path: `${OUT}/${pre}-${name.replace(/\W/g, '')}.png` });
 }
+// a town street, where the buildings stand closest (more in tests/townshots.mjs)
+await page.evaluate(async () => {
+  const s = window.__app.session;
+  const m = s.game.maps.find((mm) => mm.name === 'Westhold');
+  await s.enterMap(m.id, 11, 17, { instant: true });
+});
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${OUT}/${pre}-Westhold-street.png` });
 // battle
 await page.evaluate(async () => {
   const s = window.__app.session;

@@ -189,6 +189,7 @@ function buildSample() {
   dressDwarves(game, dwarves);
   dressVillage(game, village);
   dressTower(game, tower.map);
+  varyFolk(game);
 
   // start on the road just east of Westhold
   const st = nearestWalkable(w, 25, 52);
@@ -681,6 +682,65 @@ function dressVillage(game, map) {
     ],
   });
   nameNpcs(map, game, 5);
+}
+
+// Townsfolk come in all sorts: hobbits with bare feet and curly hair,
+// bald grey-bearded elders, ladies in gowns, elves in circlets and white
+// robes, dwarves with braided beards. (Looks only; names and words stay.)
+const FOLK = {
+  human: [
+    { race: 'hobbit', face: 'bold', hair: 0x6a4020, body: 0x6a8a3a, legs: 0x8a6a3a },
+    { face: 'bold', hairStyle: 'bald', hair: 0xd8d4cc, beard: 0xd8d4cc, body: 0x6a5a4a, robe: true },
+    { face: 'fair', hairStyle: 'long', hair: 0xd8b860, body: 0x8a3a4a, robe: true, trim: 0xe8d8a0 },
+    { race: 'hobbit', face: 'fair', hair: 0xb06a30, body: 0xa8742a, legs: 0x5a6a3a },
+    { face: 'bold', hairStyle: 'short', hair: 0x3a2618, beard: 0x3a2618, body: 0x5a6a8a, hat: 'hood', hatColor: 0x7a5a32 },
+    { face: 'fair', hairStyle: 'braids', hair: 0x9a4a22, body: 0x3a6a5a },
+    { face: 'bold', hairStyle: 'bald', hair: 0x9a9a9a, beard: 0xe8e8e8, longBeard: true, body: 0x4a4a7a, robe: true },
+    { face: 'bold', hairStyle: 'ponytail', hair: 0x1e1a18, body: 0x7a2a2a },
+    { face: 'fair', hairStyle: 'ponytail', hair: 0x5a3a20, body: 0x2a5a8a, scarf: 0xe0c060 },
+  ],
+  elf: [
+    { face: 'fair', hairStyle: 'long', hair: 0xeedc98, body: 0xf4f2ff, robe: true, trim: 0xc8d4ff, hat: 'circlet' },
+    { face: 'bold', hairStyle: 'long', hair: 0xe2e2ea, body: 0x3a6a4a, cape: 0x2a4a3a },
+    { face: 'fair', hairStyle: 'braids', hair: 0xb06a30, body: 0x8ab0d8, robe: true, trim: 0xf0f0ff, hat: 'circlet', hatColor: 0xd8dce8 },
+    { face: 'fair', hairStyle: 'ponytail', hair: 0x1e1a18, body: 0x6a8a3a },
+  ],
+  dwarf: [
+    { face: 'bold', hair: 0x9a4a22, body: 0x6a4a2a, hairStyle: 'braids' },
+    { face: 'bold', hair: 0xe8e8e8, hairStyle: 'bald', body: 0x5a5a6a },
+    { face: 'bold', hair: 0x1e1a18, hairStyle: 'short', body: 0x8a5a2a, hat: 'hood', hatColor: 0x6a3a2a },
+    { face: 'fair', hair: 0xc8a050, hairStyle: 'braids', beard: false, body: 0x7a3a5a },
+  ],
+};
+
+function varyFolk(game) {
+  const n = { human: 0, elf: 0, dwarf: 0 };
+  for (const map of game.maps) {
+    for (const e of map.entities || []) {
+      if (e.type !== 'npc' || e.role !== 'villager' || !/ local$/.test(e.desc || '') || !e.look) continue;
+      const race = FOLK[e.look.race] ? e.look.race : 'human';
+      const pick = FOLK[race][n[race]++ % FOLK[race].length];
+      Object.assign(e.look, pick);
+      if (pick.race === 'hobbit') e.desc = 'a hobbit of the town';
+    }
+  }
+  // the named folk, dressed to match their words
+  const npc = (id) => game.maps.flatMap((m) => m.entities || []).find((e) => e.id === id);
+  const dress = (id, look) => { const e = npc(id); if (e && e.look) Object.assign(e.look, look); };
+  dress('npc_aldric', { face: 'bold', hair: 0xc8c8c8, beard: 0xc8c8c8, hairStyle: 'short' });
+  dress('npc_durgan', { face: 'bold', hair: 0xe8e4dc, hairStyle: 'braids', body: 0x6a2a2a, cape: 0x3a2a6a });
+  dress('npc_wynn', { face: 'fair', hairStyle: 'braids', hair: 0xd8b868, body: 0x7a8a3a });
+  dress('npc_osric', { face: 'bold', hair: 0x9a9a9a, beard: 0x9a9a9a, body: 0x3a5a6a, hat: 'hood', hatColor: 0x5a6a5a });
+  dress('npc_hal', { face: 'bold', hair: 0x7a4a24, beard: 0x7a4a24, body: 0x8a6a3a });
+  dress('npc_hilda', { face: 'fair', hairStyle: 'braids', hair: 0xb84a1e });
+  dress('npc_ithilwen', { face: 'fair', hairStyle: 'long', hair: 0xf0e8c0 });
+  dress('npc_laurelin', { face: 'fair', hairStyle: 'long', hair: 0xe2e2ea, back: 'lute', pose: 'hip' });
+  dress('npc_merek', { face: 'bold', hair: 0xd8d4cc, beard: 0xd8d4cc });
+  const westhold = game.maps.find((m) => m.name === 'Westhold');
+  for (const e of westhold?.entities || []) {
+    if (e.name === 'Tobin') Object.assign(e.look, { race: 'hobbit', face: 'bold', hair: 0x8a5a2a, body: 0x8a5a3a, legs: 0x6a5a3a });
+    if (e.name === 'Maud') Object.assign(e.look, { face: 'fair', hairStyle: 'ponytail', hair: 0x9a4a22 });
+  }
 }
 
 function dressTower(game, map) {
