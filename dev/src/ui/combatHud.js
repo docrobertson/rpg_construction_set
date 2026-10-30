@@ -35,7 +35,23 @@ export class CombatHud {
     this.strip = h('div.cbt-strip');
     this.banner = h('div.cbt-banner');
     this.root.append(this.plateLayer, this.strip, this.banner);
-    (this.view.container || document.body).appendChild(this.root);
+    const box = this.view.container || document.body;
+    box.appendChild(this.root);
+    // frame the arena below the turn strip (the camera eases in from above)
+    this.renderStrip();
+    this.frame(true);
+    this.b?.fx?.stage?.(this.view.lighting);
+    // the turn banner steps aside when someone shouts an ability's name
+    this.onCallout = () => this.banner?.classList.remove('show');
+    box.addEventListener('fx-callout', this.onCallout);
+    if (typeof ResizeObserver !== 'undefined') {
+      let last = `${box.clientWidth}x${box.clientHeight}`;
+      this.resizer = new ResizeObserver(() => {
+        const now = `${box.clientWidth}x${box.clientHeight}`;
+        if (now !== last) { last = now; this.frame(false); }
+      });
+      this.resizer.observe(box);
+    }
     this.tip = h('div.cbt-tip');
     this.tip.hidden = true;
     this.ui.root.appendChild(this.tip);
@@ -55,6 +71,11 @@ export class CombatHud {
   }
 
   stop() {
+    this.resizer?.disconnect();
+    this.resizer = null;
+    if (this.onCallout) (this.view.container || document.body).removeEventListener('fx-callout', this.onCallout);
+    this.onCallout = null;
+    this.view.safeTop = 0;
     if (this.onLeave) this.canvas?.removeEventListener('mouseleave', this.onLeave);
     if (this.onDown) this.canvas?.removeEventListener('pointerdown', this.onDown);
     this.onLeave = null;
@@ -93,6 +114,21 @@ export class CombatHud {
       this.renderStrip();
       this.refreshPlates();
     });
+  }
+
+  // Fit the whole arena between the turn strip and the prompt at the map's
+  // foot, so no fighter (nor the bar over its head) stands under either.
+  // Floating words keep below the strip too (view.safeTop).
+  frame(settle) {
+    const b = this.b, v = this.view;
+    if (!b?.arena || !v.frameArea || !this.strip) return;
+    const box = (v.container || document.body).getBoundingClientRect();
+    const below = Math.max(0, this.strip.getBoundingClientRect().bottom - box.top);
+    v.safeTop = below + 2;
+    if (this.banner) this.banner.style.top = `${Math.round(below + 4)}px`;
+    const r = v.rig, k = settle && r ? r.dist / Math.max(1e-6, r.tdist) : 1;
+    v.frameArea(0, 0, b.arena.w, b.arena.h, { left: 10, right: 10, top: below + 30, bottom: 40 });
+    if (k > 1) r.dist = r.tdist * k;
   }
 
   // ------------------------------------------------------------ initiative strip
@@ -167,10 +203,18 @@ export class CombatHud {
       p.el.appendChild(h('div.pl-in',
         u === b.current ? h('div.pl-now', '▼') : null,
         u.charging ? h('div.pl-warn', icon('warn')) : null,
-        st.length ? h('div.pl-st', ...st.slice(0, 4).map((s) => h('span', { style: { color: s.def.color } }, icon(s.def.icon), s.rounds ? h('b', String(s.rounds)) : null))) : null,
+        st.length ? h('div.pl-st', ...st.slice(0, 3).map((s) => this.badge(s)), st.length > 3 ? h('span.pl-more', `+${st.length - 3}`) : null) : null,
         h('div.pl-hp' + (frac <= 0.25 ? '.low' : frac <= 0.5 ? '.mid' : ''), h('i', { style: { width: pct(frac) } }))));
     }
     for (const [id, p] of this.plates) if (!live.has(id)) { p.el.remove(); this.plates.delete(id); }
+  }
+
+  // A condition as it shows over a head: its sign in its colour and the turns
+  // it has left. The hover card repeats the same badge beside its name (the legend).
+  badge(s) {
+    const el = h('span.st-badge', icon(s.def.icon), s.rounds ? h('b', String(s.rounds)) : null);
+    el.style.setProperty('--c', s.def.color);
+    return el;
   }
 
   placePlates() {
@@ -230,6 +274,7 @@ export class CombatHud {
       tip: `Strike with your ${w.name}${rw ? `, or shoot with your ${rw.name} (range ${b.weaponRange(u)})` : ''}. You can also just click a foe. Hover a foe to see your odds.`,
       onClick: () => this.beginAttack(),
     });
+    row.style.setProperty('--cols', String(Math.max(5, Math.ceil((6 + heroAbilities(g, m).length) / 2))));
     heroAbilities(g, m).forEach((ab, i) => {
       const special = b.isSpecial(u, ab);
       const can = b.canUseAbility(u, ab);
@@ -263,12 +308,11 @@ export class CombatHud {
   }
 
   button(o) {
+    // the icon with its key beneath it on the left; the name (two lines if it
+    // must) and what stands in the way on the right, so nothing is cut short
     const el = h('button.cbt-btn' + (o.off ? '.off' : '') + (o.special ? '.special' : ''),
-      h('span.cb-ico', icon(o.icon)),
-      h('span.cb-name', o.name),
-      h('span.cb-sub', o.sub || ''),
-      h('span.cb-key', o.key),
-      o.cd ? h('span.cb-cd', String(o.cd)) : null);
+      h('span.cb-side', h('span.cb-ico', icon(o.icon)), h('span.cb-key', o.key), o.cd ? h('span.cb-cd', String(o.cd)) : null),
+      h('span.cb-text', h('span.cb-name', o.name), h('span.cb-sub', o.sub || '')));
     if (o.color != null) el.style.setProperty('--accent', hexCss(o.color));
     el.addEventListener('click', () => {
       if (o.off) { this.s.log(o.why || 'Not now.', 'warn'); sfx('error'); return; }
@@ -445,8 +489,24 @@ export class CombatHud {
       if (!b.canUseAbility(u, ab).ok || !(b.abilityTargets(u, ab).units || []).includes(unit)) continue;
       return this.previewBlock(b.preview(u, unit, ab), `${ab.name} (${b.isSpecial(u, ab) ? 'Q' : abs.filter((a) => !b.isSpecial(u, a)).indexOf(ab) + 1})`, unit);
     }
-    const d = b.dist(u, unit);
-    return h('p.tc-why', `Out of reach: ${d} squares away${u.moves ? `, you can move ${u.moves}` : ''}.`);
+    const why = this.whyNot(u, unit);
+    return h('p.tc-why', why[0].toUpperCase() + why.slice(1));
+  }
+
+  // Why u cannot strike t from where it stands: a blocked line of fire, out of
+  // a bow's range, corner to corner, or simply too far
+  whyNot(u, t) {
+    const b = this.b;
+    const d = b.dist(u, t), range = b.weaponRange(u);
+    const mv = u.moves ? ` (you can move ${u.moves})` : '';
+    if (range > 1 && d <= range) {
+      const blk = b.lineBlocker?.(u, t);
+      return `line of fire blocked${blk ? ` by ${String(blk.t.name).toLowerCase()}` : ''} — move for a clear shot${mv}.`;
+    }
+    if (d === 1) return `corner to corner — step beside ${b.the(t)} to strike.`;
+    const rw = rangedOf(this.game, u.member);
+    if (range > 1) return `out of range: ${d} squares away, your ${rw ? rw.name : 'missile'} reaches ${range}${mv}.`;
+    return `out of reach: ${d} squares away${mv}.`;
   }
 
   hpBar(hp, mhp) {
@@ -454,11 +514,14 @@ export class CombatHud {
     return h('div.tc-hp' + (f <= 0.25 ? '.low' : f <= 0.5 ? '.mid' : ''), h('i', { style: { width: pct(f) } }), h('span', `${Math.max(0, hp)} / ${mhp}`));
   }
 
+  // The conditions on a figure, each beside the badge it wears over its head
   statusRows(unit) {
     const st = this.b.statusList(unit);
     if (!st.length) return null;
-    return h('div.tc-status', ...st.map((s) => h('div', { style: { color: s.def.color } }, icon(s.def.icon), h('b', ` ${s.def.name}`),
-      h('span', `${s.power && ['blessed', 'shielded'].includes(s.id) ? ` +${s.power}` : ''}${s.rounds ? ` · ${s.rounds} turn${s.rounds > 1 ? 's' : ''}` : ''} — ${s.def.desc}`))));
+    return h('div.tc-status', ...st.map((s) => h('div.tc-st-row', this.badge(s),
+      h('div', h('b', { style: { color: s.def.color } }, s.def.name),
+        h('span', `${s.power && ['blessed', 'shielded'].includes(s.id) ? ` +${s.power}` : ''}${s.rounds ? ` · ${s.rounds} turn${s.rounds > 1 ? 's' : ''} left` : ''} — ${s.def.desc}`)))),
+      h('div.tc-st-note', 'Badges over heads: sign of the condition, and the turns it has left.'));
   }
 
   previewBlock(pv, label, unit) {
@@ -515,7 +578,7 @@ export class CombatHud {
     const other = b.unitAt(t.x, t.y);
     if (other && other.side === 'enemy') {
       if (b.canAttack(u, other)) b.actAttack(other, u);
-      else { this.s.log(`${b.The(other)} is out of reach${rangedOf(this.game, u.member) ? ' and out of range' : ''} — move closer first.`, 'warn'); sfx('error'); }
+      else { this.s.log(`${b.The(other)}: ${this.whyNot(u, other)}`, 'warn'); sfx('error'); }
       return;
     }
     const dx = t.x - u.x, dy = t.y - u.y;
@@ -603,7 +666,7 @@ export class CombatHud {
     } else if (spell.target === 'ally') {
       const ts = b.spellTargets(u, spell);
       if (!ts.length) { this.s.log(spell.effect === 'revive' ? 'No one has fallen.' : 'No one to target.', 'warn'); return; }
-      const pick = await ui.chooseFrom(`${spell.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.game, t.member)} HP${t.dead ? ', fallen' : ''})`, value: t })));
+      const pick = await ui.chooseFrom(`${spell.name} — on whom?`, targetChoices(this.game, ts, spell.effect));
       if (pick) b.actCast(spell, pick, u);
     } else {
       b.actCast(spell, null, u);
@@ -620,22 +683,25 @@ export class CombatHud {
     const item = await ui.chooseFrom('Use which item?', items.map((it) => ({ label: `${it.name} ×${inv[it.id]}`, sub: it.desc, value: it })));
     if (!item) return;
     const ts = b.partyUnits.filter((p) => (item.effect === 'revive' ? p.dead && !p.fled : b.alive(p)));
-    const tgt = await ui.chooseFrom(`${item.name} — on whom?`, ts.map((t) => ({ label: `${t.name} (${t.member.hp}/${maxHp(this.game, t.member)} HP)`, value: t })));
+    const tgt = await ui.chooseFrom(`${item.name} — on whom?`, targetChoices(this.game, ts, item.effect));
     if (tgt) b.actUse(item, tgt, u);
   }
 
   // ------------------------------------------------------------ after the battle
   showVictory(sum) {
     const levelled = sum.heroes.some((x) => x.levels.length);
+    // Men learn a tenth faster, so "each" can be a range
+    const gains = sum.heroes.map((x) => x.gained);
+    const lo = gains.length ? Math.min(...gains) : sum.xp, hi = gains.length ? Math.max(...gains) : sum.xp;
     const body = h('div.vic',
       h('div.vic-stats',
         h('span', h('b', String(sum.slain)), ` foe${sum.slain === 1 ? '' : 's'} slain`),
         h('span', h('b', String(sum.rounds)), ` round${sum.rounds === 1 ? '' : 's'}`),
         h('span.gold', h('b', `◆ ${sum.gold}`), ' gold'),
-        h('span', h('b', `+${sum.xp}`), ' experience each')),
+        h('span', { title: lo !== hi ? 'Men, quick to learn, gain a tenth more' : null }, h('b', lo !== hi ? `+${lo}–${hi}` : `+${lo}`), ' experience each')),
       sum.loot.length ? h('div.vic-loot', h('span.vl-label', 'Spoils'), ...sum.loot.map((n) => h('span.vic-item', icon('potion'), ' ', n))) : null,
       h('div.vic-heroes', ...sum.heroes.map((x) => this.heroRow(x))));
-    modal(body, { title: '⚔ Victory!', cls: 'victory-modal' + (levelled ? ' levelled' : ''), buttons: [{ label: 'Onward', primary: true }] });
+    modal(body, { title: '⚔ Victory!', cls: 'victory-modal' + (levelled ? ' levelled' : ''), buttons: [{ label: 'Onward', primary: true }], onClose: () => this.ui.refresh() });
     if (levelled) setTimeout(() => sfx('level'), 350);
   }
 
@@ -665,6 +731,20 @@ export class CombatHud {
     clear(slot);
     slot.appendChild(perkPicker(this.ui, m, () => this.fillPerks(slot, m)));
   }
+}
+
+// Whom a draught, tonic, feather or healing spell can go to: anyone, but those
+// it would be wasted on are greyed out with the reason, and the hurt come first
+function targetChoices(game, units, effect) {
+  const opt = (t) => {
+    const m = t.member, mh = maxHp(game, m), mm = maxMp(game, m);
+    let why = '';
+    if (effect === 'heal' && !t.dead && m.hp >= mh) why = 'Already at full health';
+    else if (effect === 'mp' && m.mp >= mm) why = mm ? 'Mana already full' : 'Has no mana';
+    else if (effect === 'cure' && m.status !== 'poisoned') why = 'Not poisoned';
+    return { label: `${t.name} (${m.hp}/${mh} HP${t.dead ? ', fallen' : ''})`, tag: why || null, sub: why ? null : effect === 'heal' ? `Missing ${mh - m.hp} health` : null, value: t, disabled: !!why, why, need: m.hp / Math.max(1, mh) };
+  };
+  return units.map(opt).sort((a, b) => a.disabled - b.disabled || a.need - b.need);
 }
 
 // The choice of talent for a hero with one pending (or a note of what was learned)

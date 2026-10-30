@@ -21,6 +21,8 @@ import { iconSvg, itemIcon, itemTile } from './icons.js';
 import { openHelpOverlay } from './help.js';
 import { QuestUI } from './journal.js';
 import { Explorer, glyph } from './explore.js';
+import { LevelUpCard } from './levelUp.js';
+import { questPins } from '../game/quests.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -29,7 +31,7 @@ const MOVE_KEYS = {
 };
 
 // a small glyph before each kind of log line, so the eye can sort them
-const LOG_ICONS = { good: 'heart', bad: 'sword', warn: 'warn', magic: 'sparkle', place: 'place', say: 'talk', level: 'up', loot: 'coin', quest: 'scroll' };
+const LOG_ICONS = { good: 'heart', bad: 'sword', warn: 'warn', magic: 'sparkle', place: 'place', say: 'talk', level: 'up', loot: 'coin', quest: 'scroll', tip: 'help' };
 
 const STAT_HELP = {
   str: 'Strength: melee damage and to-hit, and health',
@@ -52,6 +54,7 @@ export class PlayUI {
     this.build();
     this.quests = new QuestUI(this); // tracker, journal, quest offers, events
     this.explore = new Explorer(this); // hover info, click to act, the Nearby bar, marks over heads
+    this.levelUp = new LevelUpCard(this); // the talent choice after a level gained outside battle
     this.bindInput();
     this.setMode('explore');
   }
@@ -71,7 +74,7 @@ export class PlayUI {
     this.logEl = h('div.hud-log');
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
-    this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M)', onclick: () => this.openMap() });
+    this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M): the yellow dot is your company, the gold diamond your current goal. Click for the big map and its key.', onclick: () => this.openMap() });
     root.append(
       h('div.hud-head',
         h('div.hud-title', h('i.st-ico', { html: iconSvg('castle') }), this.s.game.meta.title),
@@ -85,7 +88,7 @@ export class PlayUI {
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
         this.cmdEl,
-        h('div.hud-mapbox', this.minimap)),
+        h('div.hud-mapbox', this.minimap, this.mmLegend = minimapLegend())),
     );
     this.app.ui.appendChild(root);
     this.app.setLayout('play');
@@ -97,6 +100,7 @@ export class PlayUI {
     this.unbindInput();
     this.quests?.destroy();
     this.explore?.destroy();
+    this.levelUp?.destroy();
     this.view.markers.clear();
     this.view.pathPreview.clear();
     document.removeEventListener('pointerdown', this.onOutside, true);
@@ -126,6 +130,7 @@ export class PlayUI {
     this.quests?.refresh();
     this.explore?.refreshNearby();
     this.explore?.refreshMarkers();
+    this.levelUp?.check();
   }
 
   onMapChanged() { this.drawMinimap(); }
@@ -141,7 +146,7 @@ export class PlayUI {
       h('span.st-place', { title: s.battle ? 'A battle is under way' : 'Where your company stands' }, ico(s.battle ? 'sword' : 'place'), s.battle ? 'Battle' : map ? map.name : ''),
       tod ? h('span.st-item.st-time' + (tod.dark > 0.5 ? '.night' : ''), { title: `Day ${tod.day}: at night you see less and more monsters roam` }, ico(tod.dark > 0.5 ? 'moon' : 'sun'), `${tod.name}, day ${tod.day}`) : null,
       h('span.st-item.st-gold', { title: 'Gold: spend it in shops, inns and temples' }, ico('coin'), String(p.gold)),
-      this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: the company eats as it travels, and camping costs ${n}. Buy rations in town.` }, ico('food'), String(p.food)) : null,
+      this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 steps, and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', { title: 'Sailing: walk onto land to go ashore' }, ico('compass'), 'Aboard ship') : null,
     ].filter(Boolean));
@@ -302,7 +307,7 @@ export class PlayUI {
     }
     const idx = s.party.members.indexOf(m);
     add(h('div.sheet-actions',
-      h('button.small', { onclick: () => this.openParty(m) }, '🎒 Pack'),
+      h('button.small', { title: 'Everything the company carries (I)', onclick: () => this.openParty() }, '🎒 The Pack'),
       idx > 0 && !inBattle ? h('button.small', {
         title: 'Lead the company: the leader walks in front and speaks for everyone',
         onclick: () => { s.party.members.splice(idx, 1); s.party.members.unshift(m); changed(); },
@@ -315,32 +320,92 @@ export class PlayUI {
     return el;
   }
 
+  // The minimap: a window of the land round the company (a whole town when it
+  // fits), filling its frame, with the company, quest goals (an arrow at the
+  // rim when a goal lies beyond the window) and places marked.
   drawMinimap() {
-    const map = this.s.map;
-    if (!map || this.s.battle) return;
+    const s = this.s, map = s.map;
+    if (!map || s.battle) return;
     const c = this.minimap;
-    if (c.width !== map.w || c.height !== map.h) { c.width = map.w; c.height = map.h; }
+    const box = c.parentElement;
+    const css = Math.max(64, Math.min(box?.clientWidth || 160, box?.clientHeight || 160));
+    const u = Math.min(2, window.devicePixelRatio || 1); // canvas pixels per css pixel
+    const size = Math.round(css * u);
+    if (c.width !== size || c.height !== size) { c.width = size; c.height = size; }
     const ctx = c.getContext('2d');
-    const img = ctx.createImageData(map.w, map.h);
-    const d = img.data;
-    const explored = map.explored;
-    const vis = this.s.visible;
-    for (let i = 0; i < map.w * map.h; i++) {
-      const seen = !vis || explored[i];
-      const col = terrain(map.tiles[i]).top;
-      const k = !seen ? 0 : vis && !vis[i] ? 0.55 : 1;
-      d[i * 4] = ((col >> 16) & 255) * k;
-      d[i * 4 + 1] = ((col >> 8) & 255) * k;
-      d[i * 4 + 2] = (col & 255) * k;
-      d[i * 4 + 3] = 255;
+    const p = s.state.pos;
+    const span = Math.min(Math.max(map.w, map.h), map.type === 'world' ? 32 : 40);
+    const k = size / span;
+    const fit = (pos, len) => (len <= span ? (len - span) / 2 : Math.max(0, Math.min(len - span, pos + 0.5 - span / 2)));
+    const ox = fit(p.x, map.w), oy = fit(p.y, map.h);
+    const sx = (x) => (x - ox) * k, sy = (y) => (y - oy) * k;
+    ctx.fillStyle = '#17110a';
+    ctx.fillRect(0, 0, size, size);
+    const vis = s.visible, explored = map.explored;
+    const x0 = Math.max(0, Math.floor(ox)), y0 = Math.max(0, Math.floor(oy));
+    const x1 = Math.min(map.w, Math.ceil(ox + span)), y1 = Math.min(map.h, Math.ceil(oy + span));
+    const sites = [];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const i = y * map.w + x;
+      if (vis && !explored[i]) continue;
+      const t = terrain(map.tiles[i]);
+      const col = t.top;
+      let f = vis && !vis[i] ? 0.62 : 1;
+      if (t.wall || t.key === 'mountains' || t.key === 'peaks') f *= 0.72;
+      ctx.fillStyle = `rgb(${((col >> 16) & 255) * f | 0},${((col >> 8) & 255) * f | 0},${(col & 255) * f | 0})`;
+      ctx.fillRect(Math.floor(sx(x)), Math.floor(sy(y)), Math.ceil(k) + 1, Math.ceil(k) + 1);
+      if (t.feature || t.key === 'stairs_down' || t.key === 'stairs_up') sites.push([x, y]);
     }
-    ctx.putImageData(img, 0, 0);
-    const p = this.s.state.pos;
-    ctx.fillStyle = '#ff3';
-    ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
-    ctx.fillStyle = '#f00';
-    ctx.fillRect(p.x, p.y, 1, 1);
-    this.quests?.drawPins(ctx, 1);
+    // towns, sites and stairs: pale squares with an ink edge
+    const r0 = Math.max(u * 2.6, k * 0.42);
+    ctx.lineWidth = Math.max(1, k / 6);
+    for (const [x, y] of sites) {
+      ctx.fillStyle = '#fff4d8'; ctx.strokeStyle = '#2a1a08';
+      ctx.fillRect(sx(x + 0.5) - r0, sy(y + 0.5) - r0, r0 * 2, r0 * 2);
+      ctx.strokeRect(sx(x + 0.5) - r0, sy(y + 0.5) - r0, r0 * 2, r0 * 2);
+    }
+    // points of interest seen so far
+    for (const e of map.entities) {
+      if (e.type !== 'event' || (vis && !explored[e.y * map.w + e.x])) continue;
+      if (e.x < ox - 1 || e.y < oy - 1 || e.x > ox + span || e.y > oy + span) continue;
+      ctx.fillStyle = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' }[e.kind] || '#d0a0ff';
+      ctx.strokeStyle = '#000';
+      ctx.beginPath(); ctx.arc(sx(e.x + 0.5), sy(e.y + 0.5), Math.max(u * 2.6, k * 0.36), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+    // quest goals: a diamond, or an arrow at the rim pointing the way
+    const pins = questPins(s).sort((a, b) => a.tracked - b.tracked);
+    for (const pin of pins) {
+      const px = sx(pin.x + 0.5), py = sy(pin.y + 0.5);
+      const m = u * 8;
+      ctx.fillStyle = pin.tracked ? '#ffd440' : '#d8a0ff'; ctx.strokeStyle = '#1a0e02'; ctx.lineWidth = u * 1.5;
+      if (px >= m && py >= m && px <= size - m && py <= size - m) {
+        const r = u * (pin.tracked ? 5 : 3.8);
+        ctx.beginPath(); ctx.moveTo(px, py - r * 1.4); ctx.lineTo(px + r, py); ctx.lineTo(px, py + r * 1.4); ctx.lineTo(px - r, py); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      } else {
+        const cx = size / 2, cy = size / 2, dx = px - cx, dy = py - cy;
+        const t = Math.min((cx - m) / Math.abs(dx || 1e-6), (cy - m) / Math.abs(dy || 1e-6));
+        const r = u * (pin.tracked ? 7.5 : 6);
+        ctx.save(); ctx.translate(cx + dx * t, cy + dy * t); ctx.rotate(Math.atan2(dy, dx));
+        ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.75); ctx.lineTo(-r * 0.35, 0); ctx.lineTo(-r * 0.7, -r * 0.75); ctx.closePath();
+        ctx.fill(); ctx.stroke(); ctx.restore();
+      }
+    }
+    // the company: a gold disc with a dark rim and a white heart
+    const cx = sx(p.x + 0.5), cy = sy(p.y + 0.5), pr = u * 5.5;
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); ctx.arc(cx, cy + pr * 0.25, pr * 1.25, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe24a'; ctx.strokeStyle = '#1a0e02'; ctx.lineWidth = u * 1.8;
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx, cy, pr * 0.38, 0, Math.PI * 2); ctx.fill();
+    // north
+    const nf = Math.round(u * 11);
+    ctx.font = `bold ${nf}px Cinzel, Georgia, serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    ctx.lineWidth = u * 2.5; ctx.strokeStyle = 'rgba(0,0,0,.85)'; ctx.fillStyle = '#f0d890';
+    ctx.strokeText('N', size / 2, size * 0.03); ctx.fillText('N', size / 2, size * 0.03);
+    if (this.mmLegend) this.mmLegend.querySelector('.mm-goal').hidden = !pins.length;
   }
 
   // ------------------------------------------------------------ commands
@@ -360,7 +425,7 @@ export class PlayUI {
         cmd('look', 'Look', 'L', () => this.askDirection('Look', (dx, dy) => this.look(dx, dy)), 'Look around (or right-click anything)'),
         cmd('cast', 'Cast', 'C', () => this.fieldCast(), 'Cast a spell'),
         cmd('use', 'Use', 'U', () => this.fieldUse(), 'Use an item'),
-        cmd('pack', 'Pack', 'I', () => this.openParty(this.selected), 'Pack and equipment'),
+        cmd('pack', 'Pack', 'I', () => this.openParty(), 'The pack: everything the company carries'),
         cmd('journal', 'Journal', 'J', () => this.quests.openJournal(), 'Quests and lore'),
         cmd('map', 'Map', 'M', () => this.openMap()),
         cmd('camp', 'Camp', 'H', () => this.s.camp(), 'Hole up: make camp and rest'),
@@ -454,6 +519,13 @@ export class PlayUI {
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Space, Enter and (in battle) Tab are game keys: they must not also press
+    // whichever HUD button was clicked or tabbed to last (Space would reopen Help)
+    const ae = document.activeElement;
+    if ((e.key === ' ' || e.key === 'Enter' || (e.key === 'Tab' && this.s.mode === 'combat')) && !anyModal()) {
+      if (ae && ae !== document.body && !ae.closest?.('.modal-back')) ae.blur?.();
+      if (e.key === 'Tab' || ae?.tagName === 'BUTTON') e.preventDefault();
+    }
     if (e.key === 'Escape') {
       if (closeTopModal()) return;
       if (this.closeHero()) return;
@@ -676,13 +748,17 @@ export class PlayUI {
     }));
   }
 
-  chooseMember(title, filter = () => true) {
+  // need(m) may return a reason this hero gains nothing from it ("already at full health")
+  chooseMember(title, filter = () => true, need = null) {
     const g = this.s.game;
     const ms = this.s.party.members.filter(filter);
-    return this.chooseFrom(title, ms.map((m) => ({
-      label: m.name, tag: `${m.hp}/${maxHp(g, m)} HP`, pic: portrait(this.view, charLook(g, m)), value: m,
-      sub: `${raceOf(g, m).name} ${classOf(g, m).name}${m.status !== 'ok' ? ' · ' + statusLabel(m) : ''}`,
-    })));
+    return this.chooseFrom(title, ms.map((m) => {
+      const why = need ? need(m) : null;
+      return {
+        label: m.name, tag: `${m.hp}/${maxHp(g, m)} HP`, pic: portrait(this.view, charLook(g, m)), value: m, disabled: !!why, why,
+        sub: `${raceOf(g, m).name} ${classOf(g, m).name}${m.status !== 'ok' ? ' · ' + statusLabel(m) : ''}${why ? ' — ' + why : ''}`,
+      };
+    }));
   }
 
   async fieldCast() {
@@ -695,7 +771,7 @@ export class PlayUI {
     if (!spell) return;
     let target = null;
     if (spell.target === 'ally') {
-      target = await this.chooseMember(`${spell.name} — on whom?`, (m) => (spell.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
+      target = await this.chooseMember(`${spell.name} — on whom?`, (m) => (spell.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(this.s.game, spell.effect, m));
       if (!target) return;
     }
     await this.s.castField(caster, spell, target);
@@ -706,14 +782,9 @@ export class PlayUI {
     const inv = this.s.party.inventory;
     const items = this.s.game.items.filter((it) => it.type === 'consumable' && inv[it.id] > 0);
     if (!items.length) { this.s.log('You have nothing to use.', 'warn'); return; }
-    const item = await this.chooseFrom('Use which item?', items.map((it) => ({ label: it.name, tag: `×${inv[it.id]}`, sub: it.desc, icon: itemIcon(it)[0], tone: itemIcon(it)[1], value: it })));
+    const item = await this.chooseFrom('Use which item?', items.map((it) => ({ label: it.name, tag: `×${inv[it.id]}`, sub: itemUse(this.s.game, it) || it.desc, icon: itemIcon(it)[0], tone: itemIcon(it)[1], value: it })));
     if (!item) return;
-    let target = null;
-    if (['heal', 'cure', 'mp', 'revive'].includes(item.effect)) {
-      target = await this.chooseMember(`${item.name} — for whom?`, (m) => (item.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
-      if (!target) return;
-    }
-    this.s.useItemField(item, target);
+    await this.fieldUseItem(item);
   }
 
   // ------------------------------------------------------------ talk
@@ -763,7 +834,7 @@ export class PlayUI {
         setTimeout(async () => {
           m.close();
           s.log(`${npc.name} attacks!`, 'bad');
-          const out = await s.engage({ id: '__fight_' + npc.id, monster: res.fight, count: '1', roaming: true });
+          const out = await s.engage({ id: '__fight_' + npc.id, monster: res.fight, count: '1', roaming: true, alsoRemove: npc.id });
           if (out && out.outcome === 'victory' && s.map.entities.includes(npc)) s.removeEntity(npc);
         }, 600);
       }
@@ -796,7 +867,8 @@ export class PlayUI {
     });
     const m = modal(body, { cls: 'talk-modal', onClose: () => { s.mode = 'explore'; this.refresh(); } });
     add(h('p.note', `You meet ${npc.desc || 'someone'}.`));
-    if (npc.greeting) sayLine(npc.greeting);
+    const greet = this.quests.greetingFor(npc);
+    if (greet) sayLine(greet);
     this.quests.dialogHook(npc, { add, sayLine });
     refreshChips();
     setTimeout(() => input.focus(), 30);
@@ -826,7 +898,7 @@ export class PlayUI {
         const c = compareText(g, m, it);
         const cur = itemOf(g, m.equip[slotFor(it)]);
         return h('span.cmp.' + c.cls, { title: `${m.name} now has ${cur ? `${cur.name} (${itemStats(cur)})` : 'nothing'} as ${SLOT_NAMES[slotFor(it)].toLowerCase()}` },
-          c.cls === 'up' ? h('i', { html: iconSvg('up') }) : null, `${m.name} ${c.text}`);
+          cmpArrow(c), `${m.name} ${c.text}`);
       }));
     };
     const render = () => {
@@ -854,6 +926,7 @@ export class PlayUI {
               h('div.sr-name', h('b', it.name), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
               h('span.sr-stats', itemStats(it)),
               it.desc ? h('div.sr-desc', it.desc) : null,
+              itemUse(g, it) ? h('span.sr-use', itemUse(g, it)) : null,
               verdicts(it)),
             h('div.sr-side', h('span.price' + (afford ? '' : '.short'), { title: afford ? 'Price' : `You need ${price - s.party.gold} more gold` }, coin(), String(price)),
               h('button' + (afford ? '.primary' : '.disabled'), {
@@ -881,7 +954,7 @@ export class PlayUI {
               onclick: () => { inv[it.id]--; s.party.gold += price; sfx('gold'); render(); this.refresh(); },
             }, 'Sell'))));
         }
-        list.appendChild(h('p.hint', 'Only what is in the pack can be sold: take gear off in the Pack (I) first. Merchants pay half the price.'));
+        list.appendChild(h('p.hint', 'Only what is in the pack can be sold: take gear off on the hero\'s sheet (click their portrait) first. Merchants pay half the price.'));
       }
       body.append(list);
       if (scroller) scroller.scrollTop = keep;
@@ -959,81 +1032,81 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ party / inventory
-  // The pack: everything the company carries, with the chosen hero's sheet beside it
-  openParty(focus) {
+  // The pack: everything the company carries. Gear is put on in one place:
+  // each hero's sheet (the pop-over by their portrait). Here every piece says
+  // who it suits (▲ better / ▼ worse than what they wear) and links there.
+  openParty() {
     const s = this.s, g = s.game;
-    let sel = focus || this.selected || s.party.members[0];
     const body = h('div.party-screen');
-    const render = () => {
-      clear(body);
-      const tabs = h('div.tabs.hero-tabs');
-      for (const m of s.party.members) {
-        const face = portrait(this.view, charLook(g, m));
-        tabs.appendChild(h('button' + (m === sel ? '.on' : ''), { title: `${m.name}: level ${m.level} ${classOf(g, m).name}`, onclick: () => { sel = m; render(); } },
-          face ? h('img.tab-face', { src: face, alt: '' }) : null, m.name, m.points > 0 ? h('span.pc-pts', '▲') : ''));
-      }
-      body.appendChild(tabs);
-      const m = sel;
-      const inv = s.party.inventory;
-      const invList = h('div.inv');
-      const items = g.items.filter((it) => inv[it.id] > 0);
-      if (!items.length) invList.appendChild(h('p.hint', 'The pack is empty.'));
-      // grouped, so gear, supplies and spell reagents are easy to find
-      const groups = [
-        ['Arms & armour', (it) => !!slotFor(it)],
-        ['Potions & supplies', (it) => it.type === 'consumable'],
-        ['Reagents', (it) => it.type === 'reagent'],
-        ['Keys & treasures', () => true],
-      ];
-      const placed = new Set();
-      for (const [label, test] of groups) {
-        const list = items.filter((it) => !placed.has(it) && test(it));
-        if (!list.length) continue;
-        invList.appendChild(h('div.inv-group', label));
-        for (const it of list) {
-          placed.add(it);
-          const slot = slotFor(it);
-          const cmp = slot ? compareText(g, m, it) : null;
-          const ok = slot ? canEquip(g, m, it) : null;
-          const row = h('div.inv-row', { title: it.desc || null },
-            itemTile(it),
-            h('span.inv-name', h('b', it.name), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
-              h('span.inv-stats', itemStats(it)),
-              cmp && ok.ok ? h('span.cmp.' + cmp.cls, `${m.name}: ${cmp.text}`) : null));
-          if (slot && !s.battle) {
-            row.appendChild(h('button' + (ok.ok ? '' : '.disabled'), {
-              title: ok.ok ? `Equip on ${m.name} (${SLOT_NAMES[ok.slot].toLowerCase()})` : ok.why,
-              onclick: () => {
-                const res = equipItem(g, m, it, inv);
-                if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); return; }
-                sfx('click');
-                s.refreshPartyVisual();
-                render(); this.refresh();
-              },
-            }, 'Equip'));
-          } else if (it.type === 'consumable' && !s.battle) {
-            row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
-          }
-          invList.appendChild(row);
+    const inv = s.party.inventory;
+    const invList = h('div.inv');
+    const items = g.items.filter((it) => inv[it.id] > 0);
+    if (!items.length) invList.appendChild(h('p.hint', 'The pack is empty.'));
+    // grouped, so gear, supplies and spell reagents are easy to find
+    const groups = [
+      ['Arms & armour', (it) => !!slotFor(it)],
+      ['Potions & supplies', (it) => it.type === 'consumable'],
+      ['Reagents', (it) => it.type === 'reagent'],
+      ['Keys & treasures', () => true],
+    ];
+    const placed = new Set();
+    const heroes = s.party.members.filter((x) => x.status !== 'dead');
+    for (const [label, test] of groups) {
+      const list = items.filter((it) => !placed.has(it) && test(it));
+      if (!list.length) continue;
+      invList.appendChild(h('div.inv-group', label));
+      for (const it of list) {
+        placed.add(it);
+        const slot = slotFor(it);
+        const use = itemUse(g, it);
+        // who could wear it, and would it be better than what they have?
+        const who = slot ? heroes.filter((x) => canEquip(g, x, it).ok) : [];
+        const chips = !slot ? [] : who.length ? who.map((x) => {
+          const c = compareText(g, x, it);
+          return h('button.cmp.' + c.cls, {
+            title: `${x.name}: ${c.text}. Click to put it on ${x.name} and open their sheet`,
+            onclick: () => { closeTopModal(); this.equipFromPack(x, it); },
+          }, cmpArrow(c), `${x.name} ${c.text}`);
+        }) : [h('span.cmp.none', 'No one in your company can use this')];
+        const row = h('div.inv-row', { title: it.desc || null },
+          itemTile(it),
+          h('span.inv-name', h('b', it.name), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
+            h('span.inv-stats', itemStats(it)),
+            use ? h('span.inv-use', use) : null,
+            ...chips));
+        if (it.type === 'consumable' && !s.battle) {
+          row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
         }
+        invList.appendChild(row);
       }
-      body.appendChild(h('div.pack-cols',
-        h('div.pack-sheet', this.heroSheet(m, () => { render(); this.refresh(); })),
-        h('div.inv-wrap',
-          h('div.pack-head', h('span', h('i', { html: iconSvg('pack') }), ' The Pack'),
-            h('span.pack-purse', h('span', { title: 'Gold' }, h('i.coin', { html: iconSvg('coin') }), String(s.party.gold)),
-              g.settings.food ? h('span', { title: 'Food' }, h('i', { html: iconSvg('food') }), String(s.party.food)) : null)),
-          h('p.hint.pack-hint', `Everything the company carries is shared. Equip gear on ${m.name}, or pick another hero above.`),
-          invList)));
-    };
-    render();
-    modal(body, { title: 'Your Company', icon: 'pack', cls: 'wide party-modal' });
+    }
+    body.appendChild(h('div.inv-wrap',
+      h('div.pack-head', h('span', h('i', { html: iconSvg('pack') }), ' Carried by the company'),
+        h('span.pack-purse', h('span', { title: 'Gold' }, h('i.coin', { html: iconSvg('coin') }), String(s.party.gold)),
+          g.settings.food ? h('span', { title: 'Food' }, h('i', { html: iconSvg('food') }), String(s.party.food)) : null)),
+      h('p.hint.pack-hint', 'Everything here is shared. Gear is worn from each hero\'s sheet: click a name on a piece to put it on that hero, or click a portrait on the right to change their gear.'),
+      invList));
+    return modal(body, { title: 'The Pack', icon: 'pack', cls: 'wide party-modal' });
+  }
+
+  // From the pack: put the piece on that hero, then show their sheet so the
+  // change (and the way to undo it) is right there
+  equipFromPack(m, it) {
+    const s = this.s, g = s.game;
+    const res = equipItem(g, m, it, s.party.inventory);
+    if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); } else { sfx('click'); s.log(`${m.name} now wears the ${it.name}.`); s.refreshPartyVisual(); }
+    this.popHero = null;
+    this.selectHero(m);
+    this.refresh();
   }
 
   async fieldUseItem(it) {
     let target = null;
     if (['heal', 'cure', 'mp', 'revive'].includes(it.effect)) {
-      target = await this.chooseMember(`${it.name} — for whom?`, (m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
+      const g = this.s.game;
+      const ms = this.s.party.members.filter((m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
+      if (ms.length && ms.every((m) => needFor(g, it.effect, m))) { this.s.log(`No one needs the ${it.name} right now (${needFor(g, it.effect, ms[0])}).`, 'warn'); sfx('error'); return; }
+      target = await this.chooseMember(`${it.name} — for whom?`, (m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(g, it.effect, m));
       if (!target) return;
     }
     this.s.useItemField(it, target);
@@ -1044,9 +1117,24 @@ export class PlayUI {
     const s = this.s;
     const map = s.map;
     if (!map || s.battle) return;
-    const scale = Math.max(2, Math.min(8, Math.floor(560 / Math.max(map.w, map.h))));
-    const c = h('canvas.bigmap', { width: map.w * scale, height: map.h * scale });
+    // frame what has been explored (a little margin round it), not a sea of black
+    let bx0 = map.w, by0 = map.h, bx1 = -1, by1 = -1;
+    for (let i = 0; i < map.w * map.h; i++) {
+      if (s.visible && !map.explored[i]) continue;
+      const x = i % map.w, y = (i / map.w) | 0;
+      if (x < bx0) bx0 = x; if (x > bx1) bx1 = x; if (y < by0) by0 = y; if (y > by1) by1 = y;
+    }
+    if (bx1 < 0) { bx0 = 0; by0 = 0; bx1 = map.w - 1; by1 = map.h - 1; }
+    const side = Math.min(Math.max(map.w, map.h), Math.max(40, Math.max(bx1 - bx0, by1 - by0) + 9));
+    const fit = (a, b, len) => Math.max(0, Math.min(len - side, Math.round((a + b + 1) / 2 - side / 2)));
+    const ox = map.w <= side ? 0 : fit(bx0, bx1, map.w), oy = map.h <= side ? 0 : fit(by0, by1, map.h);
+    const vw = Math.min(map.w, side), vh = Math.min(map.h, side);
+    const scale = Math.max(2, Math.min(10, Math.floor(560 / Math.max(vw, vh))));
+    const c = h('canvas.bigmap', { width: vw * scale, height: vh * scale });
     const ctx = c.getContext('2d');
+    ctx.fillStyle = '#17110a';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.translate(-ox * scale, -oy * scale);
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       const i = y * map.w + x;
       if (s.visible && !map.explored[i]) continue;
@@ -1078,8 +1166,17 @@ export class PlayUI {
     ctx.arc(p.x * scale + scale / 2, p.y * scale + scale / 2, Math.max(3, scale), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    this.quests.drawPins(ctx, scale, { events: true });
-    modal(h('div.map-wrap', c), { title: map.name, icon: 'map', cls: 'map-modal' });
+    const shown = this.quests.drawPins(ctx, scale, { events: true }) || {};
+    // what the marks mean (only those on this map)
+    const row = (cls, color, label) => h('div.ml-row', h('i.' + cls, { style: { background: color } }), label);
+    const legend = h('div.map-legend', h('div.ml-head', 'Key'),
+      row('dot', '#ff0', 'Your company'),
+      shown.tracked ? row('dia', '#ffe040', 'Your current goal') : null,
+      shown.other ? row('dia', '#e0a0ff', 'Goals of other quests') : null,
+      row('sq', '#fff', 'Towns, sites and stairs'),
+      ...Object.entries(EVENT_DOTS).filter(([k]) => shown.events?.has(k)).map(([, [color, label]]) => row('dot', color, label)),
+      s.visible ? h('p.hint', 'Dark parts are not explored yet.') : null);
+    modal(h('div.map-wrap', c, legend), { title: map.name, icon: 'map', cls: 'map-modal' });
   }
 
   // ------------------------------------------------------------ menus & endings
@@ -1088,13 +1185,19 @@ export class PlayUI {
     const items = [
       ['play', 'Resume', () => {}],
       !s.opts.noSave ? ['save', 'Save game', () => s.save()] : null,
+      !s.opts.noSave && loadState(s.game.id) ? ['upload', 'Load your last save', async () => {
+        const saved = loadState(s.game.id);
+        const same = saved && JSON.stringify(saved) === JSON.stringify(s.serializeState());
+        if (same || await confirmDialog('Go back to your last save? Whatever happened since then will be lost.')) this.app.continueGame();
+      }] : null,
       ['help', 'Help & keys', () => this.openHelp()],
       ['book', 'Journal', () => this.quests?.openJournal()],
       ['sound', isMuted() ? 'Sound effects: off' : 'Sound effects: on', () => { setMuted(!isMuted()); }],
       ['note', musicEnabled() ? 'Music: on' : 'Music: off', () => { setMusicEnabled(!musicEnabled()); }],
       ['camera', 'Camera angle', () => this.openCamera()],
-      s.opts.fromEditor ? ['anvil', 'Return to the Construction Set', () => this.app.endPlay(true)] : ['door', 'Quit to title', async () => {
-        if (await confirmDialog('Return to the title screen? Unsaved progress since your last save will be lost.')) this.app.endPlay(false);
+      // leaving saves the game (endPlay), so only a playtest that never saves asks first
+      s.opts.fromEditor ? ['anvil', 'Return to the Construction Set', () => this.app.endPlay(true)] : ['door', s.opts.noSave ? 'Quit to title' : 'Save and quit to title', async () => {
+        if (!s.opts.noSave || await confirmDialog('Return to the title screen? This quick game is not saved.')) this.app.endPlay(false);
       }],
     ].filter(Boolean);
     const list = h('div.choose-list.menu-list');
@@ -1150,6 +1253,9 @@ function bar(label, v, max, cls) {
 
 function fmtMod(n) { return n >= 0 ? '+' + n : String(n); }
 
+// the colours journal.js draws points of interest in, for the map key
+const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
+
 const SPELL_ICONS = { heal: 'heart', cure: 'cross', revive: 'sun', sleep: 'sleep', fear: 'fear', shield: 'shield', bless: 'sparkle', drain: 'skull', light: 'torch', reveal: 'eye', recall: 'blink' };
 function spellIcon(sp) {
   if (sp.effect === 'damage') return /frost/i.test(sp.id) ? 'frost' : sp.system === 'song' ? 'note' : sp.system === 'runic' ? 'rune' : sp.system === 'divine' ? 'sun' : 'fire';
@@ -1177,6 +1283,45 @@ function compareText(g, m, it) {
   }
   const v = (it.ac || 0) - (cur?.ac || 0);
   return v > 0 ? { cls: 'up', text: `+${v} armour` } : v < 0 ? { cls: 'down', text: `${v} armour` } : { cls: 'same', text: 'same armour' };
+}
+
+// ▲ better, ▼ worse, = no change, in front of a comparison chip
+function cmpArrow(c) {
+  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.text === 'equipped' ? '✓' : '=');
+}
+
+// What a thing is for, in plain words: reagents name the spells that burn
+// them, potions say what they do
+export function itemUse(g, it) {
+  if (!it) return '';
+  if (it.type === 'reagent') {
+    const spells = (g.spells || []).filter((sp) => (sp.reagents || []).includes(it.id));
+    if (!spells.length) return 'A spell reagent (no spell in this realm uses it)';
+    const arts = [...new Set(spells.map((sp) => byId(g.magic || [], sp.system)?.name).filter(Boolean))];
+    return `Burned to cast ${spells.map((sp) => sp.name).join(', ')}${arts.length ? ` (${arts.join(', ')})` : ''}`;
+  }
+  if (it.type === 'key') return 'Opens a locked door or chest (used up)';
+  if (it.type === 'quest') return 'Needed for a quest';
+  if (it.type !== 'consumable') return '';
+  switch (it.effect) {
+    case 'heal': return `Drink to heal one hero (${it.power || '2d8'} health)`;
+    case 'cure': return 'Cures one hero of poison';
+    case 'mp': return `Restores one hero's mana (${it.power || '2d6'})`;
+    case 'revive': return 'Brings a fallen hero back to life';
+    case 'light': return 'Light it to see in dark halls and caves';
+    case 'food': return `Food for the road (+${parseInt(it.power, 10) || 25})`;
+    case 'reveal': return 'Read it to reveal the land around you';
+    case 'recall': return 'Read it to return to where your journey began';
+    default: return '';
+  }
+}
+
+// Why a hero would gain nothing from a heal / cure / mana (null if they would)
+function needFor(g, effect, m) {
+  if (effect === 'heal') return m.hp >= maxHp(g, m) ? 'already at full health' : null;
+  if (effect === 'mp') return maxMp(g, m) <= 0 ? 'has no mana' : m.mp >= maxMp(g, m) ? 'mana already full' : null;
+  if (effect === 'cure') return m.status !== 'poisoned' ? 'not poisoned' : null;
+  return null;
 }
 
 function healthWord(f) {
@@ -1211,7 +1356,7 @@ Any key stops a walk. Two fingers pinch to zoom; the mouse wheel zooms too.</p>
 <tr><td>Arrows / WASD</td><td>Walk (bump into people to talk, monsters to fight)</td><td>T</td><td>Talk</td></tr>
 <tr><td>E, 1–4</td><td>Nearby actions</td><td>L</td><td>Look</td></tr>
 <tr><td>C</td><td>Cast a spell</td><td>U</td><td>Use an item</td></tr>
-<tr><td>I</td><td>Pack &amp; equipment</td><td>H</td><td>Hole up (camp &amp; rest)</td></tr>
+<tr><td>I</td><td>The pack (what you carry)</td><td>H</td><td>Hole up (camp &amp; rest)</td></tr>
 <tr><td>M</td><td>Map</td><td>Space</td><td>Wait a turn</td></tr>
 <tr><td>J</td><td>Journal (quests, lore)</td><td>?</td><td>This help</td></tr>
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Stop walking / menu</td></tr>
@@ -1222,9 +1367,10 @@ Any key stops a walk. Two fingers pinch to zoom; the mouse wheel zooms too.</p>
 are marked <b>!</b>; talk to them to take it on. Press <b>J</b> for the Journal: every quest, its steps and its reward.
 Shrines, campfires, standing stones and stranger things are scattered across the land — click them to see what they offer.</p>
 <h3>Your company</h3>
-<p>Click a hero on the right to see their sheet. Each hero carries a <b>hand weapon</b> for melee and a <b>ranged weapon</b>
-(bow, crossbow or sling) — change either, and armour and shield, straight from the sheet. Every level brings an
-<b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
+<p>Click a hero on the right to see their sheet: that is where gear is put on and taken off. Each hero carries a <b>hand weapon</b>
+for melee and a <b>ranged weapon</b> (bow, crossbow or sling) — change either, and armour and shield, straight from the sheet.
+The <b>Pack</b> (I) holds what the company shares; each piece of gear in it shows who it suits (▲ better, ▼ worse). Every level brings a choice of
+<b>talent</b> (★), and every second level an <b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
 <h3>Talking</h3>
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company.</p>
@@ -1246,8 +1392,19 @@ off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the 
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>
 </table>
 <h3>Survival</h3>
-<p>Food runs down as you travel. Swamps may poison you. Rest at inns, or hole up in the wild (if no foes are near).
+<p>In the wild each hero eats a ration every 20 steps (towns are free); provisioners sell more. With no food the company
+goes hungry and slowly loses health. Swamps may poison you. Rest at inns, or hole up in the wild (if no foes are near) —
+a camp without food mends only half as much. Forests, hills and swamps sometimes slow you down; roads never do.
+The fallen stay dead until raised by a healer, a Phoenix Feather or a priest's prayer.
 Forests and mountains block your sight. Carry torches into dark places. Night falls every few hundred turns:
 you see less, and more monsters roam.</p>`;
 
 export { escapeHtml };
+
+// what the minimap's marks mean, shown while the pointer is over it
+function minimapLegend() {
+  const row = (cls, label) => h('div.mm-row', h('i.' + cls), label);
+  return h('div.mm-legend', { 'aria-hidden': 'true' },
+    row('mm-you', 'Your company'), h('div.mm-goal', row('mm-dia', 'Quest goal (an arrow: that way)')),
+    row('mm-site', 'Town, site or stairs'), row('mm-poi', 'Point of interest'), h('div.mm-hint', 'Click or press M for the big map'));
+}

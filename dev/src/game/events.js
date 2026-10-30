@@ -11,6 +11,7 @@ import { applyReward, startQuest, isActive, isDone, checkQuests } from './quests
 import { roll, rng } from '../core/rng.js';
 import { deepClone } from '../core/util.js';
 import { MODEL_KINDS } from '../render/models.js';
+import { DAY_LEN } from './session.js';
 
 export const EVENT_KINDS = {
   shrine: { label: 'Shrine', icon: '⛩' },
@@ -153,9 +154,18 @@ export function applyEffects(session, e, fx) {
   }
   if (fx.rest) {
     for (const m of partyAlive(p)) { m.hp = maxHp(g, m); m.mp = maxMp(g, m); }
-    st.turn = (st.turn || 0) + 60;
+    // from late afternoon on, the company sleeps through to the next morning;
+    // earlier in the day it is a few hours by the fire (the clock must agree)
+    const tod = session.dayCycleActive?.() ? session.timeOfDay?.() : null;
+    if (tod && tod.t >= 0.45) {
+      st.turn = (st.turn || 0) + Math.max(1, Math.round((1 - tod.t) * DAY_LEN));
+      got.push(`a safe night's rest: you wake with the sun on day ${tod.day + 1}`);
+    } else {
+      st.turn = (st.turn || 0) + 60;
+      got.push(tod ? 'a few hours\' safe rest' : 'a safe rest');
+    }
     session.applyDaylight?.();
-    got.push('a safe night\'s rest');
+    session.checkPhase?.();
   }
   if (fx.hurt) {
     for (const m of partyAlive(p)) session.hurtMember?.(m, Math.max(1, roll(String(fx.hurt)) || 1), 'misfortune');
@@ -244,7 +254,7 @@ export const EVENT_TEMPLATES = {
   campfire: {
     kind: 'campfire', name: 'Travellers\' Camp', repeat: 'daily',
     text: 'A ring of stones and a fire that someone has kept burning. Bedrolls lie ready beneath a sheltering tree. Here, at least, you would be safe.',
-    choices: [ch('Rest by the fire', 'You sleep deeply and wake with the sun, whole again.', { rest: true }), leave('Move on')],
+    choices: [ch('Rest by the fire', 'You stretch out by the fire and sleep soundly, safe at last, and rise whole again.', { rest: true }), leave('Move on')],
   },
   lore: {
     kind: 'lore', name: 'Standing Stone', repeat: 'always',

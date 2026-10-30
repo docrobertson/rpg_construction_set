@@ -270,10 +270,11 @@ class App {
       const s = game.settings.start;
       state.pos = { ...s };
     }
+    // greet first, so the opening quest is announced after the welcome
+    session.log(`Welcome to ${game.meta.title}. Press ? for help.`, 'place');
+    session.log(`You stand in ${getMap(game, state.pos.map)?.name || 'the wilds'}.`);
     await session.enterMap(state.pos.map, state.pos.x, state.pos.y, { quiet: true });
     if (this.session !== session) return; // quit (or reloaded) while the map was fading in
-    session.log(`Welcome to ${game.meta.title}. Press ? for help.`, 'place');
-    session.log(`You stand in ${session.map.name}.`);
     if (!opts.noSave && !opts.state) session.autosave();
     // newcomers get a short how-to-play card over the map (once)
     if (!opts.quick && !opts.fromEditor) showHowTo(this.playUI);

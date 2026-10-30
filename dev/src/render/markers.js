@@ -70,32 +70,84 @@ export class HeadMarkers {
     for (const id of [...this.marks.keys()]) if (!ids.has(id)) this.set(id, null);
   }
 
-  clear() { for (const id of [...this.marks.keys()]) this.set(id, null); }
+  clear() {
+    for (const id of [...this.marks.keys()]) this.set(id, null);
+    for (const r of this.roofs.values()) r.el.remove();
+    this.roofs.clear();
+  }
+
+  get roofs() { return this._roofs || (this._roofs = new Map()); }
+
+  // a mark standing on a building's roof for whoever is inside (one per building)
+  _roof(bi, kind) {
+    let r = this.roofs.get(bi);
+    if (r && r.kind === kind) return r;
+    if (r) r.el.remove();
+    const el = document.createElement('div');
+    el.className = 'emark roofmark ' + KINDS[kind].cls;
+    el.dataset.kind = kind;
+    el.dataset.building = bi;
+    el.innerHTML = `<div class="em-bob" style="animation-delay:${(-Math.random() * 1.8).toFixed(2)}s">${markerGlyph(kind)}</div>`;
+    el.style.display = 'none';
+    this.view.floatLayer.appendChild(el);
+    r = { kind, el, shown: false };
+    this.roofs.set(bi, r);
+    return r;
+  }
 
   update() {
-    if (!this.marks.size) return;
+    if (!this.marks.size && !this.roofs.size) return;
     const v = this.view;
     const far = v.rig.dist;
     const W = v._w || 1, H = v._h || 1;
+    const B = v.buildings;
+    const onRoof = new Map(); // building -> the most pressing mark inside it
+    const place = (el, p) => {
+      const k = far > 18 ? Math.max(0.6, 18 / far) : 1;
+      el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%) scale(${k.toFixed(2)})`;
+    };
+    const onScreen = (p) => !p.behind && p.x > -40 && p.y > -40 && p.x < W + 40 && p.y < H + 40;
+    // far out, only quest marks stay
+    const near = (kind) => (far < 26 || !kind.match(/shop|merchant|inn|healer|trainer|recruit/)) && far < 48;
     for (const [id, m] of this.marks) {
       const e = v.entities.get(id);
       if (!e) { m.el.remove(); this.marks.delete(id); continue; }
-      // far out, only quest marks stay
-      let show = (e.root.visible || m.always) && (far < 26 || !m.kind.match(/shop|merchant|inn|healer|trainer|recruit/)) && far < 48;
-      let p = null;
-      if (show) {
+      // indoors under a closed roof, the mark moves up onto the roof; out of
+      // sight anywhere else it is not shown (no marks floating over nothing)
+      const bi = B && B.list.length ? B.at(e.x, e.y) : -1;
+      const closed = bi >= 0 && (B.state[bi]?.open ?? 0) < 0.5;
+      let show = false, p = null;
+      if (closed) {
+        // (known once the person or the building's walls have been seen)
+        if (e.root.visible || m.always || (B.state[bi]?.vis ?? 0) > 0.3) {
+          const cur = onRoof.get(bi);
+          if (!cur || RANK.indexOf(m.kind) < RANK.indexOf(cur)) onRoof.set(bi, m.kind);
+        }
+      } else if (e.root.visible && near(m.kind)) {
         const r = e.root.position;
         p = v.worldToScreen(r.x, r.y + e.info.height * e.scale + 0.14, r.z);
-        if (p.behind || p.x < -40 || p.y < -40 || p.x > W + 40 || p.y > H + 40) show = false;
+        show = onScreen(p);
       }
       if (show !== m.shown) { m.el.style.display = show ? '' : 'none'; m.shown = show; }
+      if (show) place(m.el, p);
+    }
+    for (const [bi, r] of this.roofs) if (!onRoof.has(bi)) { r.el.remove(); this.roofs.delete(bi); }
+    for (const [bi, kind] of onRoof) {
+      const r = this._roof(bi, kind);
+      const b = B.list[bi], top = B.info?.[bi]?.top ?? 2;
+      let show = near(kind), p = null;
       if (show) {
-        const k = far > 18 ? Math.max(0.6, 18 / far) : 1;
-        m.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -100%) scale(${k.toFixed(2)})`;
+        p = v.worldToScreen((b.box.x0 + b.box.x1 + 1) / 2, top + 0.1, (b.box.y0 + b.box.y1 + 1) / 2);
+        show = onScreen(p);
       }
+      if (show !== r.shown) { r.el.style.display = show ? '' : 'none'; r.shown = show; }
+      if (show) place(r.el, p);
     }
   }
 }
+
+// which mark a building shows when several people inside have one
+const RANK = ['quest', 'turnin', 'progress', 'shop', 'merchant', 'inn', 'healer', 'trainer', 'recruit'];
 
 // ------------------------------------------------------------ path preview
 export class PathPreview {

@@ -4,7 +4,27 @@ import { getPref, setPref } from './storage.js';
 let ctx = null;
 let muted = getPref('muted', false);
 
+// Browsers refuse (and warn about) audio before the first click or key press,
+// so no AudioContext is made until then; whatever wanted sound waits for it.
+let unlocked = typeof navigator !== 'undefined' && !!navigator.userActivation?.hasBeenActive;
+const waiting = [];
+function unlock() {
+  if (unlocked) return;
+  unlocked = true;
+  window.removeEventListener('pointerdown', unlock, true);
+  window.removeEventListener('keydown', unlock, true);
+  for (const fn of waiting.splice(0)) { try { fn(); } catch { /* audio unavailable */ } }
+}
+if (typeof window !== 'undefined' && !unlocked) {
+  window.addEventListener('pointerdown', unlock, true);
+  window.addEventListener('keydown', unlock, true);
+}
+export const audioUnlocked = () => unlocked;
+// run fn once the player has clicked or pressed a key (now, if they have)
+export function whenAudioUnlocked(fn) { if (unlocked) fn(); else waiting.push(fn); }
+
 function ac() {
+  if (!unlocked) return null;
   if (!ctx) {
     const C = window.AudioContext || window.webkitAudioContext;
     if (!C) return null;

@@ -7,7 +7,7 @@ import { STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, CLASS_SPECIALS } from 
 import { createCharacter, classAvailable, charLook, maxHp, maxMp, mod, equipKit, specialOf, armorClass, combatMoves } from '../game/rules.js';
 import { createMap } from '../world/map.js';
 import { T } from '../data/terrain.js';
-import { randomName } from '../world/generate.js';
+import { randomName, nameWords, npcNameWords } from '../world/generate.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { byId } from '../data/schema.js';
 import { sfx } from '../core/sound.js';
@@ -58,9 +58,8 @@ export function partyCreation(app, game, { onDone, onBack }) {
   function newHero(raceId, clsId, varied = false) {
     const r = byId(races, raceId) || races[0];
     const k = byId(classes, clsId) || classes[0];
-    // no two heroes share a name
-    let name = randomName(raceLook(r.id), rng);
-    for (let i = 0; i < 12 && heroes.some((x) => x.name === name); i++) name = randomName(raceLook(r.id), rng);
+    // no two heroes share a name, nor with anyone in the story
+    const name = randomName(raceLook(r.id), rng, takenBy(null));
     const hero = { name, race: r.id, cls: k.id, stats: {}, look: {} };
     newLook(hero);
     autoStats(hero, varied);
@@ -93,6 +92,9 @@ export function partyCreation(app, game, { onDone, onBack }) {
   }
 
   const spent = (hero) => STATS.reduce((a, s) => a + (hero.stats[s] - BASE), 0);
+  // random names never echo the story's people (no hero "Hilda" beside Mayor Hilda) or each other
+  const storyWords = npcNameWords(game);
+  const takenBy = (except) => new Set([...storyWords, ...heroes.filter((x) => x !== except).flatMap((x) => nameWords(x.name))]);
 
   // a classic balanced company to start from
   function quickParty() {
@@ -229,7 +231,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
         h('div.ch-portrait', picImg(hero)),
         h('div.ch-id',
           h('div.row', h('label.field.grow', h('span.field-label', 'Name'), nameIn),
-            h('button.icon', { title: 'A random name', onclick: () => { hero.name = randomName(r?.look?.race || hero.race, rng); render(); }, html: iconSvg('dice') })),
+            h('button.icon', { title: 'A random name', onclick: () => { hero.name = randomName(r?.look?.race || hero.race, rng, takenBy(hero)); render(); }, html: iconSvg('dice') })),
           h('div.ch-line', ico(raceIcon(r)), ` ${r?.name || ''} `, ico(classIcon(k)), ` ${k?.name || ''}`),
           h('div.ch-quick',
             quick('heart', 'Health', maxHp(game, c), 'Health: how much harm this hero can take'),
@@ -321,6 +323,7 @@ export function quickParty(game) {
   const classes = game.classes.filter((c) => classAvailable(game, c));
   const want = [['dwarf', 'warrior'], ['elf', 'ranger'], ['human', 'wizard'], ['human', 'cleric']];
   const out = [];
+  const taken = npcNameWords(game);
   for (const [r, c] of want) {
     const cls = byId(classes, c) || classes[out.length % classes.length];
     const race = byId(game.races, r) || game.races[0];
@@ -329,7 +332,9 @@ export function quickParty(game) {
     for (const s of cls.primary || []) stats[s] = 16;
     const look = { ...randomPerson(race.look?.race || race.id, rng), ...randomOutfit(cls, rng) };
     for (const k of Object.keys(look)) if (look[k] === undefined) delete look[k];
-    out.push(createCharacter(game, { name: randomName(race.look?.race || race.id, rng), race: race.id, cls: cls.id, stats, look }));
+    const name = randomName(race.look?.race || race.id, rng, taken);
+    for (const w of nameWords(name)) taken.add(w);
+    out.push(createCharacter(game, { name, race: race.id, cls: cls.id, stats, look }));
     if (out.length >= Math.min(4, game.settings.maxParty || 6)) break;
   }
   return out;

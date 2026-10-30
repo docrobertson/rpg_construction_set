@@ -266,7 +266,7 @@ export class Explorer {
           const near = foes().find((e) => e !== plan.track && (!known.has(e.id) && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 7 || Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 2));
           if (near) {
             const d = byId(s.game.monsters, near.monster);
-            s.log(`You stop: ${d ? d.plural || d.name : 'something'} ahead!`, 'warn');
+            s.log(`You stop: ${d ? (d.boss ? d.name : d.plural || d.name) : 'something'} ahead!`, 'warn');
             break;
           }
         }

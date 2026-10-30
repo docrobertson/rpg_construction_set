@@ -3,11 +3,15 @@
 // worldToScreen, heightAt, wait, shake, arrow...) so that it survives changes
 // to how the world itself is drawn.
 import * as THREE from 'three';
+import { shared } from './materials.js';
 
 // The view draws figures and their effects in a second pass on layer 1
 // (after clearing depth), so effects are never buried inside the terrain.
 const FX_LAYER = 1;
 const hexCss = (n) => '#' + ((n ?? 0xffffff) >>> 0).toString(16).padStart(6, '0');
+// at most this many floating words at once; the oldest gives way to the newest
+const MAX_FLOATS = 8;
+const LANES = 5;
 
 let TEX = null;
 function canvasTex(size, draw) {
@@ -175,46 +179,89 @@ export class BattleFx {
   }
 
   // ---------------------------------------------------------------- floating text
+  // Words over the figures share the screen. Each new one takes the lowest
+  // lane above its figure that nothing else is using, so a heal, a shout and a
+  // condition over neighbours never print on top of each other; at most
+  // MAX_FLOATS are up at once (the oldest steps aside early, a critical last),
+  // and none rises under the turn strip (view.safeTop, set by the battle HUD).
+  float(el, anchor, life, o = {}) {
+    const layer = this.view.floatLayer || this.view.container;
+    layer.appendChild(el);
+    this.doms.add(el);
+    const list = (this.floats ||= []);
+    while (list.length >= MAX_FLOATS) (list.find((f) => !f.keep) || list[0]).cut();
+    const w = el.offsetWidth || 40, h = el.offsetHeight || 20;
+    const oy = o.oy ?? 0.5, gap = 3;
+    const rectAt = (p, lane) => {
+      const L = p.x - w / 2;
+      let T = p.y - h * oy - lane * (h + gap);
+      T = Math.max(T, (this.view.safeTop || 0) + 2);
+      return { L, T, R: L + w, B: T + h };
+    };
+    const hit = (a, b) => a.L < b.R + gap && b.L < a.R + gap && a.T < b.B + gap && b.T < a.B + gap;
+    const p0 = anchor(0);
+    let lane = 0;
+    while (lane < LANES && list.some((f) => f.r && hit(f.r, rectAt(p0, lane)))) lane++;
+    // no room left above this figure: the words already in the way step aside
+    if (lane === LANES) {
+      lane = 0;
+      for (const f of [...list]) if (f.r && hit(f.r, rectAt(p0, 0))) f.cut();
+    }
+    const f = { el, keep: !!o.keep, lane, r: rectAt(p0, lane), dead: false };
+    f.cut = () => {
+      if (f.dead) return;
+      f.dead = true;
+      el.remove();
+      this.doms.delete(el);
+      const i = list.indexOf(f);
+      if (i >= 0) list.splice(i, 1);
+    };
+    list.push(f);
+    const fadeAt = o.fadeAt ?? 0.72;
+    const draw = (k) => {
+      if (f.dead) return;
+      f.r = rectAt(anchor(k), lane);
+      const pop = o.pop ? o.pop(k) : 1;
+      el.style.transform = `translate(${Math.round(f.r.L)}px, ${Math.round(f.r.T)}px) scale(${pop})`;
+      el.style.opacity = String(k < fadeAt ? 1 : 1 - (k - fadeAt) / (1 - fadeAt));
+    };
+    draw(0);
+    this.tween(life, draw, f.cut);
+    return f;
+  }
+
   // kind: dmg (we hit them), hurt (they hit us), crit, heal, miss, status, info
   number(x, y, text, kind = 'dmg', color = null) {
-    const layer = this.view.floatLayer || this.view.container;
     const el = document.createElement('div');
     el.className = 'fx-num fx-' + kind;
     if (kind === 'crit') el.innerHTML = `<small>CRITICAL</small>${text}`;
     else el.textContent = text;
     if (color) el.style.color = color;
-    layer.appendChild(el);
-    this.doms.add(el);
-    const jitter = (Math.random() - 0.5) * 0.5;
     const d = kind === 'crit' ? 1.5 : kind === 'status' || kind === 'info' ? 1.4 : 1.1;
-    // stack words over one figure, and stagger neighbours so their words do not run together
-    const key = `${x},${y}`;
-    const stack = (this.stacks ||= new Map());
-    const n = stack.get(key) || 0;
-    stack.set(key, n + 1);
-    const up0 = (kind === 'status' || kind === 'info' ? 1.55 + (x & 1) * 0.28 : 1.25) + n * 0.3;
-    this.tween(d, (k) => {
-      const p = this.screenOf(x + jitter * 0.3, y, up0 + k * 0.7);
-      const pop = k < 0.12 ? 0.6 + k / 0.12 * 0.75 : k < 0.25 ? 1.35 - (k - 0.12) / 0.13 * 0.35 : 1;
-      el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${pop})`;
-      el.style.opacity = String(k < 0.72 ? 1 : 1 - (k - 0.72) / 0.28);
-    }, () => { el.remove(); this.doms.delete(el); stack.set(key, Math.max(0, (stack.get(key) || 1) - 1)); });
+    const jitter = (Math.random() - 0.5) * 0.15;
+    const up0 = kind === 'status' || kind === 'info' ? 1.5 : 1.25;
+    this.float(el, (k) => this.screenOf(x + jitter, y, up0 + k * 0.6), d, {
+      keep: kind === 'crit',
+      pop: (k) => (k < 0.12 ? 0.6 + k / 0.12 * 0.75 : k < 0.25 ? 1.35 - (k - 0.12) / 0.13 * 0.35 : 1),
+    });
   }
 
   // a shout of the ability's name above the user
   callout(x, y, text, color = 0xffe080) {
-    const layer = this.view.floatLayer || this.view.container;
     const el = document.createElement('div');
     el.className = 'fx-callout';
     el.textContent = text;
     el.style.color = hexCss(color);
-    layer.appendChild(el);
-    this.doms.add(el);
-    this.tween(1.5, (k) => {
-      const p = this.screenOf(x, y, 1.9 + k * 0.25);
-      el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -100%) scale(${k < 0.1 ? 0.7 + k * 3 : 1})`;
-      el.style.opacity = String(k < 0.75 ? 1 : 1 - (k - 0.75) / 0.25);
-    }, () => { el.remove(); this.doms.delete(el); });
+    // the turn banner steps aside for it
+    this.view.container?.dispatchEvent?.(new CustomEvent('fx-callout'));
+    this.float(el, (k) => this.screenOf(x, y, 1.9 + k * 0.25), 1.5, { oy: 1, keep: true, fadeAt: 0.75, pop: (k) => (k < 0.1 ? 0.7 + k * 3 : 1) });
+  }
+
+  // Battle lighting: in a dark or night arena figures get a cool rim so that
+  // black spiders and dark armour stand off the floor
+  stage(lighting) {
+    const dark = lighting === 'dark' ? 1 : lighting === 'night' ? 0.7 : lighting === 'dusk' ? 0.35 : 0;
+    shared.uRim.value.set(0.78, 0.84, 1.0, 0.55 * dark);
   }
 
   // ---------------------------------------------------------------- impacts
@@ -425,5 +472,7 @@ export class BattleFx {
     for (const o of [...this.objs]) this.drop(o);
     for (const el of this.doms) el.remove();
     this.doms.clear();
+    this.floats = [];
+    shared.uRim.value.set(0, 0, 0, 0);
   }
 }

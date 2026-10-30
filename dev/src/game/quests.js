@@ -2,13 +2,19 @@
 //
 // A quest (game.quests[]) looks like
 //   { id, name, giver: npcId, main, auto, requires: questId, offer, accept, summary,
-//     stages: [{ text, goal: { type, ... }, say, log, reward }], reward, doneText }
+//     stages: [{ text, goal: { type, ... }, say, log, reward }], reward, doneText, thanks }
+// (thanks: what the giver greets the party with once the quest is done)
 // Goal types: talk {npc}, deliver {npc, item, n}, reach {map, x?, y?, r?},
 // kill {monster, n}, collect {item, n}, clear {map}, flag {flags: 'a,b,c'}.
 // An empty npc in a talk/deliver goal means "the quest giver".
 // Progress lives in the play state: state.quests[id] = { status, stage, base, turn }.
+// The tracker follows state.pinned (the player's choice) if set, else
+// state.tracked (the quest that last moved on), else the main quest.
 import { byId, getMap } from '../data/schema.js';
-import { partyAlive, gainXp, itemOf } from './rules.js';
+import { terrain } from '../data/terrain.js';
+import { getTile, inBounds } from '../world/map.js';
+import { partyAlive, gainXp, itemOf, levelUpNote } from './rules.js';
+import { bfsPath } from './walk.js';
 
 export const GOAL_TYPES = {
   talk: 'Talk to someone',
@@ -28,6 +34,9 @@ export function ensureQuestState(state) {
   if (!state.poi || typeof state.poi !== 'object') state.poi = {};
   if (!Array.isArray(state.blessings)) state.blessings = [];
   if (state.tracked === undefined) state.tracked = null;
+  // older saves: nothing pinned, and the tracker (which side quests used to
+  // take over) goes back to following the story
+  if (state.pinned === undefined) { state.pinned = null; state.tracked = null; }
   return state;
 }
 
@@ -51,12 +60,21 @@ export function currentStage(session, q) {
   return qs && qs.status === 'active' ? q.stages?.[qs.stage] || null : null;
 }
 
-// The quest the tracker follows: the chosen one if still active, else the main quest, else the oldest
+// The quest the tracker follows: the one the player pinned, else the one that
+// last moved on, else the main quest, else the oldest
 export function trackedQuest(session) {
   const st = session.state;
   const act = activeQuests(session);
-  return act.find((q) => q.id === st.tracked) || act[0] || null;
+  return act.find((q) => q.id === st.pinned) || act.find((q) => q.id === st.tracked) || act[0] || null;
 }
+
+// Pin a quest to the tracker (null unpins: the tracker follows the story again)
+export function pinQuest(session, id) {
+  const st = session.state;
+  st.pinned = id && isActive(st, id) ? id : null;
+  if (st.pinned) st.tracked = st.pinned;
+}
+export const isPinned = (session, q) => !!q && session.state.pinned === q.id && isActive(session.state, q.id);
 
 // ------------------------------------------------------------ availability
 export function canOffer(session, q) {
@@ -105,6 +123,18 @@ export function npcMarker(session, npc) {
   if (npc.role === 'trainer') return 'trainer';
   if (npc.recruit) return 'recruit';
   return null;
+}
+
+// What a person says on meeting the party: once a quest they gave is done,
+// its thanks (if written) replace their old greeting ("Have ye seen my sheep?")
+export function greetingFor(session, npc) {
+  const st = session.state;
+  let best = null;
+  for (const q of session.game.quests || []) {
+    if (q.giver !== npc.id || !q.thanks || !isDone(st, q.id)) continue;
+    if (!best || (st.quests[q.id].doneTurn || 0) >= (st.quests[best.id].doneTurn || 0)) best = q;
+  }
+  return best ? best.thanks : npc.greeting || '';
 }
 
 // ------------------------------------------------------------ goals
@@ -187,7 +217,7 @@ export function applyReward(session, r) {
   if (xp) {
     got.push(`${xp} experience`);
     for (const m of partyAlive(p)) {
-      if (gainXp(g, m, xp).length) session.log(`${m.name} is now level ${m.level}! (▲ ${m.points} attribute point${m.points === 1 ? '' : 's'} to spend)`, 'level');
+      if (gainXp(g, m, xp).length) session.log(levelUpNote(m), 'level');
     }
   }
   for (const f of String(r.flag || '').split(/[,|]/).map((s) => s.trim()).filter(Boolean)) p.flags[f] = true;
@@ -199,6 +229,8 @@ export function applyReward(session, r) {
 // show banners: 'start', 'stage', 'done'.
 function emit(session, kind, q, extra) {
   session.ui?.onQuestEvent?.(kind, q, extra);
+  // a quest step is worth keeping: don't lose it to a closed tab
+  if (session.ui && session.state.questsBegun) session.autosave?.();
 }
 
 function stageBase(session, stage) {
@@ -212,7 +244,8 @@ export function startQuest(session, id, opts = {}) {
   const st = session.state;
   if (questState(st, id)) return false;
   st.quests[id] = { status: 'active', stage: 0, base: stageBase(session, q.stages?.[0]), turn: st.turn || 0 };
-  if (!st.tracked || !isActive(st, st.tracked) || q.main) st.tracked = id;
+  // a new side quest does not take the tracker from a quest under way
+  if (q.main || !activeQuests(session).some((x) => x.id !== id)) st.tracked = id;
   if (!opts.quiet) session.log(`New quest: ${q.name}.`, 'quest');
   if (q.startItems && q.startItems.length) {
     const got = applyReward(session, { items: q.startItems });
@@ -224,39 +257,50 @@ export function startQuest(session, id, opts = {}) {
   return true;
 }
 
-export function advanceQuest(session, id) {
+export function advanceQuest(session, id) { return advance(session, id).ok; }
+
+// Move a quest on one step. Returns { ok, got } where got lists what the
+// party received for the step (and for finishing, if this was the last one).
+function advance(session, id) {
   const q = questOf(session.game, id);
-  const qs = questState(session.state, id);
-  if (!q || !qs || qs.status !== 'active') return false;
+  const st = session.state;
+  const qs = questState(st, id);
+  if (!q || !qs || qs.status !== 'active') return { ok: false, got: [] };
   const stage = q.stages?.[qs.stage];
   const got = stage ? applyReward(session, stage.reward) : [];
   if (stage?.log) session.log(stage.log, 'quest');
   qs.stage++;
-  if (qs.stage >= (q.stages?.length || 0)) return completeQuest(session, id, got);
+  if (qs.stage >= (q.stages?.length || 0)) return finish(session, id, got);
   qs.base = stageBase(session, q.stages[qs.stage]);
+  // the quest that just moved on takes the tracker, unless the player pinned one
+  st.tracked = id;
   session.log(`Quest updated — ${q.name}: ${q.stages[qs.stage].text}`, 'quest');
+  if (got.length) session.log(`You receive ${got.join(', ')}.`, 'loot');
   emit(session, 'stage', q, { got });
-  return true;
+  return { ok: true, got };
 }
 
-export function completeQuest(session, id, extraGot = []) {
+export function completeQuest(session, id, extraGot = []) { return finish(session, id, extraGot).ok; }
+
+function finish(session, id, extraGot = []) {
   const q = questOf(session.game, id);
   const st = session.state;
-  if (!q) return false;
+  if (!q) return { ok: false, got: [] };
   if (!st.quests[id]) st.quests[id] = { status: 'active', stage: 0, turn: st.turn || 0 };
   const qs = st.quests[id];
-  if (qs.status === 'done') return false;
+  if (qs.status === 'done') return { ok: false, got: [] };
   qs.status = 'done';
   qs.stage = q.stages?.length || 0;
   qs.doneTurn = st.turn || 0;
   const got = [...extraGot, ...applyReward(session, q.reward)];
   session.log(`Quest complete: ${q.name}!${got.length ? ' Reward: ' + got.join(', ') + '.' : ''}`, 'quest');
   if (st.tracked === id) st.tracked = null;
+  if (st.pinned === id) st.pinned = null;
   emit(session, 'done', q, { got });
   // follow-up quests that start by themselves
   for (const nq of session.game.quests || []) if (nq.auto && nq.requires === id && canOffer(session, nq)) startQuest(session, nq.id);
   session.checkVictory?.();
-  return true;
+  return { ok: true, got };
 }
 
 // Re-check every passive goal; called after steps, battles, chests and talk
@@ -305,7 +349,9 @@ export function onTalk(session, npc) {
       }
       const was = questState(session.state, q.id).stage;
       out.push({ quest: q, say: s.say || '' });
-      advanceQuest(session, q.id);
+      const { got } = advance(session, q.id);
+      // what was handed over, said in the conversation itself
+      if (got.length) out.push({ quest: q, got, note: `You receive ${got.join(', ')}.` });
       checkQuests(session); // steps already done while away (a key in the pack, a foe already slain)
       const qs = questState(session.state, q.id);
       out.push({ quest: q, note: qs.status === 'done' ? `Quest complete: ${q.name}` : `Quest updated: ${q.stages[qs.stage]?.text || ''}`, done: qs.status === 'done', stage: was });
@@ -371,7 +417,7 @@ export function goalTarget(session, q) {
   switch (g.type) {
     case 'talk': case 'deliver': {
       const f = findNpc(session.game, goalNpc(q, g), session.map);
-      return f ? { mapId: f.map.id, x: f.npc.x, y: f.npc.y } : null;
+      return f ? { mapId: f.map.id, x: f.npc.x, y: f.npc.y, who: f.npc.name || 'someone', person: true } : null;
     }
     case 'kill':
       if (g.map) return { mapId: g.map };
@@ -425,12 +471,78 @@ export function directionTo(session, pt, from = session.state.pos, map = session
   return { arrow: ARROWS[a], text: `${d} ${unit} ${DIRS[a]}`, d, angle: Math.atan2(dy, dx) };
 }
 
+// "7 north, 2 east": the two legs of a short walk, so the player can count squares
+function legs(dx, dy) {
+  const out = [];
+  if (dy) out.push(`${Math.abs(dy)} ${dy < 0 ? 'north' : 'south'}`);
+  if (dx) out.push(`${Math.abs(dx)} ${dx < 0 ? 'west' : 'east'}`);
+  return out.join(', ');
+}
+
+// The walk on the current site to a spot, or to a person (next to them, or
+// across their counter): a list of squares, or null if no way is known.
+// Doors are ways in; walls are not. People who wander are stepped around later.
+export function routeTo(session, pt, person = false, map = session.map) {
+  if (!map || map.type === 'world' || pt?.x == null) return null;
+  const p = session.state.pos;
+  const at = (x, y) => terrain(getTile(map, x, y));
+  const near = (x, y) => {
+    const d = Math.abs(x - pt.x) + Math.abs(y - pt.y);
+    if (d === 1 || (x === pt.x && y === pt.y)) return true;
+    if (d !== 2 || (x !== pt.x && y !== pt.y)) return false;
+    return !!at((x + pt.x) / 2, (y + pt.y) / 2).talkOver;
+  };
+  const goal = person ? near : (x, y) => x === pt.x && y === pt.y;
+  const pass = (x, y) => {
+    if (!inBounds(map, x, y)) return false;
+    if (x === pt.x && y === pt.y) return true;
+    const t = at(x, y);
+    return t.walk || !!t.locked;
+  };
+  return bfsPath(p.x, p.y, goal, pass, Math.max(map.w, map.h));
+}
+
+// Guidance on the site the party stands in: count the paces of the real walk,
+// and lead through a door when the way in (or out) is through one
+function guideHere(session, pt, t) {
+  const map = session.map, p = session.state.pos;
+  const route = t.person || pt.via ? routeTo(session, pt, !!t.person && !pt.via) : routeTo(session, pt);
+  const where = map.type === 'town' || map.type === 'castle' || map.type === 'village' ? `in this ${map.type === 'castle' ? 'castle' : 'town'}` : `here in ${map.name}`;
+  const lead = pt.via ? `${pt.via}: ` : t.person ? `${t.who}, ${where}: ` : '';
+  if (!route) {
+    const dir = directionTo(session, pt);
+    if (!dir) return null;
+    return { ...dir, text: lead + dir.text, x: pt.x, y: pt.y, here: !pt.via };
+  }
+  if (!route.length) return { arrow: '●', text: lead + 'right beside you', d: 0, x: pt.x, y: pt.y, here: !pt.via };
+  const steps = route.length;
+  const doorAt = route.findIndex(([x, y], i) => i < steps - 1 && terrain(getTile(map, x, y)).door);
+  const end = route[steps - 1];
+  if (doorAt >= 0) {
+    const [dx, dy] = route[doorAt];
+    const dir = directionTo(session, { x: dx, y: dy });
+    const body = doorAt === 0 ? `${steps} paces, through the door beside you` : `${steps} paces, through the door ${doorAt + 1} paces ${dir.text.replace(/^\d+ paces? /, '')}`;
+    return { arrow: dir.arrow, angle: dir.angle, text: lead + body, d: steps, x: pt.x, y: pt.y, door: { x: dx, y: dy }, here: !pt.via };
+  }
+  const dir = directionTo(session, { x: end[0], y: end[1] });
+  const ex = end[0] - p.x, ey = end[1] - p.y;
+  const paces = `${steps} pace${steps === 1 ? '' : 's'}`;
+  // a straight walk reads "16 paces north"; a crooked one adds its two legs
+  const straight = (!ex || !ey) && steps === Math.abs(ex) + Math.abs(ey);
+  const body = straight ? `${paces} ${ey ? (ey < 0 ? 'north' : 'south') : ex < 0 ? 'west' : 'east'}` : `${paces} (${legs(ex, ey)})`;
+  return { arrow: dir?.arrow, angle: dir?.angle, text: lead + body, d: steps, x: pt.x, y: pt.y, here: !pt.via };
+}
+
 export function guidance(session, q) {
   const t = goalTarget(session, q);
   if (!t) return null;
   const pt = pointOnMap(session, t);
   const tmap = getMap(session.game, t.mapId);
   if (!pt) return { text: tmap ? `in ${tmap.name}` : '' };
+  if (pt.x != null && session.map && session.map.type !== 'world') {
+    const g = guideHere(session, pt, t);
+    if (g) return g;
+  }
   if (pt.out) {
     // from inside a site: say which way to head once outside
     const ex = session.map.exit;
@@ -442,8 +554,20 @@ export function guidance(session, q) {
     return { arrow: '⤴', text: `Leave ${session.map.name}${tmap && tmap !== outer ? ' for ' + tmap.name : ''}` };
   }
   const dir = directionTo(session, pt);
-  if (!dir) return { text: pt.here ? `somewhere in ${session.map.name}` : '' };
-  return { ...dir, text: pt.via ? `${pt.via}: ${dir.text}` : dir.text, x: pt.x, y: pt.y };
+  if (!dir) return { text: pt.here ? `somewhere in ${session.map.name}` : '', here: !!pt.here };
+  return { ...dir, text: pt.via ? `${pt.via}: ${dir.text}` : dir.text, x: pt.x, y: pt.y, here: !!pt.here };
+}
+
+// The step text without "in Westhold, just to the west" once you are there
+export function stageLineHere(session, q) {
+  const line = stageLine(session, q);
+  const t = goalTarget(session, q);
+  if (!t || !session.map || t.mapId !== session.map.id || session.map.type === 'world') return line;
+  const name = session.map.name;
+  const i = name ? line.indexOf(' in ' + name) : -1;
+  if (i < 0) return line;
+  const tail = line.slice(i).match(/ \(\d+\/\d+\)$/);
+  return line.slice(0, i) + (tail ? tail[0] : '');
 }
 
 // Everything the renderer / map may want to pin: [{ x, y, quest, main }]

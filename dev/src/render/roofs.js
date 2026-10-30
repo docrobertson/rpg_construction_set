@@ -386,32 +386,67 @@ export function keepTop(B, box, y, stone, roofS, shadow) {
 
 // Dwarven halls under the mountain need no rain roof: a heavy stepped stone
 // cap (two courses of great slabs, each set back from the one below) with a
-// bronze-edged rim and a glowing rune stone on top, chunky and readable
-// from above. Returns heightAt for chimneys.
+// bronze-edged rim, glowing rune lines, brazier bowls at the corners and a
+// rune stone on top, chunky and readable from above even in the dark halls.
+// Returns heightAt for chimneys.
 export function stepRoof(B, box, y, stone, glowTag) {
   const { x0, z0, x1, z1 } = box;
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const w = x1 - x0, d = z1 - z0;
   const o = 0.16;
+  // the slabs are a warmer, lighter stone than the walls, so the cap stands
+  // out from the street in lamplight
+  const cap = warmStone(stone);
+  const bronze = 0xc8903e;
+  const tag = B.tag;
+  const glow = (fn) => { if (glowTag != null) B.tag = glowTag; fn(); B.tag = tag; };
   // the cornice: a bold overhanging band of dressed stone
   B.box(col(stone, 0.78), { x: cx, y: y - 0.06, z: cz, sx: w + o * 2, sy: 0.12, sz: d + o * 2 });
-  B.box(col(stone, 1.0), { x: cx, y: y + 0.06, z: cz, sx: w + o * 2 + 0.04, sy: 0.16, sz: d + o * 2 + 0.04 });
-  B.box(col(0xa8783a, 1), { x: cx, y: y + 0.2, z: cz, sx: w + o * 2 + 0.05, sy: 0.04, sz: d + o * 2 + 0.05 });
-  // first step: slabs laid in courses, joints showing
+  B.box(col(cap, 0.95), { x: cx, y: y + 0.06, z: cz, sx: w + o * 2 + 0.04, sy: 0.16, sz: d + o * 2 + 0.04 });
+  B.box(col(bronze, 1), { x: cx, y: y + 0.2, z: cz, sx: w + o * 2 + 0.05, sy: 0.045, sz: d + o * 2 + 0.05 });
+  // first step: great slabs, each its own shade, dark joints between
   const s1 = 0.4;
-  B.box(col(stone, 0.92), { x: cx, y: y + 0.22, z: cz, sx: w - s1, sy: 0.3, sz: d - s1 });
-  for (let x = x0 + s1 / 2 + 0.9; x < x1 - s1 / 2 - 0.3; x += 0.9) B.box(col(stone, 0.7), { x, y: y + 0.515, z: cz, sx: 0.03, sy: 0.012, sz: d - s1 + 0.01 });
+  slabs(B, cx, cz, w - s1, d - s1, y + 0.22, 0.3, cap, Math.floor(x0 * 7 + z0 * 13));
+  // a rune line round the first step, glowing
+  glow(() => {
+    for (const [ax, az, bx, bz] of [[x0 + s1 / 2, z1 - s1 / 2, x1 - s1 / 2, z1 - s1 / 2], [x0 + s1 / 2, z0 + s1 / 2, x1 - s1 / 2, z0 + s1 / 2]]) {
+      B.box(col(0x60d8ff, 1), { x: (ax + bx) / 2, y: y + 0.33, z: az + (az > cz ? 0.006 : -0.006), sx: bx - ax - 0.4, sy: 0.035, sz: 0.012 });
+    }
+  });
   // second step
   const s2 = Math.min(w, d) * 0.45;
   if (w - s2 > 0.6 && d - s2 > 0.6) {
-    B.box(col(stone, 1.06), { x: cx, y: y + 0.52, z: cz, sx: w - s2, sy: 0.26, sz: d - s2 });
-    B.box(col(stone, 1.16), { x: cx, y: y + 0.78, z: cz, sx: w - s2 + 0.06, sy: 0.06, sz: d - s2 + 0.06 });
+    slabs(B, cx, cz, w - s2, d - s2, y + 0.52, 0.26, tint(cap, 1.06), Math.floor(x1 * 5 + z1 * 3), 0.62);
+    B.box(col(bronze, 0.95), { x: cx, y: y + 0.78, z: cz, sx: w - s2 + 0.06, sy: 0.04, sz: d - s2 + 0.06 });
+  }
+  // brazier bowls on the corners of the cap, coals aglow
+  for (const [px, pz] of [[x0 - 0.02, z0 - 0.02], [x1 + 0.02, z0 - 0.02], [x0 - 0.02, z1 + 0.02], [x1 + 0.02, z1 + 0.02]]) {
+    B.box(col(cap, 0.82), { x: px, y: y + 0.2, z: pz, sx: 0.34, sy: 0.22, sz: 0.34 });
+    B.shape(TPL.cyl8, col(0x3a3430, 1), { x: px, y: y + 0.42, z: pz, sx: 0.08, sy: 0.12, sz: 0.08 });
+    B.shape(TPL.cyl8, col(bronze, 0.9), { x: px, y: y + 0.52, z: pz, sx: 0.3, sy: 0.1, sz: 0.3, grad: 0.4 });
+    glow(() => {
+      B.shape(TPL.cyl8, col(0xff9a40, 1), { x: px, y: y + 0.6, z: pz, sx: 0.22, sy: 0.03, sz: 0.22 });
+      B.shape(TPL.cone5, col(0xffc060, 1), { x: px, y: y + 0.62, z: pz, sx: 0.12, sy: 0.18, sz: 0.12 });
+    });
   }
   // the rune stone, glowing
-  const tag = B.tag;
-  B.box(col(stone, 0.85), { x: cx, y: y + 0.84, z: cz, sx: 0.5, sy: 0.18, sz: 0.5 });
-  if (glowTag != null) B.tag = glowTag;
-  B.box(col(0x60d8ff, 1), { x: cx, y: y + 1.02, z: cz, sx: 0.22, sy: 0.04, sz: 0.22 });
-  B.tag = tag;
+  B.box(col(cap, 0.85), { x: cx, y: y + 0.84, z: cz, sx: 0.56, sy: 0.18, sz: 0.56 });
+  B.box(col(bronze, 1), { x: cx, y: y + 1.0, z: cz, sx: 0.4, sy: 0.03, sz: 0.4 });
+  glow(() => B.box(col(0x60d8ff, 1), { x: cx, y: y + 1.02, z: cz, sx: 0.24, sy: 0.05, sz: 0.24 }));
   return { ridgeY: y + 1.0, rise: 1.0, eaveY: y - 0.06, eave: { x0: x0 - o, z0: z0 - o, x1: x1 + o, z1: z1 + o }, heightAt: () => y + 0.55 };
 }
+
+// a slab course: dark bedding, then a grid of slabs each a slightly different shade
+function slabs(B, cx, cz, w, d, y, h, stone, seed, size = 0.95) {
+  B.box(col(stone, 0.32), { x: cx, y, z: cz, sx: w, sy: h - 0.03, sz: d });
+  const nx = Math.max(1, Math.round(w / size)), nz = Math.max(1, Math.round(d / size));
+  const sw = w / nx, sd = d / nz;
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) {
+    const k = 0.74 + 0.4 * hash2(seed + i * 3, j * 5 - seed, 4711);
+    B.box(col(stone, k), { x: cx - w / 2 + sw * (i + 0.5), y: y + 0.01, z: cz - d / 2 + sd * (j + 0.5), sx: sw - 0.08, sy: h - 0.01, sz: sd - 0.08 });
+  }
+}
+
+const _w = new THREE.Color();
+function warmStone(hex) { _w.setHex(hex).lerp(new THREE.Color(0xaaa49c), 0.5); return Math.min(0xffffff, _w.getHex()); }
+function tint(hex, k) { _w.setHex(hex).multiplyScalar(k); _w.r = Math.min(1, _w.r); _w.g = Math.min(1, _w.g); _w.b = Math.min(1, _w.b); return _w.getHex(); }

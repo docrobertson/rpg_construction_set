@@ -184,6 +184,51 @@ const hud = await ev(() => {
 check('initiative strip shows who acts now and next', hud.chips >= hud.units && hud.now === 1 && hud.ordered, hud);
 check('action bar lists moves, attack, skills, special, cast, item, guard and end turn', hud.buttons.length >= 8 && hud.buttons.includes('Guard') && hud.buttons.includes('End turn'), hud.buttons);
 check('health plates float over every figure', hud.plates === hud.units, hud.plates);
+// the HUD keeps out of the way: every label fits, the prompt leaves the log
+// alone, nobody stands under the turn strip, and floating words never overlap
+const fit = await ev(() => {
+  const bad = [];
+  for (const el of document.querySelectorAll('.cbt-btn .cb-name, .cbt-btn .cb-sub')) if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) bad.push(el.textContent);
+  const p = document.querySelector('.hud-prompt').getBoundingClientRect(), l = document.querySelector('.hud-log').getBoundingClientRect();
+  const strip = document.querySelector('.cbt-strip').getBoundingClientRect();
+  const under = [...document.querySelectorAll('.cbt-plate .pl-in')].map((e) => e.getBoundingClientRect()).filter((r) => r.height && r.top < strip.bottom).length;
+  return { bad, promptOverLog: !(p.bottom <= l.top || p.top >= l.bottom || p.right <= l.left || p.left >= l.right), under, deploy: window.__app.session.battle.enemies.map((e) => e.y) };
+});
+check('every battle button label fits', !fit.bad.length, fit.bad);
+check('the prompt does not cover the battle log', !fit.promptOverLog);
+check('no fighter stands under the turn strip', fit.under === 0, fit.under);
+check('foes deploy within a turn or two of the heroes', fit.deploy.every((y) => y >= 1 && y <= 4), fit.deploy);
+const floats = await ev(() => {
+  const b = window.__app.session.battle; const u = b.active, v = b.partyUnits.find((p) => p !== u && b.alive(p));
+  for (const t of ['Prayer of Mending', 'Aimed Shot', 'LEVEL UP!']) { b.fx.callout(u.x, u.y, t); b.fx.callout(v.x, v.y, t); }
+  for (let i = 0; i < 3; i++) b.fx.number(u.x, u.y, String(10 + i), 'heal');
+  const rs = [...document.querySelectorAll('.fx-callout, .fx-num')].map((e) => e.getBoundingClientRect());
+  let hits = 0;
+  for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) { const a = rs[i], c = rs[j]; if (a.left < c.right - 1 && c.left < a.right - 1 && a.top < c.bottom - 1 && c.top < a.bottom - 1) hits++; }
+  const n = rs.length;
+  b.fx.clear();
+  return { n, hits };
+});
+check('floating words take turns instead of piling up', floats.n <= 8 && floats.hits === 0, floats);
+const shotWhy = await ev(() => {
+  const s = window.__app.session, b = s.battle, u = b.active, m = u.member;
+  const e = b.enemies.find((x) => b.alive(x));
+  const keep = { ranged: m.equip.ranged, ex: e.x, ey: e.y, tile: null };
+  m.equip.ranged = 'short_bow';
+  const tx = u.x, ty = u.y - 1, ey = u.y - 3;
+  const occupant = b.units.filter((x) => b.alive(x) && x !== e && x.x === tx && (x.y === ty || x.y === ey));
+  for (const o of occupant) o.dead = true;
+  const i = ty * b.arena.w + tx;
+  keep.tile = b.arena.tiles[i];
+  b.arena.tiles[i] = 56; // a tree
+  e.x = tx; e.y = ey;
+  const why = window.__app.playUI.chud.whyNot(u, e);
+  const can = b.canAttack(u, e);
+  b.arena.tiles[i] = keep.tile; e.x = keep.ex; e.y = keep.ey; m.equip.ranged = keep.ranged;
+  for (const o of occupant) o.dead = false;
+  return { why, can };
+});
+check('a blocked shot says the line of fire is blocked', !shotWhy.can && /line of fire blocked/.test(shotWhy.why), shotWhy);
 // odds on hover: put a goblin beside the active hero, with a friend flanking it
 const odds = await ev(() => {
   const b = window.__app.session.battle; const u = b.active;
@@ -281,6 +326,8 @@ const vic = await ev(() => ({
   perks: document.querySelectorAll('.victory-modal .perk').length, pending: window.__app.session.party.members.map((m) => m.perkPending),
 }));
 check('victory screen shows experience and offers talents', /Victory/.test(vic.title || '') && vic.rows >= 1 && vic.perks >= 2 && vic.pending.some((p) => p > 0), vic);
+const vfit = await ev(() => { const b = document.querySelector('.victory-modal .modal-body'); const last = [...document.querySelectorAll('.victory-modal .perk')].pop()?.getBoundingClientRect(); return { sh: b.scrollHeight, ch: b.clientHeight, lastBottom: last && Math.round(last.bottom), win: window.innerHeight, levelled: document.querySelectorAll('.vic-hero.up').length }; });
+check('a victory with several level-ups shows every talent pick without scrolling', vfit.levelled < 3 || (vfit.sh <= vfit.ch + 2 && vfit.lastBottom < vfit.win), vfit);
 const perk = await ev(() => {
   const s = window.__app.session; const m = s.party.members.find((x) => x.perkPending > 0);
   const btn = document.querySelector('.victory-modal .perk');

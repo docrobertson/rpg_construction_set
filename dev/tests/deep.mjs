@@ -136,7 +136,7 @@ log(await ev(async () => {
   const boss = s.map.entities.find((e) => e.boss);
   s.engage(boss);
   await new Promise((r) => setTimeout(r, 2500));
-  for (const u of s.battle.enemies) { u.hp = 2; }
+  for (const u of s.battle.enemies) { u.hp = 2; u.phased = true; } // (skip the boss's second phase)
   for (let i = 0; i < 400 && s.battle; i++) {
     const b = s.battle;
     if (b.active && !b.acting) {

@@ -292,8 +292,9 @@ export class BuildingsView {
       }
       let best = null, bn = 0;
       for (const [id, n] of count) if (n > bn) { bn = n; best = id; }
-      return terrain(best ?? (map.fill && T[map.fill] != null ? T[map.fill] : T.grass));
+      return best != null ? terrain(best) : null;
     };
+    const fallback = terrain(map.fill && T[map.fill] != null ? T[map.fill] : T.grass);
     this.list.forEach((b, bi) => {
       const rim = new Set(b.rim.map(([x, y]) => y * map.w + x));
       const inside = new Set(b.tiles.map(([x, y]) => y * map.w + x));
@@ -311,12 +312,13 @@ export class BuildingsView {
         if (part) continue;
         owned[y * map.w + x] = bi + 1;
         // the strip of ground outside the wall looks like the street beside it
-        subst.set(y * map.w + x, groundBeside(x, y, (k) => rim.has(k) || inside.has(k)));
+        // (a column standing inside a hall takes the hall's own floor)
+        subst.set(y * map.w + x, groundBeside(x, y, (k) => rim.has(k) || inside.has(k)) || groundBeside(x, y, null) || fallback);
       }
     });
     // street furniture stands on whatever ground surrounds it
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
-      if (PROPS.has(terrain(getTile(map, x, y)).key)) subst.set(y * map.w + x, groundBeside(x, y, null));
+      if (PROPS.has(terrain(getTile(map, x, y)).key)) subst.set(y * map.w + x, groundBeside(x, y, null) || fallback);
     }
     this.owned = owned;
     tv.owned = this.list.length ? owned : null;
@@ -810,6 +812,14 @@ function buildOne(B, S, bi, b, map, tv, style, smoke, owned) {
       roofTop = Math.max(roofTop, R.ridgeY + 0.3, top + 1.9);
       continue;
     }
+    if (L.style === 'castle' && stoneWalls) {
+      // the castle's lesser halls: a battlemented wall walk round a low
+      // hipped roof, with banners hung over the street side
+      const R = castleTop(B, S, box, top, stoneC, seed, doors.filter((dd) => dd.d === 'S').map((dd) => dd.uc));
+      roofs.push({ box, heightAt: R.heightAt, eave: R.eave, eaveY: R.eaveY });
+      roofTop = Math.max(roofTop, R.ridgeY + 0.2);
+      continue;
+    }
     const wdt = box.x1 - box.x0, dep = box.z1 - box.z0;
     const doorS = doors.some((dd) => dd.d === 'S');
     // gable to the street on compact buildings, ridge along the long side otherwise
@@ -830,7 +840,7 @@ function buildOne(B, S, bi, b, map, tv, style, smoke, owned) {
       let cx = dS ? dS.uc : (box.x0 + box.x1) / 2 + (hash2(seed, 3, 5) - 0.5) * (wdt - cw - 1);
       cx = Math.max(box.x0 + cw / 2 + 0.5, Math.min(box.x1 - cw / 2 - 0.5, cx));
       const cbox = { x0: cx - cw / 2, z0: (box.z0 + box.z1) / 2 - 0.1, x1: cx + cw / 2, z1: box.z1 };
-      roofRect(B, cbox, top, L.roof, { along: 'z', gable, shadow: S, over, hip: false, noCurl: true, maxRise: Math.max(0.6, R.rise * 0.82) });
+      roofRect(B, cbox, top, crossRoof(L.roof), { along: 'z', gable, shadow: S, over, hip: false, noCurl: true, maxRise: Math.max(0.6, R.rise * 0.82) });
       crosses.push(cbox);
       // long roofs get a dormer either side as well
       if (wdt >= 7.5) for (const s of [-1, 1]) {
@@ -868,6 +878,59 @@ function buildOne(B, S, bi, b, map, tv, style, smoke, owned) {
   B.tag = 0;
   dressStrip(B, b, map, tv, room, owned, bi, seed, L, base);
   return { base, top: roofTop, H, rimStone, style: L.style, crosses, rects, eaves: roofs.map((r) => ({ ...r.eave, y: r.eaveY })) };
+}
+
+// A castle building's top: parapet and merlons round a low hipped roof (its
+// tiles picked per building, so the courtyard is not one sea of slate), and
+// two or three banners hung from the parapet on the street side
+const CASTLE_ROOFS = [ROOFS.bluslate, ROOFS.slate, ROOFS.redtile];
+const BANNERS = [[0xa82a2a, 0xe8c050], [0x2a4a8a, 0xe8c050], [0xa82a2a, 0xf0ece0]];
+function castleTop(B, S, box, y, stone, seed, doorsU) {
+  const { x0, z0, x1, z1 } = box;
+  const sc = col(stone, 1);
+  const t = 0.16, ph = 0.22;
+  B.box(col(stone, 0.7), { x: (x0 + x1) / 2, y: y - 0.04, z: (z0 + z1) / 2, sx: x1 - x0, sy: 0.06, sz: z1 - z0 });
+  for (const [ax, az, bx, bz] of [[x0, z0, x1, z0], [x1, z0, x1, z1], [x1, z1, x0, z1], [x0, z1, x0, z0]]) {
+    beam(B, [ax, y + ph, az], [bx, y + ph, bz], t, ph + 0.04, sc);
+    beam(B, [ax, y - 0.02, az], [bx, y - 0.02, bz], t + 0.08, 0.07, col(stone, 0.84));
+    const len = Math.hypot(bx - ax, bz - az), n = Math.max(2, Math.round(len / 0.34));
+    for (let i = 0; i <= n; i += 2) {
+      const u = i / n;
+      B.box(col(stone, 1.08), { x: ax + (bx - ax) * u, y: y + ph, z: az + (bz - az) * u, sx: 0.2, sy: 0.17, sz: 0.2 });
+    }
+  }
+  S.box(0x808080, { x: (x0 + x1) / 2, y: y - 0.1, z: (z0 + z1) / 2, sx: x1 - x0, sy: 0.4, sz: z1 - z0 });
+  const roof = CASTLE_ROOFS[Math.floor(hash2(seed, 11, 3) * CASTLE_ROOFS.length)];
+  const inset = 0.36;
+  const R = roofRect(B, { x0: x0 + inset, z0: z0 + inset, x1: x1 - inset, z1: z1 - inset }, y + 0.05, roof, { hip: true, over: 0.08, maxRise: 1.5, pitchK: 0.8, shadow: S });
+  // banners on the street face, clear of the doors
+  const [cloth, trim] = BANNERS[Math.floor(hash2(seed, 5, 9) * BANNERS.length)];
+  const w = x1 - x0, n = w > 6 ? 3 : w > 3.2 ? 2 : 1;
+  for (let i = 0; i < n; i++) {
+    const bx = x0 + (w * (i + 1)) / (n + 1);
+    if (doorsU.some((u) => Math.abs(u - bx) < 0.7)) continue;
+    const zf = z1 + t / 2 + 0.02, top = y + 0.12, len = 0.78;
+    B.box(col(0x3a2a1a, 1), { x: bx, y: top + 0.02, z: zf + 0.01, sx: 0.4, sy: 0.04, sz: 0.04 });
+    B.box(col(cloth, 1), { x: bx, y: top - len, z: zf, sx: 0.3, sy: len, sz: 0.02 });
+    B.shape(TPL.cone4, col(cloth, 1), { x: bx, y: top - len, z: zf, sx: 0.3, sy: 0.14, sz: 0.02, rx: Math.PI });
+    B.box(col(trim, 1), { x: bx, y: top - len, z: zf + 0.012, sx: 0.06, sy: len, sz: 0.004 });
+    B.box(col(trim, 1), { x: bx, y: top - len * 0.45, z: zf + 0.014, sx: 0.16, sy: 0.16, sz: 0.004 });
+  }
+  return R;
+}
+
+// The cross gable over the door is laid in a lighter, warmer batch of the
+// same tiles, so it reads apart from the main roof seen from above
+const _crossRoofs = new Map();
+function crossRoof(R) {
+  let c = _crossRoofs.get(R);
+  if (!c) {
+    const t = new THREE.Color();
+    const lift = (hex) => { t.setHex(hex).lerp(new THREE.Color(0xe8c890), 0.16).multiplyScalar(1.12); return new THREE.Color(Math.min(1, t.r), Math.min(1, t.g), Math.min(1, t.b)).getHex(); };
+    c = { ...R, colors: R.colors.map(lift), ridgeColor: R.ridgeColor != null ? lift(R.ridgeColor) : undefined };
+    _crossRoofs.set(R, c);
+  }
+  return c;
 }
 
 // gable triangle under a roof's end: plaster with timbers, or stone

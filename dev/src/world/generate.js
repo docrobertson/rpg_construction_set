@@ -904,17 +904,75 @@ export function placeFeature(game, world, x, y, kind, name, seed) {
   return sub;
 }
 
+// Plenty of names, so that every townsperson in a large realm (and every
+// random hero) can have one of their own
 const NAMES = {
-  human: { m: ['Aldric', 'Bram', 'Cedric', 'Doran', 'Edwin', 'Garret', 'Hal', 'Osric', 'Rowan', 'Tobin', 'Wilf', 'Merek', 'Alder', 'Bertram', 'Corwin', 'Duncan', 'Emeric', 'Godwin', 'Hugh', 'Jory', 'Leofric', 'Piers', 'Roland', 'Simon', 'Walter'],
-    f: ['Ada', 'Brenna', 'Edith', 'Gwen', 'Hilda', 'Isolde', 'Maud', 'Rowena', 'Tilda', 'Wynn', 'Agnes', 'Beatrix', 'Cecily', 'Elena', 'Freya', 'Joan', 'Mabel', 'Nell', 'Rosalind', 'Sybil'] },
-  elf: { m: ['Aerendil', 'Caladir', 'Elrandir', 'Faelon', 'Galathil', 'Lindor', 'Thalion', 'Aranel', 'Calen', 'Erestor', 'Gilmir', 'Halmir', 'Orophin', 'Saeros'],
-    f: ['Arwyn', 'Celebrin', 'Elanor', 'Ithilwen', 'Laurelin', 'Nimloth', 'Silmariel', 'Aerin', 'Elemmire', 'Finduilas', 'Lothiel', 'Miriel', 'Tinuviel'] },
-  dwarf: { m: ['Balor', 'Borin', 'Dain', 'Durgan', 'Farin', 'Grimbold', 'Thrar', 'Norri', 'Bofur', 'Dwalin', 'Gloin', 'Hrothgar', 'Korin', 'Nain', 'Skafid', 'Thekk'], f: ['Brunhild', 'Disa', 'Hilda', 'Thora', 'Vigdis', 'Dagny', 'Gerd', 'Helga', 'Sigrun', 'Ylva'] },
+  human: { m: ['Aldric', 'Bram', 'Cedric', 'Doran', 'Edwin', 'Garret', 'Hal', 'Osric', 'Rowan', 'Tobin', 'Wilf', 'Merek', 'Alder', 'Bertram', 'Corwin', 'Duncan', 'Emeric', 'Godwin', 'Hugh', 'Jory', 'Leofric', 'Piers', 'Roland', 'Simon', 'Walter',
+    'Ambrose', 'Baldwin', 'Conrad', 'Denholm', 'Edric', 'Fulk', 'Gareth', 'Harold', 'Ivo', 'Jasper', 'Kenric', 'Lambert', 'Matthias', 'Ned', 'Odo', 'Percival', 'Quentin', 'Ralf', 'Stephen', 'Thurstan',
+    'Ulric', 'Warin', 'Aldous', 'Benedict', 'Cuthbert', 'Dunstan', 'Everard', 'Gilbert', 'Hamon', 'Lucan', 'Martin', 'Nigel', 'Oswin', 'Reginald', 'Silas', 'Tristram', 'Wystan', 'Yorick'],
+    f: ['Ada', 'Brenna', 'Edith', 'Gwen', 'Hilda', 'Isolde', 'Maud', 'Rowena', 'Tilda', 'Wynn', 'Agnes', 'Beatrix', 'Cecily', 'Elena', 'Freya', 'Joan', 'Mabel', 'Nell', 'Rosalind', 'Sybil',
+      'Alys', 'Bertha', 'Clemence', 'Dulcie', 'Emma', 'Felice', 'Gisela', 'Hawise', 'Ida', 'Juliana', 'Katherine', 'Lettice', 'Margery', 'Petronel', 'Rohese', 'Sabine', 'Thomasin', 'Ursula',
+      'Avice', 'Blanche', 'Constance', 'Edwina', 'Helewise', 'Iseult', 'Millicent', 'Odette', 'Philippa', 'Elspeth', 'Marian', 'Gillian', 'Hester', 'Winifred', 'Mildred', 'Orabel', 'Talia'] },
+  elf: { m: ['Aerendil', 'Caladir', 'Elrandir', 'Faelon', 'Galathil', 'Lindor', 'Thalion', 'Aranel', 'Calen', 'Erestor', 'Gilmir', 'Halmir', 'Orophin', 'Saeros',
+    'Amras', 'Belthil', 'Ereinion', 'Fingal', 'Glorion', 'Ilmar', 'Lenwe', 'Mablung', 'Rumil', 'Tarathil', 'Arandur', 'Celedor', 'Faramel', 'Ingwion'],
+  f: ['Arwyn', 'Celebrin', 'Elanor', 'Ithilwen', 'Laurelin', 'Nimloth', 'Silmariel', 'Aerin', 'Elemmire', 'Finduilas', 'Lothiel', 'Miriel', 'Tinuviel',
+    'Aredhel', 'Celebwen', 'Earwen', 'Galadwen', 'Idril', 'Luthiel', 'Melian', 'Nenya', 'Rian', 'Anariel', 'Elenwe', 'Indis', 'Nerdanel', 'Mirwen'] },
+  dwarf: { m: ['Balor', 'Borin', 'Dain', 'Durgan', 'Farin', 'Grimbold', 'Thrar', 'Norri', 'Bofur', 'Dwalin', 'Gloin', 'Hrothgar', 'Korin', 'Nain', 'Skafid', 'Thekk',
+    'Ari', 'Bombur', 'Dvalin', 'Frerin', 'Gimbal', 'Hannar', 'Ingvi', 'Kili', 'Loni', 'Nali', 'Oin', 'Rurik', 'Sindri', 'Torvald', 'Vali'],
+  f: ['Brunhild', 'Disa', 'Hilda', 'Thora', 'Vigdis', 'Dagny', 'Gerd', 'Helga', 'Sigrun', 'Ylva',
+    'Asa', 'Bera', 'Dagrun', 'Edda', 'Frida', 'Gudrun', 'Hervor', 'Inga', 'Jorunn', 'Kelda', 'Ragna', 'Solvei', 'Tova', 'Unn', 'Yrsa', 'Svala'] },
 };
 
-export function randomName(race, rng) {
+// A random first name. `avoid` (a Set from nameWords) keeps it from
+// sounding like anyone already in the game: "Hilda" is taken by Mayor Hilda.
+export function randomName(race, rng, avoid = null) {
   const n = NAMES[race] || NAMES.human;
-  return rng.pick(rng.chance(0.5) ? n.m : n.f);
+  const list = rng.chance(0.5) ? n.m : n.f;
+  const free = avoid ? list.filter((x) => !avoid.has(x.toLowerCase())) : list;
+  if (free.length) return rng.pick(free);
+  // every name of that kind is in use: try the other sex, then add a byname
+  const other = (list === n.m ? n.f : n.m).filter((x) => !avoid.has(x.toLowerCase()));
+  if (other.length) return rng.pick(other);
+  // every name is taken: a byname tells this one apart
+  for (let i = 0; i < 40; i++) {
+    const n = `${rng.pick(list)} ${rng.pick(['Brightwater', 'Ashdown', 'Fairfield', 'Stonebrook', 'Hollins', 'Marsh', 'Underhill', 'Greenleaf', 'Oakshott', 'Redmane'])}`;
+    if (!avoid.has(n.split(' ')[1].toLowerCase())) return n;
+  }
+  return rng.pick(list);
+}
+
+// The words of a name that make it someone's: "Mayor Hilda" → hilda,
+// "King Durgan Ironhand" → durgan, ironhand. Titles do not count.
+const TITLES = new Set(['mayor', 'king', 'queen', 'lady', 'lord', 'sir', 'dame', 'sister', 'brother', 'farmer', 'old', 'young', 'master', 'mistress', 'captain', 'father', 'mother', 'the', 'of', 'prince', 'princess']);
+export function nameWords(name) {
+  return String(name || '').toLowerCase().split(/[^a-z\u00c0-\u024f']+/).filter((w) => w.length > 1 && !TITLES.has(w));
+}
+
+// Every name word of every person placed in the game (optionally minus one)
+export function npcNameWords(game, except = null) {
+  const out = new Set();
+  for (const m of game?.maps || []) for (const e of m.entities || []) {
+    if (e.type === 'npc' && e !== except) for (const w of nameWords(e.name)) out.add(w);
+  }
+  return out;
+}
+
+// Give every made-up townsperson a name of their own across the whole game.
+// keep(e) marks the story folk whose names stay; the others are renamed if
+// they share a name word with anyone met earlier.
+export function uniqueTownsfolk(game, keep, seed = 1) {
+  const rng = new RNG(seed + 991);
+  const used = new Set();
+  const all = [];
+  for (const m of game.maps) for (const e of m.entities || []) if (e.type === 'npc') all.push(e);
+  for (const e of all) if (keep(e)) for (const w of nameWords(e.name)) used.add(w);
+  for (const e of all) {
+    if (keep(e)) continue;
+    const words = nameWords(e.name);
+    if (words.length && words.every((w) => !used.has(w))) { for (const w of words) used.add(w); continue; }
+    e.name = randomName(e.look?.race === 'hobbit' ? 'human' : e.look?.race || 'human', rng, used);
+    for (const w of nameWords(e.name)) used.add(w);
+  }
 }
 
 const ROLE_TEXT = {
@@ -934,15 +992,15 @@ const ROLE_TEXT = {
 
 export function nameNpcs(map, game, seed = 1) {
   const rng = new RNG(seed + 77);
-  const used = new Set(map.entities.filter((e) => e.type === 'npc' && e.name).map((e) => e.name));
+  // no new name may echo anyone already in the game, in any town
+  const used = npcNameWords(game);
+  for (const e of map.entities) if (e.type === 'npc') for (const w of nameWords(e.name)) used.add(w);
   for (const e of map.entities) {
     if (e.type !== 'npc') continue;
     const race = e.look?.race || 'human';
     if (!e.name) {
-      let n = randomName(race, rng);
-      for (let i = 0; i < 12 && used.has(n); i++) n = randomName(race, rng);
-      e.name = n;
-      used.add(n);
+      e.name = randomName(race === 'hobbit' ? 'human' : race, rng, used);
+      for (const w of nameWords(e.name)) used.add(w);
     }
     const rt = ROLE_TEXT[e.role] || ROLE_TEXT.villager;
     if (!e.job) e.job = rt.job;
@@ -955,12 +1013,14 @@ export function nameNpcs(map, game, seed = 1) {
   }
 }
 
+// What a shop sells unless the designer says otherwise: ordinary gear only.
+// The finest arms and armour are left for quests, hoards and hand-picked shops.
 export function defaultStock(game, kind) {
   const items = game.items || [];
   const ok = (it) => !it.unique && (it.price || 0) > 0;
   switch (kind) {
-    case 'weapons': return items.filter((it) => it.type === 'weapon' && ok(it) && (it.price || 0) <= 400).map((it) => it.id);
-    case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 500).map((it) => it.id);
+    case 'weapons': return items.filter((it) => it.type === 'weapon' && ok(it) && (it.price || 0) <= 100).map((it) => it.id);
+    case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 130).map((it) => it.id);
     case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
     case 'mixed': return items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id);
@@ -989,7 +1049,14 @@ export function generateArena(style, seed, opt = {}) {
   };
   switch (style) {
     case 'grass': scatter(['meadow', 'meadow', 'tree'], 0.1); break;
-    case 'forest': scatter(['tree', 'tree', 'meadow'], 0.2, false); break;
+    case 'forest':
+      // the wood frames the fight: thick on the flanks, a few trunks for cover
+      // in the middle, and open ground before each line so the foes meet quickly
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = x <= 1 || x >= W - 2 ? 0.5 : y >= 3 && y <= H - 4 ? 0.12 : 0;
+        if (rng.chance(p)) setTile(map, x, y, T[rng.pick(['tree', 'tree', 'meadow'])]);
+      }
+      break;
     case 'hills': scatter(['mountains', 'grass'], 0.1); break;
     case 'swamp': scatter(['shallows', 'grass'], 0.12); break;
     case 'desert': scatter(['desert', 'mountains'], 0.08); break;

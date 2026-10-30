@@ -4,7 +4,7 @@ import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
 import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
 import { serializeGame, cloneGame, getMap } from '../../data/schema.js';
-import { saveProject, getPref, setPref } from '../../core/storage.js';
+import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
 import { inspectEntity, inspectMap } from './inspector.js';
@@ -42,7 +42,10 @@ export class Editor {
     this.undoStack = [];
     this.redoStack = [];
     this.selected = null;
-    this.dirty = false;
+    // a remix, a new realm or an imported file is not in this browser yet:
+    // say so until the first save (on the first edit, Save, or leaving)
+    this.neverSaved = !listProjects().some((p) => p.id === game.id);
+    this.dirty = this.neverSaved;
     this.mouse = { down: false, panning: false };
     this.keys = new Set();
     this.tools = { ...PAINT_TOOLS, ...ENTITY_TOOLS };
@@ -136,6 +139,7 @@ export class Editor {
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('on', k === tab);
     this.root.classList.toggle('tab-map', tab === 'map');
     this.root.classList.toggle('tab-data', tab !== 'map');
+    this.root.classList.toggle('tab-quests', tab === 'quests');
     this.app.setLayout(tab === 'map' ? 'editor' : 'editor-data');
     if (tab === 'map') {
       this.main.style.display = 'none';
@@ -617,15 +621,16 @@ export class Editor {
 
   updateSaveState(err) {
     if (err) { this.saveState.textContent = '⚠ Not saved'; this.saveState.title = err; this.saveState.className = 'save-state bad'; return; }
-    this.saveState.textContent = this.dirty ? '● Unsaved' : '✓ Saved';
+    this.saveState.textContent = this.dirty ? (this.neverSaved ? '● Not saved yet' : '● Unsaved') : '✓ Saved';
     this.saveState.className = 'save-state' + (this.dirty ? ' dirty' : '');
-    this.saveState.title = this.dirty ? 'Changes will be saved to this browser automatically' : 'Saved in this browser';
+    this.saveState.title = this.neverSaved ? 'This realm is not in this browser yet: it is saved as soon as you change something, press Save, or leave' : this.dirty ? 'Changes will be saved to this browser automatically' : 'Saved in this browser';
   }
 
   save(silent) {
     try {
       saveProject(this.game);
       this.dirty = false;
+      this.neverSaved = false;
       this.updateSaveState();
       if (!silent) toast('Saved to this browser.');
       return true;

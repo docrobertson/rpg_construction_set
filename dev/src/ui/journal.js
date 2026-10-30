@@ -1,20 +1,23 @@
 // Quest UI for play mode: the always-visible tracker, quest banners, the
 // Journal (J), quest offers inside conversations, and the window for points
 // of interest and little text events.
-import { h, clear, modal } from './dom.js';
+import { h, clear, modal, anyModal } from './dom.js';
 import { sfx } from '../core/sound.js';
 import { itemOf } from '../game/rules.js';
 import { portrait } from '../render/portrait.js';
 import {
-  activeQuests, doneQuests, trackedQuest, currentStage, questState, stageLine, guidance, questPins, onTalk, offersFrom, startQuest, npcMarker,
+  activeQuests, doneQuests, trackedQuest, currentStage, questState, stageLine, stageLineHere, guidance, questPins, onTalk, offersFrom, startQuest, npcMarker,
+  goalTarget, pinQuest, isPinned, greetingFor,
 } from '../game/quests.js';
 import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS } from '../game/events.js';
 import * as Quests from '../game/quests.js';
+import * as Events from '../game/events.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
 
 // handles for tests and the browser console
 if (typeof window !== 'undefined') {
   window.__quests = Quests;
+  window.__events = Events;
   window.__schema = { serializeGame, deserializeGame, cloneGame };
 }
 
@@ -56,7 +59,7 @@ export class QuestUI {
     ui.openJournal = () => this.openJournal();
   }
 
-  destroy() { this.el.remove(); this.bannerHost.remove(); this.banners.length = 0; }
+  destroy() { clearTimeout(this.waitT); this.el.remove(); this.bannerHost.remove(); this.banners.length = 0; }
 
   // ------------------------------------------------------------ tracker
   refresh() {
@@ -65,16 +68,21 @@ export class QuestUI {
     if (!s.state.quests) return;
     el.hidden = !!s.battle;
     if (s.battle) return;
-    const sig = JSON.stringify([s.state.pos, s.state.quests, s.state.tracked, s.state.blessings, s.state.turn % 50 === 0, s.map?.id]);
+    const q = trackedQuest(s);
+    // people wander: follow where the one we are after stands now
+    const tgt = q ? goalTarget(s, q) : null;
+    const sig = JSON.stringify([s.state.pos, s.state.quests, s.state.tracked, s.state.pinned, s.state.blessings, s.state.turn % 50 === 0, s.map?.id, tgt]);
     if (sig === this.sig) return;
     this.sig = sig;
     clear(el);
-    const q = trackedQuest(s);
-    el.appendChild(h('div.qt-head', h('span', '📜 ', q ? (q.main ? 'Main quest' : 'Quest') : 'Journal'), h('span.qt-key', 'Journal · J')));
+    const pinned = isPinned(s, q);
+    el.appendChild(h('div.qt-head', h('span', '📜 ', q ? (q.main ? 'Main quest' : 'Quest') : 'Journal'),
+      pinned ? h('button.qt-pin', { title: 'You chose to follow this quest — click to follow the story again', onclick: (e) => { e.stopPropagation(); pinQuest(s, null); sfx('click'); this.sig = null; this.refresh(); } }, '📌 Pinned ×') : null,
+      h('span.qt-key', 'Journal · J')));
     if (q) {
       const g = guidance(s, q);
       el.appendChild(h('div.qt-name' + (q.main ? '.main' : ''), q.main ? '★ ' : '', q.name));
-      el.appendChild(h('div.qt-goal', stageLine(s, q)));
+      el.appendChild(h('div.qt-goal', g?.here ? stageLineHere(s, q) : stageLine(s, q)));
       if (g && g.text) {
         const arrow = h('span.qt-arrow', g.angle != null ? '➜' : (g.arrow || '•'));
         if (g.angle != null) arrow.style.transform = `rotate(${g.angle}rad)`;
@@ -86,8 +94,8 @@ export class QuestUI {
     const others = activeQuests(s).filter((x) => x !== q).slice(0, 3);
     for (const o of others) {
       el.appendChild(h('div.qt-other-row', {
-        title: 'Track this quest instead',
-        onclick: (e) => { e.stopPropagation(); s.state.tracked = o.id; sfx('click'); this.sig = null; this.refresh(); },
+        title: 'Follow this quest instead (pins it until you change it or it is done)',
+        onclick: (e) => { e.stopPropagation(); pinQuest(s, o.id); sfx('click'); this.sig = null; this.refresh(); },
       }, h('b', o.name), h('span', ' — ' + stageLine(s, o))));
     }
     const more = activeQuests(s).length - 1 - others.length;
@@ -117,6 +125,13 @@ export class QuestUI {
   }
 
   nextBanner() {
+    // never over a window: wait until the conversation / victory panel is closed
+    if (this.banners.length && anyModal()) {
+      this.showing = true;
+      clearTimeout(this.waitT);
+      this.waitT = setTimeout(() => { this.showing = null; if (this.bannerHost.isConnected) this.nextBanner(); }, 400);
+      return;
+    }
     const el = this.banners.shift();
     this.showing = el || null;
     if (!el) return;
@@ -133,14 +148,18 @@ export class QuestUI {
   }
 
   // ------------------------------------------------------------ minimap / map pins
+  // Returns what was drawn ({ tracked, other, events: Set of kinds }) for the map key
   drawPins(ctx, scale, opts = {}) {
     const s = this.s;
-    if (!s.map || !s.state.quests) return;
+    const shown = { tracked: false, other: false, events: new Set() };
+    if (!s.map || !s.state.quests) return shown;
     const map = s.map;
     if (opts.events) {
       for (const e of map.entities) {
         if (e.type !== 'event' || (s.visible && !map.explored[e.y * map.w + e.x])) continue;
-        const c = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' }[e.kind] || '#d0a0ff';
+        const known = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' };
+        const c = known[e.kind] || '#d0a0ff';
+        shown.events.add(known[e.kind] ? e.kind : 'other');
         ctx.fillStyle = c;
         ctx.strokeStyle = '#000';
         ctx.beginPath();
@@ -149,6 +168,9 @@ export class QuestUI {
       }
     }
     for (const p of questPins(s)) {
+      // a way point that lies off this map's grid would be pinned to its edge
+      if (p.x < 0 || p.y < 0 || p.x >= map.w || p.y >= map.h) continue;
+      if (p.tracked) shown.tracked = true; else shown.other = true;
       const x = p.x * scale + scale / 2, y = p.y * scale + scale / 2;
       const r = Math.max(2, scale * (p.tracked ? 1.4 : 1));
       ctx.fillStyle = p.tracked ? '#ffe040' : '#e0a0ff';
@@ -164,6 +186,7 @@ export class QuestUI {
         ctx.fillText(p.quest.name, x + r + 4, y + 4);
       }
     }
+    return shown;
   }
 
   // ------------------------------------------------------------ conversations
@@ -172,7 +195,12 @@ export class QuestUI {
     const s = this.s;
     for (const l of onTalk(s, npc)) {
       if (l.say) sayLine(l.say);
-      if (l.note) add(h('p.note.qnote' + (l.done ? '.done' : ''), (l.done ? '★ ' : '📜 ') + l.note));
+      if (l.got) add(h('p.note.qnote.got', '🎁 ' + l.note));
+      else if (l.note) add(h('p.note.qnote' + (l.done ? '.done' : ''), (l.done ? '★ ' : '📜 ') + l.note));
+      if (l.done) {
+        const rt = rewardText(s.game, l.quest.reward);
+        if (rt) add(h('p.note.qnote.got', '🎁 Reward: ' + rt));
+      }
     }
     for (const q of offersFrom(s, npc)) {
       const btns = h('div.qo-btns');
@@ -187,8 +215,7 @@ export class QuestUI {
           onclick: () => {
             clear(btns);
             startQuest(s, q.id);
-            s.state.tracked = q.id;
-            btns.appendChild(h('span.qo-accepted', '✔ Quest accepted — see your Journal (J)'));
+            btns.appendChild(h('span.qo-accepted', '✔ Quest accepted — see your Journal (J) to follow it'));
             if (q.accept) sayLine(q.accept);
             this.ui.refresh();
           },
@@ -200,6 +227,9 @@ export class QuestUI {
 
   // Head line of a conversation: what this person is about
   markerFor(npc) { return npcMarker(this.s, npc); }
+
+  // What they say first: thanks once their quest is done, else their greeting
+  greetingFor(npc) { return greetingFor(this.s, npc); }
 
   // ------------------------------------------------------------ journal
   openJournal(tab = 'active', focus = null) {
@@ -253,9 +283,12 @@ export class QuestUI {
       if (rt) el.appendChild(h('div.j-reward', active ? 'Reward: ' : 'You were rewarded with: ', rt));
       if (active) {
         const tracked = trackedQuest(s) === q;
-        el.appendChild(h('div.row', tracked ? h('span.hint', '◎ Shown on screen and on the map') : h('button.small', {
-          onclick: () => { s.state.tracked = q.id; this.sig = null; this.ui.refresh(); el.innerHTML = ''; render(); },
-        }, '◎ Track this quest')));
+        const pinned = isPinned(s, q);
+        const redo = () => { this.sig = null; this.ui.refresh(); render(); };
+        el.appendChild(h('div.row',
+          tracked ? h('span.hint', pinned ? '📌 Pinned: shown on screen and on the map' : '◎ Shown on screen and on the map') : null,
+          pinned ? h('button.small', { title: 'Let the tracker follow the story again', onclick: () => { pinQuest(s, null); redo(); } }, 'Unpin')
+            : h('button.small', { title: 'Keep this quest on screen until you choose another or it is done', onclick: () => { pinQuest(s, q.id); redo(); } }, '📌 Pin to the screen')));
       }
     };
     const renderLore = () => {
@@ -300,7 +333,8 @@ export class QuestUI {
           pendingFight = null;
           setTimeout(async () => {
             s.log(`${e.name || 'The foe'} attacks!`, 'bad');
-            const out = await s.engage({ id: '__ev_' + e.id, monster: f.monster, count: f.count, roaming: true });
+            const once = e.repeat === 'once' || !e.repeat;
+            const out = await s.engage({ id: '__ev_' + e.id, monster: f.monster, count: f.count, roaming: true, alsoRemove: once ? e.id : null });
             if (out && out.outcome === 'victory' && (e.repeat === 'once' || !e.repeat) && s.map.entities.includes(e)) s.removeEntity(e);
           }, 50);
         }
@@ -336,6 +370,7 @@ export class QuestUI {
       if (res.success !== false) sfx('gold');
       if (res.fight) pendingFight = res.fight;
       else if (res.remove && s.map.entities.includes(e)) s.removeEntity(e);
+      if (!res.fight) s.autosave?.();
       body.appendChild(h('div.modal-buttons.ev-btns', h('button.primary', { onclick: () => m.close() }, res.fight ? 'To arms!' : 'Continue')));
       this.ui.refresh();
     };

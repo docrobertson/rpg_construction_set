@@ -19,10 +19,13 @@ export const shared = {
   uLightOn: { value: 0 },
   // carried light around the party: x, z, radius, strength
   uParty: { value: new THREE.Vector4(0, 0, 0, 0) },
-  // cutaway circles: frag x, frag y, radius (px), world z of the focus
-  uCut: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
-  uCutY: { value: new THREE.Vector4() },
+  // cutaway circles: frag x, frag y, radius (px), world z of the focus (up to
+  // 12: in battle every combatant gets one, so no tree hides a fighter)
+  uCut: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
+  uCutY: { value: new Float32Array(12) },
   uCutN: { value: 0 },
+  // extra rim light on figures (rgb, strength): lifts dark monsters off a dark battlefield
+  uRim: { value: new THREE.Vector4(0, 0, 0, 0) },
   // reflected sky colour on water
   uSky: { value: new THREE.Color(0x9cc8ec) },
   uGrade: { value: 1 },
@@ -38,9 +41,10 @@ const COMMON_FRAG = `
   uniform vec4 uLightRect;
   uniform float uLightOn;
   uniform vec4 uParty;
-  uniform vec4 uCut[4];
-  uniform vec4 uCutY;
+  uniform vec4 uCut[12];
+  uniform float uCutY[12];
   uniform int uCutN;
+  uniform vec4 uRim;
   uniform vec3 uSky;
   uniform float uGrade;
   varying vec2 vVisPos;
@@ -128,13 +132,14 @@ function injectVisibility(material, extra = {}) {
         #ifdef FX_CUT
         if (uFx > 0.5) {
           // screen-door dither through anything tall standing in front of a focus
-          for (int i = 0; i < 4; i++) {
+          for (int i = 0; i < 12; i++) {
             if (i >= uCutN) break;
             vec4 c = uCut[i];
             float d = length(gl_FragCoord.xy - c.xy);
             if (d > c.z || vWorldPos.z < c.w) continue;
-            float k = smoothstep(c.z, c.z * 0.5, d) * smoothstep(0.0, 0.22, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.35, vWorldPos.z - c.w);
-            if (fxBayer(gl_FragCoord.xy) < k * 0.93) discard;
+            // the middle clears completely; the rim thins out in a dither
+            float k = smoothstep(c.z, c.z * 0.6, d) * smoothstep(0.0, 0.22, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.3, vWorldPos.z - c.w);
+            if (fxBayer(gl_FragCoord.xy) < k * 1.08) discard;
           }
         }
         #endif`)
@@ -289,6 +294,8 @@ export function createMaterials() {
         float rim = 1.0 - clamp(dot(normal, V), 0.0, 1.0);
         rim = smoothstep(0.55, 1.0, rim);
         gl_FragColor.rgb += rimSky * rim * (0.1 + 0.3 * diffuseColor.rgb);
+        // a battle in the dark: a broader, stronger rim so black fur and bone stand off the floor
+        gl_FragColor.rgb += uRim.rgb * smoothstep(0.35, 1.0, 1.0 - clamp(dot(normal, V), 0.0, 1.0)) * uRim.w;
         #ifdef USE_MAP
           // skin and painted faces (tagged through the uvs) never sink into
           // shadow: a hood, a brim or a turn from the sun only softens them

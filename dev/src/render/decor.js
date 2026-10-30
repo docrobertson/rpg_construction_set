@@ -249,9 +249,60 @@ function fire(G, x, y, z, s = 1) {
   G.shape(TPL.cone5, 0xffc030, { x, y, z, sx: 0.09 * s, sy: 0.18 * s, sz: 0.09 * s, ry: 0.6 });
 }
 
+// A castle's courtyard is a working place: barrels and crates, weapon racks
+// and banner poles against the walls, the odd straw dummy out on the lawn.
+// They keep to the edge of their square, out of everyone's way.
+function courtyard(c) {
+  const { map, nb, r, B, cx, cz } = c;
+  if (!map || map.type !== 'castle' || c.outside) return false;
+  if (map.entities?.some((e) => e.x === c.x && e.y === c.z)) return false;
+  const wall = [[0, -1], [1, 0], [-1, 0], [0, 1]].find(([dx, dz]) => nb(dx, dz).wall);
+  const y = c.g;
+  if (!wall) {
+    if (r(91) > 0.012 || nb(0, 1).door || nb(0, -1).door) return false;
+    // a straw-stuffed practice dummy on a post, a battered shield on its arm
+    const px = cx + (r(92) - 0.5) * 0.3, pz = cz + (r(93) - 0.5) * 0.3;
+    B.shape(TPL.cyl6, 0x5a3e24, { x: px, y, z: pz, sx: 0.05, sy: 0.62, sz: 0.05 });
+    B.shape(TPL.capsule, 0xd8b060, { x: px, y: y + 0.26, z: pz, sx: 0.2, sy: 0.3, sz: 0.16 });
+    B.shape(TPL.ball, 0xc8a050, { x: px, y: y + 0.66, z: pz, s: 0.1 });
+    B.box(0x5a3e24, { x: px, y: y + 0.44, z: pz, sx: 0.44, sy: 0.04, sz: 0.04 });
+    B.shape(TPL.cyl8, 0x8a2a2a, { x: px + 0.2, y: y + 0.3, z: pz + 0.05, sx: 0.2, sy: 0.03, sz: 0.2, rx: Math.PI / 2 });
+    for (const dx of [-0.07, 0.07]) B.box(0x6a4a2a, { x: px + dx, y, z: pz, sx: 0.04, sy: 0.04, sz: 0.3 });
+    return false; // the grass still grows round it
+  }
+  if (r(94) > 0.12) return false;
+  const [dx, dz] = wall;
+  const px = cx + dx * 0.24, pz = cz + dz * 0.24;
+  const along = dx ? Math.PI / 2 : 0;
+  const k = r(95);
+  if (k < 0.4) {
+    TOWN_DECOR.barrels({ ...c, cx: cx + dx * 0.16, cz: cz + dz * 0.16, y });
+  } else if (k < 0.72) {
+    // a weapon rack: two posts, a rail, spears leaning in it
+    const ax = Math.cos(along), az = -Math.sin(along);
+    for (const s of [-1, 1]) B.box(0x5a3e24, { x: px + ax * s * 0.26, y, z: pz + az * s * 0.26, sx: 0.05, sy: 0.42, sz: 0.05 });
+    B.box(0x6a4a2a, { x: px, y: y + 0.32, z: pz, sx: dx ? 0.05 : 0.6, sy: 0.04, sz: dx ? 0.6 : 0.05 });
+    for (let i = 0; i < 4; i++) {
+      const u = -0.2 + i * 0.13, qx = px + ax * u, qz = pz + az * u;
+      B.shape(TPL.cyl6, 0x7a5a36, { x: qx, y, z: qz, sx: 0.022, sy: 0.72, sz: 0.022, rx: dz * 0.18, rz: -dx * 0.18 });
+      B.shape(TPL.cone4, 0xc8ccd4, { x: qx + dx * 0.13, y: y + 0.7, z: qz + dz * 0.13, sx: 0.05, sy: 0.12, sz: 0.05, rx: dz * 0.18, rz: -dx * 0.18 });
+    }
+  } else {
+    // a banner pole with the castle's colours
+    B.shape(TPL.cyl6, 0x3a3028, { x: px, y, z: pz, sx: 0.04, sy: 1.15, sz: 0.04 });
+    B.shape(TPL.ball, 0xe0c050, { x: px, y: y + 1.16, z: pz, s: 0.05 });
+    sway(B, y + 0.7, 0.5);
+    B.box(0xa82a2a, { x: px + 0.17, y: y + 0.72, z: pz, sx: 0.3, sy: 0.38, sz: 0.015 });
+    B.box(0xe8c050, { x: px + 0.17, y: y + 0.86, z: pz + 0.01, sx: 0.1, sy: 0.1, sz: 0.008 });
+    still(B);
+  }
+  return r(96) < 0.5;
+}
+
 export const DECOR = {
   // --- the wild ---
   tufts(c) {
+    if (courtyard(c)) return;
     const { B, cx, cz, r } = c;
     // a clump or two of long grass, the odd bush or stone: sparse, never speckle
     if (r(1) < 0.28) {
@@ -271,6 +322,7 @@ export const DECOR = {
     }
   },
   flowers(c) {
+    if (courtyard(c)) return;
     const { B, cx, cz, r } = c;
     const sets = [[0xf5d840, 0xfff2a0], [0xe86a8a, 0xf4f0e8], [0xa080f0, 0xf4f0e8], [0xf08a40, 0xf5d840], [0xf4f0ff, 0xb0d0ff]];
     const cols = sets[Math.floor(r(2) * sets.length)];
@@ -389,15 +441,19 @@ export const DECOR = {
   },
   bridge(c) {
     const { B, cx, cz, nb } = c;
-    const landEW = !nb(-1, 0).water || !nb(1, 0).water || nb(-1, 0).key === 'bridge' || nb(1, 0).key === 'bridge';
-    const landNS = !nb(0, -1).water || !nb(0, 1).water || nb(0, -1).key === 'bridge' || nb(0, 1).key === 'bridge';
-    const ew = landEW && !(landNS && !landEW);
+    // the bridge runs towards the land it joins; several abreast (a wide
+    // bridge over a moat) share their rails along the outer edges only
+    const isB = (dx, dy) => nb(dx, dy).key === 'bridge';
+    const landEW = !nb(-1, 0).water || !nb(1, 0).water, landNS = !nb(0, -1).water || !nb(0, 1).water;
+    const ew = landEW !== landNS ? landEW : (isB(-1, 0) || isB(1, 0)) && !(isB(0, -1) || isB(0, 1));
     const deckY = -0.02;
+    const span = (ew ? isB(0, -1) || isB(0, 1) : isB(-1, 0) || isB(1, 0)) ? 1.0 : 0.86;
     for (let i = 0; i < 5; i++) {
       const off = -0.4 + i * 0.2;
-      B.box(i % 2 ? 0x9a7448 : 0x8a663e, ew ? { x: cx + off, y: deckY, z: cz, sx: 0.19, sy: 0.07, sz: 0.86 } : { x: cx, y: deckY, z: cz + off, sx: 0.86, sy: 0.07, sz: 0.19 });
+      B.box(i % 2 ? 0x9a7448 : 0x8a663e, ew ? { x: cx + off, y: deckY, z: cz, sx: 0.19, sy: 0.07, sz: span } : { x: cx, y: deckY, z: cz + off, sx: span, sy: 0.07, sz: 0.19 });
     }
     for (const side of [-1, 1]) {
+      if (ew ? isB(0, side) : isB(side, 0)) continue;
       const o = ew ? { x: cx, y: deckY + 0.16, z: cz + side * 0.4, sx: 1.0, sy: 0.05, sz: 0.06 } : { x: cx + side * 0.4, y: deckY + 0.16, z: cz, sx: 0.06, sy: 0.05, sz: 1.0 };
       B.box(0x5a3e24, o);
       for (const p of [-0.4, 0.4]) {
@@ -624,7 +680,9 @@ export const DECOR = {
   // --- settlements (streets, walls, furniture: see townDecor.js) ---
   bigtree(c) {
     const { B, cx, cz, y, r } = c;
-    tree(B, cx + (r(1) - 0.5) * 0.1, y, cz + (r(2) - 0.5) * 0.1, 1.85, r(3));
+    // (battle) a lighter crown inside the arena, so fighters beside it stay in view
+    const s = c.map?.type === 'arena' && !c.outside ? 1.4 + r(4) * 0.15 : 1.85;
+    tree(B, cx + (r(1) - 0.5) * 0.1, y, cz + (r(2) - 0.5) * 0.1, s, r(3));
   },
   stairsdown(c) {
     const { B, cx, cz, y } = c;
@@ -842,5 +900,117 @@ export function wallTorchAt(map, x, y) {
   for (let dx = 1; dx <= 2; dx++) if (x - dx >= 0 && hash2(x - dx, y, 5150) <= p && at(x - dx, y)?.wall && at(x - dx, y + 1)?.walk) return false;
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Battle obstacles. Inside an arena a lone square of rock wall or stone wall is
+// drawn as a prop standing on the floor (a heap of boulders, a pillar, a stack
+// of crates) instead of a featureless block, so cover reads as cover; their
+// stone is a few shades lighter than the floor so they stand out in the dark.
+function shadeStone(B, start, warm = 0) {
+  const N = B.nor, C = B.col;
+  for (let i = start; i < C.length; i += 3) {
+    const up = N[i + 1];
+    const k = 0.6 + 0.55 * Math.max(0, up) - N[i] * 0.12 + Math.max(0, N[i + 2]) * 0.08;
+    C[i] *= k * (1 + warm); C[i + 1] *= k; C[i + 2] *= k * (1.04 - warm);
+  }
+}
+
+function boulders(c) {
+  const { B, G, cx, cz, r, dark } = c;
+  const cols = dark ? [0x8a7f70, 0x9a8e7c, 0x7e7366] : [0x958c80, 0xa39a8c, 0x887f74];
+  const start = B.col.length;
+  const stone = (px, pz, s, k) => B.shape(TPL.dodec, cols[k % 3], {
+    x: px, y: c.gy(px, pz) + 0.22 * s, z: pz, sx: 0.62 * s, sy: 0.5 * s, sz: 0.56 * s, ry: r(k) * 6, rx: (r(k + 1) - 0.5) * 0.4, flat: true,
+  });
+  stone(cx - 0.06 + (r(2) - 0.5) * 0.1, cz - 0.08, 1.25, 1);
+  stone(cx + 0.24, cz + 0.14, 0.78, 4);
+  stone(cx - 0.25, cz + 0.2, 0.6, 7);
+  // a stalagmite or a standing shard rising behind the heap
+  if (r(10) < 0.65) {
+    const px = cx + 0.12 + (r(13) - 0.5) * 0.2, pz = cz - 0.22;
+    B.shape(TPL.cone6, cols[1], { x: px, y: c.gy(px, pz) - 0.03, z: pz, sx: 0.26, sy: 0.85 + r(11) * 0.4, sz: 0.24, ry: r(12) * 3, rz: (r(14) - 0.5) * 0.2 });
+  }
+  shadeStone(B, start);
+  for (let i = 0; i < 3; i++) {
+    const a = r(20 + i) * 6.28, d = 0.38 + r(23 + i) * 0.08;
+    const px = cx + Math.cos(a) * d, pz = cz + Math.sin(a) * d;
+    rock(B, px, c.gy(px, pz) - 0.03, pz, 0.28 + r(26 + i) * 0.2, r(29 + i), cols[i % 3]);
+  }
+  // now and then a seam of glowing crystal catches the eye
+  if (dark && r(30) < 0.35) {
+    const px = cx + 0.3, pz = cz + 0.02;
+    for (let i = 0; i < 3; i++) G.shape(TPL.cone4, [0x9a70ff, 0x60c0ff][i % 2], { x: px + (i - 1) * 0.06, y: c.gy(px, pz) + 0.05, z: pz + (i - 1) * 0.04, sx: 0.06, sy: 0.22 - i * 0.04, sz: 0.06, rx: (i - 1) * 0.35, rz: (1 - i) * 0.3 });
+    c.light(px, pz + 0.3, 1.6, 0x8070ff, 0.55);
+  }
+}
+
+function pillar(c, broken) {
+  const { B, cx, cz, r } = c;
+  const y = c.gy(cx, cz);
+  const st = c.dark ? 0xa69c8c : 0xb4ab9c;
+  const start = B.col.length;
+  B.box(shade(st, 0.78), { x: cx, y: y - 0.03, z: cz, sx: 0.8, sy: 0.17, sz: 0.8 });
+  B.box(shade(st, 0.88), { x: cx, y: y + 0.13, z: cz, sx: 0.68, sy: 0.1, sz: 0.68 });
+  const h = broken ? 0.5 + r(3) * 0.3 : 1.2;
+  B.shape(TPL.cyl12, st, { x: cx, y: y + 0.22, z: cz, sx: 0.48, sy: h, sz: 0.48, grad: 0.35 });
+  // flutes: darker grooves down the shaft
+  for (let i = 0; i < 6; i++) {
+    const a = i * Math.PI / 3 + 0.26;
+    B.box(shade(st, 0.72), { x: cx + Math.cos(a) * 0.235, y: y + 0.26, z: cz + Math.sin(a) * 0.235, sx: 0.03, sy: h - 0.08, sz: 0.03, ry: -a });
+  }
+  if (!broken) {
+    B.box(shade(st, 1.02), { x: cx, y: y + 0.22 + h, z: cz, sx: 0.6, sy: 0.08, sz: 0.6 });
+    B.box(shade(st, 1.1), { x: cx, y: y + 0.3 + h, z: cz, sx: 0.74, sy: 0.12, sz: 0.74 });
+  } else {
+    // the snapped top, a fallen drum and chips of stone at its foot
+    B.shape(TPL.cone8, shade(st, 0.95), { x: cx, y: y + 0.2 + h, z: cz, sx: 0.48, sy: 0.14, sz: 0.48, rz: 0.35, ry: r(4) * 3 });
+    const a = r(5) * 6.28;
+    const px = cx + Math.cos(a) * 0.3, pz = cz + Math.sin(a) * 0.3;
+    B.shape(TPL.cyl12, shade(st, 0.92), { x: px, y: c.gy(px, pz) + 0.0, z: pz, sx: 0.42, sy: 0.34, sz: 0.42, rz: Math.PI / 2, ry: a, grad: 0.2 });
+    for (let i = 0; i < 3; i++) {
+      const b = r(6 + i) * 6.28, qx = cx + Math.cos(b) * 0.42, qz = cz + Math.sin(b) * 0.42;
+      rock(B, qx, c.gy(qx, qz) - 0.03, qz, 0.25 + r(9 + i) * 0.15, r(12 + i), shade(st, 0.85));
+    }
+  }
+  shadeStone(B, start, 0.04);
+}
+
+function crate(B, px, py, pz, s, wood) {
+  const dark = shade(wood, 0.55);
+  B.box(wood, { x: px, y: py, z: pz, sx: s, sy: s, sz: s });
+  // rims and corner posts in darker wood, a brace across the faces
+  for (const yy of [py - 0.005, py + s - 0.06]) B.box(dark, { x: px, y: yy, z: pz, sx: s + 0.025, sy: 0.065, sz: s + 0.025 });
+  for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) B.box(dark, { x: px + dx * (s / 2 - 0.025), y: py, z: pz + dz * (s / 2 - 0.025), sx: 0.065, sy: s, sz: 0.065 });
+  B.box(dark, { x: px, y: py + s / 2 - 0.03, z: pz + s / 2 + 0.006, sx: s * 1.18, sy: 0.055, sz: 0.02, rz: 0.78 });
+  B.box(dark, { x: px + s / 2 + 0.006, y: py + s / 2 - 0.03, z: pz, sx: 0.02, sy: 0.055, sz: s * 1.18, rx: 0.78 });
+}
+
+function barrel(B, px, py, pz, s, wood) {
+  B.shape(TPL.cyl12, wood, { x: px, y: py, z: pz, sx: 0.4 * s, sy: 0.56 * s, sz: 0.4 * s, grad: 0.3 });
+  for (const k of [0.08, 0.44]) B.shape(TPL.cyl12, 0x3a3430, { x: px, y: py + k * s, z: pz, sx: 0.42 * s, sy: 0.05 * s, sz: 0.42 * s });
+  B.shape(TPL.cyl12, shade(wood, 0.8), { x: px, y: py + 0.56 * s, z: pz, sx: 0.36 * s, sy: 0.01, sz: 0.36 * s });
+}
+
+function crates(c) {
+  const { B, cx, cz, r } = c;
+  const woods = [0xa87a48, 0x96693c, 0xb4864f];
+  const y = c.gy(cx, cz);
+  const start = B.col.length;
+  crate(B, cx - 0.2, y - 0.01, cz + 0.12, 0.46, woods[0]);
+  crate(B, cx + 0.22, y - 0.01, cz + 0.06 + (r(1) - 0.5) * 0.1, 0.44, woods[1]);
+  if (r(2) < 0.7) crate(B, cx - 0.04, y + 0.44, cz + 0.08, 0.4, woods[2]);
+  barrel(B, cx + 0.05 + (r(3) - 0.5) * 0.2, y - 0.01, cz - 0.28, 1, 0x8a5e34);
+  shadeStone(B, start, 0.05);
+}
+
+export const ARENA_PROPS = {
+  cave_wall: boulders,
+  // a dungeon hall keeps pillars and stores; old ruins mostly broken columns
+  wall_stone(c) {
+    const k = c.r(1);
+    if (c.map?.fill === 'floor_stone') return k < 0.5 ? pillar(c, false) : k < 0.8 ? crates(c) : pillar(c, true);
+    return k < 0.7 ? pillar(c, true) : pillar(c, false);
+  },
+};
 
 export { T };

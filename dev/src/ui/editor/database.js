@@ -4,7 +4,7 @@ import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
   STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
-  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES,
+  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES,
 } from '../../data/defaults.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
@@ -72,6 +72,7 @@ export function categories(game) {
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
         { key: 'skills', label: 'Battle skills (keys 1, 2…)', type: 'ids', options: abilities, hint: 'Defined under Abilities. Most have a cooldown; free actions do not end the turn.' },
         { key: 'special', label: 'Battle special (key Q)', type: 'select', empty: '— none —', nullable: true, options: abilities, hint: 'Usually a once-per-battle ability (★).' },
+        { key: 'talents', label: 'Talent tree', type: 'select', empty: '— guess from the skills —', nullable: true, options: Object.entries(TALENT_TREES), hint: 'On each level-up a hero picks one of three talents, mostly from this tree.' },
         { key: 'primary', label: 'Favoured attributes', type: 'multicheck', options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'Suggested when creating a hero. Players spend a point per level themselves.' },
         { key: 'start', label: 'Starting equipment', type: 'ids', options: items },
         { type: 'section', label: 'Appearance' },
@@ -169,6 +170,15 @@ export function categories(game) {
         { key: 'swim', label: 'Lives in water', type: 'check' },
         { key: 'fly', label: 'Flies (crosses water)', type: 'check' },
         { key: 'boss', label: 'Unique boss (never random)', type: 'check' },
+        { type: 'section', label: 'Second phase' },
+        { key: 'phaseAt', label: 'Second phase below (fraction of health)', type: 'number', step: 0.05, min: 0, max: 0.95, rerender: true, hint: 'Once per battle, e.g. 0.5 at half health. 0 or empty: no second phase.' },
+        { key: 'phaseEnrage', label: 'Becomes enraged (+2 to hit, ×1.25 damage)', type: 'check', show: (o) => o.phaseAt > 0 },
+        { key: 'phaseAdds', label: 'Calls to its side', type: 'list', show: (o) => o.phaseAt > 0, fields: [
+          { key: 'id', label: 'Monster', type: 'select', options: () => game.monsters.map((m) => [m.id, m.name]) },
+          { key: 'min', label: 'Min', type: 'number', min: 0 },
+          { key: 'max', label: 'Max', type: 'number', min: 0 },
+        ], rowLabel: (r) => game.monsters.find((m) => m.id === r.id)?.name || 'Monster', newRow: () => ({ id: game.monsters[0].id, min: 2, max: 2 }), addLabel: '+ Add reinforcements' },
+        { key: 'phaseText', label: 'What happens (shown in the log)', type: 'textarea', rows: 2, show: (o) => o.phaseAt > 0 },
         { type: 'section', label: 'Appearance' },
         { key: 'look.kind', label: 'Shape', type: 'select', options: MODEL_KINDS.filter((k) => !['chest', 'ship', 'waygate', 'sign', 'campfire', 'marker'].includes(k)), rerender: true },
         { key: 'look.scale', label: 'Size', type: 'number', step: 0.05, min: 0.3, max: 3 },

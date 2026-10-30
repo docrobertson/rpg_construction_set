@@ -87,16 +87,20 @@ if (inBattle && await waitActive('wizard') && await settle()) {
     await page.keyboard.press('1');
     await wait(250);
     const targeting = await ev(() => window.__app.playUI.targeting?.label);
+    // foes the skill can reach from where the wizard stands (positions are random)
+    const inReach = await ev(() => window.__app.playUI.targeting?.units?.length ?? -1);
     await shot('55-skill-targeting');
     await page.keyboard.press('Enter');
     await wait(1800);
     const after = await ev(() => { const b = window.__app.session.battle; const u = b?.partyUnits.find((p) => p.member.cls === 'wizard'); return u ? { cd: u.cd.firebolt || 0, uses: u.uses.firebolt || 0 } : 'over'; });
-    expect('key 1 aims the first skill and Enter fires it', targeting === 'Firebolt' && (after === 'over' || after.uses === 1), { targeting, after });
+    expect('key 1 aims the first skill and Enter fires it', targeting === 'Firebolt' && (inReach === 0 || after === 'over' || after.uses === 1), { targeting, inReach, after });
   }
 }
 // G braces the active hero
 if (await ev(() => !!window.__app.session.battle) && await waitActive() && await settle()) {
   for (let i = 0; i < 3; i++) { if (!(await ev(() => !!document.querySelector('.modal-back')))) break; await page.keyboard.press('Escape'); await wait(100); }
+  // a skill aimed above but not fired (no foe in reach) would still be waiting for a target
+  await ev(() => window.__app.playUI.cancelTargeting());
   const g = await ev(() => { const b = window.__app.session.battle; return { name: b.active.name, ac: b.acOf(b.active) }; });
   await page.keyboard.press('g');
   await wait(600);

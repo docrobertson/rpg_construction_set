@@ -64,8 +64,9 @@ function roleReply(npc, word, ctx) {
   const role = npc.role;
   const k = (w) => keywordMatches(word, w);
   if (npc.shop && (k('BUY') || k('SELL') || k('TRADE') || k('WARES') || k('FOOD'))) return { text: 'Let us see what thou needest.', action: { type: 'shop' } };
-  if (role === 'inn' && (k('ROOM') || k('REST') || k('INN') || k('SLEEP') || k('BED'))) return { text: '', action: { type: 'inn' } };
-  if (role === 'healer' && (k('HEAL') || k('CURE') || k('RAISE') || k('HELP'))) return { text: '', action: { type: 'healer' } };
+  // (the window opens, but the person still answers)
+  if (role === 'inn' && (k('ROOM') || k('REST') || k('INN') || k('SLEEP') || k('BED'))) return { text: 'A room? Aye, warm beds and a hot supper. Here is what it costs for all of ye.', action: { type: 'inn' } };
+  if (role === 'healer' && (k('HEAL') || k('CURE') || k('RAISE') || k('HELP'))) return { text: 'Let me see thy hurts. Here is what I can do, and what it costs.', action: { type: 'healer' } };
   if (role === 'tavern' && (k('RUMOURS') || k('RUMORS') || k('NEWS') || k('ALE'))) {
     const r = ctx.rumour();
     return { text: r || 'Quiet times, friend. Quiet times.' };

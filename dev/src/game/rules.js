@@ -1,5 +1,5 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, ABILITIES, PERKS, CLASSES, MONSTERS } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
 import { roll, RNG, hashString } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
@@ -46,9 +46,12 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
   return c;
 }
 
+// Health grows a little over half the class's "per level" figure each level,
+// plus half the Strength bonus: heroes toughen, but a level-6 warrior is no
+// longer four times the man he was (the old curve made every fight trivial).
 export function maxHp(game, c) {
   const k = classOf(game, c), r = raceOf(game, c);
-  const per = (k.hpLevel || 6) + Math.max(-1, mod(c.str)) + (r.hp || 0);
+  const per = Math.ceil((k.hpLevel || 6) * 0.6) + Math.floor(Math.max(-1, mod(c.str)) / 2) + Math.sign(r.hp || 0);
   return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5);
 }
 
@@ -61,14 +64,39 @@ export function perkCount(c, id) {
 
 export function perkOf(id) { return PERKS.find((p) => p.id === id) || null; }
 
-// The two talents offered for the next pending level: fixed per hero and
-// level so that closing the window and coming back offers the same pair
+// Which talent tree a class draws from (fighter, archer, healer, caster or
+// rogue). Set per class in the construction set; older games guess from the
+// class's skills and magic.
+export function talentTree(game, c) {
+  const k = classOf(game, c);
+  if (k.talents && TALENT_TREES[k.talents]) return k.talents;
+  const def = CLASSES.find((d) => d.id === k.id);
+  if (def?.talents) return def.talents;
+  const abs = [...(k.skills || []), k.special].map((id) => abilityOf(game, id)).filter(Boolean);
+  if (abs.some((a) => a.heal || a.healPct)) return 'healer';
+  if ((k.magic || []).some((m) => (m.rate ?? 1) >= 1)) return 'caster';
+  if (abs.some((a) => a.needs === 'ranged')) return 'archer';
+  if ((k.abilities || []).includes('backstab')) return 'rogue';
+  return 'fighter';
+}
+
+// The three talents offered for the next pending level: fixed per hero and
+// level so that closing the window and coming back offers the same three.
+// Talents from the hero's own tree are three times as likely to come up.
 export function perkChoices(game, c) {
   const ok = PERKS.filter((p) => (p.stack || !perkCount(c, p.id))
     && (p.needs !== 'mana' || maxMp(game, c) > 0)
+    && (p.needs !== 'heals' || heroAbilities(game, c).some((a) => a.heal || a.healPct) || knownSpells(game, c).some((sp) => sp.effect === 'heal') || casting(game, c).some((ci) => ci.sys.id === 'divine'))
     && (p.needs !== 'ranged' || classOf(game, c).weapons?.some((w) => ['bow', 'crossbow', 'sling'].includes(w))));
+  const tree = talentTree(game, c);
   const r = new RNG(hashString(`${c.id}:${c.level}:${(c.perks || []).length}`));
-  return r.shuffle([...ok]).slice(0, 2);
+  const pool = [...ok], out = [];
+  while (out.length < 3 && pool.length) {
+    const p = r.weighted(pool, (x) => ((x.trees || []).includes(tree) ? 3 : 1));
+    out.push(p);
+    pool.splice(pool.indexOf(p), 1);
+  }
+  return out;
 }
 
 export function choosePerk(game, c, id) {
@@ -320,15 +348,22 @@ export function gainXp(game, c, amount) {
   while (c.level < MAX_LEVEL && c.xp >= xpForLevel(c.level + 1)) {
     const oldHp = maxHp(game, c), oldMp = maxMp(game, c);
     c.level++;
-    // every level brings an attribute point to spend on the character sheet
-    c.points = (c.points || 0) + 1;
-    // ...and a choice of talent
+    // every second level brings an attribute point to spend on the sheet
+    // (every level made attributes, and so every hit, grow too fast)
+    if (c.level % 2 === 0) c.points = (c.points || 0) + 1;
+    // ...and every level a choice of talent
     c.perkPending = (c.perkPending || 0) + 1;
     c.hp += maxHp(game, c) - oldHp;
     c.mp += maxMp(game, c) - oldMp;
     gained.push(c.level);
   }
   return gained;
+}
+
+// "Helga is now level 3! (a new talent to choose)" — what a level-up brings
+export function levelUpNote(c) {
+  const pts = c.points || 0;
+  return `${c.name} is now level ${c.level}! (${pts > 0 ? `▲ ${pts} attribute point${pts === 1 ? '' : 's'} and ` : ''}a new talent to choose)`;
 }
 
 export const STAT_MAX = 25;

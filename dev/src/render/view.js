@@ -22,10 +22,13 @@ const _v3 = new THREE.Vector3();
 const LIGHTING = {
   day: { bg: 0xb4cfe4, sky: 0xa6d0f0, hemiSky: 0xc4dcff, hemiGround: 0x5e4a30, hemi: 1.15, sun: 3.1, sunColor: 0xffe4bc, light: 0, party: 0, fogNear: 1.35, fogFar: 3.6 },
   dusk: { bg: 0x6c5a78, sky: 0xe8a07a, hemiSky: 0x9a90d0, hemiGround: 0x3a2830, hemi: 0.95, sun: 2.0, sunColor: 0xffa060, light: 0.75, party: 0.35, fogNear: 1.2, fogFar: 3.2 },
-  night: { bg: 0x121a2e, sky: 0x2c3e66, hemiSky: 0x5a78c8, hemiGround: 0x16141e, hemi: 0.85, sun: 0.8, sunColor: 0x9ab0ff, light: 1.0, party: 0.85, fogNear: 1.05, fogFar: 2.8 },
-  dark: { bg: 0x060508, sky: 0x141a22, hemiSky: 0x8090b8, hemiGround: 0x30241a, hemi: 0.8, sun: 0.55, sunColor: 0xb0bcdc, light: 1.0, party: 1.0, fogNear: 1.0, fogFar: 2.6 },
+  // night is blue moonlight, never black; underground is moody but readable
+  night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, fogNear: 1.3, fogFar: 3.6 },
+  dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, fogNear: 1.45, fogFar: 4.2 },
 };
-const SUN_DIR = new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
+const WORLD_FIGURE = 0.78;
+const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
+const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {
   constructor(container) {
@@ -130,6 +133,9 @@ export class View {
     shared.uSky.value.setHex(L.sky);
     shared.uLightOn.value = L.light;
   }
+
+  // the party carries a torch (or a spell of light)
+  setCarriedLight(on) { this.carriedLight = !!on; }
 
   setLighting(name) {
     const L = LIGHTING[name] || LIGHTING.day;
@@ -472,7 +478,11 @@ export class View {
     faceG.add(model);
     leanG.add(faceG);
     root.add(leanG);
-    const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale);
+    // On the world map a square is a league: figures stand smaller beside the
+    // (enlarged) towns and castles, and points of interest a little larger
+    const world = this.map?.type === 'world';
+    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI.has(spec.kind) ? 1.6 : 1) : WORLD_FIGURE;
+    const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale) * worldK;
     leanG.scale.setScalar(scale);
     // soft contact shadow under the feet
     if (!info.boat) {
@@ -760,13 +770,13 @@ export class View {
     const H = this._h || 1;
     let n = 0;
     const add = (x, y, z, h, rad) => {
-      if (n >= 4) return;
+      if (n >= cuts.length) return;
       const a = this.worldToScreen(x, y, z), b = this.worldToScreen(x, y + h, z);
       const px = Math.abs(a.y - b.y);
       // sized to the figure on screen, so a far-off party doesn't punch big holes
       const r = px * 1.25 + rad * Math.min(1, px / 50);
       cuts[n].set(((a.x + b.x) / 2) * pr, (H - (a.y + b.y) / 2) * pr, r * pr, z - 0.1);
-      ys.setComponent(n, y + 0.08);
+      ys[n] = y + 0.08;
       n++;
     };
     const ent = (e, extra = 0) => {
@@ -775,18 +785,40 @@ export class View {
       add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
     };
     const party = this.entities.get('party');
-    if (party) ent(party, party.info.group || this._followers?.count ? 26 : 0);
+    if (party && party.root.visible) {
+      // one clear window over the whole company: the box round every figure's
+      // feet and head on screen, cut from the northernmost of them forward
+      const group = [party];
+      for (const f of this._followers?.list || []) { const e = this.entities.get(f.id); if (e && e.root.visible) group.push(e); }
+      let ax = Infinity, bx = -Infinity, ay = Infinity, by = -Infinity, zMin = Infinity, yMin = Infinity, hMax = 0;
+      for (const e of group) {
+        const p = e.root.position, h = e.info.height * e.scale;
+        const a = this.worldToScreen(p.x, p.y, p.z), b = this.worldToScreen(p.x, p.y + h, p.z);
+        const w = Math.abs(a.y - b.y) * 0.4;
+        ax = Math.min(ax, a.x - w, b.x - w); bx = Math.max(bx, a.x + w, b.x + w);
+        ay = Math.min(ay, b.y); by = Math.max(by, a.y);
+        zMin = Math.min(zMin, p.z); yMin = Math.min(yMin, p.y); hMax = Math.max(hMax, Math.abs(a.y - b.y));
+      }
+      const r = Math.hypot(bx - ax, by - ay) * 0.5 + hMax * 0.55 + 18;
+      cuts[0].set(((ax + bx) / 2) * pr, (H - (ay + by) / 2) * pr, r * pr, zMin - 0.12);
+      ys.setComponent(0, yMin + 0.06);
+      n = 1;
+    }
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
     if (this.cursor.visible && this.map?.type === 'arena') {
       const c = this.cursor.position, s = this.cursor.scale.x;
       add(c.x + s / 2, c.y, c.z + s / 2, 0.9, 34 + s * 10);
     }
+    // in battle no tree or rock may hide any fighter
+    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8);
     shared.uCutN.value = n;
     // the party's own torchlight at night and underground
     const L = this.light;
+    // (a torch or a light spell throws a wider, brighter pool)
     if (party && L.party > 0) {
-      const p = party.root.position;
-      shared.uParty.value.set(p.x, p.z, 4.6, L.party);
+      const p = party.root.position, torch = this.carriedLight;
+      const dark = this.lighting === 'dark';
+      shared.uParty.value.set(p.x, p.z, (dark ? 4.2 : 3.8) * (torch ? 1.55 : 1), L.party * (torch ? 1.35 : 0.85));
     } else shared.uParty.value.set(0, 0, 0, 0);
   }
 

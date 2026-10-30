@@ -10,7 +10,7 @@
 // and underground.
 import * as THREE from 'three';
 import { GeoBuilder } from './builder.js';
-import { DECOR, AuxBuilder, wallTorchAt } from './decor.js';
+import { DECOR, ARENA_PROPS, AuxBuilder, wallTorchAt } from './decor.js';
 import { shared } from './materials.js';
 import { TERRAIN, T, terrain } from '../data/terrain.js';
 import { hash2 } from '../core/rng.js';
@@ -41,6 +41,11 @@ function isBlendable(t) {
   return t.group === 'world' || SOFT.has(t.key);
 }
 const isPit = (t) => t.key === 'chasm' || t.key === 'void';
+
+// how much larger than its square each world-map site is drawn
+const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.55, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.25 };
+// small scenery cleared from the squares round a site, so nothing grows through its walls
+const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks']);
 
 // height of the ground itself (walls stand on it; water fills above it)
 const GROUND = {
@@ -438,12 +443,14 @@ export class TerrainView {
     const t0 = this.tileAt(x, y);
     // under a building's own wall (or a street prop), show the ground beside it
     const sub = this.groundSubst && this.inMap(x, y) ? this.groundSubst(x, y) : null;
-    const t = sub || t0;
+    const outside = !this.inMap(x, y);
+    // (battle) a lone rock or wall square stands on the arena floor as a prop
+    const prop = !sub && !outside && this.map.type === 'arena' && t0.wall ? ARENA_PROPS[t0.key] : null;
+    const t = sub || (prop ? terrain(T[this.map.fill] ?? T.grass) : t0);
     const nb = (dx, dy) => this.tileAt(x + dx, y + dy);
     const i0 = this._gi(x), j0 = this._gi(y);
     const center = this.gh(i0 + 1, j0 + 1);
     const dark = this.map.lighting === 'dark';
-    const outside = !this.inMap(x, y);
 
     // --- the ground surface
     if (isPit(t)) {
@@ -543,7 +550,14 @@ export class TerrainView {
       lights.push([x + 0.5, y + 0.5, r, lin(c), s]);
     }
 
-    if (t0.deco && DECOR[t0.deco]) {
+    // world-map sites are drawn larger than their square so a town reads as a
+    // place beside the company; the land round them is cleared to make room
+    const world = this.map.type === 'world';
+    const site = world && SITE_SCALE[t0.deco];
+    if (world && !site && CLUTTER.has(t0.deco) && this._nearSite(x, y)) return;
+    const deco = prop || (t0.deco && DECOR[t0.deco]);
+    if (deco) {
+      const marks = site ? [P.pos.length, G.pos.length, W.pos.length, lights.length] : null;
       const ctx = {
         B: P, W, G, x, z: y, cx: x + 0.5, cz: y + 0.5,
         y: t.water ? WATER_Y : top,
@@ -562,9 +576,32 @@ export class TerrainView {
       P.auxAt = null;
       // scenery beyond the edge is seen from afar: lighter trees
       P.cheap = outside;
-      DECOR[t0.deco](ctx);
+      deco(ctx);
       P.auxAt = null;
+      if (site) {
+        const cx = x + 0.5, cz = y + 0.5;
+        for (const [B, from] of [[P, marks[0]], [G, marks[1]], [W, marks[2]]]) {
+          const p = B.pos;
+          for (let i = from; i < p.length; i += 3) {
+            p[i] = cx + (p[i] - cx) * site;
+            p[i + 1] = center + (p[i + 1] - center) * site;
+            p[i + 2] = cz + (p[i + 2] - cz) * site;
+          }
+        }
+        for (let i = marks[3]; i < lights.length; i++) {
+          const L = lights[i];
+          L[0] = cx + (L[0] - cx) * site; L[1] = cz + (L[1] - cz) * site; L[2] *= site;
+        }
+      }
     }
+  }
+
+  // is a (scaled-up) world-map site on one of the eight squares around?
+  _nearSite(x, y) {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if ((dx || dy) && SITE_SCALE[this.tileAt(x + dx, y + dy).deco] > 1.2) return true;
+    }
+    return false;
   }
 
   // plain block (town walls keep their own style)

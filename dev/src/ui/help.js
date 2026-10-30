@@ -34,7 +34,7 @@ export function openHelpOverlay(ui, rulesHtml) {
       h('section',
         h('h3', ico('book'), ' Windows'),
         row(kbd('J'), 'Journal: quests and lore'),
-        row(kbd('I'), 'Pack, gear and hero sheets'),
+        row(kbd('I'), 'The pack (gear goes on from a hero\'s sheet)'),
         row(kbd('M'), 'Map'),
         row(kbd('?'), 'This help'),
         row(kbd('Esc'), 'Close a window / menu'),

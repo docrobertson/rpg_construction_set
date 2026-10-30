@@ -305,6 +305,15 @@ export class Followers {
         else if (moved > 0) f.d = Math.min(want, f.d + moved * 0.5);
         const p = this._at(f.d);
         tx = p.x; tz = p.z; speed = 9;
+        // Marching straight up or down the screen, a column would stand one
+        // figure behind the next: step aside, alternately left and right
+        const q = this._at(f.d + 0.25), qx = p.x - q.x, qz = p.z - q.z, ql = Math.hypot(qx, qz);
+        if (ql > 0.05) {
+          const ns = Math.abs(qz / ql);
+          const side = (f.rank % 2 ? 1 : -1) * u * 0.42 * Math.max(0, (ns - 0.35) / 0.65) * Math.min(1, f.d / u);
+          const ox = tx + (-qz / ql) * side, oz = tz + (qx / ql) * side;
+          if (this._okPoint(ox, oz, 0.1)) { tx = ox; tz = oz; }
+        }
       } else {
         if (!f.spot) continue;
         tx = f.spot.x; tz = f.spot.z; speed = 2.4;
