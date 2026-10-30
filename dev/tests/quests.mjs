@@ -26,8 +26,11 @@ const settle = async () => {
   await ev(async () => {
     const s = window.__app.session;
     for (let i = 0; i < 300 && (s.busy || s.transitioning || s.mode === 'combat'); i++) await new Promise((r) => setTimeout(r, 25));
-    // the victory screen waits for "Onward"
-    document.querySelector('.victory-modal .modal-buttons button, .victory-modal button.primary')?.click();
+    // the victory screen waits for "Onward", a level-up card for "Done"
+    for (let i = 0; i < 3; i++) {
+      document.querySelector('.victory-modal .modal-buttons button, .levelup-modal .modal-buttons button')?.click();
+      await new Promise((r) => setTimeout(r, 150));
+    }
   });
 };
 
