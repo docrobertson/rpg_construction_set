@@ -553,6 +553,8 @@ export function generateSettlement(kind, opt = {}) {
     // carve the great hall and an entrance tunnel from the south
     fillRect(map, 4, 4, w - 8, h - 9, 'floor_stone');
     fillRect(map, cx - 1, h - 6, 3, 6, 'floor_stone');
+    // braziers in the tunnel walls, so a visit does not begin in the black
+    for (const y of [h - 3, h - 5]) { setTile(map, cx - 2, y, T.brazier); setTile(map, cx + 2, y, T.brazier); }
     for (let y = 7; y < h - 7; y += 6) for (const x of [4, w - 5]) setTile(map, x, y, T.brazier);
     for (let y = 8; y < h - 8; y += 8) for (const x of [cx - 3, cx + 2]) setTile(map, x, y, T.brazier);
     for (let y = 10; y < h - 8; y += 8) for (const x of [cx - 3, cx + 2]) setTile(map, x, y, T.wall_stone);
@@ -925,9 +927,10 @@ const NAMES = {
 
 // A random first name. `avoid` (a Set from nameWords) keeps it from
 // sounding like anyone already in the game: "Hilda" is taken by Mayor Hilda.
-export function randomName(race, rng, avoid = null) {
+// look: a figure's look, so a bearded "bold" face is not called Freya
+export function randomName(race, rng, avoid = null, look = null) {
   const n = NAMES[race] || NAMES.human;
-  const list = rng.chance(0.5) ? n.m : n.f;
+  const list = look?.face === 'bold' ? n.m : look?.face === 'fair' ? n.f : rng.chance(0.5) ? n.m : n.f;
   const free = avoid ? list.filter((x) => !avoid.has(x.toLowerCase())) : list;
   if (free.length) return rng.pick(free);
   // every name of that kind is in use: try the other sex, then add a byname
@@ -1058,7 +1061,20 @@ export function generateArena(style, seed, opt = {}) {
       }
       break;
     case 'hills': scatter(['mountains', 'grass'], 0.1); break;
-    case 'swamp': scatter(['shallows', 'grass'], 0.12); break;
+    case 'swamp': {
+      // bog pools of a few squares each (lone squares looked like tiles of ice)
+      scatter(['grass'], 0.06);
+      for (let n = rng.int(2, 3), k = 0; k < n; k++) {
+        let x = rng.int(1, W - 2), y = rng.int(2, H - 3);
+        for (let s = rng.int(2, 4); s > 0; s--) {
+          setTile(map, x, y, T.shallows);
+          const [dx, dy] = rng.pick([[1, 0], [-1, 0], [0, 1], [0, -1]]);
+          x = Math.max(0, Math.min(W - 1, x + dx));
+          y = Math.max(2, Math.min(H - 3, y + dy));
+        }
+      }
+      break;
+    }
     case 'desert': scatter(['desert', 'mountains'], 0.08); break;
     case 'snow': scatter(['pines', 'peaks'], 0.08); break;
     case 'town': scatter(['barrel', 'fountain'], 0.04); break;

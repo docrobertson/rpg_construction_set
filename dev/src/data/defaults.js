@@ -234,7 +234,8 @@ export const CLASSES = [
   { id: 'runesmith', talents: 'caster', name: 'Runesmith', desc: 'A forge-priest of the dwarves who carves runes of power, fuelled by rare reagents.',
     requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], armor: 'chain', shields: true,
     abilities: [], special: 'earthshaker', skills: ['thunder_hammer', 'ward_rune'], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
-    look: { body: 0x9a5a2a, armor: 'chain', hat: 'helm', hatColor: 0xb8862e, weapon: 'hammer', shield: 0x8a5a32, runes: 0xff9a40 } },
+    // slate and steel with glowing cyan runes: never mistaken for the white-and-gold cleric
+    look: { body: 0x3e5a78, armor: 'chain', hat: 'helm', hatColor: 0x8e9cae, weapon: 'hammer', shield: 0x4a5c70, runes: 0x5ee8ff } },
 ];
 
 export const ITEMS = [
@@ -374,7 +375,7 @@ export const MONSTERS = [
   { id: 'dark_sorcerer', name: 'Dark Sorcerer', plural: 'Dark Sorcerers', level: 6, hp: '10d8+12', ac: 12, hit: 6, dmg: '1d6+2', xp: 110, gold: '6d10', habitat: ['ash', 'ruins', 'dungeon'], group: [1, 1], spells: ['fireball', 'magic_missile'], castChance: 0.6, ai: 'caster', abilities: ['hex'], escort: [{ id: 'skeleton', min: 2, max: 3 }],
     look: L({ race: 'human', body: 0x1a1a20, robe: true, hat: 'hood', hatColor: 0x1a1a20, weapon: 'staff', weaponGlow: 0xff3020, eyes: 0xff4020 }), desc: 'A man who sold his soul for power.' },
   { id: 'drake', name: 'Fire Drake', plural: 'Fire Drakes', level: 7, hp: '18d8+15', ac: 16, hit: 10, dmg: '2d8+6', xp: 200, gold: '10d10', habitat: ['ash', 'hills'], group: [1, 1], spells: ['fire_breath'], castChance: 0.25, fly: true, abilities: ['inferno', 'tail_sweep'],
-    look: { kind: 'dragon', color: 0x6a8a2a, belly: 0xd0c070, scale: 0.85 }, desc: 'A lesser wyrm, still deadly.' },
+    look: { kind: 'dragon', color: 0xc04a1e, belly: 0xf0b040, scale: 0.85 }, desc: 'A lesser wyrm, still deadly.' },
   { id: 'dragon', name: 'Great Dragon', plural: 'Great Dragons', level: 10, hp: '40d8+40', ac: 18, hit: 13, dmg: '3d8+8', xp: 800, gold: '40d10', habitat: [], group: [1, 1], spells: ['fire_breath'], castChance: 0.3, fly: true, boss: true, sleepImmune: true, ai: 'boss', abilities: ['inferno', 'tail_sweep'],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseText: 'The dragon roars in fury, and the air shimmers with heat!',
     look: { kind: 'dragon', color: 0xa83a2a, scale: 1.5 }, desc: 'Ancient, cunning and greedy beyond measure.' },

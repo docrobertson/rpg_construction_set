@@ -54,7 +54,7 @@ function buildSample() {
     look: { kind: 'humanoid', race: 'orc', body: 0x6a1a10, armor: 'chain', hat: 'hornhelm', hatColor: 0x2a2a2a, weapon: 'axe', weaponGlow: 0xff7020, cape: 0x8a2a10, scale: 1.2 }, desc: 'An orc chieftain who laughs as he burns.' });
   named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '15d8+20', ac: 15, hit: 8, dmg: '1d10+5', xp: 160, gold: '6d10', castChance: 0.3, ai: 'boss', abilities: ['brutal_smash'], escort: [{ id: 'skeleton', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'skeleton', min: 2, max: 2 }], phaseText: '"Rise, my thanes!" Ulfgar\'s cry shakes the barrow, and the dead claw their way up through the floor!',
-    look: { kind: 'wraith', color: 0x2a3436, eyes: 0x70ffb0, hat: 'crown', weapon: 'sword', weaponGlow: 0x70ffb0, scale: 1.3 }, desc: 'A king of the old days, crowned still, who will not stay dead.' });
+    look: { kind: 'wraith', color: 0x2a3436, eyes: 0x70ffb0, hat: 'crown', crownColor: 0xe8b830, weapon: 'sword', weaponGlow: 0x70ffb0, scale: 1.55 }, desc: 'A king of the old days, crowned still, who will not stay dead.' });
   named('sea_serpent', { id: 'west_serpent', name: 'Old Gulper', plural: 'Old Gulpers', level: 6, hp: '18d8+20', hit: 9, xp: 220, gold: '10d10', group: [1, 1], abilities: ['tidal_surge', 'tail_sweep'],
     speed: 2, phaseAt: 0.4, phaseEnrage: true, phaseText: 'Old Gulper thrashes in fury, and the whole sea seems to heave!',
     look: { kind: 'serpent', color: 0x1a5a5a, scale: 1.8 }, desc: 'The great serpent of the western sea. It has eaten boats.' });

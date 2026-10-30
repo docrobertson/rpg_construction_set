@@ -108,12 +108,21 @@ export function toast(msg, kind = '') {
 // screens keep their long-press behaviour; nothing shows for them.
 let tipEl = null, tipFor = null, tipTimer = 0;
 
+const hide = () => { clearTimeout(tipTimer); tipFor = null; if (tipEl) tipEl.hidden = true; };
+
+// a redrawn panel replaces the element under a resting pointer without any
+// pointerout: the card would stay over whatever took its place
+function watchTip() {
+  if (!tipEl || tipEl.hidden) return;
+  if (!tipFor?.isConnected) { hide(); return; }
+  setTimeout(watchTip, 250);
+}
+
 export function initTooltips() {
   if (tipEl) return;
   tipEl = h('div.ui-tip', { role: 'tooltip' });
   tipEl.hidden = true;
   document.body.appendChild(tipEl);
-  const hide = () => { clearTimeout(tipTimer); tipFor = null; tipEl.hidden = true; };
   document.addEventListener('pointerover', (e) => {
     if (e.pointerType === 'touch') return;
     const t = e.target.closest?.('[title], [data-tip]');
@@ -151,6 +160,7 @@ function showTip(t, text) {
   let y = r.bottom + 8;
   if (y + ht > innerHeight - 6) y = r.top - ht - 8;
   tipEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(Math.max(6, y))}px)`;
+  setTimeout(watchTip, 250);
 }
 
 export function confirmDialog(text, title = 'Are you sure?') {

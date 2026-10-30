@@ -275,8 +275,12 @@ export function normalizeMember(game, c, inv) {
     c.equip.weapon = null;
   }
   c.points = c.points || 0;
-  c.perks = Array.isArray(c.perks) ? c.perks : [];
-  c.perkPending = c.perkPending || 0;
+  // heroes from before talents existed get one for every level already gained
+  const fresh = !Array.isArray(c.perks);
+  c.perks = fresh ? [] : c.perks;
+  c.perkPending = c.perkPending || (fresh ? Math.max(0, (c.level || 1) - 1) : 0);
+  // health was rebalanced: an older save's hero must not keep more than the new maximum
+  if (c.status !== 'dead' && c.hp != null) recompute(game, c);
 }
 
 export function weaponOf(game, c) {

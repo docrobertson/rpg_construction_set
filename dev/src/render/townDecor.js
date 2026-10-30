@@ -26,18 +26,23 @@ function frame(c, a, y = c.y, B = c.B) {
 function sway(B, y0, k) { if (B.aux) B.auxAt = (px, py) => Math.max(0, py - y0) * k; }
 function still(B) { if (B.aux) B.auxAt = null; }
 
-// the keeper whose shop this furniture is in (cached per map)
+// the keeper whose shop this furniture is in (cached per map, and worked out
+// afresh when the editor changes or moves a keeper: the map object stays the same)
 const roleCache = new WeakMap();
+const keeps = (e) => e.type === 'npc' && (e.shop || ['healer', 'inn', 'tavern', 'lord', 'sage'].includes(e.role));
 function shopRoleNear(map, x, y) {
   if (!map?.entities) return null;
-  let m = roleCache.get(map);
-  if (!m) { m = new Map(); roleCache.set(map, m); }
+  const sig = map.entities.filter(keeps).map((e) => `${e.id}:${e.role}:${(e.home || e).x},${(e.home || e).y}`).join('|');
+  let c = roleCache.get(map);
+  if (!c || c.sig !== sig) { c = { sig, m: new Map() }; roleCache.set(map, c); }
+  const m = c.m;
   const k = y * 4096 + x;
   if (m.has(k)) return m.get(k);
   let best = null, bd = 6;
   for (const e of map.entities) {
-    if (e.type !== 'npc' || !e.shop && !['healer', 'inn', 'tavern', 'lord', 'sage'].includes(e.role)) continue;
-    const d = Math.abs(e.x - x) + Math.abs(e.y - y);
+    if (!keeps(e)) continue;
+    const at = e.home || e;
+    const d = Math.abs(at.x - x) + Math.abs(at.y - y);
     if (d < bd) { bd = d; best = e.role; }
   }
   m.set(k, best);

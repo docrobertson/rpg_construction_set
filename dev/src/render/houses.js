@@ -17,7 +17,7 @@ import { roofRect, ROOFS, chimney, keepTop, stepRoof, beam, col } from './roofs.
 import { hangingSign, wallSign, SIGN_FOR } from './signs.js';
 import { shared } from './materials.js';
 import { terrain, T } from '../data/terrain.js';
-import { findBuildings, buildingMap } from '../world/buildings.js';
+import { findBuildings, buildingMap, INDOOR } from '../world/buildings.js';
 import { getTile, inBounds } from '../world/map.js';
 import { hash2 } from '../core/rng.js';
 
@@ -263,6 +263,23 @@ export class BuildingsView {
 
   static enabledFor(map) { return !!map && (map.type === 'town' || map.type === 'castle'); }
 
+  // Could a change to these tiles alter a building, or the ground under a
+  // street prop? (Painting a meadow far from any house need not rebuild them all.)
+  touches(x0, y0, x1, y1) {
+    const map = this.map;
+    if (!BuildingsView.enabledFor(map)) return false;
+    for (const b of this.list) {
+      const r = b.box;
+      if (r.x0 <= x1 && r.x1 >= x0 && r.y0 <= y1 && r.y1 >= y0) return true;
+    }
+    const sub = this.terrain.groundSubst;
+    for (let y = Math.max(0, y0); y <= Math.min(map.h - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(map.w - 1, x1); x++) {
+      const t = terrain(getTile(map, x, y));
+      if (t.wall || t.door || t.key === 'fence' || INDOOR.has(t.key) || PROPS.has(t.key) || sub?.(x, y)) return true;
+    }
+    return false;
+  }
+
   // Work out which wall tiles the buildings draw themselves, before the
   // terrain is built, so the terrain leaves them out.
   prepare(map, list) {
@@ -333,8 +350,11 @@ export class BuildingsView {
     // a freshly built town shows its roofs as they should be at once (the
     // party may land indoors), fading only once play goes on
     this.snapFrames = 8;
+    // window and lantern glows go into the terrain's light texture, which must
+    // be redrawn whenever they change (the terrain drew it before we got here)
+    const hadLights = this.terrain.extraLights?.length > 0;
     this.terrain.extraLights = [];
-    if (!this.list.length) { this._writeUniforms(); return; }
+    if (!this.list.length) { if (hadLights) this.terrain._buildLightTex(); this._writeUniforms(); return; }
     const B = new TagBuilder();
     // a plain stand-in casts the shadows, so the detail is drawn only once
     const S = new TagBuilder();
@@ -370,6 +390,7 @@ export class BuildingsView {
       this.group.add(sm);
       this.meshes.push(sm);
     }
+    if (hadLights || this.terrain.extraLights.length) this.terrain._buildLightTex();
     this._writeUniforms();
   }
 

@@ -1,11 +1,11 @@
 // Play-mode HUD and all of its windows (talk, shop, party, spells, map...).
 import { h, clear, modal, toast, anyModal, closeTopModal, closeAllModals, confirmDialog } from './dom.js';
-import { byId } from '../data/schema.js';
+import { byId, getMap } from '../data/schema.js';
 import { terrain } from '../data/terrain.js';
 import { diceAvg } from '../core/rng.js';
 import { getTile } from '../world/map.js';
 import {
-  maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel,
+  maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
@@ -97,6 +97,8 @@ export class PlayUI {
 
   destroy() {
     this.chud.stop();
+    clearTimeout(this.chud.vicTimer);
+    this.chud.victoryPending = false;
     this.unbindInput();
     this.quests?.destroy();
     this.explore?.destroy();
@@ -111,13 +113,22 @@ export class PlayUI {
   }
 
   log(text, cls = '') {
-    this.logLines.push({ text, cls });
+    // the same line again (bumping a wall six times) counts up instead of repeating
+    const last = this.logLines[this.logLines.length - 1];
+    if (last && last.text === text && last.cls === cls && last.el?.isConnected) {
+      last.n = (last.n || 1) + 1;
+      if (!last.rep) last.el.appendChild(last.rep = h('span.log-rep'));
+      last.rep.textContent = ` (×${last.n})`;
+      return;
+    }
+    const line = { text, cls };
+    this.logLines.push(line);
     if (this.logLines.length > 400) this.logLines.shift();
     const el = this.logEl;
     // keep following new lines unless the player has scrolled back to read
     const follow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     const ico = LOG_ICONS[cls];
-    el.appendChild(h('div.log-line' + (cls ? '.' + cls : ''), ico ? h('i.log-ico', { html: iconSvg(ico) }) : null, text));
+    el.appendChild(line.el = h('div.log-line' + (cls ? '.' + cls : ''), ico ? h('i.log-ico', { html: iconSvg(ico) }) : null, text));
     while (el.childNodes.length > 400) el.removeChild(el.firstChild);
     if (follow) el.scrollTop = el.scrollHeight;
   }
@@ -937,6 +948,7 @@ export class PlayUI {
                   else s.party.inventory[it.id] = owned + 1;
                   sfx('gold');
                   s.log(`Bought ${it.name}.`, 'loot');
+                  if (slotFor(it)) s.tip('wear', 'New gear goes into the Pack, not onto anyone: open the Pack (I) and click a hero\'s name beside the item to put it on.');
                   render(); this.refresh();
                 },
               }, 'Buy'))));
@@ -990,7 +1002,11 @@ export class PlayUI {
             }
             s.state.turn += 80;
             sfx('heal');
-            this.app.fade(true, 300).then(() => this.app.fade(false, 500));
+            // the morning light (and sight) changes while the screen is dark
+            this.app.fade(true, 300).then(() => {
+              if (this.app.session === s) { s.applyDaylight(); s.checkPhase(); s.updateVisibility(true); }
+              return this.app.fade(false, 500);
+            });
             s.log('You sleep soundly and wake fully rested.', 'good');
             s.autosave();
             this.refresh();
@@ -1010,7 +1026,7 @@ export class PlayUI {
       for (const m of s.party.members) {
         const mh = maxHp(g, m);
         const services = [];
-        if (m.status === 'dead') services.push(['Raise', 150 + m.level * 25, () => { m.status = 'ok'; m.hp = mh; s.refreshPartyVisual(); }]);
+        if (m.status === 'dead') services.push(['Raise', 50 + m.level * 25, () => { m.status = 'ok'; m.hp = mh; gainXp(g, m, 0) /* levels earned while fallen */; s.refreshPartyVisual(); }]);
         else {
           if (m.hp < mh) services.push(['Heal', 10 + (mh - m.hp), () => { m.hp = mh; }]);
           if (m.status === 'poisoned') services.push(['Cure', 20, () => { m.status = 'ok'; }]);
@@ -1150,14 +1166,20 @@ export class PlayUI {
       }
     }
     for (const e of map.entities) {
-      if (e.type !== 'portal' || !e.label) continue;
+      if (e.type !== 'portal') continue;
       if (s.visible && !map.explored[e.y * map.w + e.x]) continue;
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${Math.max(10, scale * 2.2)}px serif`;
-      ctx.strokeStyle = '#000';
+      // towns and sites are named under their square, small, so the names
+      // keep clear of the company's dot and the goal's tag
+      const name = e.label || (map.type === 'world' && getMap(s.game, e.target?.map)?.name);
+      if (!name) continue;
+      ctx.font = `600 ${Math.max(10, Math.round(scale * 1.25))}px serif`;
+      ctx.textAlign = 'center';
       ctx.lineWidth = 3;
-      ctx.strokeText(e.label, e.x * scale + scale + 2, e.y * scale + scale);
-      ctx.fillText(e.label, e.x * scale + scale + 2, e.y * scale + scale);
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.fillStyle = '#f4e6c0';
+      ctx.strokeText(name, e.x * scale + scale / 2, e.y * scale + scale * 3.9);
+      ctx.fillText(name, e.x * scale + scale / 2, e.y * scale + scale * 3.9);
+      ctx.textAlign = 'start';
     }
     const p = s.state.pos;
     ctx.fillStyle = '#ff0';
@@ -1182,10 +1204,12 @@ export class PlayUI {
   // ------------------------------------------------------------ menus & endings
   openMenu() {
     const s = this.s;
+    // mid-battle there is nothing safe to save (and loading would dodge the fight)
+    const fighting = s.mode === 'combat';
     const items = [
       ['play', 'Resume', () => {}],
-      !s.opts.noSave ? ['save', 'Save game', () => s.save()] : null,
-      !s.opts.noSave && loadState(s.game.id) ? ['upload', 'Load your last save', async () => {
+      !s.opts.noSave && !fighting ? ['save', 'Save game', () => s.save()] : null,
+      !s.opts.noSave && !fighting && loadState(s.game.id) ? ['upload', 'Load your last save', async () => {
         const saved = loadState(s.game.id);
         const same = saved && JSON.stringify(saved) === JSON.stringify(s.serializeState());
         if (same || await confirmDialog('Go back to your last save? Whatever happened since then will be lost.')) this.app.continueGame();
@@ -1196,9 +1220,13 @@ export class PlayUI {
       ['note', musicEnabled() ? 'Music: on' : 'Music: off', () => { setMusicEnabled(!musicEnabled()); }],
       ['camera', 'Camera angle', () => this.openCamera()],
       // leaving saves the game (endPlay), so only a playtest that never saves asks first
-      s.opts.fromEditor ? ['anvil', 'Return to the Construction Set', () => this.app.endPlay(true)] : ['door', s.opts.noSave ? 'Quit to title' : 'Save and quit to title', async () => {
-        if (!s.opts.noSave || await confirmDialog('Return to the title screen? This quick game is not saved.')) this.app.endPlay(false);
-      }],
+      s.opts.fromEditor ? ['anvil', 'Return to the Construction Set', () => this.app.endPlay(true)]
+        : fighting && !s.opts.noSave ? ['door', 'Abandon the battle and quit (not saved)', async () => {
+          if (await confirmDialog('Quit to the title screen? The game is not saved mid-battle: you will go back to your last save.')) this.app.endPlay(false);
+        }]
+        : ['door', s.opts.noSave ? 'Quit to title' : 'Save and quit to title', async () => {
+          if (!s.opts.noSave || await confirmDialog('Return to the title screen? This quick game is not saved.')) this.app.endPlay(false);
+        }],
     ].filter(Boolean);
     const list = h('div.choose-list.menu-list');
     const m = modal(list, { title: this.s.game.meta.title, icon: 'castle', cls: 'small menu-modal' });
@@ -1219,7 +1247,9 @@ export class PlayUI {
     const s = this.s;
     const saved = !s.opts.noSave && loadState(s.game.id);
     sfx('defeat');
-    modal(h('div', h('p.big', 'Your company has perished.'), h('p', 'Yet the tale need not end here...')), {
+    const earlier = s.lastStand?.length ? s.party.members.filter((m) => !s.lastStand.includes(m)).map((m) => m.name) : [];
+    modal(h('div', h('p.big', 'Your company has perished.'), h('p', 'Yet the tale need not end here...'),
+      earlier.length ? h('p.hint', `If you rise again, ${earlier.join(' and ')}, fallen before this fight, will still need a healer.`) : null), {
       title: 'Darkness Falls', icon: 'skull',
       closeOnBack: false,
       closeOnEsc: false,
@@ -1279,7 +1309,10 @@ function compareText(g, m, it) {
     const d = diceAvg(it.dmg || '1d2') + (it.hit || 0) * 0.5 - (cur ? diceAvg(cur.dmg || '1d2') + (cur.hit || 0) * 0.5 : slot === 'weapon' ? 1.5 : 0);
     if (!cur && slot === 'ranged') return { cls: 'up', text: 'new: can shoot' };
     const v = Math.round(d * 10) / 10;
-    return v > 0.05 ? { cls: 'up', text: `+${v} dmg` } : v < -0.05 ? { cls: 'down', text: `${v} dmg` } : { cls: 'same', text: 'same dmg' };
+    // a two-handed weapon takes the shield off: say so, with what it costs
+    const sh = it.twoHanded && slot === 'weapon' && itemOf(g, m.equip.shield);
+    const off = sh ? `, shield off (−${sh.ac || 0} armour)` : '';
+    return v > 0.05 ? { cls: sh ? 'same' : 'up', text: `+${v} dmg${off}` } : v < -0.05 ? { cls: 'down', text: `${v} dmg${off}` } : { cls: sh ? 'down' : 'same', text: `same dmg${off}` };
   }
   const v = (it.ac || 0) - (cur?.ac || 0);
   return v > 0 ? { cls: 'up', text: `+${v} armour` } : v < 0 ? { cls: 'down', text: `${v} armour` } : { cls: 'same', text: 'same armour' };

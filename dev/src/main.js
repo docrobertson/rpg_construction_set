@@ -124,11 +124,13 @@ class App {
     if (!saved) return null;
     const game = this.embedded?.id === id ? this.embedded : id === SAMPLE_ID ? this.sample : loadProject(id);
     if (!game) return null;
-    const lead = saved.party.members[0];
+    const lead = saved.party.members.find((m) => m.status !== 'dead') || saved.party.members[0];
+    // the company's level is its best hero's (a fallen leader may lag behind)
+    const lv = Math.max(...saved.party.members.map((m) => m.level || 1));
     return h('button.tbtn.cont', { onclick: () => { sfx('click'); this.playGame(game, { state: saved }); } },
       h('span.tb-ico', { html: iconSvg('end') }),
       h('span.tb-text', h('span.tb-label', 'Continue'),
-        h('small.tb-sub.cont-sub', `${game.meta.title} — ${lead?.name || ''}'s company${lead ? `, level ${lead.level}` : ''}`)));
+        h('small.tb-sub.cont-sub', `${game.meta.title} — ${lead?.name || ''}'s company${lead ? `, level ${lv}` : ''}`)));
   }
 
   about() {
@@ -288,6 +290,7 @@ class App {
   }
 
   stopSession() {
+    this.session?.battle?.abort();
     if (this.playUI) { this.playUI.destroy(); this.playUI = null; }
     this.session = null;
   }

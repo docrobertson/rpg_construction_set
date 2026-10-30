@@ -137,8 +137,9 @@ function injectVisibility(material, extra = {}) {
             vec4 c = uCut[i];
             float d = length(gl_FragCoord.xy - c.xy);
             if (d > c.z || vWorldPos.z < c.w) continue;
-            // the middle clears completely; the rim thins out in a dither
-            float k = smoothstep(c.z, c.z * 0.6, d) * smoothstep(0.0, 0.22, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.3, vWorldPos.z - c.w);
+            // the middle clears completely; only a thin rim dithers, so the
+            // hole reads as a clean window rather than a speckled patch
+            float k = smoothstep(c.z, c.z * 0.9, d) * smoothstep(0.0, 0.1, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.12, vWorldPos.z - c.w);
             if (fxBayer(gl_FragCoord.xy) < k * 1.08) discard;
           }
         }

@@ -330,12 +330,14 @@ export function wraith(spec) {
     for (let k = -1; k <= 1; k++) tube(B, [add(hd, [0, 0, 0.02]), add(hd, [k * 0.025, -0.03, 0.09]), add(hd, [k * 0.03, -0.07, 0.1])], [0.01, 0.008, 0.002], BONE, { segs: 4, outline: true });
   }
   if (spec.hat === 'crown') {
+    // (a crownColor of gold marks a king apart from the common dead)
+    const CR = spec.crownColor ?? IRON;
     for (let k = 0; k < 7; k++) {
       const a = (k / 7) * Math.PI * 2;
       const p = [Math.sin(a) * 0.15, 1.02, Math.cos(a) * 0.15 - 0.03];
-      metal(B, () => tube(B, [p, add(p, [Math.sin(a) * 0.03, 0.14 + (k % 2) * 0.06, Math.cos(a) * 0.03])], [0.03, 0.003], [IRON, tint(IRON, 1.4)], { segs: 5 }));
+      metal(B, () => tube(B, [p, add(p, [Math.sin(a) * 0.03, 0.14 + (k % 2) * 0.06, Math.cos(a) * 0.03])], [0.03, 0.003], [CR, tint(CR, 1.4)], { segs: 5 }));
     }
-    metal(B, () => lathe(B, [[0.165, 0.98], [0.17, 1.04]], IRON, { segs: 14, sq: 0.95, dx: () => 0 }));
+    metal(B, () => lathe(B, [[0.165, 0.98], [0.17, 1.04]], CR, { segs: 14, sq: 0.95, dx: () => 0 }));
     // great spiked pauldrons
     for (const s of [-1, 1]) {
       metal(B, () => ball(B, IRON, s * 0.19, 0.74, 0.0, 0.12, 0.08, 0.12, { rz: -s * 0.4 }));

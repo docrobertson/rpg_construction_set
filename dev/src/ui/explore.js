@@ -473,7 +473,9 @@ export class Explorer {
     if (!plan) {
       sfx('bump');
       const info = this.describe(tg, null, null);
-      if (info) s.log(info.sub ? `${info.title}: ${info.sub}.` : `${info.title}.`);
+      // say why nothing happens, not just what was clicked ("Stone Wall.")
+      const why = info?.title === 'Unexplored' ? 'paths only cross ground you have seen, so walk nearer first' : 'no way there from here';
+      if (info) s.log(info.sub ? `${info.title}: ${info.sub}.` : `${info.title}: ${why}.`);
       return;
     }
     this.stop();
@@ -532,8 +534,9 @@ export class Explorer {
           const dest = getMap(g, e.target?.map);
           const name = e.label || dest?.name;
           if (e.requires && !s.hasItem(e.requires)) acts.push({ kind: 'none', icon: 'key', label: `${name || 'The way'} is barred`, run: step(x, y), pri: 4 });
+          // stairs say so ("Enter Stairs up" read oddly)
+          else if (t.key === 'stairs_up' || t.key === 'stairs_down') acts.push({ kind: 'enter', icon: 'stairs', label: (t.key === 'stairs_up' ? 'Climb the stairs' : 'Go down the stairs') + (name && !/stair/i.test(name) ? ` to ${name}` : ''), run: step(x, y), pri: 1 });
           else if (name || e.style === 'waygate') acts.push({ kind: 'enter', icon: 'enter', label: `Enter ${name || 'the waygate'}`, run: step(x, y), pri: 1 });
-          else if (t.key === 'stairs_up' || t.key === 'stairs_down') acts.push({ kind: 'enter', icon: 'stairs', label: t.key === 'stairs_up' ? 'Climb the stairs' : 'Go down the stairs', run: step(x, y), pri: 1 });
           else acts.push({ kind: 'enter', icon: 'enter', label: 'Go through', run: step(x, y), pri: 2 });
           seen.add(e);
         }

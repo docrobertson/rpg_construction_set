@@ -43,7 +43,7 @@ function isBlendable(t) {
 const isPit = (t) => t.key === 'chasm' || t.key === 'void';
 
 // how much larger than its square each world-map site is drawn
-const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.55, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.25 };
+const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55 };
 // small scenery cleared from the squares round a site, so nothing grows through its walls
 const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks']);
 
@@ -69,6 +69,8 @@ const CROWN = { hills: 0.1, mountains: 0.22, peaks: 0.3, cave: 0.08, dwarfgate: 
 
 const DEEP = lin(0x0f4d7a), SHALLOW = lin(0x2fa6b8), SHORE = lin(0x6cc8c0);
 const DARK_DEEP = lin(0x081620), DARK_SHALLOW = lin(0x1c4656);
+// murky bog water for swamp battles (clear blue pools there read as ice)
+const BOG_DEEP = lin(0x262c14), BOG_SHALLOW = lin(0x434521), BOG_SHORE = lin(0x55552c);
 const WET_SAND = lin(0xb9a878);
 
 // light-giving tiles: colour and reach
@@ -511,7 +513,8 @@ export class TerrainView {
     }
     if (wet) {
       const darkW = dark || t.key === 'pit_water';
-      const deep = darkW ? DARK_DEEP : DEEP, shallow = darkW ? DARK_SHALLOW : SHALLOW;
+      const bog = !darkW && this.map.type === 'arena' && this.style === 'swamp';
+      const deep = darkW ? DARK_DEEP : bog ? BOG_DEEP : DEEP, shallow = darkW ? DARK_SHALLOW : bog ? BOG_SHALLOW : SHALLOW;
       const softDepth = (i, j) => {
         let sum = 0;
         for (let v = -2; v <= 2; v += 2) for (let u = -2; u <= 2; u += 2) sum += this.gh(i + u, j + v);
@@ -519,9 +522,9 @@ export class TerrainView {
       };
       this._emitTile(W, x, y, (di, dj) => {
         const k = Math.max(0, Math.min(1, softDepth(i0 + di, j0 + dj) / 0.5));
-        const c = k < 0.3 && !darkW ? mix3(SHORE, shallow, k / 0.3) : mix3(shallow, deep, Math.min(1, (k - 0.3) / 0.7 + (darkW ? 0.3 : 0)));
+        const c = k < 0.3 && !darkW ? mix3(bog ? BOG_SHORE : SHORE, shallow, k / 0.3) : mix3(shallow, deep, Math.min(1, (k - 0.3) / 0.7 + (darkW ? 0.3 : 0)));
         return c;
-      }, () => WATER_Y, (i, j) => Math.max(0, Math.min(1, 1 - (WATER_Y - this.gh(i, j)) / 0.2)));
+      }, () => WATER_Y, bog ? () => 0 : (i, j) => Math.max(0, Math.min(1, 1 - (WATER_Y - this.gh(i, j)) / 0.2))); // (no foam on a bog)
     }
 
     // --- molten surface: fills the lava basin and laps at its banks

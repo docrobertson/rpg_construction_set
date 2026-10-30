@@ -180,10 +180,23 @@ export class QuestUI {
       ctx.moveTo(x, y - r * 1.4); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r * 1.4); ctx.lineTo(x - r, y); ctx.closePath();
       ctx.fill(); ctx.stroke();
       if (scale >= 4) {
-        ctx.font = `bold ${Math.max(10, scale * 2)}px serif`;
-        ctx.lineWidth = 3;
-        ctx.strokeText(p.quest.name, x + r + 4, y + 4);
-        ctx.fillText(p.quest.name, x + r + 4, y + 4);
+        // a dark tag above the pin, clear of the company's dot and the site under it
+        const size = Math.max(10, Math.round(scale * 1.6));
+        ctx.font = `bold ${size}px serif`;
+        const w = ctx.measureText(p.quest.name).width + 10, ht = size + 6;
+        const bx = x - w / 2, by = y - r * 1.4 - 5 - ht;
+        ctx.fillStyle = 'rgba(16,11,6,.86)';
+        ctx.strokeStyle = p.tracked ? '#a8823c' : '#7a5a8a';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(bx, by, w, ht, ht / 2) : ctx.rect(bx, by, w, ht);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = p.tracked ? '#ffe040' : '#e0a0ff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.quest.name, x, by + ht / 2 + 1);
+        ctx.textAlign = 'start';
+        ctx.textBaseline = 'alphabetic';
       }
     }
     return shown;

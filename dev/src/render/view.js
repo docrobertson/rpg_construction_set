@@ -164,6 +164,7 @@ export class View {
     this.clearFx();
     // buildings claim their walls before the terrain is built round them
     this.buildings.prepare(map);
+    this.terrain.extraLights = []; // the last map's glows (build() adds this map's)
     this.terrain.setMap(map);
     this.buildings.build();
     this._buildingsDirty = false;
@@ -174,7 +175,8 @@ export class View {
 
   refreshTiles(x0, y0, x1, y1) {
     this.terrain.markDirty(x0, y0, x1, y1);
-    this._buildingsDirty = true;
+    // rebuilding every house costs ~100 ms: only when the change can reach one
+    if (!this._buildingsDirty && this.buildings.touches(x0 - 1, y0 - 1, x1 + 1, y1 + 1)) this._buildingsDirty = true;
   }
 
   refreshAll() {

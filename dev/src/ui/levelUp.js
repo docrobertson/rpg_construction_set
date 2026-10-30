@@ -23,7 +23,8 @@ export class LevelUpCard {
 
   ready() {
     const s = this.ui.s;
-    return s.mode === 'explore' && !s.battle && !s.transitioning && !anyModal();
+    // after a won battle the victory window offers the talents first
+    return s.mode === 'explore' && !s.battle && !s.transitioning && !this.ui.chud?.victoryPending && !anyModal();
   }
 
   // called on every refresh of the play screen: cheap when nothing is due

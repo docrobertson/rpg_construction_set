@@ -133,6 +133,7 @@ export class Battle {
       for (let k = 0; k < n; k++) {
         const e = this.spawnEnemy(ad);
         if (!e) break;
+        e.summoner = u; // they fall with the boss
         const kin = this.enemies.filter((x) => x.def.id === ad.id);
         if (kin.length > 1) for (const [i, x] of kin.entries()) if (!x.tag) x.tag = String.fromCharCode(65 + i);
         this.fx.number(e.x, e.y, 'Joins the fight!', 'info', '#ff9070');
@@ -158,6 +159,9 @@ export class Battle {
       // close enough that blows are struck within a turn or two: fighters
       // two or three rows from the heroes' front line, archers and casters behind them
       const y = def.swim ? rng.int(0, ARENA_H - 4) : back ? rng.int(1, 2) : rng.pick([2, 3, 3, 4, 4]);
+      // (art) at first, no foe straight behind another on the next row: from
+      // the camera's angle their bodies, rings and health bars would merge
+      if (a < 40 && this.enemies.some((e) => e.x === x && Math.abs(e.y - y) === 1)) continue;
       if (this.walkable(x, y, { def })) return [x, y];
     }
     // nowhere suitable (e.g. landlubbers at sea): any free walkable tile
@@ -345,12 +349,14 @@ export class Battle {
         u.reacted = false;
         this.emit('turn', u);
         const skip = await this.startTurn(u);
+        if (this.aborted) return { outcome: 'aborted' };
         let end = this.checkEnd();
         if (end) return this.finish(end);
         if (!skip && this.alive(u)) {
           if (u.side === 'party') await this.heroTurn(u);
           else await this.monsterTurn(u);
         }
+        if (this.aborted) return { outcome: 'aborted' };
         this.endTurn(u);
         this.current = null;
         end = this.checkEnd();
@@ -360,6 +366,19 @@ export class Battle {
     }
   }
 
+  // the player left play mid-fight (quit or load): stop taking turns and take
+  // the battle's effects off the shared view, so nothing plays on over the title
+  abort() {
+    if (this.aborted) return;
+    this.aborted = this.over = true;
+    this.active = null;
+    const p = this.pending;
+    this.pending = null;
+    p?.();
+    this.fx.clear();
+    if (this.prevPitch && this.view.setPitch) this.view.setPitch(this.prevPitch);
+  }
+
   async heroTurn(u) {
     this.active = u;
     u.moves = this.movesFor(u);
@@ -367,6 +386,7 @@ export class Battle {
     this.view.setRing(u.id, 0xffffff);
     this.s.ui.combatTurn(u);
     await new Promise((res) => { this.pending = res; });
+    if (this.aborted) return;
     this.view.setRing(u.id, 0xffd040);
     this.active = null;
     this.s.ui.combatTurn(null);
@@ -466,7 +486,11 @@ export class Battle {
       this.s.party.gold += this.gold;
       summary.gold = this.gold;
       summary.xp = share;
-      this.log(`Victory! Each survivor gains ${share} experience${alive.some((m) => hasTrait(this.game, m, 'versatile')) ? ' (Men, quick to learn, a tenth more)' : ''}${this.gold ? `, and you find ${this.gold} gold` : ''}.`, 'good');
+      // the fallen learn from the fight too (half), so a hero raised later is
+      // not left ever further behind; they level up with their next gain
+      const fallen = members.filter((m) => m.status === 'dead');
+      const half = Math.ceil(share / 2);
+      this.log(`Victory! Each survivor gains ${share} experience${alive.some((m) => hasTrait(this.game, m, 'versatile')) ? ' (Men, quick to learn, a tenth more)' : ''}${fallen.length && half ? `, the fallen ${half}` : ''}${this.gold ? `, and you find ${this.gold} gold` : ''}.`, 'good');
       for (const m of alive) {
         const before = { level: m.level, xp: m.xp };
         const lv = gainXp(this.game, m, share);
@@ -477,6 +501,12 @@ export class Battle {
           const u = this.partyUnits.find((pu) => pu.member === m);
           if (u) { this.view.sparkle(u.x, u.y, 0xffe060, 24); this.fx.callout(u.x, u.y, 'LEVEL UP!', 0xffe060); }
         }
+      }
+      for (const m of fallen) {
+        if (!half) break;
+        const before = { level: m.level, xp: m.xp };
+        m.xp += half;
+        summary.heroes.push({ member: m, from: before, gained: half, levels: [], fallen: true });
       }
       this.dropLoot();
       summary.loot = [...this.loot];
@@ -869,6 +899,12 @@ export class Battle {
     this.emit('death', t);
     this.fx.death(t.x, t.y, t.def?.undead ? 0xd8d8c8 : 0xb8a890);
     await this.view.dieAnim(t.id);
+    // a boss's summoned kin do not fight on without it (no dull mop-up rounds)
+    const adds = t.side === 'enemy' ? this.enemies.filter((e) => e.summoner === t && this.alive(e)) : [];
+    if (adds.length) {
+      this.log(`With ${this.the(t)} gone, the ${adds.length === 1 ? 'one it called falls' : 'ones it called fall'} with it!`, 'good');
+      await Promise.all(adds.map((e) => this.kill(e)));
+    }
   }
 
   // Heals u by up to amt (plus the healer's Healing Hands); shows and returns
@@ -1449,7 +1485,7 @@ export class Battle {
   async monsterTurn(m) {
     await this.view.wait(0.1);
     const actions = m.def.speed > 1 ? 2 : 1;
-    for (let a = 0; a < actions && this.alive(m) && !this.checkEnd(); a++) {
+    for (let a = 0; a < actions && !this.aborted && this.alive(m) && !this.checkEnd(); a++) {
       // a fast monster's second action is a short lunge, not another full charge
       await this.monsterAct(m, a === 0 ? this.movesFor(m) : Math.min(1, this.movesFor(m)), a > 0);
     }

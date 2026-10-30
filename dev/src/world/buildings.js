@@ -4,7 +4,7 @@
 import { terrain } from '../data/terrain.js';
 import { inBounds, getTile } from './map.js';
 
-const INDOOR = new Set(['floor_wood', 'floor_stone', 'carpet', 'counter', 'table', 'bed', 'hearth', 'shelf', 'anvil', 'barrel', 'throne', 'altar', 'stairs_down', 'stairs_up', 'brazier']);
+export const INDOOR = new Set(['floor_wood', 'floor_stone', 'carpet', 'counter', 'table', 'bed', 'hearth', 'shelf', 'anvil', 'barrel', 'throne', 'altar', 'stairs_down', 'stairs_up', 'brazier']);
 
 const KEEPERS = {
   weapons: ['Weaponsmith', 'weapons for sale'], armor: ['Armourer', 'armour for sale'], bowyer: ['Bowyer', 'bows and arrows'],

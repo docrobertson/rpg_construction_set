@@ -59,9 +59,9 @@ export function partyCreation(app, game, { onDone, onBack }) {
     const r = byId(races, raceId) || races[0];
     const k = byId(classes, clsId) || classes[0];
     // no two heroes share a name, nor with anyone in the story
-    const name = randomName(raceLook(r.id), rng, takenBy(null));
-    const hero = { name, race: r.id, cls: k.id, stats: {}, look: {} };
+    const hero = { name: '', race: r.id, cls: k.id, stats: {}, look: {} };
     newLook(hero);
+    hero.name = randomName(raceLook(r.id), rng, takenBy(null), hero.look);
     autoStats(hero, varied);
     return hero;
   }
@@ -231,7 +231,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
         h('div.ch-portrait', picImg(hero)),
         h('div.ch-id',
           h('div.row', h('label.field.grow', h('span.field-label', 'Name'), nameIn),
-            h('button.icon', { title: 'A random name', onclick: () => { hero.name = randomName(r?.look?.race || hero.race, rng, takenBy(hero)); render(); }, html: iconSvg('dice') })),
+            h('button.icon', { title: 'A random name', onclick: () => { hero.name = randomName(r?.look?.race || hero.race, rng, takenBy(hero), hero.look); render(); }, html: iconSvg('dice') })),
           h('div.ch-line', ico(raceIcon(r)), ` ${r?.name || ''} `, ico(classIcon(k)), ` ${k?.name || ''}`),
           h('div.ch-quick',
             quick('heart', 'Health', maxHp(game, c), 'Health: how much harm this hero can take'),
@@ -332,7 +332,7 @@ export function quickParty(game) {
     for (const s of cls.primary || []) stats[s] = 16;
     const look = { ...randomPerson(race.look?.race || race.id, rng), ...randomOutfit(cls, rng) };
     for (const k of Object.keys(look)) if (look[k] === undefined) delete look[k];
-    const name = randomName(race.look?.race || race.id, rng, taken);
+    const name = randomName(race.look?.race || race.id, rng, taken, look);
     for (const w of nameWords(name)) taken.add(w);
     out.push(createCharacter(game, { name, race: race.id, cls: cls.id, stats, look }));
     if (out.length >= Math.min(4, game.settings.maxParty || 6)) break;

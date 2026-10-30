@@ -30,6 +30,7 @@ export class CombatHud {
   // ------------------------------------------------------------ lifecycle
   start() {
     this.stop();
+    this.victoryPending = false;
     this.root = h('div.cbt-overlay');
     this.plateLayer = h('div.cbt-plates');
     this.strip = h('div.cbt-strip');
@@ -91,7 +92,9 @@ export class CombatHud {
     this.stop();
     this.hideTip();
     this.view.setLine?.(null);
-    if (summary?.outcome === 'victory') setTimeout(() => this.showVictory(summary), 950);
+    // the level-up card waits for this window (it offers the same talents)
+    this.victoryPending = summary?.outcome === 'victory';
+    if (this.victoryPending) this.vicTimer = setTimeout(() => { this.vicTimer = 0; this.showVictory(summary); }, 950);
   }
 
   event(type, data) {
@@ -212,7 +215,8 @@ export class CombatHud {
   // A condition as it shows over a head: its sign in its colour and the turns
   // it has left. The hover card repeats the same badge beside its name (the legend).
   badge(s) {
-    const el = h('span.st-badge', icon(s.def.icon), s.rounds ? h('b', String(s.rounds)) : null);
+    // a condition that lasts the whole fight (a boss's rage) shows no count
+    const el = h('span.st-badge', icon(s.def.icon), s.rounds && s.rounds < 20 ? h('b', String(s.rounds)) : null);
     el.style.setProperty('--c', s.def.color);
     return el;
   }
@@ -520,7 +524,7 @@ export class CombatHud {
     if (!st.length) return null;
     return h('div.tc-status', ...st.map((s) => h('div.tc-st-row', this.badge(s),
       h('div', h('b', { style: { color: s.def.color } }, s.def.name),
-        h('span', `${s.power && ['blessed', 'shielded'].includes(s.id) ? ` +${s.power}` : ''}${s.rounds ? ` · ${s.rounds} turn${s.rounds > 1 ? 's' : ''} left` : ''} — ${s.def.desc}`)))),
+        h('span', `${s.power && ['blessed', 'shielded'].includes(s.id) ? ` +${s.power}` : ''}${s.rounds >= 20 ? ' · for the whole fight' : s.rounds ? ` · ${s.rounds} turn${s.rounds > 1 ? 's' : ''} left` : ''} — ${s.def.desc}`)))),
       h('div.tc-st-note', 'Badges over heads: sign of the condition, and the turns it has left.'));
   }
 
@@ -691,7 +695,7 @@ export class CombatHud {
   showVictory(sum) {
     const levelled = sum.heroes.some((x) => x.levels.length);
     // Men learn a tenth faster, so "each" can be a range
-    const gains = sum.heroes.map((x) => x.gained);
+    const gains = sum.heroes.filter((x) => !x.fallen).map((x) => x.gained);
     const lo = gains.length ? Math.min(...gains) : sum.xp, hi = gains.length ? Math.max(...gains) : sum.xp;
     const body = h('div.vic',
       h('div.vic-stats',
@@ -701,7 +705,7 @@ export class CombatHud {
         h('span', { title: lo !== hi ? 'Men, quick to learn, gain a tenth more' : null }, h('b', lo !== hi ? `+${lo}–${hi}` : `+${lo}`), ' experience each')),
       sum.loot.length ? h('div.vic-loot', h('span.vl-label', 'Spoils'), ...sum.loot.map((n) => h('span.vic-item', icon('potion'), ' ', n))) : null,
       h('div.vic-heroes', ...sum.heroes.map((x) => this.heroRow(x))));
-    modal(body, { title: '⚔ Victory!', cls: 'victory-modal' + (levelled ? ' levelled' : ''), buttons: [{ label: 'Onward', primary: true }], onClose: () => this.ui.refresh() });
+    modal(body, { title: '⚔ Victory!', cls: 'victory-modal' + (levelled ? ' levelled' : ''), buttons: [{ label: 'Onward', primary: true }], onClose: () => { this.victoryPending = false; this.ui.refresh(); } });
     if (levelled) setTimeout(() => sfx('level'), 350);
   }
 
@@ -719,7 +723,7 @@ export class CombatHud {
     const row = h('div.vic-hero' + (x.levels.length ? '.up' : ''),
       pic ? h('img', { src: pic, alt: '' }) : null,
       h('div.vh-body',
-        h('div.vh-head', h('b', m.name), h('span', `+${x.gained} XP`), x.levels.length ? h('span.vh-up', `LEVEL UP! Now level ${m.level}`) : h('span.vh-lv', `Level ${m.level}`)),
+        h('div.vh-head', h('b', m.name), h('span', `+${x.gained} XP`), x.fallen ? h('span.vh-lv', 'Fallen: half experience') : x.levels.length ? h('span.vh-up', `LEVEL UP! Now level ${m.level}`) : h('span.vh-lv', `Level ${m.level}`)),
         h('div.vh-xp', fill),
         x.levels.length ? h('div.vh-perks') : null));
     const slot = row.querySelector('.vh-perks');

@@ -135,7 +135,7 @@ export class PlaySession {
     this.view.setPitch(this.game.settings.pitch || 52);
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
-    this.view.focus(x, y, true);
+    this.camFocus(x, y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
     this.ui && this.ui.refresh();
@@ -192,10 +192,13 @@ export class PlaySession {
     const alive = partyAlive(this.party);
     const lead = alive[0] || this.leader;
     const world = this.map?.type === 'world';
-    const scale = world ? 0.8 : 1;
+    // five or six heroes stand a little smaller and further apart, so each
+    // can still be told apart instead of making one heap
+    const big = alive.length > 4;
+    const scale = (world ? 0.8 : 1) * (big ? 0.9 : 1);
     this.view.addEntity('party', charLook(this.game, lead), p.x, p.y, { ring: 0xffd040, facing: this.state.facing, scale });
     this.view.setFollowers?.(alive.slice(1).map((m) => ({ key: m.id || m.name, look: charLook(this.game, m) })), {
-      scale, spacing: world ? 0.5 : 0.58,
+      scale, spacing: (world ? 0.5 : 0.58) * (big ? 1.25 : 1),
       walkable: (x, y) => this.followerGround(x, y),
       taken: (x, y) => this.map.entities.some((e) => e.x === x && e.y === y),
     });
@@ -205,7 +208,15 @@ export class PlaySession {
   followerGround(x, y) {
     if (!this.map || !inBounds(this.map, x, y)) return false;
     const t = terrain(getTile(this.map, x, y));
-    return t.walk && !t.door && !t.dmg && !t.feature && !(t.water && t.key !== 'bridge');
+    if (!t.walk || t.door || t.dmg || t.feature || (t.water && t.key !== 'bridge')) return false;
+    // world-map towns and castles are drawn larger than their square: keep
+    // the company off their edges (else they stand on the walls)
+    if (this.map.type === 'world') {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if ((dx || dy) && inBounds(this.map, x + dx, y + dy) && terrain(getTile(this.map, x + dx, y + dy)).feature) return false;
+      }
+    }
+    return true;
   }
 
   refreshPartyVisual() {
@@ -316,12 +327,15 @@ export class PlaySession {
 
   async move(dx, dy) {
     if (this.mode !== 'explore' || this.transitioning) return;
-    if (this.busy) { this.queued = [dx, dy]; return; }
-    this.busy = true;
+    // a key pressed mid-step is kept for the next step; one pressed while
+    // camping or waiting is dropped (else it fires later as a stray extra step)
+    if (this.moving) { this.queued = [dx, dy]; return; }
+    if (this.busy) return;
+    this.busy = this.moving = true;
     try {
       await this._move(dx, dy);
     } finally {
-      this.busy = false;
+      this.busy = this.moving = false;
     }
     if (this.queued && this.mode === 'explore') {
       const q = this.queued;
@@ -387,6 +401,9 @@ export class PlaySession {
       return this.afterStep();
     }
     if (t.locked) return this.tryUnlock(nx, ny);
+    // bumping a shop counter speaks with the keeper behind it
+    const across = t.talkOver && this.blockingAt(nx + dx, ny + dy);
+    if (!t.walk && across?.type === 'npc') return this.talkTo(across);
     if (!t.walk) {
       sfx('bump');
       this.log(t.water ? 'You cannot swim! (Find a ship or a bridge.)' : `Blocked by ${t.name.toLowerCase()}.`);
@@ -424,10 +441,24 @@ export class PlaySession {
     return (this.party.inventory[id] || 0) > 0 || this.party.members.some((m) => Object.values(m.equip || {}).includes(id));
   }
 
+  // Centre the view on the party, but keep it over the map: at a town's edge
+  // (where every visit begins) centring on the party would fill half the
+  // screen with empty land beyond it. The margins stay inside what is on screen.
+  camFocus(x, y, instant = false) {
+    const m = this.map;
+    if (m && m.type !== 'world') {
+      const d = this.view.rig.tdist;
+      const side = Math.min(6, d * 0.5), north = Math.min(3, d * 0.28), south = Math.min(3.5, d * 0.3);
+      if (m.w > side * 2 + 1) x = Math.max(side - 0.5, Math.min(m.w - side - 0.5, x));
+      if (m.h > north + south + 1) y = Math.max(north - 0.5, Math.min(m.h - south - 0.5, y));
+    }
+    this.view.focus(x, y, instant);
+  }
+
   async stepParty(x, y, dur = 0.13) {
     this.state.pos.x = x;
     this.state.pos.y = y;
-    this.view.focus(x, y);
+    this.camFocus(x, y);
     await this.view.moveEntity('party', x, y, dur, this.state.vehicle ? 0 : 0.07);
   }
 
@@ -543,6 +574,7 @@ export class PlaySession {
     if (m.status === 'dead') return;
     m.hp -= dmg;
     if (m.hp <= 0) {
+      if (this.mode !== 'combat' && partyAlive(this.party).length === 1) this.lastStand = [m];
       m.hp = 0;
       m.status = 'dead';
       this.log(`${m.name} has died${why ? ' of ' + why : ''}!`, 'bad');
@@ -582,8 +614,21 @@ export class PlaySession {
     if (!dest) return;
     this.persistExplored();
     this.log(`You leave ${this.map.name}.`);
-    await this.enterMap(dest.id, exit.x, exit.y, { quiet: true });
-    // step off the site tile so that we don't immediately re-enter
+    // come out beside the site, in front of it if we can: the world map draws
+    // a town larger than its square, so standing on it puts the company on
+    // its roofs (and behind it, the walls hide them)
+    let { x, y } = exit;
+    if (dest.type === 'world' && terrain(getTile(dest, x, y)).feature) {
+      for (const [dx, dy] of [[0, 1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(dest, nx, ny)) continue;
+        const t = terrain(getTile(dest, nx, ny));
+        if (!t.walk || t.feature || t.water || t.dmg || (dest.entities || []).some((e) => e.x === nx && e.y === ny)) continue;
+        x = nx; y = ny;
+        break;
+      }
+    }
+    await this.enterMap(dest.id, x, y, { quiet: true });
     this.autosave();
   }
 
@@ -720,6 +765,10 @@ export class PlaySession {
     if (!rng.chance(base * rate * (tracker ? 0.75 : 1))) return;
     if (map.entities.filter((e) => e.roaming).length >= 4) return;
     const p = st.pos;
+    // the first stretch inside a dungeon is a breather: nothing new wanders
+    // up to the way in (back-to-back packs at the door felt unfair)
+    const door = map.type === 'dungeon' && map.entry;
+    if (door && Math.abs(p.x - door.x) + Math.abs(p.y - door.y) < 10) return;
     const [fx, fy] = st.facing || [0, 1];
     for (let a = 0; a < 30; a++) {
       let x, y;
@@ -802,6 +851,8 @@ export class PlaySession {
   }
 
   async fight(enemies, style, opts = {}) {
+    // who stands in this fight: if it is lost, only they rise again (see resurrect)
+    this.lastStand = partyAlive(this.party);
     this.mode = 'combat';
     this.queued = null;
     this.persistExplored();
@@ -810,6 +861,7 @@ export class PlaySession {
     this.view.setZoom(this.view.rig.tdist * 0.5);
     playMusic('combat');
     await this.app.fade(true, 300);
+    if (this.app.session !== this) return { outcome: 'aborted' }; // quit during the fade
     this.battle = new Battle(this, enemies, style, opts);
     const battle = this.battle;
     // shrine blessings last the whole fight (the battle clears buffs as it sets up)
@@ -817,6 +869,8 @@ export class PlaySession {
     battle.setup = () => { setup(); blessBattle(this, battle); };
     this.ui.setMode('combat');
     const res = await this.battle.run();
+    if (res.outcome === 'aborted') return res; // the player quit mid-fight
+    if (res.outcome !== 'defeat') this.lastStand = null;
     if (res.outcome === 'victory' && battle.gold > 0 && hasBlessing(this, 'fortune')) {
       const extra = Math.ceil(battle.gold / 2);
       this.party.gold += extra;
@@ -837,7 +891,7 @@ export class PlaySession {
     this.applyDaylight();
     playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
     this.view.setZoom(this.map.type === 'world' ? 9.5 : 10.5, true);
-    this.view.focus(this.state.pos.x, this.state.pos.y, true);
+    this.camFocus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
     if (res.outcome === 'defeat') {
@@ -872,7 +926,7 @@ export class PlaySession {
     if (won) {
       this.state.won = true;
       this.autosave();
-      setTimeout(() => this.ui.showVictory(), 600);
+      setTimeout(() => { if (this.app.session === this) this.ui.showVictory(); }, 600);
     }
     return won;
   }
@@ -1159,7 +1213,7 @@ export class PlaySession {
       m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
       m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
     }
-    this.log(hungry ? 'You wake stiff and hungry; wounds mend only a little. (Rations make for a better rest.)' : 'The party wakes refreshed.', hungry ? 'warn' : 'good');
+    this.log(hungry ? 'You wake stiff and hungry; wounds mend only a little. (Rations make for a better rest.)' : 'The party wakes rested; wounds are half mended. (An inn heals fully.)', hungry ? 'warn' : 'good');
     sfx('heal');
     this.busy = false;
     this.ui.refresh();
@@ -1186,11 +1240,18 @@ export class PlaySession {
   // respawn the party at the start after defeat
   async resurrect() {
     const s = this.game.settings.start;
+    // only those who fell in the last fight rise: heroes already dead before it
+    // still need a healer (else a wipe would be the cheapest raise in the land)
+    const back = this.lastStand?.length ? this.lastStand : this.party.members;
+    this.lastStand = null;
+    const still = this.party.members.filter((m) => m.status === 'dead' && !back.includes(m));
     for (const m of this.party.members) {
+      if (!back.includes(m)) continue;
       m.status = 'ok';
       m.hp = Math.max(1, Math.floor(maxHp(this.game, m) / 2));
       m.mp = maxMp(this.game, m);
       m.buffs = [];
+      gainXp(this.game, m, 0); // levels earned while fallen
     }
     this.party.gold = Math.floor(this.party.gold / 2);
     this.state.vehicle = null;
@@ -1198,6 +1259,7 @@ export class PlaySession {
     this.ui.setMode('explore');
     await this.enterMap(s.map, s.x, s.y);
     this.log('You awaken where your journey began, your purse lighter.', 'place');
+    if (still.length) this.log(`${still.map((m) => m.name).join(' and ')} fell before that last fight and still ${still.length === 1 ? 'lies' : 'lie'} dead: a healer in any town can raise them.`, 'warn');
   }
 
   // ------------------------------------------------------------ helpers for the UI

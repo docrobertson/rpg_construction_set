@@ -254,7 +254,7 @@ export class HoverGlow {
   update() {
     if (this.id == null) return;
     const e = this.view.entities.get(this.id);
-    if (!e || !e.root.visible) { this.swapped = []; this.id = null; this.ring.visible = false; return; }
+    if (!e || !e.root.visible) { this._restore(); this.id = null; this.ring.visible = false; return; }
     const p = e.root.position;
     const s = (e.info.group || e.info.boat ? 1.3 : Math.max(0.8, e.scale)) * (1 + Math.sin(this.view.time * 5) * 0.06);
     this.ring.position.set(p.x, p.y + 0.06, p.z);

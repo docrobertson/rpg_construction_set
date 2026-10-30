@@ -471,6 +471,7 @@ select option { background: #1a120b; }
 .hud-prompt { flex: none; min-height: 24px; max-height: 42px; padding: 3px 10px; border-top: 1px solid #2e2416; font: 12.5px/17px var(--font-ui); color: var(--muted); overflow: hidden; }
 .hud-prompt.on { color: #ffe9a8; background: rgba(232,192,105,.1); }
 .log-line { padding: 1px 0 1px 20px; position: relative; color: #e6dabc; }
+.log-rep { opacity: 0.7; font-size: 0.9em; }
 .log-ico { position: absolute; left: 0; top: 3px; font-size: 13px; display: inline-flex; font-style: normal; opacity: .9; }
 .log-line.good { color: var(--green); }
 .log-line.bad { color: #ff8a78; }
@@ -841,7 +842,7 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
   border-left: 1px solid #5a4424; }
 
 /* whose turn */
-.cbt-banner { position: absolute; top: 92px; left: 50%; transform: translateX(-50%); white-space: nowrap; opacity: 0; z-index: 1;
+.cbt-banner { position: absolute; top: 104px; left: 50%; transform: translateX(-50%); white-space: nowrap; opacity: 0; z-index: 1;
   font: 700 17px/22px var(--font-title); letter-spacing: 1.2px; color: #ffe9a8; padding: 1px 26px 2px;
   background: linear-gradient(90deg, transparent, rgba(18,13,8,.82) 20%, rgba(18,13,8,.82) 80%, transparent);
   text-shadow: 0 0 2px #000, 0 1px 0 #000, 0 0 12px rgba(255,200,90,.3); }
@@ -1073,7 +1074,8 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .qt-goal.none { color: var(--muted); font-style: italic; }
 .qt-dir { display: flex; align-items: center; gap: 7px; margin-top: 5px; font-size: 12.5px; color: #ffe08a; }
 .qt-arrow { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; background: rgba(232,192,105,.18); border: 1px solid var(--gold-dim); font-size: 12px; flex: none; }
-.qt-other-row { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(107,85,48,.6); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-other-row { margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(107,85,48,.6); font-size: 12px; color: var(--muted); overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; /* two lines, so a side quest's goal is not cut to "Hunt down Grey…" */ }
 .qt-other-row b { color: #e8d8b0; font-weight: 600; }
 .qt-other-row:hover b { color: var(--gold); }
 .qt-more { font-size: 11px; color: var(--muted); margin-top: 3px; }
@@ -1324,3 +1326,7 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 /* the editor's Quests tab: the form takes the whole width (no stray strip of map) */
 .tab-quests .ed-main { width: auto; right: 0; }
 .tab-quests .ed-main > * { max-width: 900px; }
+
+/* parchment windows: the dark "more below" fade of the wooden windows hid
+   their last line (the dialog's hint); their own lists scroll inside */
+.talk-modal .modal-body, .intro-modal .modal-body { background: none; }
