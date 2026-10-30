@@ -801,7 +801,7 @@ export class View {
       }
       const r = Math.hypot(bx - ax, by - ay) * 0.5 + hMax * 0.55 + 18;
       cuts[0].set(((ax + bx) / 2) * pr, (H - (ay + by) / 2) * pr, r * pr, zMin - 0.12);
-      ys.setComponent(0, yMin + 0.06);
+      ys[0] = yMin + 0.06;
       n = 1;
     }
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }

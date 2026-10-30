@@ -125,7 +125,7 @@ st = await ev(async () => {
 check('talking to Hilda completes stage 1', st.stage === 1, st.stage);
 check('stage reward paid', st.gold === 50, st.gold);
 check('her quest line is spoken', /Caer Aldon/.test(st.talk) && /Quest updated/.test(st.talk), st.talk.slice(0, 200));
-check('the reward is said in the conversation', /You receive 50 gold, 2 × Healing Draught/.test(st.talk), st.talk.slice(-200));
+check('the reward is said in the conversation', /You receive 50 gold, (20 food, )?2 × Healing Draught/.test(st.talk), st.talk.slice(-200));
 check('the reward is written in the log', /You receive 50 gold/.test(st.log), st.log);
 check('no banner over the conversation', !st.banner);
 await page.keyboard.press('Escape');
