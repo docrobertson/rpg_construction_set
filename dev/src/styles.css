@@ -1349,3 +1349,7 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .sa-row.locked { opacity: .5; filter: grayscale(.7); }
 .sa-row.locked p { display: none; }
 .lvl-new { color: #9fe39a; font-weight: 600; }
+
+/* ---------- the quest tracker in the side panel, under the company ---------- */
+.qtrack.in-side { position: relative; top: auto; left: auto; width: auto; max-width: none; margin: 4px 10px 12px 12px; flex: none; z-index: auto; }
+.qtrack.in-side .qt-other-row { white-space: normal; }

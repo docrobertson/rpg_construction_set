@@ -144,6 +144,7 @@ export class PlaySession {
     this.applyDaylight();
     playMusic(moodFor(map));
     this.view.setPitch(this.game.settings.pitch || 52);
+    this.view.reach = 10; // zoom out no further than about ten squares round the party
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
     this.camFocus(x, y, true);
@@ -1363,7 +1364,7 @@ export class PlaySession {
     const n = partyAlive(this.party).length;
     const hungry = this.game.settings.food && this.party.food < n;
     this.busy = true;
-    this.log(hungry ? 'You make a cold camp with nothing to eat, and rest as best you can...' : 'You make camp and rest...', 'place');
+    this.log(hungry ? 'You make a cold camp with nothing to eat, and rest as best you can (about 4 hours)...' : 'You make camp and rest (about 4 hours)...', 'place');
     this.view.addEntity('campfire', { kind: 'campfire' }, p.x, p.y + (inBounds(this.map, p.x, p.y + 1) && terrain(getTile(this.map, p.x, p.y + 1)).walk ? 1 : 0));
     await this.view.wait(1.2);
     this.view.removeEntity('campfire');

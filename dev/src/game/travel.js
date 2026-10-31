@@ -87,3 +87,31 @@ export function tileCost(map, x, y) {
 
 // handles for tests and the browser console
 if (typeof window !== 'undefined') window.__travel = { terrain, T, monsterCost, easedCost, partyEase, costNote, nativeOf };
+
+// ---- the clock: a day is DAY_LEN (300) turns, so a turn is about 5 minutes,
+// and the day starts at six in the morning
+export const MINUTES_PER_TURN = (24 * 60) / 300;
+
+// "about 2 pm" for a turn count
+export function clockText(turn) {
+  const mins = (6 * 60 + (turn % 300) * MINUTES_PER_TURN) % (24 * 60);
+  let hr = Math.round(mins / 60) % 24;
+  if (hr === 0) return 'about midnight';
+  if (hr === 12) return 'about noon';
+  return `about ${hr % 12 || 12} ${hr < 12 ? 'am' : 'pm'}`;
+}
+
+// "about 25 min" / "about 1½ hours" for a number of turns
+export function durationText(turns) {
+  const mins = turns * MINUTES_PER_TURN;
+  if (mins < 50) return `about ${Math.max(5, Math.round(mins / 5) * 5)} min`;
+  const h = Math.round(mins / 30) / 2;
+  const whole = Math.floor(h), half = h - whole >= 0.5 ? '½' : '';
+  return `about ${whole || ''}${half}${whole || half ? '' : '½'} hour${h > 1 ? 's' : ''}`;
+}
+
+// How long ten squares take on each kind of ground (for the clock's tooltip)
+export function travelTimes() {
+  const rows = [['road', 'Road'], ['grass', 'Grassland'], ['forest', 'Forest'], ['hills', 'Hills'], ['swamp', 'Swamp or snow'], ['sand', 'Sand or desert']];
+  return rows.map(([k, label]) => `${label}: ${durationText(10 * (terrain(T[k]).cost ?? 1))}`);
+}

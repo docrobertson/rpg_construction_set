@@ -50,7 +50,17 @@ export class QuestUI {
     this.banners = [];
     this.el = h('div.qtrack', { title: 'Your current goal — click for the Journal (J)' });
     this.el.addEventListener('click', (e) => { if (!e.target.closest('.qt-other-row')) this.openJournal(); });
-    ui.root.appendChild(this.el);
+    // the tracker sits in the side panel under the company, clear of the map;
+    // on narrow screens (where the company is a strip) it floats over the map
+    const side = ui.root.querySelector('.hud-side');
+    this.narrow = typeof matchMedia === 'function' ? matchMedia('(max-width: 860px)') : null;
+    this.place = () => {
+      const host = side && !this.narrow?.matches ? side : ui.root;
+      if (this.el.parentNode !== host) host.appendChild(this.el);
+      this.el.classList.toggle('in-side', host === side);
+    };
+    this.place();
+    this.narrow?.addEventListener?.('change', this.place);
     this.bannerHost = h('div.qbanner-host');
     ui.root.appendChild(this.bannerHost);
     // the session talks to the PlayUI; these land here
@@ -59,7 +69,7 @@ export class QuestUI {
     ui.openJournal = () => this.openJournal();
   }
 
-  destroy() { clearTimeout(this.waitT); this.el.remove(); this.bannerHost.remove(); this.banners.length = 0; }
+  destroy() { clearTimeout(this.waitT); this.narrow?.removeEventListener?.('change', this.place); this.el.remove(); this.bannerHost.remove(); this.banners.length = 0; }
 
   // ------------------------------------------------------------ tracker
   refresh() {

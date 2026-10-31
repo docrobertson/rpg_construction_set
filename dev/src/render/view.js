@@ -173,6 +173,16 @@ export class View {
     this.setLighting(map.lighting || 'day');
     this._initVisibility(map.w, map.h);
     this.rig.maxDist = Math.max(30, Math.max(map.w, map.h) * 1.2);
+    this.reach = null; // play sets this (see zoomLimit)
+  }
+
+  // How far out the camera may pull: in play, only about `reach` squares
+  // either side of the party fit across the view; the editor is unlimited.
+  zoomLimit() {
+    if (!this.reach) return this.rig.maxDist;
+    const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const aspect = Math.max(0.6, this.camera.aspect || 1.5);
+    return Math.max(this.rig.minDist, Math.min(this.rig.maxDist, (2 * this.reach + 1) / (2 * t * aspect)));
   }
 
   refreshTiles(x0, y0, x1, y1) {
@@ -356,7 +366,7 @@ export class View {
   }
 
   setZoom(dist, instant = false) {
-    this.rig.tdist = clamp(dist, this.rig.minDist, this.rig.maxDist);
+    this.rig.tdist = clamp(dist, this.rig.minDist, this.zoomLimit());
     if (instant) this.rig.dist = this.rig.tdist;
   }
 

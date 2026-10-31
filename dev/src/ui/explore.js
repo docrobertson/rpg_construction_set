@@ -2,6 +2,7 @@
 // click there will do, walking there along a path and doing it, and the
 // Nearby bar of things the party can do right where it stands.
 import { h, clear, anyModal } from './dom.js';
+import { durationText } from '../game/travel.js';
 import { terrain } from '../data/terrain.js';
 import { byId, getMap } from '../data/schema.js';
 import { getTile, inBounds } from '../world/map.js';
@@ -136,14 +137,16 @@ export class Explorer {
 
   // ------------------------------------------------------------ walking
   // squares the party may step through on the way somewhere
-  passable(goalX, goalY) {
+  // known: squares that count as seen even in the dark (a building the player
+  // clicked: everyone knows a house has a way in and rooms behind its door)
+  passable(goalX, goalY, known = null) {
     const s = this.s, map = s.map;
     const ship = !!s.state.vehicle;
     return (x, y) => {
       if (!inBounds(map, x, y)) return false;
       const t = terrain(getTile(map, x, y));
       if (ship ? !(t.water && t.key !== 'bridge') : !t.walk) return false;
-      if (s.visible && map.lighting === 'dark' && !map.explored[y * map.w + x]) return false;
+      if (s.visible && map.lighting === 'dark' && !map.explored[y * map.w + x] && !known?.has(x + ',' + y)) return false;
       if (s.blockingAt(x, y)) return false;
       const goal = x === goalX && y === goalY;
       if (!goal) {
@@ -161,8 +164,8 @@ export class Explorer {
   pathFor(plan) {
     const s = this.s, p = s.state.pos;
     // afloat every square is alike; ashore the quickest way keeps to roads
-    if (s.state.vehicle) return bfsPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy), 40);
-    return cheapestPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy), (x, y) => s.stepCost(x, y), 40);
+    if (s.state.vehicle) return bfsPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy, plan.known), 40);
+    return cheapestPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy, plan.known), (x, y) => s.stepCost(x, y), 40);
   }
 
   // where to stand to speak with someone: beside them, or across a counter
@@ -206,9 +209,10 @@ export class Explorer {
         return { goal: (x, y) => x === tg.x && y === tg.y, gx: tg.x, gy: tg.y, tone: tg.kind === 'portal' ? 'enter' : 'use' };
       case 'building': {
         const k = tg.b.keeper && map.entities.includes(tg.b.keeper) ? tg.b.keeper : null;
-        if (k) return { goal: this.besideGoal(k), arrive: bump(k), track: k, tone: 'enter' };
         const inside = new Set(tg.b.tiles.map(([x, y]) => x + ',' + y));
-        return { goal: (x, y) => inside.has(x + ',' + y), tone: 'enter' };
+        const known = new Set([...inside, ...tg.b.doors.map(([x, y]) => x + ',' + y)]);
+        if (k) return { goal: this.besideGoal(k), arrive: bump(k), track: k, tone: 'enter', known };
+        return { goal: (x, y) => inside.has(x + ',' + y), tone: 'enter', known };
       }
       case 'party': return { here: true, arrive: () => s.wait(), tone: 'self' };
       case 'companion': return { here: true, arrive: () => this.ui.selectHero(tg.m), tone: 'self' };
@@ -333,6 +337,13 @@ export class Explorer {
     return { title, sub: parts.join(' · '), badge: mk, note: notes[mk] || '' };
   }
 
+  // turns a path takes, square by square
+  pathTurns(path) {
+    let n = 0;
+    for (const st of path || []) n += this.s.stepCost(st[0] ?? st.x, st[1] ?? st.y);
+    return n;
+  }
+
   // What the card says about a target, and what a click will do
   describe(tg, plan, path) {
     const s = this.s, map = s.map, g = s.game;
@@ -391,7 +402,7 @@ export class Explorer {
         if (t.locked) return { title: t.name, act: 'Click to try the lock', tone: 'use' };
         if (plan.stairs) return { title: t.name, act: `Click to ${t.key === 'stairs_up' ? 'climb' : 'go down'}${far}`, tone };
         const sub = [t.poison ? 'foul water — may poison you' : '', t.dmg ? 'it burns!' : '', s.mapIsTown() ? '' : s.terrainNote(t), t.sight && !t.wall ? 'hard to see through' : ''].filter(Boolean).join(' · ');
-        return { title: t.name, sub, act: steps ? `Walk here · ${steps} step${steps === 1 ? '' : 's'}` : 'You are here', tone };
+        return { title: t.name, sub, act: steps ? `Walk here · ${steps} step${steps === 1 ? '' : 's'}, ${durationText(this.pathTurns(path))}` : 'You are here', tone };
       }
       default: return null;
     }

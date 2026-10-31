@@ -215,7 +215,7 @@ function injectVisibility(material, extra = {}) {
             #endif
             float stain = fxNoise(q * 0.13 + 41.0) * 0.6 + fxNoise(q * 0.37 - 7.0) * 0.4;
             float grain = fxNoise(q * 11.0) * 0.5 + fxNoise(q * vec2(31.0, 5.0) + 3.0) * 0.5;
-            vec3 vel = vec3(0.62, 0.48, 0.26); // (linear) warm parchment
+            vec3 vel = vec3(0.52, 0.4, 0.215); // (linear) warm, slightly aged parchment
             vel *= 0.9 + 0.12 * stain;
             vel = mix(vel, vel * vec3(0.9, 0.78, 0.6), smoothstep(0.55, 0.85, stain) * 0.6);
             vel *= 0.93 + 0.1 * grain;

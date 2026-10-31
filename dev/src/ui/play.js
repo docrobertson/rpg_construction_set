@@ -21,6 +21,7 @@ import { iconSvg, itemIcon, itemTile } from './icons.js';
 import { openHelpOverlay, magicGuide } from './help.js';
 import { QuestUI } from './journal.js';
 import { Explorer, glyph } from './explore.js';
+import { clockText, durationText, travelTimes } from '../game/travel.js';
 import { LevelUpCard } from './levelUp.js';
 import { questPins } from '../game/quests.js';
 import { fillVellum, inkEdges } from './vellum.js';
@@ -156,7 +157,9 @@ export class PlayUI {
     const ico = (name) => h('i.st-ico', { html: iconSvg(name) });
     this.statusEl.append(...[
       h('span.st-place', { title: s.battle ? 'A battle is under way' : 'Where your company stands' }, ico(s.battle ? 'sword' : 'place'), s.battle ? 'Battle' : map ? map.name : ''),
-      tod ? h('span.st-item.st-time' + (tod.dark > 0.5 ? '.night' : ''), { title: `Day ${tod.day}: at night you see less and more monsters roam` }, ico(tod.dark > 0.5 ? 'moon' : 'sun'), `${tod.name}, day ${tod.day}`) : null,
+      tod ? h('span.st-item.st-time' + (tod.dark > 0.5 ? '.night' : ''), {
+        title: `Day ${tod.day}, ${clockText(s.state.turn || 0)}. Each step takes time: ten squares take\n${travelTimes().join('\n')}\nA camp takes ${durationText(50)}, a night at an inn ${durationText(80)}. At night you see less and more monsters roam.`,
+      }, ico(tod.dark > 0.5 ? 'moon' : 'sun'), `${tod.name} · ${clockText(s.state.turn || 0).replace('about ', '~')}, day ${tod.day}`) : null,
       h('span.st-item.st-gold', { title: 'Gold: spend it in shops, inns and temples' }, ico('coin'), String(p.gold)),
       this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 turns (roads are quicker, rough ground slower), and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
@@ -1012,7 +1015,7 @@ export class PlayUI {
               if (this.app.session === s) { s.applyDaylight(); s.checkPhase(); s.updateVisibility(true); }
               return this.app.fade(false, 500);
             });
-            s.log('You sleep soundly and wake fully rested.', 'good');
+            s.log(`You sleep soundly and wake fully rested, ${clockText(s.state.turn || 0).replace('about ', 'at about ')}.`, 'good');
             s.autosave();
             this.refresh();
           },

@@ -2,7 +2,7 @@
 // has never seen is drawn as old parchment, with a faint ink line where the
 // charted land ends (the 3D view does the same in its shader).
 
-export const VELLUM = '#e2cfa2';
+export const VELLUM = '#cfb98a';
 
 const cache = new Map();
 
@@ -53,7 +53,7 @@ function paint(ctx, w, h, unit) {
 export function inkEdges(ctx, map, explored, x0, y0, x1, y1, sx, sy, k) {
   const known = (x, y) => x < 0 || y < 0 || x >= map.w || y >= map.h || !!explored[y * map.w + x];
   ctx.save();
-  ctx.fillStyle = 'rgba(226,207,162,0.38)';
+  ctx.fillStyle = 'rgba(207,185,138,0.38)';
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
     if (!known(x, y)) continue;
     if (known(x - 1, y) && known(x + 1, y) && known(x, y - 1) && known(x, y + 1)) continue;
