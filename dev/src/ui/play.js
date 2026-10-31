@@ -23,6 +23,7 @@ import { QuestUI } from './journal.js';
 import { Explorer, glyph } from './explore.js';
 import { LevelUpCard } from './levelUp.js';
 import { questPins } from '../game/quests.js';
+import { fillVellum, inkEdges } from './vellum.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -157,7 +158,7 @@ export class PlayUI {
       h('span.st-place', { title: s.battle ? 'A battle is under way' : 'Where your company stands' }, ico(s.battle ? 'sword' : 'place'), s.battle ? 'Battle' : map ? map.name : ''),
       tod ? h('span.st-item.st-time' + (tod.dark > 0.5 ? '.night' : ''), { title: `Day ${tod.day}: at night you see less and more monsters roam` }, ico(tod.dark > 0.5 ? 'moon' : 'sun'), `${tod.name}, day ${tod.day}`) : null,
       h('span.st-item.st-gold', { title: 'Gold: spend it in shops, inns and temples' }, ico('coin'), String(p.gold)),
-      this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 steps, and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
+      this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 turns (roads are quicker, rough ground slower), and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', { title: 'Sailing: walk onto land to go ashore' }, ico('compass'), 'Aboard ship') : null,
     ].filter(Boolean));
@@ -351,9 +352,11 @@ export class PlayUI {
     const fit = (pos, len) => (len <= span ? (len - span) / 2 : Math.max(0, Math.min(len - span, pos + 0.5 - span / 2)));
     const ox = fit(p.x, map.w), oy = fit(p.y, map.h);
     const sx = (x) => (x - ox) * k, sy = (y) => (y - oy) * k;
-    ctx.fillStyle = '#17110a';
-    ctx.fillRect(0, 0, size, size);
     const vis = s.visible, explored = map.explored;
+    // outdoors, unexplored land is blank parchment; underground, black
+    const vellum = !!vis && s.vellumMap();
+    if (vellum) fillVellum(ctx, 0, 0, size, size, k);
+    else { ctx.fillStyle = '#17110a'; ctx.fillRect(0, 0, size, size); }
     const x0 = Math.max(0, Math.floor(ox)), y0 = Math.max(0, Math.floor(oy));
     const x1 = Math.min(map.w, Math.ceil(ox + span)), y1 = Math.min(map.h, Math.ceil(oy + span));
     const sites = [];
@@ -368,6 +371,7 @@ export class PlayUI {
       ctx.fillRect(Math.floor(sx(x)), Math.floor(sy(y)), Math.ceil(k) + 1, Math.ceil(k) + 1);
       if (t.feature || t.key === 'stairs_down' || t.key === 'stairs_up') sites.push([x, y]);
     }
+    if (vellum) inkEdges(ctx, map, explored, x0, y0, x1, y1, sx, sy, k);
     // towns, sites and stairs: pale squares with an ink edge
     const r0 = Math.max(u * 2.6, k * 0.42);
     ctx.lineWidth = Math.max(1, k / 6);
@@ -1149,8 +1153,9 @@ export class PlayUI {
     const scale = Math.max(2, Math.min(10, Math.floor(560 / Math.max(vw, vh))));
     const c = h('canvas.bigmap', { width: vw * scale, height: vh * scale });
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#17110a';
-    ctx.fillRect(0, 0, c.width, c.height);
+    const vellum = !!s.visible && s.vellumMap();
+    if (vellum) fillVellum(ctx, 0, 0, c.width, c.height, scale);
+    else { ctx.fillStyle = '#17110a'; ctx.fillRect(0, 0, c.width, c.height); }
     ctx.translate(-ox * scale, -oy * scale);
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       const i = y * map.w + x;
@@ -1166,6 +1171,7 @@ export class PlayUI {
         ctx.fillRect(x * scale, y * scale, scale, scale);
       }
     }
+    if (vellum) inkEdges(ctx, map, map.explored, 0, 0, map.w, map.h, (x) => x * scale, (y) => y * scale, scale);
     for (const e of map.entities) {
       if (e.type !== 'portal') continue;
       if (s.visible && !map.explored[e.y * map.w + e.x]) continue;
@@ -1198,7 +1204,7 @@ export class PlayUI {
       shown.other ? row('dia', '#e0a0ff', 'Goals of other quests') : null,
       row('sq', '#fff', 'Towns, sites and stairs'),
       ...Object.entries(EVENT_DOTS).filter(([k]) => shown.events?.has(k)).map(([, [color, label]]) => row('dot', color, label)),
-      s.visible ? h('p.hint', 'Dark parts are not explored yet.') : null);
+      s.visible ? h('p.hint', vellum ? 'Blank parchment is land you have not explored yet.' : 'Dark parts are not explored yet.') : null);
     modal(h('div.map-wrap', c, legend), { title: map.name, icon: 'map', cls: 'map-modal' });
   }
 
@@ -1432,12 +1438,20 @@ off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the 
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>
 </table>
 <h3>Survival</h3>
-<p>In the wild each hero eats a ration every 20 steps (towns are free); provisioners sell more. With no food the company
+<p>In the wild each hero eats a ration every 20 turns (towns are free); provisioners sell more. With no food the company
 goes hungry and slowly loses health. Swamps may poison you. Rest at inns, or hole up in the wild (if no foes are near) —
-a camp without food mends only half as much. Forests, hills and swamps sometimes slow you down; roads never do.
+a camp without food mends only half as much.
 The fallen stay dead until raised by a healer, a Phoenix Feather or a priest's prayer.
 Forests and mountains block your sight. Carry torches into dark places. Night falls every few hundred turns:
-you see less, and more monsters roam.</p>`;
+you see less, and more monsters roam.</p>
+<h3>Travel</h3>
+<p>The ground sets your pace. A step along a road or bridge takes half a turn; grass and meadow a turn; forest 1½;
+pine woods and hills 1¾; swamp and snow 2; sand and desert 2½. Every turn eats food and gives monsters time to move,
+so roads are the quick and safe way. Heroes who know their country go a little easier there (elves in the woods,
+dwarves in the hills, rangers in the wild) — point at a square to see its cost. Monsters pay too, except on their
+native ground. Guards give up once you are far from their post; wandering bands lose interest after a while.</p>
+<p>Land you have never seen is blank parchment on the map; land seen before but out of sight lies in shadow.
+The first sight of a town, a site, a curiosity or a new kind of country is a discovery worth a little experience.</p>`;
 
 export { escapeHtml };
 

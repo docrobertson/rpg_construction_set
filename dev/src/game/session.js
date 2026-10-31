@@ -17,12 +17,23 @@ import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
+import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 
 export function moodFor(map) {
   return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
 }
 
 export const STATE_VERSION = 1;
+
+// Out of sight this many turns, a chase ends; a wandering band chases this
+// many turns at most before it loses interest (placed monsters give up past
+// their leash: DEFAULT_LEASH in travel.js)
+const LOST_TURNS = 4;
+
+// kinds of country whose first sight counts as a discovery on the world map
+const REGION_KINDS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'peaks', 'ash', 'lava', 'ruins'];
+const REGION_NAMES = { forest: 'the greenwood', pines: 'pine woods', hills: 'the hills', mountains: 'the mountains', swamp: 'the marshes', desert: 'the desert', snow: 'the snowfields', peaks: 'snowy peaks', ash: 'the ashen waste', lava: 'fire-rivers', ruins: 'old ruins' };
+const ROAM_CHASE = 14;
 
 // steps in the wild per ration eaten by each hero
 export const FOOD_TURNS = 20;
@@ -298,19 +309,66 @@ export class PlaySession {
     const vis = computeVisible(map, p.x, p.y, sight, light, map.litMask);
     this.visible = vis;
     const dark = map.lighting === 'dark';
+    // outdoors, land never seen is blank map vellum (drawn by the shader from
+    // the explored mask); underground it stays black
+    const vellum = this.vellumMap();
     const levels = new Float32Array(map.w * map.h);
     for (let i = 0; i < vis.length; i++) {
-      if (vis[i]) { map.explored[i] = 1; levels[i] = 1; }
-      else levels[i] = map.explored[i] ? (dark ? 0.42 : 0.55) : (dark ? 0 : 0.12);
+      if (vis[i]) { map.explored[i] = 1; levels[i] = 1; } else levels[i] = map.explored[i] ? (dark ? 0.42 : 0.55) : (dark ? 0 : vellum ? 0.55 : 0.12);
     }
     this.view.setCarriedLight?.(this.party.light > 0);
-    this.view.setVisibility(levels, instant);
+    this.view.setVellum?.(vellum);
+    this.view.setVisibility(levels, instant, vellum ? map.explored : null);
     this.view.setVisibilityEnabled(true);
     for (const e of map.entities) {
       const i = e.y * map.w + e.x;
       const show = e.type === 'npc' || e.type === 'monster' ? !!vis[i] : !!map.explored[i];
       this.view.setEntityVisible(e.id, show);
     }
+    // what is in view on arrival is simply known; after that, news is news
+    this.noteDiscoveries(vis, instant);
+  }
+
+  // The first sight of a site, a curiosity or a new kind of country earns a
+  // line in the log and a little experience (kept per map in the save)
+  noteDiscoveries(vis, silent = false) {
+    const map = this.map;
+    if (!vis || this.mode !== 'explore' || !this.ui || map.type === 'town' || map.type === 'castle') return;
+    const found = this.state.found || (this.state.found = {});
+    // a save from before discoveries: what was already explored is known
+    if (!found[map.id]) { found[map.id] = []; vis = map.explored; silent = true; }
+    const list = found[map.id];
+    const have = new Set(list);
+    const news = [];
+    for (const e of map.entities) {
+      if ((e.type !== 'portal' && e.type !== 'event') || have.has(e.id) || !vis[e.y * map.w + e.x]) continue;
+      have.add(e.id); list.push(e.id);
+      const name = e.type === 'event' ? eventLabel(e) : map.type === 'world' ? e.label || getMap(this.game, e.target?.map)?.name : null;
+      if (name) news.push({ name, xp: e.type === 'portal' ? 8 : 3 });
+    }
+    if (map.type === 'world') {
+      const want = REGION_KINDS.filter((k) => !have.has('t:' + k));
+      if (want.length) {
+        const seen = new Set();
+        for (let i = 0; i < vis.length; i++) if (vis[i]) seen.add(terrain(map.tiles[i]).key);
+        for (const k of want) {
+          if (!seen.has(k)) continue;
+          have.add('t:' + k); list.push('t:' + k);
+          news.push({ name: REGION_NAMES[k] || terrain(T[k]).name, xp: 3 });
+        }
+      }
+    }
+    if (!news.length || silent) return;
+    const xp = news.reduce((n, d) => n + d.xp, 0);
+    const ups = [];
+    for (const m of partyAlive(this.party)) if (gainXp(this.game, m, xp).length) ups.push(`${m.name} reaches level ${m.level}`);
+    this.log(`Discovered: ${news.map((d) => d.name).join(', ')}. (+${xp} experience)${ups.length ? ' ' + ups.join('; ') + '!' : ''}`, ups.length ? 'level' : 'place');
+    if (ups.length) { sfx('level'); this.autosave(); }
+  }
+
+  // maps whose unknown parts are drawn as blank parchment rather than black
+  vellumMap(map = this.map) {
+    return !!map && map.lighting !== 'dark' && (map.type === 'world' || map.type === 'town' || map.type === 'castle');
   }
 
   isVisible(x, y) {
@@ -385,7 +443,7 @@ export class PlaySession {
         const ve = this.map.entities.find((e) => e.id === this.state.vehicle.id);
         if (ve) { ve.x = nx; ve.y = ny; this.mapState(map.id).moved[ve.id] = [nx, ny]; }
         sfx('splash');
-        return this.afterStep();
+        return this.afterStep(false, 1);
       }
       if (t.walk) {
         // disembark; the ship stays where it is
@@ -394,8 +452,9 @@ export class PlaySession {
         this.refreshPartyVisual();
         if (ve) this.addVisual(ve);
         this.log('You go ashore.');
-        await this.stepParty(nx, ny);
-        return this.afterStep();
+        const cost = this.stepCost(nx, ny);
+        await this.stepParty(nx, ny, this.stepDuration(cost));
+        return this.afterStep(false, cost);
       }
       sfx('bump');
       return;
@@ -417,16 +476,41 @@ export class PlaySession {
       this.log(t.water ? 'You cannot swim! (Find a ship or a bridge.)' : `Blocked by ${t.name.toLowerCase()}.`);
       return;
     }
-    if (t.slow && !this.mapIsTown() && !this.onRoad(p.x, p.y) && rng.chance(t.slow * 0.5)) {
-      // explained the first time; after that a short note now and then
-      if (!this.tip('slow', `Slow going: ${t.name.toLowerCase()} and other rough ground sometimes cost a turn without moving. Roads are always quick.`)
-        && (this.state.turn || 0) - (this.lastSlowNote ?? -99) > 25) this.log('Slow going…');
-      this.lastSlowNote = this.state.turn || 0;
-      return this.afterStep(true);
-    }
-    await this.stepParty(nx, ny);
+    // every step lands, but rough ground takes longer (and roads less): the
+    // turns it costs pass for food, encounters and the monsters on the map
+    const cost = this.stepCost(nx, ny);
+    this.travelNote(t, cost);
+    await this.stepParty(nx, ny, this.stepDuration(cost), cost < 1 ? 0.045 : cost > 1.6 ? 0.055 : 0.07);
     if (t.door) sfx('door'); else sfx('step');
-    return this.afterStep();
+    return this.afterStep(false, cost);
+  }
+
+  // Turns a step onto (x, y) takes the company: the ground's cost, lightened a
+  // little by a hero who knows that country (see game/travel.js)
+  stepCost(x, y) {
+    if (this.state.vehicle) return 1;
+    const t = terrain(getTile(this.map, x, y));
+    if (!(t.cost > 1)) return t.cost ?? 1;
+    return easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0);
+  }
+
+  // quick little steps along a road, a slow trudge through sand
+  stepDuration(cost) { return Math.max(0.085, Math.min(0.2, 0.13 * Math.pow(cost, 0.45))); }
+
+  // hover text on how hard the going is ('' for ordinary ground)
+  terrainNote(t) {
+    if (!this.map || this.mapIsTown() || this.state.vehicle || (t.water && t.key !== 'bridge') || !t.walk) return '';
+    return costNote(this.game, this.party.members, t);
+  }
+
+  travelNote(t, cost) {
+    if (this.mapIsTown() || cost === 1) return;
+    // explained the first time; after that a short note now and then on heavy ground
+    if (this.tip('terrain', 'The ground decides your pace: a step along a road or bridge takes only half a turn, open grass a turn, woods and hills about 1½–2, swamp and snow 2, sand and desert 2½. Every turn eats food and lets monsters close in, so keep to the roads when you can. Some heroes know their country (elves the woods, dwarves the hills, rangers the wild) and go a little easier there. Point at a square to see its cost.')) return;
+    if (cost >= 2 && (this.state.turn || 0) - (this.lastSlowNote ?? -99) > 30) {
+      this.lastSlowNote = this.state.turn || 0;
+      this.log(`Heavy going through the ${t.name.toLowerCase()}…`);
+    }
   }
 
   mapIsTown() { return this.map.type === 'town' || this.map.type === 'castle'; }
@@ -463,11 +547,11 @@ export class PlaySession {
     this.view.focus(x, y, instant);
   }
 
-  async stepParty(x, y, dur = 0.13) {
+  async stepParty(x, y, dur = 0.13, hop = 0.07) {
     this.state.pos.x = x;
     this.state.pos.y = y;
     this.camFocus(x, y);
-    await this.view.moveEntity('party', x, y, dur, this.state.vehicle ? 0 : 0.07);
+    await this.view.moveEntity('party', x, y, dur, this.state.vehicle ? 0 : hop);
   }
 
   async tryUnlock(x, y) {
@@ -504,24 +588,27 @@ export class PlaySession {
     try { await this.afterStep(true); } finally { this.busy = false; }
   }
 
-  // Called after every turn on a map
-  async afterStep(noMove = false) {
+  // Called after every step (or wait) on a map. cost: the turns it took —
+  // half a turn on a road, two and a half in sand. Whole turns are counted
+  // as they begin, so a road step and the next share one turn of the world.
+  async afterStep(noMove = false, cost = 1) {
     const st = this.state;
-    st.turn++;
-    this.applyDaylight();
-    this.checkPhase();
+    const c0 = st.clock || 0, c1 = c0 + cost;
+    const ticks = Math.max(0, Math.ceil(c1 - 1e-9) - Math.ceil(c0 - 1e-9));
+    st.clock = c1 - Math.floor(c1 + 1e-9);
     const map = this.map;
     const p = st.pos;
+    const turn0 = st.turn || 0;
     // portals & pickups
     if (!noMove) {
       const here = this.entitiesAt(p.x, p.y);
       const chest = here.find((e) => e.type === 'chest');
       if (chest) await this.openChest(chest);
       const portal = here.find((e) => e.type === 'portal');
-      if (portal && !st.vehicle) return this.usePortal(portal);
+      if (portal && !st.vehicle) { this.passTime(ticks); return this.usePortal(portal); }
       if (map.type !== 'world' && !st.vehicle) {
         const tk = terrain(getTile(map, p.x, p.y)).key;
-        if ((tk === 'stairs_up' || tk === 'stairs_down') && !portal && map.exit) return this.leaveMap();
+        if ((tk === 'stairs_up' || tk === 'stairs_down') && !portal && map.exit) { this.passTime(ticks); return this.leaveMap(); }
       }
     }
     // hazards
@@ -539,43 +626,59 @@ export class PlaySession {
         sfx('fire');
       }
     }
-    // poison ticks
-    for (const m of partyAlive(this.party)) {
-      if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+    for (let k = 0; k < ticks; k++) {
+      if (k > 0) this.updateVisibility();
+      this.passTime(1);
+      if (this.checkDefeat()) return;
+      // the world moves
+      const combat = await this.monstersAct();
+      if (combat) return;
+      this.npcsAct();
+      this.maybeSpawnEncounter();
     }
-    // food: in the wild each hero eats one ration every FOOD_TURNS steps
-    if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
-      st.foodTick++;
-      if (st.foodTick >= FOOD_TURNS) {
-        st.foodTick = 0;
-        const n = partyAlive(this.party).length;
-        this.party.food = Math.max(0, this.party.food - n);
-        if (this.party.food <= 0) {
-          this.log('Starving! Each hero loses a little health until you find food.', 'bad');
-          this.tip('starving', 'Out of food: the company weakens as it walks. Buy rations from a provisioner (every town has one), or look for farms, camps and caches along the roads.');
-          for (const m of partyAlive(this.party)) this.hurtMember(m, rng.int(1, 2), 'hunger');
-        } else if (this.party.food < n * 8) {
-          if (!this.tip('food', `Food is running low (${this.party.food} left). In the wild each hero eats one ration every ${FOOD_TURNS} steps; towns and inns cost nothing. Provisioners sell Rations — without food the company goes hungry and loses health.`)) {
-            if (this.party.food < n * 4) this.log(`Food is running low: ${this.party.food} left.`, 'warn');
-          }
-        }
-      }
-    }
-    if (this.party.light > 0) {
-      this.party.light--;
-      if (this.party.light === 0) this.log('Your light goes out.', 'warn');
-    }
-    blessingsTick(this);
-    if (this.checkDefeat()) return;
-    // the world moves
-    const combat = await this.monstersAct();
-    if (combat) return;
-    this.npcsAct();
-    this.maybeSpawnEncounter();
+    if (!ticks && this.checkDefeat()) return;
     this.updateVisibility();
     checkQuests(this);
     this.ui.refresh();
-    if (st.turn % 40 === 0) this.autosave();
+    if (Math.floor((st.turn || 0) / 40) !== Math.floor(turn0 / 40)) this.autosave();
+  }
+
+  // n turns go by: the sun moves, the company eats, poison and light wear on
+  passTime(n = 1) {
+    const st = this.state;
+    const map = this.map;
+    for (let i = 0; i < n; i++) {
+      st.turn++;
+      this.applyDaylight();
+      this.checkPhase();
+      // poison ticks
+      for (const m of partyAlive(this.party)) {
+        if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+      }
+      // food: in the wild each hero eats one ration every FOOD_TURNS turns
+      if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
+        st.foodTick++;
+        if (st.foodTick >= FOOD_TURNS) {
+          st.foodTick = 0;
+          const n = partyAlive(this.party).length;
+          this.party.food = Math.max(0, this.party.food - n);
+          if (this.party.food <= 0) {
+            this.log('Starving! Each hero loses a little health until you find food.', 'bad');
+            this.tip('starving', 'Out of food: the company weakens as it walks. Buy rations from a provisioner (every town has one), or look for farms, camps and caches along the roads.');
+            for (const m of partyAlive(this.party)) this.hurtMember(m, rng.int(1, 2), 'hunger');
+          } else if (this.party.food < n * 8) {
+            if (!this.tip('food', `Food is running low (${this.party.food} left). In the wild each hero eats one ration every ${FOOD_TURNS} turns; towns and inns cost nothing. Provisioners sell Rations — without food the company goes hungry and loses health.`)) {
+              if (this.party.food < n * 4) this.log(`Food is running low: ${this.party.food} left.`, 'warn');
+            }
+          }
+        }
+      }
+      if (this.party.light > 0) {
+        this.party.light--;
+        if (this.party.light === 0) this.log('Your light goes out.', 'warn');
+      }
+      blessingsTick(this);
+    }
   }
 
   hurtMember(m, dmg, why) {
@@ -700,11 +803,38 @@ export class PlaySession {
     return true;
   }
 
+  // How far from its home a placed monster follows the party before giving up
+  // (tiles; 0 = it never gives up the chase). Wandering bands have no home.
+  leashOf(e) {
+    if (e.roaming) return 0;
+    const n = e.leash === '' || e.leash == null ? NaN : +e.leash;
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_LEASH;
+  }
+
+  // A chase ends: guards walk back to their post, wanderers lose interest and
+  // drift off for a while. The player hears of it when it is close by.
+  giveUp(e, def) {
+    const was = e.mood === 'chase';
+    e.lost = 0;
+    e.chased = 0;
+    if (e.roaming) { e.mood = 'bored'; e.calm = 12; } else e.mood = 'return';
+    const p = this.state.pos;
+    if (was && def && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 14) {
+      const one = e.boss || def.boss || String(e.count || '').trim() === '1' || (!e.count && def.group && def.group[1] <= 1);
+      const name = def.boss ? def.name : `The ${(one ? def.name : def.plural || def.name).toLowerCase()}`;
+      this.log(`${name} ${one ? 'loses' : 'lose'} interest.`);
+      this.tip('leash', 'Monsters that guard a place give up once you are far enough from it and go back; wandering bands lose interest after a while. Roads help you outrun them.');
+    }
+  }
+
+  // Monsters act once per turn of the world. Each has a little budget of
+  // movement: a turn's worth, spent on the ground it crosses (its native
+  // ground costs at most a turn a step, a road half a turn).
   async monstersAct() {
     const p = this.state.pos;
     const map = this.map;
     for (const e of [...map.entities]) {
-      if (e.type !== 'monster') continue;
+      if (e.type !== 'monster' || !map.entities.includes(e)) continue;
       const d = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
       if (d > 22) {
         if (e.roaming && d > 30) this.removeEntity(e, false);
@@ -713,25 +843,62 @@ export class PlaySession {
       if (e.passive) continue;
       const sees = d <= 9 && hasLOS(map, e.x, e.y, p.x, p.y) && (map.lighting !== 'dark' || this.isVisible(e.x, e.y) || d <= 4);
       const def = byId(this.game.monsters, e.monster);
-      let moves = def?.speed > 1 && rng.chance(0.4) ? 2 : 1;
-      while (moves-- > 0) {
-        if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1) break;
+      const home = e.home || (e.home = { x: e.x, y: e.y });
+      const leash = this.leashOf(e);
+      const fromHome = Math.abs(p.x - home.x) + Math.abs(p.y - home.y);
+      if (e.calm > 0) e.calm--;
+      // what it wants this turn
+      if (e.wander !== 0) {
+        if (e.mood === 'return') {
+          if (Math.abs(e.x - home.x) + Math.abs(e.y - home.y) <= 1) e.mood = null;
+          // back near its post, it takes up the chase again
+          else if (sees && (!leash || fromHome <= leash * 0.5)) e.mood = 'chase';
+        }
+        if (e.mood !== 'return') {
+          // a guard takes up the chase only while the party is on its ground
+          if (sees && (!(e.calm > 0) || d <= 2) && (e.mood === 'chase' || !leash || fromHome <= leash)) {
+            if (e.mood !== 'chase') { e.mood = 'chase'; e.chased = 0; }
+            e.lost = 0;
+            e.seen = { x: p.x, y: p.y };
+          } else if (e.mood === 'chase' && ++e.lost > LOST_TURNS) this.giveUp(e, def);
+        }
+        if (e.mood === 'chase') {
+          e.chased = (e.chased || 0) + 1;
+          if (!e.roaming && leash > 0 && fromHome > leash) this.giveUp(e, def);
+          else if (e.roaming && e.chased > ROAM_CHASE) this.giveUp(e, def);
+        }
+        if (e.mood === 'bored' && !(e.calm > 0)) e.mood = null;
+      }
+      // move, as far as its budget allows
+      const gain = def?.speed > 1 && rng.chance(0.4) ? 2 : 1;
+      e.mp = Math.min(gain, (e.mp || 0) + gain);
+      const pass = (x, y) => this.passableFor(e, x, y);
+      let wandered = false;
+      for (let guard = 0; guard < 4 && e.mp > 1e-6; guard++) {
+        const near = Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1;
+        if (near && e.mood === 'chase') break;
         let step = null;
-        if (sees && e.wander !== 0) {
-          step = stepToward(e.x, e.y, p.x, p.y, (x, y) => this.passableFor(e, x, y), 12);
-        } else if (e.wander !== 0 && rng.chance(0.4)) {
+        if (e.mood === 'chase') {
+          const goal = sees ? p : e.seen || p;
+          if (goal.x === e.x && goal.y === e.y) break;
+          step = stepToward(e.x, e.y, goal.x, goal.y, pass, 12);
+        } else if (e.mood === 'return') {
+          step = stepToward(e.x, e.y, home.x, home.y, pass, 24);
+          if (!step) { e.mood = null; break; }
+        } else if (e.wander !== 0 && !wandered && rng.chance(0.4)) {
+          wandered = true;
           const [dx, dy] = rng.pick(DIR4);
           const nx = e.x + dx, ny = e.y + dy;
-          const home = e.home || e;
           const wr = e.roaming ? 99 : (e.wander ?? 4);
-          if (Math.abs(nx - home.x) + Math.abs(ny - home.y) <= wr && this.passableFor(e, nx, ny) && !(nx === p.x && ny === p.y)) step = [nx, ny];
+          if (Math.abs(nx - home.x) + Math.abs(ny - home.y) <= wr && pass(nx, ny)) step = [nx, ny];
         }
-        if (step && !(step[0] === p.x && step[1] === p.y)) {
-          e.x = step[0]; e.y = step[1];
-          this.view.moveEntity(e.id, e.x, e.y, 0.14, 0.05);
-        }
+        if (!step || (step[0] === p.x && step[1] === p.y)) break;
+        e.mp -= monsterCost(def, terrain(getTile(map, step[0], step[1])));
+        e.x = step[0]; e.y = step[1];
+        this.view.moveEntity(e.id, e.x, e.y, 0.14, 0.05);
+        if (e.mood !== 'chase' && e.mood !== 'return') break; // an idle stroll is one square
       }
-      if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1 && (sees || d <= 2)) {
+      if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1 && (sees || d <= 2) && e.mood !== 'return' && (e.mood === 'chase' || !(e.calm > 0))) {
         this.view.face(e.id, p.x - e.x, p.y - e.y);
         this.log(def?.boss ? `${def.name} attacks!` : `${def ? def.plural || def.name : 'Monsters'} attack!`, 'bad');
         await this.engage(e);
@@ -1289,7 +1456,7 @@ export class PlaySession {
 
   describeTile(x, y) {
     if (!inBounds(this.map, x, y)) return 'The edge of the world.';
-    if (this.visible && !this.map.explored[y * this.map.w + x]) return 'Darkness.';
+    if (this.visible && !this.map.explored[y * this.map.w + x]) return this.vellumMap() ? 'Unexplored land.' : 'Darkness.';
     const t = terrain(getTile(this.map, x, y));
     const parts = [t.name];
     if (this.isVisible(x, y)) {

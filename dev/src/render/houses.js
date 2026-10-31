@@ -95,9 +95,9 @@ function buildingMaterial(mats, U) {
         }
         outgoingLight += vBHi * (diffuseColor.rgb * 0.32 + vec3(0.1, 0.07, 0.0)) * (0.85 + 0.15 * sin(uTime * 5.0));
         #include <opaque_fragment>`)
-      .replace('gl_FragColor.rgb *= vis;', 'vis = max(vis, vBState.y); gl_FragColor.rgb *= vis;');
+      .replace('gl_FragColor.rgb *= vis;', 'vis = max(vis, vBState.y); expl = max(expl, vBState.z); gl_FragColor.rgb *= vis;');
   };
-  m.customProgramCacheKey = () => 'buildings1';
+  m.customProgramCacheKey = () => 'buildings2';
   return m;
 }
 
@@ -346,7 +346,7 @@ export class BuildingsView {
   build() {
     this.dispose();
     const map = this.map;
-    this.state = this.list.map((b) => ({ open: 0, vis: 1, base: 0 }));
+    this.state = this.list.map((b) => ({ open: 0, vis: 1, exp: 1, base: 0 }));
     // a freshly built town shows its roofs as they should be at once (the
     // party may land indoors), fading only once play goes on
     this.snapFrames = 8;
@@ -457,6 +457,13 @@ export class BuildingsView {
         for (const [x, y] of b.rim) { const q = ctx.vis[y * this.map.w + x]; if (q > v) v = q; }
       }
       s.vis = v;
+      // and drawn at all once any wall has been seen (else it is blank map)
+      let e = 1;
+      if (ctx.exp) {
+        e = 0;
+        for (const [x, y] of b.rim) { const q = ctx.exp[y * this.map.w + x]; if (q > e) e = q; }
+      }
+      s.exp = e;
     });
     if (this.snapFrames > 0) this.snapFrames--;
     const tgt = this.hover >= 0 ? 1 : 0;
@@ -481,7 +488,7 @@ export class BuildingsView {
     const u = this.U.uB.value;
     for (let i = 0; i < MAXB; i++) {
       const s = this.state[i];
-      if (s) u[i].set(s.open, s.vis, 0, s.base); else u[i].set(0, 0, 0, 0);
+      if (s) u[i].set(s.open, s.vis, s.exp ?? 1, s.base); else u[i].set(0, 0, 0, 0);
     }
   }
 

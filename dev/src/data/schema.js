@@ -5,6 +5,7 @@ import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
 import { T } from './terrain.js';
 import { migrateQuests } from '../game/quests.js';
+import { nativeOf } from '../game/travel.js';
 
 export const FORMAT = 'rpgcs-game';
 export const VERSION = 1;
@@ -142,6 +143,8 @@ export function migrateGame(game) {
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   // classes from before class specials existed get their default one
   for (const k of game.classes) if (k.special === undefined) k.special = CLASSES.find((d) => d.id === k.id)?.special || null;
+  // monsters from before travel costs: the ground they are at home on
+  for (const m of game.monsters) if (!Array.isArray(m.native)) m.native = nativeOf({ ...m, native: undefined }).slice();
   migrateQuests(game); // quests arrived after the first files were saved
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);

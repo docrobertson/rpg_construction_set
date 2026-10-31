@@ -57,7 +57,7 @@ function fieldInput(obj, f, changed) {
       return el;
     }
     case 'number': {
-      const el = h('input', { type: 'number', value: val ?? '', step: f.step ?? 1, min: f.min, max: f.max });
+      const el = h('input', { type: 'number', value: val ?? '', step: f.step ?? 1, min: f.min, max: f.max, placeholder: f.placeholder });
       el.addEventListener('input', () => { const v = parseFloat(el.value); set(isNaN(v) ? (f.nullable ? undefined : 0) : v); });
       return el;
     }

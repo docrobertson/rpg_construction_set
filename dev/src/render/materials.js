@@ -11,6 +11,9 @@ export const shared = {
   uVisTex: { value: null },
   uVisSize: { value: new THREE.Vector2(1, 1) },
   uVisOn: { value: 0 },
+  // never-explored ground on outdoor maps is drawn as blank map vellum:
+  // x = on (outdoor maps) / off (dungeons stay black), y = paper brightness
+  uVellum: { value: new THREE.Vector2(0, 1) },
   // scene effects are only switched on while the main view renders, so
   // off-screen renders (portraits) are never tinted by the map's lights
   uFx: { value: 0 },
@@ -36,6 +39,7 @@ const COMMON_FRAG = `
   uniform sampler2D uVisTex;
   uniform vec2 uVisSize;
   uniform float uVisOn;
+  uniform vec2 uVellum;
   uniform float uFx;
   uniform sampler2D uLightTex;
   uniform vec4 uLightRect;
@@ -77,6 +81,8 @@ function injectVisibility(material, extra = {}) {
       extra.paint ? '#define FX_PAINT' : '',
       extra.sway ? '#define FX_SWAY' : '',
       extra.water ? '#define FX_WATER' : '',
+      extra.vellum ? '#define FX_VELLUM' : '',
+      extra.vellum === 'hide' ? '#define FX_VELLUM_HIDE' : '',
       extra.unlit || material.isMeshBasicMaterial ? '#define FX_UNLIT' : '',
     ].join('\n');
     shader.vertexShader = shader.vertexShader
@@ -181,19 +187,52 @@ function injectVisibility(material, extra = {}) {
           g *= mix(vec3(0.9, 0.95, 1.08), vec3(1.05, 1.0, 0.93), smoothstep(0.02, 0.45, l));
           gl_FragColor.rgb = mix(c, max(g, 0.0), uGrade);
           float vis = 1.0;
+          // explored (1) or never seen (0): the green channel
+          float expl = 1.0;
           if (uVisOn > 0.5) {
             // a few taps soften the tile-sized steps of the line-of-sight map
             vec2 uv = vVisPos / uVisSize, o = 0.5 / uVisSize;
-            vis = (2.0 * texture2D(uVisTex, uv).r
-              + texture2D(uVisTex, uv + vec2(o.x, o.y)).r + texture2D(uVisTex, uv + vec2(-o.x, o.y)).r
-              + texture2D(uVisTex, uv + vec2(o.x, -o.y)).r + texture2D(uVisTex, uv - o).r) / 6.0;
+            vec2 vs = (2.0 * texture2D(uVisTex, uv).rg
+              + texture2D(uVisTex, uv + vec2(o.x, o.y)).rg + texture2D(uVisTex, uv + vec2(-o.x, o.y)).rg
+              + texture2D(uVisTex, uv + vec2(o.x, -o.y)).rg + texture2D(uVisTex, uv - o).rg) / 6.0;
+            vis = vs.r;
+            expl = vs.g;
           }
           ${extra.fragmentFinal || ''}
           gl_FragColor.rgb *= vis;
+          #ifdef FX_VELLUM
+          if (uVisOn > 0.5 && uVellum.x > 0.5 && expl < 0.995) {
+            // Unknown land is blank parchment. The edge wanders (two octaves
+            // of noise), is drawn with a faint brown ink line and the known
+            // land just inside it fades to a sepia wash, like a hand-drawn map.
+            vec2 q = vWorldPos.xz;
+            float w1 = fxNoise(q * 0.9 + 17.3), w2 = fxNoise(q * 3.1 - 5.1);
+            float e = expl + ((w1 - 0.5) * 0.34 + (w2 - 0.5) * 0.12) * min(1.0, (1.0 - expl) * 5.0);
+            float paper = 1.0 - smoothstep(0.4, 0.5, e);
+            #ifdef FX_VELLUM_HIDE
+              // trees, walls and rocks on unknown land are not drawn at all
+              if (e < 0.5) discard;
+            #endif
+            float stain = fxNoise(q * 0.13 + 41.0) * 0.6 + fxNoise(q * 0.37 - 7.0) * 0.4;
+            float grain = fxNoise(q * 11.0) * 0.5 + fxNoise(q * vec2(31.0, 5.0) + 3.0) * 0.5;
+            vec3 vel = vec3(0.62, 0.48, 0.26); // (linear) warm parchment
+            vel *= 0.9 + 0.12 * stain;
+            vel = mix(vel, vel * vec3(0.9, 0.78, 0.6), smoothstep(0.55, 0.85, stain) * 0.6);
+            vel *= 0.93 + 0.1 * grain;
+            vel *= uVellum.y;
+            float l = dot(gl_FragColor.rgb, vec3(0.3, 0.59, 0.11));
+            vec3 sepia = vec3(l) * vec3(1.2, 0.98, 0.66) + vel * 0.25;
+            float wash = 1.0 - smoothstep(0.5, 0.95, e);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, sepia, wash * 0.55);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vel, paper);
+            float ink = 1.0 - smoothstep(0.02, 0.075, abs(e - 0.45));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.11, 0.05, 0.016) * uVellum.y, ink * 0.55);
+          }
+          #endif
         }
         #include <tonemapping_fragment>`);
   };
-  material.customProgramCacheKey = () => 'vis2_' + (extra.key || 'base');
+  material.customProgramCacheKey = () => 'vis3_' + (extra.key || 'base');
   return material;
 }
 
@@ -207,13 +246,14 @@ export function createMaterials() {
   shared.uLightTex.value = black;
 
   // the ground: painted variation and rocky slopes
-  const land = injectVisibility(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'land', paint: true, slope: true });
+  const land = injectVisibility(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'land', paint: true, slope: true, vellum: 'paint' });
   // walls, rocks, buildings and plants standing on it: sway and cutaway
-  const props = injectVisibility(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'props', cut: true, sway: true });
+  const props = injectVisibility(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'props', cut: true, sway: true, vellum: 'hide' });
 
   const water = injectVisibility(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 70, specular: 0x8c9aa8 }), {
     key: 'water',
     water: true,
+    vellum: 'paint',
     vertexBody: `
       transformed.y += sin(wp0.x * 1.9 + uTime * 1.4) * 0.014 + cos(wp0.z * 2.3 + uTime * 1.1) * 0.014;
     `,
@@ -252,6 +292,7 @@ export function createMaterials() {
   const glow = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true }), {
     key: 'glow',
     cut: true,
+    vellum: 'hide',
     unlit: true,
     fragmentColor: `
       diffuseColor.rgb *= 0.85 + 0.15 * sin(uTime * 3.0 + vVisPos.x * 4.1 + vVisPos.y * 3.3);
@@ -262,6 +303,7 @@ export function createMaterials() {
   const lava = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true }), {
     key: 'lava',
     unlit: true,
+    vellum: 'paint',
     fragmentColor: `
       {
         vec2 p = vWorldPos.xz;

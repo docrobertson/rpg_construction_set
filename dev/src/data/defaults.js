@@ -384,6 +384,52 @@ export const MONSTERS = [
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
 ];
 
+// ---------------------------------------------------------------- travel
+// Ground a monster is at home on: it crosses these at no more than a turn a
+// step, where others pay the full cost of rough ground (terrain keys; editable
+// per monster). Fliers and swimmers ignore the ground anyway.
+export const MONSTER_NATIVE = {
+  giant_rat: ['grass', 'meadow', 'swamp', 'ruins', 'cave_floor', 'dungeon_floor', 'rubble'],
+  wolf: ['forest', 'pines', 'grass', 'meadow', 'snow'],
+  goblin: ['hills', 'forest', 'cave_floor', 'rubble'],
+  goblin_shaman: ['hills', 'forest', 'cave_floor'],
+  bandit: ['forest', 'grass', 'meadow'],
+  orc: ['hills', 'ash', 'rubble'],
+  orc_archer: ['hills', 'ash'],
+  giant_spider: ['forest', 'pines', 'web', 'cave_floor'],
+  skeleton: ['ruins', 'dungeon_floor', 'bones'],
+  warg: ['hills', 'snow', 'grass', 'ash'],
+  bog_lurker: ['swamp'],
+  orc_captain: ['hills', 'ash', 'rubble'],
+  troll: ['hills', 'forest', 'pines', 'snow'],
+  barrow_wight: ['ruins', 'swamp', 'bones'],
+  dark_sorcerer: ['ash', 'ruins'],
+  drake: ['ash', 'hills', 'lava'],
+};
+for (const m of MONSTERS) if (!m.native) m.native = (MONSTER_NATIVE[m.id] || []).slice();
+
+// Where a monster has no list of its own, its habitats suggest one
+export const HABITAT_TERRAIN = {
+  grass: ['grass', 'meadow'], forest: ['forest', 'pines'], hills: ['hills'], swamp: ['swamp'], desert: ['sand', 'desert'],
+  snow: ['snow'], ash: ['ash'], ruins: ['ruins'], dungeon: ['cave_floor', 'dungeon_floor', 'rubble'], town: ['cobble'], water: [],
+};
+
+// Heroes who know a kind of country cross it a little more easily: the share
+// of the EXTRA cost of rough ground they save (0.25 = a quarter; the best
+// guide in the company leads, and a hero's race and class add up to at most
+// one half). A race or class in a game may carry its own "ease" instead.
+export const TERRAIN_EASE = {
+  races: {
+    elf: { forest: 0.4, pines: 0.4 },
+    dwarf: { hills: 0.4, snow: 0.25, rubble: 0.4 },
+    hobbit: { hills: 0.25, swamp: 0.25 },
+    halfling: { hills: 0.25, swamp: 0.25 },
+  },
+  classes: {
+    ranger: { forest: 0.25, pines: 0.25, hills: 0.25, swamp: 0.25, snow: 0.25, sand: 0.25, desert: 0.25 },
+  },
+};
+
 // XP needed to reach a given level (index = level)
 export const XP_TABLE = [0, 0, 60, 170, 340, 580, 900, 1320, 1850, 2500, 3300, 4300, 5500, 7000, 8800, 11000, 13500, 16500, 20000, 24000, 28500];
 export const MAX_LEVEL = XP_TABLE.length - 1;

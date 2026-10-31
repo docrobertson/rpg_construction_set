@@ -8,7 +8,7 @@ import { getTile, inBounds } from '../world/map.js';
 import { findBuildings, buildingMap } from '../world/buildings.js';
 import { npcMarker } from '../game/quests.js';
 import { eventLabel, EVENT_KINDS } from '../game/events.js';
-import { bfsPath } from '../game/walk.js';
+import { bfsPath, cheapestPath } from '../game/walk.js';
 import { partyAlive, partyLevel, raceOf, classOf, itemOf } from '../game/rules.js';
 import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
@@ -159,8 +159,10 @@ export class Explorer {
   }
 
   pathFor(plan) {
-    const p = this.s.state.pos;
-    return bfsPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy), 40);
+    const s = this.s, p = s.state.pos;
+    // afloat every square is alike; ashore the quickest way keeps to roads
+    if (s.state.vehicle) return bfsPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy), 40);
+    return cheapestPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy), (x, y) => s.stepCost(x, y), 40);
   }
 
   // where to stand to speak with someone: beside them, or across a counter
@@ -381,14 +383,14 @@ export class Explorer {
         const t = terrain(getTile(map, x, y));
         if (!plan) {
           if (t.water && !s.state.vehicle) return { title: t.name, sub: 'You need a ship to cross water', tone: 'none' };
-          return { title: t.name, tone: 'none' };
+          return { title: t.name, sub: s.terrainNote(t), tone: 'none' };
         }
-        if (!reach) return { title: t.name, act: noWay, tone: 'none' };
+        if (!reach) return { title: t.name, sub: s.terrainNote(t), act: noWay, tone: 'none' };
         if (plan.leave) return { title: `Leave ${map.name}`, act: `Click to go${far}`, tone };
         if (plan.ashore) return { title: t.name, act: 'Click to go ashore', tone };
         if (t.locked) return { title: t.name, act: 'Click to try the lock', tone: 'use' };
         if (plan.stairs) return { title: t.name, act: `Click to ${t.key === 'stairs_up' ? 'climb' : 'go down'}${far}`, tone };
-        const sub = [t.poison ? 'foul water — may poison you' : '', t.dmg ? 'it burns!' : '', t.slow && !t.poison && !s.mapIsTown() ? 'slow going' : '', t.sight && !t.wall ? 'hard to see through' : ''].filter(Boolean).join(' · ');
+        const sub = [t.poison ? 'foul water — may poison you' : '', t.dmg ? 'it burns!' : '', s.mapIsTown() ? '' : s.terrainNote(t), t.sight && !t.wall ? 'hard to see through' : ''].filter(Boolean).join(' · ');
         return { title: t.name, sub, act: steps ? `Walk here · ${steps} step${steps === 1 ? '' : 's'}` : 'You are here', tone };
       }
       default: return null;

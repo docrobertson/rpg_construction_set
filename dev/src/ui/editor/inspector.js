@@ -6,6 +6,7 @@ import { TERRAIN_LIST } from '../../data/terrain.js';
 import { MAP_TYPES } from '../../world/map.js';
 import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
+import { DEFAULT_LEASH } from '../../game/travel.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -150,6 +151,7 @@ export function inspectEntity(ed, ent, container) {
         { key: 'monster', label: 'Monster', type: 'select', options: () => game.monsters.map((m) => [m.id, `${m.name} (lvl ${m.level})`]), rerender: true },
         { key: 'count', label: 'How many', type: 'text', placeholder: '2-4', hint: 'A number or a range. Escorts are added automatically.' },
         { key: 'wander', label: 'Roams up to', type: 'number', min: 0, max: 99, hint: 'tiles from home (0 = guards its post)' },
+        { key: 'leash', label: 'Gives up the chase beyond', type: 'number', min: 0, max: 99, nullable: true, placeholder: String(DEFAULT_LEASH), hint: `tiles between the party and its home; then it walks back (empty = ${DEFAULT_LEASH}, 0 = never gives up)` },
         { key: 'passive', label: 'Never gives chase', type: 'check' },
         { key: 'boss', label: 'Boss (drawn larger)', type: 'check' },
         { key: 'flag', label: 'Sets flag when defeated', type: 'text', placeholder: 'e.g. troll_slain' },

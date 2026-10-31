@@ -199,34 +199,117 @@ r = await ev(async () => {
 check('low food is explained once', r.tip, r);
 check('camping without food is allowed but heals less', r.hp > 1 && r.hp <= Math.ceil(r.mh * 0.25) + 1 && r.food === 0, r);
 
-// ---- confusion 11 and FUN: slow ground explained once, then only now and then
+// ---- travel: the ground sets the pace (roads quick, sand very slow), explained once
 r = await ev(async () => {
   const s = window.__app.session;
   const before = document.querySelectorAll('.hud-log .log-line').length;
-  // find a forest square beside a forest square away from roads
-  const T = s.map.tiles;
-  let at = null;
-  for (let y = 2; y < s.map.h - 2 && !at; y++) for (let x = 2; x < s.map.w - 2 && !at; x++) {
-    const k = (xx, yy) => s.describeTile(xx, yy).split(' — ')[0];
-    if (k(x, y) === 'Forest' && k(x + 1, y) === 'Forest' && !s.blockingAt(x + 1, y) && !s.blockingAt(x, y)) at = { x, y };
-  }
-  if (!at) return { skip: true };
   s.map.entities = s.map.entities.filter((e) => e.type !== 'monster');
   s.map.encounterRate = 0;
-  const orig = Math.random;
-  let slowed = 0;
-  for (let i = 0; i < 30; i++) {
-    s.state.pos = { ...s.state.pos, x: at.x, y: at.y };
+  // a straight test strip of open ground east of the party
+  const p0 = { ...s.state.pos };
+  const key = (k) => window.__travel.T[k];
+  const ids = {};
+  for (const k of ['road', 'sand', 'forest', 'grass']) ids[k] = key(k);
+  const lay = (k) => { for (let x = p0.x; x <= p0.x + 5; x++) s.map.tiles[p0.y * s.map.w + x] = ids[k]; };
+  s.map.entities = s.map.entities.filter((e) => !(e.y === p0.y && e.x >= p0.x && e.x <= p0.x + 5));
+  const walk = async (dx, n) => {
     const t0 = s.state.turn;
-    await s.move(1, 0);
-    while (s.busy) await new Promise((res) => setTimeout(res, 10));
-    if (s.state.pos.x === at.x) slowed++;
-  }
-  Math.random = orig;
+    let moved = 0;
+    for (let i = 0; i < n; i++) {
+      const x0 = s.state.pos.x;
+      await s.move(dx, 0);
+      while (s.busy) await new Promise((res) => setTimeout(res, 10));
+      if (s.state.pos.x !== x0) moved++;
+    }
+    return { turns: s.state.turn - t0, moved };
+  };
+  s.state.clock = 0;
+  lay('road');
+  const road = await walk(1, 4);
+  lay('sand');
+  const sand = await walk(-1, 4);
+  lay('forest');
+  const forest = await walk(1, 4);
+  lay('grass');
   const lines = [...document.querySelectorAll('.hud-log .log-line')].slice(before).map((e) => e.textContent);
-  return { slowed, tips: lines.filter((t) => /Slow going:/.test(t)).length, notes: lines.filter((t) => /^Slow going…$/.test(t)).length, old: lines.filter((t) => /Slow progress/.test(t)).length };
+  const tTerrain = (k) => window.__travel.terrain(ids[k]);
+  return {
+    ids, road, sand, forest,
+    cost: { road: s.stepCost(p0.x, p0.y), sand: s.terrainNote(tTerrain('sand')), forest: s.terrainNote(tTerrain('forest')) },
+    tips: lines.filter((t) => /The ground decides your pace/.test(t)).length, tipSeen: !!s.state.tips?.terrain,
+  };
 });
-if (!r.skip) check('slow ground: one explanation, few notes, no spam', r.tips <= 1 && r.old === 0 && r.notes <= Math.ceil(r.slowed / 2) + 1 && r.slowed < 15, r);
+check('roads are quick: four road steps take two turns', r.road.moved === 4 && r.road.turns === 2, r);
+check('sand is very slow: four steps take eight turns or more, but every step lands', r.sand.moved === 4 && r.sand.turns >= 8, r);
+check('forest costs more than a turn, a little less with an elf ranger along', r.forest.moved === 4 && r.forest.turns >= 5 && r.forest.turns <= 6, r);
+check('terrain hover text gives the cost and the guide', /very slow \(2\.5 turns/.test(r.cost.sand) && /elf/.test(r.cost.forest), r.cost);
+check('the pace of travel is explained once', r.tips <= 1 && r.tipSeen, r);
+
+// ---- monsters: a guard gives up past its leash and walks home; monsters pay for rough ground
+r = await ev(async () => {
+  const s = window.__app.session;
+  const before = document.querySelectorAll('.hud-log .log-line').length;
+  s.map.entities = s.map.entities.filter((e) => e.type !== 'monster');
+  s.map.encounterRate = 0;
+  const grass = window.__travel.T.grass;
+  const p0 = { ...s.state.pos };
+  // open grass two rows wide, ten squares either way
+  for (let x = p0.x - 12; x <= p0.x + 6; x++) for (const y of [p0.y, p0.y + 1]) s.map.tiles[y * s.map.w + x] = grass;
+  s.map.entities = s.map.entities.filter((e) => !(e.y >= p0.y && e.y <= p0.y + 1 && e.x >= p0.x - 12 && e.x <= p0.x + 6));
+  const wolf = { id: 'test_wolf', type: 'monster', monster: 'wolf', count: '3', x: p0.x + 3, y: p0.y, leash: 4 };
+  wolf.home = { x: wolf.x, y: wolf.y };
+  s.map.entities.push(wolf);
+  s.addVisual(wolf);
+  s.state.clock = 0;
+  const trail = [];
+  for (let i = 0; i < 9; i++) {
+    await s.move(-1, 0);
+    while (s.busy) await new Promise((res) => setTimeout(res, 10));
+    trail.push({ px: s.state.pos.x, wx: wolf.x, mood: wolf.mood || null, dh: Math.abs(wolf.x - wolf.home.x) + Math.abs(wolf.y - wolf.home.y) });
+    if (s.mode !== 'explore') break;
+  }
+  const gaveUp = trail.findIndex((t) => t.mood === 'return');
+  for (let i = 0; i < 8; i++) await s.afterStep(true);
+  const lines = [...document.querySelectorAll('.hud-log .log-line')].slice(before).map((e) => e.textContent);
+  const def = s.game.monsters.find((m) => m.id === 'wolf');
+  const tr = window.__travel;
+  const forestT = tr.terrain(tr.T.forest), sandT = tr.terrain(tr.T.sand);
+  return {
+    trail, gaveUp, mode: s.mode, home: { x: wolf.x - wolf.home.x, y: wolf.y - wolf.home.y },
+    lost: lines.filter((t) => /The wolves lose interest\./.test(t)).length,
+    native: def.native, costs: { forest: tr.monsterCost(def, forestT), sand: tr.monsterCost(def, sandT) },
+  };
+});
+check('a placed monster chases, then gives up past its leash ("The wolves lose interest.")', r.mode === 'explore' && r.gaveUp >= 0 && r.trail[0].mood === 'chase' && r.lost === 1, r);
+check('...and walks back home', r.trail.slice(r.gaveUp + 1).some((t) => t.dh <= 1 && t.mood !== 'chase'), r);
+check('monsters move freely on native ground, slowly elsewhere', r.native.includes('forest') && r.costs && r.costs.forest === 1 && r.costs.sand === 2.5, r);
+
+// ---- the explored mask: unknown land is blank vellum outdoors, kept in the save
+r = await ev(async () => {
+  const s = window.__app.session;
+  const map = s.map;
+  let seen = 0;
+  for (let i = 0; i < map.explored.length; i++) seen += map.explored[i];
+  const far = (() => { for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (!map.explored[y * map.w + x]) return { x, y }; })();
+  const fi = far.y * map.w + far.x;
+  const state = s.serializeState();
+  const saved = state.maps[map.id]?.explored;
+  // a fresh session from the save sees the same mask
+  const live = s.buildLiveMap(map.id);
+  let same = true;
+  for (let i = 0; i < map.explored.length; i++) if (!!live.explored[i] !== !!map.explored[i]) { same = false; break; }
+  const dungeon = s.game.maps.find((m) => m.type === 'dungeon');
+  return {
+    seen, total: map.explored.length, saved: typeof saved === 'string' && saved.length < 4000, same,
+    vellum: s.vellumMap(), dungeonVellum: s.vellumMap(dungeon), farText: s.describeTile(far.x, far.y),
+    view: s.view.expTarget[fi] === 0 && s.view.expTarget[s.state.pos.y * map.w + s.state.pos.x] === 1,
+    found: (state.found?.[map.id] || []).length,
+  };
+});
+check('explored land is tracked; most of the world starts unknown', r.seen > 50 && r.seen < r.total / 2, r);
+check('the explored mask is saved compactly and loads back the same', r.saved && r.same, r);
+check('unknown land outdoors is vellum (dungeons stay dark)', r.vellum && !r.dungeonVellum && r.farText === 'Unexplored land.' && r.view, r);
+check('discoveries are remembered in the save', r.found > 0, r);
 
 // ---- the healer explains raising the dead (confusion 7)
 r = await ev(async () => {

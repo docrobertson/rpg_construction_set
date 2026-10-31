@@ -20,11 +20,11 @@ const _v3 = new THREE.Vector3();
 // bg: haze/fog colour, sky: colour mirrored in water, light: strength of
 // torch and lava pools, party: the glow carried by the party
 const LIGHTING = {
-  day: { bg: 0xb4cfe4, sky: 0xa6d0f0, hemiSky: 0xc4dcff, hemiGround: 0x5e4a30, hemi: 1.15, sun: 3.1, sunColor: 0xffe4bc, light: 0, party: 0, fogNear: 1.35, fogFar: 3.6 },
-  dusk: { bg: 0x6c5a78, sky: 0xe8a07a, hemiSky: 0x9a90d0, hemiGround: 0x3a2830, hemi: 0.95, sun: 2.0, sunColor: 0xffa060, light: 0.75, party: 0.35, fogNear: 1.2, fogFar: 3.2 },
+  day: { bg: 0xb4cfe4, sky: 0xa6d0f0, hemiSky: 0xc4dcff, hemiGround: 0x5e4a30, hemi: 1.15, sun: 3.1, sunColor: 0xffe4bc, light: 0, party: 0, vellum: 1, fogNear: 1.35, fogFar: 3.6 },
+  dusk: { bg: 0x6c5a78, sky: 0xe8a07a, hemiSky: 0x9a90d0, hemiGround: 0x3a2830, hemi: 0.95, sun: 2.0, sunColor: 0xffa060, light: 0.75, party: 0.35, vellum: 0.8, fogNear: 1.2, fogFar: 3.2 },
   // night is blue moonlight, never black; underground is moody but readable
-  night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, fogNear: 1.3, fogFar: 3.6 },
-  dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, fogNear: 1.45, fogFar: 4.2 },
+  night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, vellum: 0.5, fogNear: 1.3, fogFar: 3.6 },
+  dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
 const WORLD_FIGURE = 0.78;
 const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
@@ -132,6 +132,8 @@ export class View {
     this.sun.intensity = L.sun;
     shared.uSky.value.setHex(L.sky);
     shared.uLightOn.value = L.light;
+    // blank vellum dims with the daylight, so it never glows at night
+    shared.uVellum.value.y = L.vellum ?? 1;
   }
 
   // the party carries a torch (or a spell of light)
@@ -239,7 +241,7 @@ export class View {
     const party = this.entities.get('party');
     const inside = party ? b.at(party.x, party.y) : -1;
     const cursor = !party && this.cursor.visible && this._cursorTile ? b.at(this._cursorTile.x, this._cursorTile.y) : -1;
-    b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null });
+    b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null, exp: this.visOn ? this.expCur : null });
   }
 
   heightAt(x, y) {
@@ -272,14 +274,19 @@ export class View {
     this.visH = h;
     this.visCur = new Float32Array(w * h).fill(1);
     this.visTarget = new Float32Array(w * h).fill(1);
-    this.visData = new Uint8Array(w * h).fill(255);
-    this.visTex = new THREE.DataTexture(this.visData, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+    // explored (1) or never seen (0) per tile, eased the same way
+    this.expCur = new Float32Array(w * h).fill(1);
+    this.expTarget = new Float32Array(w * h).fill(1);
+    // red: how lit / seen a tile is; green: explored at all
+    this.visData = new Uint8Array(w * h * 2).fill(255);
+    this.visTex = new THREE.DataTexture(this.visData, w, h, THREE.RGFormat, THREE.UnsignedByteType);
     this.visTex.magFilter = THREE.LinearFilter;
     this.visTex.minFilter = THREE.LinearFilter;
     this.visTex.needsUpdate = true;
     shared.uVisTex.value = this.visTex;
     shared.uVisSize.value.set(w, h);
     this.setVisibilityEnabled(false);
+    this.setVellum(false);
   }
 
   setVisibilityEnabled(on) {
@@ -287,13 +294,23 @@ export class View {
     shared.uVisOn.value = on ? 1 : 0;
   }
 
-  // levels: Float32Array/array of 0..1 per tile
-  setVisibility(levels, instant = false) {
+  // Never-explored tiles drawn as blank parchment (outdoor maps) rather than black
+  setVellum(on) { shared.uVellum.value.x = on ? 1 : 0; }
+
+  // levels: Float32Array/array of 0..1 per tile; explored: optional 0/1 per tile
+  setVisibility(levels, instant = false, explored = null) {
     if (!this.visTarget || levels.length !== this.visTarget.length) return;
     this.visTarget.set(levels);
+    if (explored && explored.length === this.expTarget.length) this.expTarget.set(explored);
+    else this.expTarget.fill(1);
     if (instant) {
       this.visCur.set(levels);
-      for (let i = 0; i < levels.length; i++) this.visData[i] = Math.round(levels[i] * 255);
+      this.expCur.set(this.expTarget);
+      const data = this.visData;
+      for (let i = 0; i < levels.length; i++) {
+        data[i * 2] = Math.round(levels[i] * 255);
+        data[i * 2 + 1] = Math.round(this.expCur[i] * 255);
+      }
       this.visTex.needsUpdate = true;
     }
   }
@@ -302,16 +319,29 @@ export class View {
     if (!this.visOn || !this.visTarget) return;
     let changed = false;
     const k = Math.min(1, dt * 7);
+    // newly charted land inks in a little slower than the light moves
+    const ke = Math.min(1, dt * 3.5);
     const cur = this.visCur, tgt = this.visTarget, data = this.visData;
+    const ec = this.expCur, et = this.expTarget;
     for (let i = 0; i < cur.length; i++) {
       const d = tgt[i] - cur[i];
       if (d > 0.004 || d < -0.004) {
         cur[i] += d * k;
-        data[i] = Math.round(cur[i] * 255);
+        data[i * 2] = Math.round(cur[i] * 255);
         changed = true;
       } else if (cur[i] !== tgt[i]) {
         cur[i] = tgt[i];
-        data[i] = Math.round(cur[i] * 255);
+        data[i * 2] = Math.round(cur[i] * 255);
+        changed = true;
+      }
+      const de = et[i] - ec[i];
+      if (de > 0.004 || de < -0.004) {
+        ec[i] += de * ke;
+        data[i * 2 + 1] = Math.round(ec[i] * 255);
+        changed = true;
+      } else if (ec[i] !== et[i]) {
+        ec[i] = et[i];
+        data[i * 2 + 1] = Math.round(ec[i] * 255);
         changed = true;
       }
     }

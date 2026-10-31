@@ -10,6 +10,7 @@ import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
 import { ensureCombatData } from '../../game/rules.js';
 import { ICON_NAMES } from '../icons.js';
+import { TERRAIN_LIST } from '../../data/terrain.js';
 
 const TARGET_HELP = {
   enemy: 'one foe', ally: 'one companion (or self)', self: 'the user', tile: 'a square (teleport, or a blow aimed at an area)',
@@ -133,7 +134,7 @@ export function categories(game) {
     },
     monsters: {
       label: 'Monsters', icon: '🐉', list: game.monsters,
-      blank: () => ({ name: 'New Monster', plural: 'New Monsters', level: 1, hp: '2d8', ac: 12, hit: 1, dmg: '1d6', xp: 10, gold: '1d6', habitat: ['grass'], group: [1, 3], look: { kind: 'humanoid', race: 'orc', body: 0x4a3a2a, weapon: 'axe' }, desc: '' }),
+      blank: () => ({ name: 'New Monster', plural: 'New Monsters', level: 1, hp: '2d8', ac: 12, hit: 1, dmg: '1d6', xp: 10, gold: '1d6', habitat: ['grass'], native: ['grass', 'meadow'], group: [1, 3], look: { kind: 'humanoid', race: 'orc', body: 0x4a3a2a, weapon: 'axe' }, desc: '' }),
       preview: (m) => m.look,
       fields: [
         { key: 'name', label: 'Name', type: 'text' },
@@ -150,6 +151,8 @@ export function categories(game) {
         { key: 'xp', label: 'Experience', type: 'number', min: 0 },
         { key: 'gold', label: 'Gold carried', type: 'dice' },
         { key: 'habitat', label: 'Found in', type: 'multicheck', options: HABITATS },
+        { key: 'native', label: 'At home on (moves freely)', type: 'multicheck', options: () => TERRAIN_LIST.filter((t) => t.walk && t.cost > 1 || ['grass', 'meadow'].includes(t.key)).map((t) => [t.key, `${t.name} (${t.cost})`]),
+          hint: 'Rough ground costs it no more than a turn a step; elsewhere it pays the full cost, like the party (forest 1.5, hills 1.75, swamp 2, sand 2.5…). Roads are half a turn for all.' },
         { key: 'group.0', label: 'Group size from', type: 'number', min: 1 },
         { key: 'group.1', label: 'Group size to', type: 'number', min: 1 },
         { key: 'escort', label: 'Escorted by', type: 'list', fields: [

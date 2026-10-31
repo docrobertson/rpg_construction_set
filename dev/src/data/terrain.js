@@ -6,7 +6,8 @@
 //   sight  - blocks line of sight      h     - surface height
 //   top    - top colour                side  - side colour
 //   deco   - decoration builder key    water - render as water
-//   wall   - tall block                slow  - chance a step is slowed
+//   wall   - tall block                cost  - turns a step onto it takes
+//                                             (road 0.5, open ground 1, sand 2.5)
 //   poison - chance of poisoning when entering
 //   dmg    - damage dealt when entering (lava)
 //   arena  - battle arena style        feature - world-map site icon
@@ -19,31 +20,31 @@ const defs = [
   [1, 'shallows', 'Shallow Water', 'world', { walk: false, ship: true, water: true, h: -0.2, top: 0x3a88bb, arena: 'water' }],
   [2, 'grass', 'Grassland', 'world', { h: 0, top: 0x6c9f48, side: 0x6b4f2e, deco: 'tufts', arena: 'grass' }],
   [3, 'meadow', 'Meadow', 'world', { h: 0, top: 0x8aaf55, side: 0x6b4f2e, deco: 'flowers', arena: 'grass' }],
-  [4, 'forest', 'Forest', 'world', { h: 0.02, top: 0x3f7a30, side: 0x5a4127, deco: 'trees', sight: true, slow: 0.2, arena: 'forest' }],
-  [5, 'pines', 'Pine Woods', 'world', { h: 0.02, top: 0x35612c, side: 0x5a4127, deco: 'pines', sight: true, slow: 0.25, arena: 'forest' }],
-  [6, 'hills', 'Hills', 'world', { h: 0.08, top: 0x8c9a4c, side: 0x6b5534, deco: 'hill', slow: 0.3, arena: 'hills' }],
+  [4, 'forest', 'Forest', 'world', { h: 0.02, top: 0x3f7a30, side: 0x5a4127, deco: 'trees', sight: true, cost: 1.5, arena: 'forest' }],
+  [5, 'pines', 'Pine Woods', 'world', { h: 0.02, top: 0x35612c, side: 0x5a4127, deco: 'pines', sight: true, cost: 1.75, arena: 'forest' }],
+  [6, 'hills', 'Hills', 'world', { h: 0.08, top: 0x8c9a4c, side: 0x6b5534, deco: 'hill', cost: 1.75, arena: 'hills' }],
   [7, 'mountains', 'Mountains', 'world', { walk: false, sight: true, h: 0.14, top: 0x7d7468, side: 0x5f574d, deco: 'mountain', arena: 'hills' }],
   [8, 'peaks', 'Snowy Peaks', 'world', { walk: false, sight: true, h: 0.18, top: 0xc9cfd6, side: 0x777b80, deco: 'peak', arena: 'snow' }],
-  [9, 'swamp', 'Swamp', 'world', { h: -0.05, top: 0x4c5a33, side: 0x3f3a25, deco: 'reeds', slow: 0.3, poison: 0.15, arena: 'swamp' }],
-  [10, 'sand', 'Sand', 'world', { h: -0.03, top: 0xdcc78d, side: 0xb59a62, deco: 'pebbles', arena: 'desert' }],
-  [11, 'desert', 'Desert Dunes', 'world', { h: -0.01, top: 0xe2bf72, side: 0xb59a62, deco: 'dunes', slow: 0.15, arena: 'desert' }],
-  [12, 'snow', 'Snowfield', 'world', { h: 0.02, top: 0xeaf0f4, side: 0x9aa3ab, deco: 'snowdrift', arena: 'snow' }],
-  [13, 'road', 'Road', 'world', { h: 0.0, top: 0xb08f5c, side: 0x6b4f2e, deco: 'road', arena: 'grass' }],
-  [14, 'bridge', 'Bridge', 'world', { h: -0.2, water: true, top: 0x3c8fc0, deco: 'bridge', walk: true, arena: 'bridge' }],
-  [15, 'lava', 'Lava', 'world', { h: -0.06, top: 0xff5a14, side: 0x3a2a24, deco: 'lava', dmg: 6, light: 3, arena: 'ash' }],
-  [16, 'ash', 'Ashen Waste', 'world', { h: 0, top: 0x4b4542, side: 0x302b29, deco: 'ashrocks', arena: 'ash' }],
+  [9, 'swamp', 'Swamp', 'world', { h: -0.05, top: 0x4c5a33, side: 0x3f3a25, deco: 'reeds', poison: 0.15, cost: 2, arena: 'swamp' }],
+  [10, 'sand', 'Sand', 'world', { h: -0.03, top: 0xdcc78d, side: 0xb59a62, deco: 'pebbles', cost: 2.5, arena: 'desert' }],
+  [11, 'desert', 'Desert Dunes', 'world', { h: -0.01, top: 0xe2bf72, side: 0xb59a62, deco: 'dunes', cost: 2.5, arena: 'desert' }],
+  [12, 'snow', 'Snowfield', 'world', { h: 0.02, top: 0xeaf0f4, side: 0x9aa3ab, deco: 'snowdrift', cost: 2, arena: 'snow' }],
+  [13, 'road', 'Road', 'world', { h: 0.0, top: 0xb08f5c, side: 0x6b4f2e, deco: 'road', cost: 0.5, arena: 'grass' }],
+  [14, 'bridge', 'Bridge', 'world', { h: -0.2, water: true, top: 0x3c8fc0, deco: 'bridge', walk: true, cost: 0.5, arena: 'bridge' }],
+  [15, 'lava', 'Lava', 'world', { h: -0.06, top: 0xff5a14, side: 0x3a2a24, deco: 'lava', dmg: 6, light: 3, cost: 2, arena: 'ash' }],
+  [16, 'ash', 'Ashen Waste', 'world', { h: 0, top: 0x4b4542, side: 0x302b29, deco: 'ashrocks', cost: 1.25, arena: 'ash' }],
   [17, 'town', 'Town', 'world', { h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'town', feature: true, arena: 'grass' }],
   [18, 'castle', 'Castle', 'world', { h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'castle', feature: true, arena: 'grass' }],
   [19, 'village', 'Village', 'world', { h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'village', feature: true, arena: 'grass' }],
   [20, 'cave', 'Cave Entrance', 'world', { h: 0, top: 0x8c9a4c, side: 0x6b5534, deco: 'cave', feature: true, arena: 'hills' }],
   [21, 'tower', 'Tower', 'world', { h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'tower', feature: true, arena: 'grass' }],
-  [22, 'ruins', 'Ruins', 'world', { h: 0, top: 0x7d8a5a, side: 0x6b4f2e, deco: 'ruins', arena: 'ruins' }],
+  [22, 'ruins', 'Ruins', 'world', { h: 0, top: 0x7d8a5a, side: 0x6b4f2e, deco: 'ruins', cost: 1.25, arena: 'ruins' }],
   [23, 'fortress', 'Dark Fortress', 'world', { h: 0.02, top: 0x4b4542, side: 0x302b29, deco: 'fortress', feature: true, arena: 'ash' }],
   [24, 'elfhall', 'Elven Hall', 'world', { h: 0, top: 0x3f7a30, side: 0x5a4127, deco: 'elfhall', feature: true, arena: 'forest' }],
   [25, 'dwarfgate', 'Dwarf Gate', 'world', { h: 0.14, top: 0x7d7468, side: 0x5f574d, deco: 'dwarfgate', feature: true, arena: 'hills' }],
 
   // Settlements & interiors
-  [40, 'cobble', 'Cobblestones', 'town', { h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cobble', arena: 'town' }],
+  [40, 'cobble', 'Cobblestones', 'town', { h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cobble', cost: 0.5, arena: 'town' }],
   [41, 'floor_wood', 'Wood Floor', 'town', { h: 0.02, top: 0x9b6a3c, side: 0x6a4626, deco: 'planks', arena: 'indoor' }],
   [42, 'floor_stone', 'Flagstone Floor', 'town', { h: 0.02, top: 0xa29d92, side: 0x7d776c, deco: 'flags', arena: 'indoor' }],
   [43, 'carpet', 'Carpet', 'town', { h: 0.03, top: 0x8e2430, side: 0x6a1a22, deco: 'carpet', arena: 'indoor' }],
@@ -83,9 +84,9 @@ const defs = [
   [81, 'cave_wall', 'Rock Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x2a2520, side: 0x4a4038, deco: 'rockwall' }],
   [82, 'dungeon_floor', 'Dungeon Floor', 'dungeon', { h: 0, top: 0x5a5650, side: 0x47443f, deco: 'dflags', arena: 'indoor' }],
   [83, 'dungeon_wall', 'Dungeon Wall', 'dungeon', { walk: false, sight: true, wall: true, h: 0.8, top: 0x24211f, side: 0x6a645a, deco: 'dwall' }],
-  [84, 'rubble', 'Rubble', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'rubble', slow: 0.4, arena: 'cave' }],
+  [84, 'rubble', 'Rubble', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'rubble', cost: 1.5, arena: 'cave' }],
   [85, 'chasm', 'Chasm', 'dungeon', { walk: false, h: -1.2, top: 0x0b0a0a, side: 0x1c1917 }],
-  [86, 'web', 'Webs', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'web', slow: 0.6, arena: 'cave' }],
+  [86, 'web', 'Webs', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'web', cost: 2, arena: 'cave' }],
   [87, 'bones', 'Bone Pile', 'dungeon', { h: 0, top: 0x5f564d, side: 0x403a34, deco: 'bones', arena: 'cave' }],
   [88, 'pit_water', 'Dark Pool', 'dungeon', { walk: false, water: true, h: -0.18, top: 0x1d3550, arena: 'cave' }],
   [89, 'crystal', 'Crystals', 'dungeon', { walk: false, h: 0, top: 0x5f564d, side: 0x403a34, deco: 'crystal', light: 2 }],
@@ -106,7 +107,9 @@ for (const [id, key, name, group, p] of defs) {
     deco: p.deco || null,
     water: !!p.water,
     wall: !!p.wall,
-    slow: p.slow || 0,
+    cost: p.cost ?? 1,
+    // older code read this; rough ground is now any cost above 1
+    slow: (p.cost ?? 1) > 1 ? 1 : 0,
     poison: p.poison || 0,
     dmg: p.dmg || 0,
     arena: p.arena || 'grass',
