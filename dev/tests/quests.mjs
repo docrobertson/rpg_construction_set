@@ -474,7 +474,8 @@ st = await ev(async () => {
   delete old.quests; delete old.kills; delete old.lore; delete old.poi; delete old.blessings; delete old.tracked; delete old.questsBegun;
   app.stopSession();
   app.playGame(app.sample, { state: old, noSave: true });
-  await new Promise((r) => setTimeout(r, 2500));
+  // starting takes a while on a busy machine: wait for the quest log, not a fixed time
+  for (let i = 0; i < 60 && !(app.session?.state?.quests?.q_main?.status === 'active' && document.querySelector('.qtrack')); i++) await new Promise((r) => setTimeout(r, 250));
   const n = app.session;
   return { ok: !!n.state.quests, main: n.state.quests.q_main?.status, mode: n.mode, tracker: !!document.querySelector('.qtrack') };
 });
