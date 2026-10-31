@@ -332,6 +332,15 @@ export class View {
 
   zoomBy(f) { this.setZoom(this.rig.tdist * f); }
 
+  // Zoom by a wheel event in proportion to how far it scrolled: a mouse notch
+  // (about 100 px) is a tenth, while a trackpad's stream of small deltas, or a
+  // pinch (sent with ctrlKey), glides instead of racing.
+  wheelZoom(e) {
+    const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    const k = e.ctrlKey ? 0.006 : 0.0011;
+    this.zoomBy(Math.exp(clamp(px, -120, 120) * k));
+  }
+
   // the height the camera aims at: the ground under the target, gently
   _lookY(x, z) {
     if (!this.map) return 0;

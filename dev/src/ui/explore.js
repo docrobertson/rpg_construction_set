@@ -343,7 +343,7 @@ export class Explorer {
     switch (tg.kind) {
       case 'party':
         if (s.state.vehicle) return { title: 'Your ship', sub: `${partyAlive(s.party).length} aboard`, act: 'Click to wait a turn', tone: 'self' };
-        return { title: tg.m.name, sub: `${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · leads your company`, act: 'Click to wait a turn', tone: 'self' };
+        return { title: tg.m.name, sub: `Level ${tg.m.level} ${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · leads your company`, act: 'Click to wait a turn', tone: 'self' };
       case 'companion':
         return { title: tg.m.name, sub: `Level ${tg.m.level} ${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · your companion`, act: 'Click for their sheet', tone: 'self' };
       case 'npc': {

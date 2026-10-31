@@ -217,7 +217,7 @@ export function applyReward(session, r) {
   if (xp) {
     got.push(`${xp} experience`);
     for (const m of partyAlive(p)) {
-      if (gainXp(g, m, xp).length) session.log(levelUpNote(m), 'level');
+      if (gainXp(g, m, xp).length) session.log(levelUpNote(m, g), 'level');
     }
   }
   for (const f of String(r.flag || '').split(/[,|]/).map((s) => s.trim()).filter(Boolean)) p.flags[f] = true;

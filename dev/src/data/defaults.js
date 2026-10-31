@@ -191,7 +191,7 @@ export const MAGIC_SYSTEMS = [
 ];
 
 export const RACES = [
-  { id: 'human', name: 'Man', desc: 'The race of Men: short-lived, restless and adaptable. Kings and wanderers both.',
+  { id: 'human', name: 'Human', desc: 'Short-lived, restless and adaptable: kings and wanderers both.',
     mods: { str: 0, dex: 0, int: 0, wis: 0 }, hp: 0, traits: ['versatile'],
     look: { race: 'human', skin: 0xe8b890 } },
   { id: 'dwarf', name: 'Dwarf', desc: 'Stout folk of the deep halls: tireless, stubborn and hard as the stone they carve.',

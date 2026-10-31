@@ -321,6 +321,14 @@ export class PlaySession {
   // ------------------------------------------------------------ movement
   entitiesAt(x, y) { return this.map.entities.filter((e) => e.x === x && e.y === y); }
 
+  // a signpost: the words go to the log and up on a card, so they can't be missed
+  readSign(e) {
+    this.queued = null;
+    this.log(`The sign reads: "${e.text || '...'}"`, 'say');
+    sfx('click');
+    this.ui?.showSign?.(e);
+  }
+
   blockingAt(x, y) {
     return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event'));
   }
@@ -360,7 +368,7 @@ export class PlaySession {
     if (blocker) {
       if (blocker.type === 'npc') return this.talkTo(blocker);
       if (blocker.type === 'monster') return this.engage(blocker);
-      if (blocker.type === 'sign') { this.log(`The sign reads: "${blocker.text || '...'}"`, 'say'); return; }
+      if (blocker.type === 'sign') { this.readSign(blocker); return; }
       if (blocker.type === 'event') { this.queued = null; return this.ui.openEvent(blocker); }
     }
     const t = terrain(getTile(map, nx, ny));

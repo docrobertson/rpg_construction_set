@@ -490,13 +490,13 @@ export class Battle {
       // not left ever further behind; they level up with their next gain
       const fallen = members.filter((m) => m.status === 'dead');
       const half = Math.ceil(share / 2);
-      this.log(`Victory! Each survivor gains ${share} experience${alive.some((m) => hasTrait(this.game, m, 'versatile')) ? ' (Men, quick to learn, a tenth more)' : ''}${fallen.length && half ? `, the fallen ${half}` : ''}${this.gold ? `, and you find ${this.gold} gold` : ''}.`, 'good');
+      this.log(`Victory! Each survivor gains ${share} experience${alive.some((m) => hasTrait(this.game, m, 'versatile')) ? ' (Humans, quick to learn, a tenth more)' : ''}${fallen.length && half ? `, the fallen ${half}` : ''}${this.gold ? `, and you find ${this.gold} gold` : ''}.`, 'good');
       for (const m of alive) {
         const before = { level: m.level, xp: m.xp };
         const lv = gainXp(this.game, m, share);
         summary.heroes.push({ member: m, from: before, gained: m.xp - before.xp, levels: lv });
         if (lv.length) {
-          this.log(levelUpNote(m), 'level');
+          this.log(levelUpNote(m, this.game), 'level');
           sfx('level');
           const u = this.partyUnits.find((pu) => pu.member === m);
           if (u) { this.view.sparkle(u.x, u.y, 0xffe060, 24); this.fx.callout(u.x, u.y, 'LEVEL UP!', 0xffe060); }

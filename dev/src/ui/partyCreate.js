@@ -160,6 +160,8 @@ export function partyCreation(app, game, { onDone, onBack }) {
     const key = picKey(hero);
     const img = h('img', { alt: '' });
     img.dataset.look = key;
+    const r = byId(game.races, hero.race), k = byId(classes, hero.cls);
+    img.title = `${hero.name || 'Unnamed hero'} — Level 1 ${r?.name || ''} ${k?.name || ''}`.trim();
     if (pics.has(key)) img.src = pics.get(key);
     else {
       img.style.visibility = 'hidden';

@@ -4,7 +4,7 @@
 // soon as no other window is open, with the three talents on offer.
 import { h, clear, modal, anyModal } from './dom.js';
 import { portrait } from '../render/portrait.js';
-import { charLook, classOf, raceOf, maxHp, maxMp, talentTree } from '../game/rules.js';
+import { newAtLevel, charLook, classOf, raceOf, maxHp, maxMp, talentTree } from '../game/rules.js';
 import { TALENT_TREES } from '../data/defaults.js';
 import { perkPicker } from './combatHud.js';
 import { sfx } from '../core/sound.js';
@@ -59,6 +59,7 @@ export class LevelUpCard {
           h('div.lvl-gains',
             h('span', `Health ${maxHp(g, m)}`),
             mp > 0 ? h('span', `Mana ${mp}`) : null,
+            ...newAtLevel(g, m).map((n) => h('span.lvl-new', `New: ${n}`)),
             m.points > 0 ? h('span.lvl-pts', `▲ ${m.points} attribute point${m.points === 1 ? '' : 's'} — spend on the hero sheet`) : null,
             tree ? h('span.lvl-tree', { title: `${classOf(g, m).name}s are offered ${tree.toLowerCase()} talents most often` }, `${tree} talents`) : null),
           slot));

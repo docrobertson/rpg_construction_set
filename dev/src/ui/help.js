@@ -3,6 +3,19 @@
 import { h, modal } from './dom.js';
 import { iconSvg } from './icons.js';
 import { getPref, setPref } from '../core/storage.js';
+import { STAT_NAMES } from '../data/defaults.js';
+
+// One line per school of magic: what fuels it, which attribute powers it and
+// what it is good for. ids limits it to the schools a caster actually uses.
+export function magicGuide(game, ids = null) {
+  const list = (game.magic || []).filter((m) => m.enabled !== false && !m.monsterOnly && (!ids || ids.includes(m.id)));
+  if (!list.length) return null;
+  return h('div.magic-guide', ...list.map((m) => h('div.mg-row',
+    h('i.mg-dot', { style: { background: m.color || '#ccc' } }),
+    h('b.mg-name', m.name),
+    h('span.mg-fuel', m.resource === 'reagents' ? 'uses reagents' : 'uses mana', ' · ', STAT_NAMES[m.stat] || m.stat),
+    h('span.mg-desc', m.desc || ''))));
+}
 
 const ico = (name) => h('i.hw-ico', { html: iconSvg(name) });
 const kbd = (...keys) => keys.map((k, i) => [i ? h('span.kbd-or', '/') : null, h('kbd', k)]);
@@ -13,6 +26,7 @@ export function openHelpOverlay(ui, rulesHtml) {
   const card = (icon, title, text) => h('div.hw-card', h('div.hw-card-ico', { html: iconSvg(icon) }), h('b', title), h('p', ...text));
   const row = (keys, what) => h('div.key-row', h('span.key-caps', ...keys), h('span.key-what', what));
   const nearby = !!ui.explore;
+  const game = ui.s?.game;
   const body = h('div.help-overlay',
     h('div.hw-cards',
       card('move', 'Move', ['Arrow keys or ', h('b', 'WASD'), ' — or click the ground and the company walks there.']),
@@ -46,6 +60,8 @@ export function openHelpOverlay(ui, rulesHtml) {
         row(kbd('Q'), '★ Special, once per battle'),
         row(kbd('G'), 'Guard (+3 armour)'),
         row(kbd('Space'), 'End the turn'))),
+    game && magicGuide(game) ? h('section.hw-magic', h('h3', ico('sparkle'), ' Magic'), magicGuide(game),
+      h('p.mg-note', 'Mana returns when you rest; reagents are bought from herbalists. Casters learn more spells as they gain levels.')) : null,
     h('div.hw-tip', ico('sparkle'), ' Hover over almost anything — heroes, buttons, foes, the numbers in the top bar — to see what it means.'),
     h('details.hw-rules', h('summary', 'The full rules: towns, quests, tactics and survival'), h('div.help', { html: rulesHtml })),
   );

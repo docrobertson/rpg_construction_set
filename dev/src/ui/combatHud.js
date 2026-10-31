@@ -7,7 +7,7 @@ import { h, clear, modal } from './dom.js';
 import { icon } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
-  maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities,
+  maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
 import { sfx } from '../core/sound.js';
@@ -694,7 +694,7 @@ export class CombatHud {
   // ------------------------------------------------------------ after the battle
   showVictory(sum) {
     const levelled = sum.heroes.some((x) => x.levels.length);
-    // Men learn a tenth faster, so "each" can be a range
+    // Humans learn a tenth faster, so "each" can be a range
     const gains = sum.heroes.filter((x) => !x.fallen).map((x) => x.gained);
     const lo = gains.length ? Math.min(...gains) : sum.xp, hi = gains.length ? Math.max(...gains) : sum.xp;
     const body = h('div.vic',
@@ -702,7 +702,7 @@ export class CombatHud {
         h('span', h('b', String(sum.slain)), ` foe${sum.slain === 1 ? '' : 's'} slain`),
         h('span', h('b', String(sum.rounds)), ` round${sum.rounds === 1 ? '' : 's'}`),
         h('span.gold', h('b', `◆ ${sum.gold}`), ' gold'),
-        h('span', { title: lo !== hi ? 'Men, quick to learn, gain a tenth more' : null }, h('b', lo !== hi ? `+${lo}–${hi}` : `+${lo}`), ' experience each')),
+        h('span', { title: lo !== hi ? 'Humans, quick to learn, gain a tenth more' : null }, h('b', lo !== hi ? `+${lo}–${hi}` : `+${lo}`), ' experience each')),
       sum.loot.length ? h('div.vic-loot', h('span.vl-label', 'Spoils'), ...sum.loot.map((n) => h('span.vic-item', icon('potion'), ' ', n))) : null,
       h('div.vic-heroes', ...sum.heroes.map((x) => this.heroRow(x))));
     modal(body, { title: '⚔ Victory!', cls: 'victory-modal' + (levelled ? ' levelled' : ''), buttons: [{ label: 'Onward', primary: true }], onClose: () => { this.victoryPending = false; this.ui.refresh(); } });
@@ -792,6 +792,12 @@ export function sheetAbilities(ui, m, onChange) {
         h('span.sa-ico', icon(ab.icon)),
         h('div', h('b', ab.name), h('span.sa-tag', ` ${key} · ${tags}${state && !state.ok ? ' — ' + state.short : ''}`), h('p', ab.desc))));
     }
+  }
+  // what is still to come, so each level has something to look forward to
+  for (const { ab, level } of lockedAbilities(g, m)) {
+    wrap.appendChild(h('div.sa-row.locked' + (ab.id === special ? '.special' : ''), { title: ab.desc },
+      h('span.sa-ico', icon(ab.icon)),
+      h('div', h('b', ab.name), h('span.sa-tag', ` learned at level ${level}`))));
   }
   if ((m.perks || []).length) {
     const counts = {};

@@ -130,15 +130,32 @@ export function ensureCombatData(game) {
 export function abilityOf(game, id) { return id ? byId(ensureCombatData(game), id) || null : null; }
 
 // A hero's battle abilities: class skills first, then the once-per-battle special
-export function heroAbilities(game, c) {
+// A new hero starts with one class skill; the rest arrive as they rise, so
+// levelling up brings something new to do: the ★ special at level 2, the
+// second skill at 3 (and any further ones a level apart after that).
+export const SPECIAL_LEVEL = 2;
+export function abilityLevel(k, id) {
+  if (id === k.special) return SPECIAL_LEVEL;
+  const i = (k.skills || []).indexOf(id);
+  return i <= 0 ? 1 : 1 + i * 2;
+}
+
+// abilities in hand, in class order (all = include those not yet learned)
+export function heroAbilities(game, c, all = false) {
   const k = classOf(game, c);
   ensureCombatData(game);
   const out = [];
   for (const id of [...(k.skills || []), k.special]) {
     const a = abilityOf(game, id);
-    if (a && !out.includes(a)) out.push(a);
+    if (a && !out.includes(a) && (all || (c.level || 1) >= abilityLevel(k, id))) out.push(a);
   }
   return out;
+}
+
+// what the hero will learn later: [{ ab, level }]
+export function lockedAbilities(game, c) {
+  const k = classOf(game, c);
+  return heroAbilities(game, c, true).filter((a) => !heroAbilities(game, c).includes(a)).map((ab) => ({ ab, level: abilityLevel(k, ab.id) }));
 }
 
 // Casting ability per magic system (only enabled systems count)
@@ -165,12 +182,25 @@ export function maxMp(game, c) {
   return best > 0 ? best + perkCount(c, 'arcane') * 4 : 0;
 }
 
+// Spells within reach of the caster's power, lowest first; a novice knows
+// only two per school, a second-level caster four, then all within reach.
 export function knownSpells(game, c) {
   const out = [];
+  const cap = (c.level || 1) * 2;
   for (const ci of casting(game, c)) {
-    for (const sp of game.spells) if (sp.system === ci.sys.id && (sp.level || 1) <= ci.maxSpell) out.push(sp);
+    const mine = game.spells.filter((sp) => sp.system === ci.sys.id && (sp.level || 1) <= ci.maxSpell);
+    mine.sort((a, b) => (a.level || 1) - (b.level || 1));
+    out.push(...mine.slice(0, cap));
   }
   return out;
+}
+
+// what a level brought besides health: newly learned abilities and spells
+export function newAtLevel(game, c) {
+  const was = { ...c, level: c.level - 1 };
+  const abs = heroAbilities(game, c).filter((a) => !heroAbilities(game, was).includes(a)).map((a) => a.name);
+  const sps = knownSpells(game, c).filter((sp) => !knownSpells(game, was).includes(sp)).map((sp) => sp.name);
+  return [...abs, ...sps];
 }
 
 export function spellPower(game, c, sp) {
@@ -365,9 +395,10 @@ export function gainXp(game, c, amount) {
 }
 
 // "Helga is now level 3! (a new talent to choose)" — what a level-up brings
-export function levelUpNote(c) {
+export function levelUpNote(c, game = null) {
   const pts = c.points || 0;
-  return `${c.name} is now level ${c.level}! (${pts > 0 ? `▲ ${pts} attribute point${pts === 1 ? '' : 's'} and ` : ''}a new talent to choose)`;
+  const learned = game ? newAtLevel(game, c) : [];
+  return `${c.name} is now level ${c.level}! (${learned.length ? `learns ${learned.join(', ')}; ` : ''}${pts > 0 ? `▲ ${pts} attribute point${pts === 1 ? '' : 's'} and ` : ''}a new talent to choose)`;
 }
 
 export const STAT_MAX = 25;

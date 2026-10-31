@@ -18,7 +18,7 @@ import { attachGestures } from '../render/gestures.js';
 import { portrait } from '../render/portrait.js';
 import { CombatHud, sheetAbilities } from './combatHud.js';
 import { iconSvg, itemIcon, itemTile } from './icons.js';
-import { openHelpOverlay } from './help.js';
+import { openHelpOverlay, magicGuide } from './help.js';
 import { QuestUI } from './journal.js';
 import { Explorer, glyph } from './explore.js';
 import { LevelUpCard } from './levelUp.js';
@@ -206,8 +206,9 @@ export class PlayUI {
       const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
       const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '');
       const pic = portrait(this.view, charLook(g, m));
-      const card = h('div' + cls, { title: `${m.name} — click for the full sheet` },
-        h('div.pc-pic', pic ? h('img', { src: pic, alt: '' }) : null, i === 0 ? h('span.pc-crown', { title: 'Party leader', html: iconSvg('crown') }) : null),
+      const who = `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}${i === 0 ? ' · party leader' : ''}`;
+      const card = h('div' + cls, { title: `${who}. Click for the full sheet.` },
+        h('div.pc-pic', { title: who }, pic ? h('img', { src: pic, alt: m.name }) : null, i === 0 ? h('span.pc-crown', { title: 'Party leader', html: iconSvg('crown') }) : null),
         h('div.pc-body',
           h('div.pc-head', h('span.pc-name', m.name),
             m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
@@ -477,7 +478,7 @@ export class PlayUI {
     cv.addEventListener('mouseleave', this.onLeave);
     cv.addEventListener('click', this.onClick);
     cv.addEventListener('contextmenu', this.onCtx);
-    this.onWheel = (e) => { e.preventDefault(); this.view.zoomBy(e.deltaY > 0 ? 1.1 : 0.9); };
+    this.onWheel = (e) => { e.preventDefault(); this.view.wheelZoom(e); };
     cv.addEventListener('wheel', this.onWheel, { passive: false });
     cv.style.touchAction = 'none';
     this.gestures = attachGestures(this.view, cv, { pan: false });
@@ -719,11 +720,11 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ generic choosers
-  chooseFrom(title, options) {
+  chooseFrom(title, options, intro = null) {
     return new Promise((resolve) => {
       let done = false;
       const list = h('div.choose-list');
-      const m = modal(list, { title, cls: 'small choose-modal', onClose: () => { if (!done) resolve(null); } });
+      const m = modal(intro ? h('div', intro, list) : list, { title, cls: 'small choose-modal', onClose: () => { if (!done) resolve(null); } });
       options.forEach((o, i) => {
         // options may carry an icon (or a portrait picture) and a tag shown at the right
         const lead = o.pic ? h('img.ci-pic', { src: o.pic, alt: '' }) : o.icon ? h('span.ci-ico' + (o.tone ? '.tone-' + o.tone : ''), { html: iconSvg(o.icon) }) : null;
@@ -756,7 +757,7 @@ export class PlayUI {
         label: sp.name, tag: spellCost(g, sp, inv), icon: spellIcon(sp), value: sp, disabled: !can.ok, why: can.why,
         sub: `${sp.desc || ''}${reach ? ` · ${reach}` : ''}${sys ? ` · ${sys.name}` : ''}${can.ok ? '' : ' — ' + can.why}`,
       };
-    }));
+    }), magicGuide(g, [...new Set(spells.map((sp) => sp.system))]));
   }
 
   // need(m) may return a reason this hero gains nothing from it ("already at full health")
@@ -1202,6 +1203,12 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ menus & endings
+  showSign(e) {
+    modal(h('p.sign-text', e.text || '…'), {
+      title: e.name || 'Signpost', icon: 'sign', cls: 'small sign-modal', buttons: [{ label: 'Onward', primary: true }],
+    });
+  }
+
   openMenu() {
     const s = this.s;
     // mid-battle there is nothing safe to save (and loading would dodge the fight)

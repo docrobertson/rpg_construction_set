@@ -696,7 +696,7 @@ export class Editor {
       down: (e) => this.onDown(e),
       move: (e) => this.onMove(e),
       up: (e) => this.onUp(e),
-      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.zoomBy(e.deltaY > 0 ? 1.12 : 0.89); },
+      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
       ctx: (e) => e.preventDefault(),
       key: (e) => this.onKey(e),
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),

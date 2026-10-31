@@ -133,6 +133,8 @@ export function migrateGame(game) {
   };
   ensure('magic', MAGIC_SYSTEMS);
   ensure('races', RACES);
+  // humans were once called "Man"
+  for (const r of game.races) if (r.id === 'human' && r.name === 'Man') r.name = 'Human';
   ensure('classes', CLASSES);
   ensure('items', ITEMS);
   ensure('spells', SPELLS);
