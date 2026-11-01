@@ -1353,3 +1353,18 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 /* ---------- the quest tracker in the side panel, under the company ---------- */
 .qtrack.in-side { position: relative; top: auto; left: auto; width: auto; max-width: none; margin: 4px 10px 12px 12px; flex: none; z-index: auto; }
 .qtrack.in-side .qt-other-row { white-space: normal; }
+
+/* ---------- the company's reserve: resting at inns ---------- */
+.hud-resting { flex: none; padding: 0 10px 4px 12px; display: flex; flex-direction: column; gap: 3px; }
+.hud-resting:empty { display: none; }
+.rest-head { font: 11px var(--font-ui); letter-spacing: 1.5px; text-transform: uppercase; color: var(--gold-dim); margin: 2px 0 1px; }
+.rest-row { display: flex; align-items: center; gap: 7px; font: 13px var(--font-ui); color: var(--muted); }
+.rest-row img { width: 22px; height: 26px; border-radius: 4px; object-fit: cover; flex: none; background: rgba(0,0,0,.3); }
+.rest-name { color: var(--text); }
+.rest-where { margin-left: auto; font-size: 12px; }
+.resting-card .rc-head { display: flex; gap: 12px; align-items: flex-start; }
+.resting-card img { width: 64px; height: 76px; border-radius: 6px; object-fit: cover; flex: none; background: radial-gradient(ellipse at 50% 35%, #5a4630, #1a120b 80%); }
+.resting-card b { font: 18px var(--font-display); color: #fff3d8; display: block; }
+.rc-sub { font: 12.5px var(--font-ui); color: var(--muted); }
+.rc-say { margin: 6px 0 0; font: italic 15px/1.45 var(--font-display); color: var(--text); }
+@media (max-width: 860px) { .hud-resting { display: none; } }

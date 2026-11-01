@@ -584,7 +584,13 @@ function dressWesthold(game, map) {
   addNpc(map, 9, 26, { id: 'npc_wynn', name: 'Wynn', race: 'human', desc: 'a young shepherdess', greeting: 'Have ye seen my sheep?', job: 'I mind the sheep. WOLVES took three last week.', keywords: [
     kw('WOLVES', 'Not a howl since Greyfang fell. The rest of the pack slunk off into the hills.', { cond: { type: 'questdone', value: 'q_wolf' }, elseText: 'They come out of the old forest north-east of town. Their leader is GREYFANG.' }),
     kw('GREYFANG', 'Dead, and by thy hand! I still can\'t believe it.', { cond: { type: 'questdone', value: 'q_wolf' }, elseText: 'Big as a pony, black as soot. Nobody can kill him!' }),
-  ] });
+  ],
+  // once the wolf is dead, the sheep can mind themselves
+  recruit: { race: 'human', cls: 'ranger', level: 2, after: 'q_wolf', equip: ['short_sword', 'sling', 'leather_armor'],
+    notYet: 'Leave? Not while Greyfang\'s out there. Who\'d mind the sheep?',
+    offerText: 'Greyfang\'s dead and the lambs are safe — and I\'ve had my fill of sheep! Take me with ye. I can sling a stone through a knot-hole at fifty paces.',
+    joinText: 'Ha! Wait till Mam hears. Lead on!' },
+  });
   const rumours = [
     'They say the dwarves of Hammerdeep lost something precious to goblins.',
     'Old Fennick the hermit has a waygate on his island. Or so the elves say.',

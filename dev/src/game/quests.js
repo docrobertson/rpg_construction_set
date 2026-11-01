@@ -121,7 +121,8 @@ export function npcMarker(session, npc) {
   if (npc.role === 'inn') return 'inn';
   if (npc.role === 'healer') return 'healer';
   if (npc.role === 'trainer') return 'trainer';
-  if (npc.recruit) return 'recruit';
+  if (npc.reserveOf) return 'recruit';
+  if (npc.recruit && (!npc.recruit.after || st.quests?.[npc.recruit.after]?.status === 'done')) return 'recruit';
   return null;
 }
 
@@ -297,6 +298,10 @@ function finish(session, id, extraGot = []) {
   if (st.tracked === id) st.tracked = null;
   if (st.pinned === id) st.pinned = null;
   emit(session, 'done', q, { got });
+  // someone who would only come along once this was done now asks to
+  for (const m of session.game.maps) for (const e of m.entities) {
+    if (e.type === 'npc' && e.recruit?.after === id && !(st.joinOffers ||= []).includes(e.id)) st.joinOffers.push(e.id);
+  }
   // follow-up quests that start by themselves
   for (const nq of session.game.quests || []) if (nq.auto && nq.requires === id && canOffer(session, nq)) startQuest(session, nq.id);
   session.checkVictory?.();

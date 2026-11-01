@@ -70,6 +70,7 @@ export class PlayUI {
     this.statusEl = h('div.hud-status');
     this.hoverEl = h('div.hud-hover');
     this.partyEl = h('div.hud-party');
+    this.restEl = h('div.hud-resting');
     this.heroEl = h('div.hud-hero');
     this.popEl = h('div.hero-pop', h('button.pop-close', { title: 'Close (Esc)', onclick: () => this.closeHero() }, '×'), this.heroEl);
     this.popEl.hidden = true;
@@ -85,7 +86,7 @@ export class PlayUI {
         h('button.hud-help', { onclick: () => this.openHelp(), title: 'How to play (?)', 'aria-label': 'Help', html: iconSvg('help') }),
         h('button.hud-menu', { onclick: () => this.openMenu(), title: 'Save, sound, camera and quit (Esc)' }, h('i.st-ico', { html: iconSvg('menu') }), 'Menu')),
       h('div.hud-frame'),
-      h('div.hud-side', h('div.side-head', 'Company'), this.partyEl),
+      h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.restEl),
       this.popEl,
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
@@ -138,6 +139,8 @@ export class PlayUI {
   refresh() {
     this.refreshStatus();
     this.refreshParty();
+    this.refreshResting();
+    this.offerJoin();
     this.refreshHero();
     this.drawMinimap();
     this.quests?.refresh();
@@ -332,6 +335,15 @@ export class PlayUI {
         onclick: () => { s.party.members.splice(idx, 1); s.party.members.splice(idx - 1, 0, m); changed(); },
       }, '▲ Move up') : null,
       idx === 0 ? h('span.hint', '♛ Leads the company') : null,
+      !inBattle ? (() => {
+        const lodge = s.lodging();
+        const why = !lodge ? 'Find a town with an inn first: those who leave the company wait at an inn'
+          : !s.party.members.some((x) => x !== m && x.status !== 'dead') ? 'Someone must carry on the quest' : '';
+        return h('button.small' + (why ? '.disabled' : ''), {
+          title: why || `${m.name} takes a room at the inn in ${lodge.name} and waits there. Talk to them at the inn to call them back.`,
+          onclick: () => { if (why) { sfx('error'); return; } this.closeHero(); const err = s.restMember(m); if (err) { s.log(err, 'warn'); sfx('error'); } },
+        }, '🛏 Rest at the inn');
+      })() : null,
     ));
     return el;
   }
@@ -1212,6 +1224,76 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ menus & endings
+  // Those resting at inns, under the company: who, and where to find them
+  refreshResting() {
+    if (!this.restEl) return;
+    clear(this.restEl);
+    const list = this.s.state.reserve || [];
+    if (!list.length) return;
+    const g = this.s.game;
+    this.restEl.append(h('div.rest-head', '🛏 Resting at inns'), ...list.map((r) => {
+      const m = r.member, where = getMap(g, r.map)?.name || 'an inn';
+      const pic = portrait(this.view, charLook(g, m));
+      return h('div.rest-row', { title: `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}. Resting at the inn in ${where}: talk to them there to call them back.` },
+        pic ? h('img', { src: pic, alt: '' }) : null, h('span.rest-name', m.name), h('span.rest-where', where));
+    }));
+  }
+
+  // talking to a hero resting at the inn
+  openResting(npc) {
+    const s = this.s, g = s.game;
+    const r = (s.state.reserve || []).find((x) => x.member.id === npc.reserveOf);
+    if (!r) return;
+    const m = r.member;
+    const max = g.settings.maxParty || 6;
+    const full = s.party.members.length >= max;
+    const pic = portrait(this.view, charLook(g, m));
+    const body = h('div.resting-card',
+      h('div.rc-head', pic ? h('img', { src: pic, alt: '' }) : null,
+        h('div', h('b', m.name), h('span.rc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
+          h('p.rc-say', m.status === 'dead' ? 'Laid out in the back room. A healer could raise them.' : full ? '"The company is full — but say the word and I\'ll take someone\'s place."' : '"Rested and ready. Shall we go?"'))));
+    const buttons = [];
+    if (!full) buttons.push({ label: 'Rejoin the company', primary: true, onClick: () => { const err = s.callBack(npc); if (err) s.log(err, 'warn'); } });
+    else buttons.push({ label: 'Swap with someone…', primary: true, onClick: () => {
+      setTimeout(async () => {
+        const out = await this.chooseMember(`Who rests at the inn in ${m.name}'s place?`, () => true, (x) => (!s.party.members.some((y) => y !== x && y.status !== 'dead') ? 'someone must carry on' : null));
+        if (!out) return;
+        const err = s.callBack(npc, out);
+        if (err) s.log(err, 'warn');
+      }, 0);
+    } });
+    buttons.push({ label: 'Leave them be' });
+    modal(body, { title: 'Resting at the inn', icon: 'bed', cls: 'small resting-modal', buttons });
+  }
+
+  // someone offered to join when a quest ended: ask once, when nothing else is open
+  offerJoin() {
+    const s = this.s;
+    if (this.joinAsking || anyModal() || s.mode !== 'explore' || s.battle || s.transitioning || !s.state.joinOffers?.length) return;
+    const npc = s.nextJoinOffer();
+    if (!npc) return;
+    const g = s.game, rc = npc.recruit || {};
+    const max = g.settings.maxParty || 6;
+    const full = s.party.members.length >= max;
+    const lodge = s.lodging();
+    const k = byId(g.classes, rc.cls), race = byId(g.races, rc.race || npc.look?.race);
+    const drop = () => { s.state.joinOffers = (s.state.joinOffers || []).filter((id) => id !== npc.id); };
+    this.joinAsking = true;
+    const body = h('div.resting-card',
+      h('div.rc-head', h('div',
+        h('b', npc.name), h('span.rc-sub', `Level ${rc.level || 1} ${race?.name || ''} ${k?.name || ''}`),
+        h('p.rc-say', `"${rc.offerText || rc.joinText || 'Take me with thee!'}"`),
+        full ? h('p.hint', lodge ? `Thy company is full: ${npc.name} would wait at the inn in ${lodge.name} until you make room.` : 'Thy company is full; find an inn to make room.') : null)));
+    modal(body, {
+      title: `${npc.name} asks to join you`, icon: 'banner', cls: 'small resting-modal',
+      onClose: () => { this.joinAsking = false; },
+      buttons: [
+        { label: 'Welcome them', primary: true, onClick: () => { const err = s.recruit(npc, { toInn: true }); if (err) { s.log(err, 'warn'); return; } drop(); if (s.party.members.some((x) => x.name === npc.name)) s.log(`${npc.name} joins your company!`, 'good'); } },
+        { label: 'Not now', onClick: () => { drop(); s.log(`${npc.name} will still JOIN you if you ask.`); } },
+      ],
+    });
+  }
+
   showSign(e) {
     modal(h('p.sign-text', e.text || '…'), {
       title: e.name || 'Signpost', icon: 'sign', cls: 'small sign-modal', buttons: [{ label: 'Onward', primary: true }],
@@ -1422,7 +1504,9 @@ The <b>Pack</b> (I) holds what the company shares; each piece of gear in it show
 <b>talent</b> (★), and every second level an <b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
 <h3>Talking</h3>
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
-Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company.</p>
+Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company (some only once you have helped them).
+The company holds six; to make room, open a hero's sheet and choose <b>Rest at the inn</b>. They wait at that town's inn
+(or the last inn you passed): talk to them there to call them back, or to swap them for someone in the company.</p>
 <h3>Battle</h3>
 <p>Everyone acts in turn: the strip along the top shows who acts now and who comes next. On a hero's turn, move up to their
 squares (click a blue square, or the arrows), then strike, shoot, cast, use a skill or an item. <b>Hover</b> any figure to see its

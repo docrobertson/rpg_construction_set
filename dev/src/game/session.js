@@ -18,6 +18,10 @@ import { playMusic } from '../core/music.js';
 import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
+import { findBuildings } from '../world/buildings.js';
+
+// the parts of a person's look that are theirs, not their clothes
+const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
 
 export function moodFor(map) {
   return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
@@ -112,6 +116,7 @@ export class PlaySession {
       e.home = { x: e.x, y: e.y };
     }
     for (const e of ms.added || []) map.entities.push({ ...deepClone(e), home: { x: e.x, y: e.y } });
+    for (const r of this.state.reserve || []) if (r.map === id) map.entities.push(this.restingNpc(map, r.member));
     map.explored = ms.explored ? rleDecode(ms.explored, map.w * map.h) : new Uint8Array(map.w * map.h);
     map.litMask = computeLitMask(map);
     return map;
@@ -145,6 +150,7 @@ export class PlaySession {
     playMusic(moodFor(map));
     this.view.setPitch(this.game.settings.pitch || 52);
     this.view.reach = 10; // zoom out no further than about ten squares round the party
+    if (map.type !== 'world' && map.entities.some((e) => e.type === 'npc' && e.role === 'inn')) this.state.lodging = { map: id, name: map.name };
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
     this.camFocus(x, y, true);
@@ -1110,6 +1116,7 @@ export class PlaySession {
   // ------------------------------------------------------------ talking
   talkTo(npc) {
     this.queued = null;
+    if (npc.reserveOf) return this.ui.openResting?.(npc);
     if (npc.hostile) return this.engage({ ...npc, monster: npc.hostile, count: '1' });
     this.view.face('party', npc.x - this.state.pos.x, npc.y - this.state.pos.y);
     this.view.face(npc.id, this.state.pos.x - npc.x, this.state.pos.y - npc.y);
@@ -1207,10 +1214,11 @@ export class PlaySession {
     return ok;
   }
 
-  recruit(npc) {
-    if (!this.map.entities.includes(npc)) return `${npc.name} has already joined thee.`;
+  // toInn: the company is full, so the newcomer waits at the inn instead
+  recruit(npc, { toInn = false } = {}) {
+    if (!this.map.entities.includes(npc) && !npc.mapId) return `${npc.name} has already joined thee.`;
     const max = this.game.settings.maxParty || 6;
-    if (this.party.members.length >= max) return `Thy company is full (${max}).`;
+    if (this.party.members.length >= max && !(toInn && this.lodging())) return `Thy company is full (${max}).`;
     const busy = questNeeding(this, npc.id);
     if (busy) return `${npc.name} cannot leave yet — there is still the matter of “${busy.name}”.`;
     const r = npc.recruit || {};
@@ -1225,12 +1233,120 @@ export class PlaySession {
     c.points = Math.floor(c.level / 2); // seasoned companions arrive with points to spend
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
+    // they keep their own face and hair; the class dresses them
     c.look = {};
-    this.party.members.push(c);
-    this.removeEntity(npc);
+    for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    if (this.party.members.length >= max) {
+      const lodge = this.lodging();
+      (this.state.reserve ||= []).push({ member: c, map: lodge.map, since: this.state.turn || 0 });
+      if (lodge.map === this.map.id) { const e = this.restingNpc(this.map, c); this.map.entities.push(e); this.addVisual(e); }
+      this.log(`${c.name} will wait for you at the inn in ${lodge.name} until there is room in the company.`, 'place');
+    } else this.party.members.push(c);
+    if (this.map.entities.includes(npc)) this.removeEntity(npc);
+    else if (npc.mapId) this.mapState(npc.mapId).removed.push(npc.id);
+    this.state.joinOffers = (this.state.joinOffers || []).filter((id) => id !== npc.id);
     this.refreshPartyVisual();
     sfx('level');
     this.ui.refresh();
+    return null;
+  }
+
+  // A person who offered to join when a quest ended (see quests.js finish):
+  // the live entity if they are on this map, else a copy that knows its map
+  nextJoinOffer() {
+    for (const id of this.state.joinOffers || []) {
+      const live = this.map?.entities.find((e) => e.id === id);
+      if (live) return live;
+      for (const m of this.game.maps) {
+        const e = m.entities.find((x) => x.id === id);
+        if (e && !this.mapState(m.id).removed.includes(id)) return { ...deepClone(e), mapId: m.id };
+      }
+    }
+    this.state.joinOffers = [];
+    return null;
+  }
+
+  // ------------------------------------------------------------ the reserve
+  // Heroes who leave the company rest at an inn (the one in this town, or
+  // else the last inn the company passed) until called back. They wait as
+  // people in the inn's common room; talking to them brings them back.
+
+  // { map, name } of the inn the company would leave someone at, or null
+  lodging() {
+    const inn = (m) => m?.entities?.some((e) => e.type === 'npc' && e.role === 'inn');
+    if (this.map && this.map.type !== 'world' && inn(this.map)) return { map: this.map.id, name: this.map.name };
+    return this.state.lodging || null;
+  }
+
+  // the person standing in for a resting hero, on a free floor square of the inn
+  restingNpc(map, m) {
+    const keeper = map.entities.find((e) => e.type === 'npc' && e.role === 'inn');
+    const taken = (x, y) => map.entities.some((e) => e.x === x && e.y === y) || (this.state.pos.map === map.id && this.state.pos.x === x && this.state.pos.y === y);
+    const free = (x, y) => inBounds(map, x, y) && !taken(x, y) && (() => { const t = terrain(getTile(map, x, y)); return t.walk && !t.door && !t.talkOver && !t.water; })();
+    let spot = null;
+    const b = keeper && findBuildings(map).find((bb) => bb.tiles.some(([x, y]) => x === keeper.x && y === keeper.y));
+    if (b) {
+      // as far from the door as the room allows, so they sit by the fire, not in the way
+      const d0 = b.doors[0] || [keeper.x, keeper.y];
+      const spots = b.tiles.filter(([x, y]) => free(x, y)).sort((p, q) => Math.hypot(q[0] - d0[0], q[1] - d0[1]) - Math.hypot(p[0] - d0[0], p[1] - d0[1]));
+      spot = spots.find(([x, y]) => !map.entities.some((e) => e.reserveOf && Math.abs(e.x - x) + Math.abs(e.y - y) < 1)) || spots[0];
+    }
+    if (!spot && keeper) for (let r = 1; r < 6 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) if (free(keeper.x + dx, keeper.y + dy)) spot = [keeper.x + dx, keeper.y + dy];
+    if (!spot) spot = [map.entry?.x ?? 1, map.entry?.y ?? 1];
+    const k = byId(this.game.classes, m.cls), rc = byId(this.game.races, m.race);
+    return {
+      id: 'rest_' + m.id, type: 'npc', name: m.name, x: spot[0], y: spot[1], home: { x: spot[0], y: spot[1] }, wander: 0,
+      role: 'companion', reserveOf: m.id, look: charLook(this.game, m),
+      desc: `${m.name}, a level ${m.level} ${rc?.name || ''} ${k?.name || ''} of your company, resting at the inn`,
+    };
+  }
+
+  // send a hero to rest at the inn; returns an error message or null
+  restMember(m) {
+    if (this.mode !== 'explore' || this.battle) return 'Not in the middle of things.';
+    const i = this.party.members.indexOf(m);
+    if (i < 0) return `${m.name} is not with the company.`;
+    if (!this.party.members.some((x) => x !== m && x.status !== 'dead')) return `${m.name} cannot leave: someone must carry on the quest.`;
+    const lodge = this.lodging();
+    if (!lodge) return 'There is no inn to rest at yet. Find a town with an inn first.';
+    this.party.members.splice(i, 1);
+    (this.state.reserve ||= []).push({ member: m, map: lodge.map, since: this.state.turn || 0 });
+    if (lodge.map === this.map.id) {
+      const e = this.restingNpc(this.map, m);
+      this.map.entities.push(e);
+      this.addVisual(e);
+      this.log(`${m.name} takes a room at the inn and waits for you there.`, 'place');
+    } else this.log(`${m.name} sets off to rest at the inn in ${lodge.name} and will wait for you there.`, 'place');
+    this.refreshPartyVisual();
+    this.ui.refresh();
+    this.autosave?.();
+    return null;
+  }
+
+  // call a resting hero back (swap: a member who takes their place at the inn)
+  callBack(npc, swap = null) {
+    const list = this.state.reserve || [];
+    const r = list.find((x) => x.member.id === npc.reserveOf);
+    if (!r) return `${npc.name} is not here.`;
+    const max = this.game.settings.maxParty || 6;
+    if (!swap && this.party.members.length >= max) return `Thy company is full (${max}).`;
+    if (swap) {
+      const err = this.restMember(swap);
+      if (err) return err;
+    }
+    list.splice(list.indexOf(r), 1);
+    const m = r.member;
+    // a good rest: whole again (the dead stay dead until raised)
+    if (m.status !== 'dead') { m.hp = maxHp(this.game, m); m.mp = maxMp(this.game, m); if (m.status === 'poisoned' || m.status === 'asleep') m.status = 'ok'; }
+    this.party.members.push(m);
+    const i = this.map.entities.indexOf(npc);
+    if (i >= 0) this.map.entities.splice(i, 1);
+    this.view.removeEntity(npc.id);
+    this.refreshPartyVisual();
+    this.log(`${m.name} rejoins the company, rested and ready.`, 'good');
+    sfx('level');
+    this.ui.refresh();
+    this.autosave?.();
     return null;
   }
 

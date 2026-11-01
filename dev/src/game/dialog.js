@@ -72,7 +72,11 @@ function roleReply(npc, word, ctx) {
     return { text: r || 'Quiet times, friend. Quiet times.' };
   }
   if (role === 'lord' && (k('HEAL'))) return { text: 'Rest, and be whole.', action: { type: 'heal' } };
-  if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) return { text: npc.recruit.joinText || 'I will gladly join thee!', action: { type: 'join' } };
+  if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) {
+    const after = npc.recruit.after;
+    if (after && ctx.state?.quests?.[after]?.status !== 'done') return { text: npc.recruit.notYet || 'Join thee? Perhaps one day, when there is less to keep me here.' };
+    return { text: npc.recruit.joinText || 'I will gladly join thee!', action: { type: 'join' } };
+  }
   return null;
 }
 

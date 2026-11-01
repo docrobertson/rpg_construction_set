@@ -132,6 +132,8 @@ export function inspectEntity(ed, ent, container) {
           { key: 'recruit.race', label: 'Race', type: 'select', options: () => game.races.map((r) => [r.id, r.name]) },
           { key: 'recruit.level', label: 'Level', type: 'number', min: 1, max: 20 },
           { key: 'recruit.joinText', label: 'Says on joining', type: 'text' },
+          { key: 'recruit.after', label: 'Joins after quest', type: 'select', options: () => [['', '— any time —'], ...(game.quests || []).map((q) => [q.id, q.name])], hint: 'Only once this quest is done; they ask to join as it ends' },
+          { key: 'recruit.offerText', label: 'Says when offering', type: 'text', show: (o) => !!o.recruit?.after },
         ], changed));
       };
       cb.addEventListener('change', () => {

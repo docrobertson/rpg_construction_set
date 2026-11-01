@@ -338,6 +338,30 @@ r = await ev(async () => {
 });
 check('field draught list greys out heroes at full health', r.opts.filter((o) => o.dis).length === 3 && r.left === 1, r);
 
+// ---- rotating the company: rest at the inn, call back, a quest companion's offer
+r = await ev(async () => {
+  const s = window.__app.session, Q = window.__quests;
+  for (const m of s.party.members) { m.status = 'ok'; m.hp = 5; }
+  const town = s.game.maps.find((x) => x.name === 'Westhold');
+  const inn = town.entities.find((e) => e.role === 'inn');
+  await s.enterMap(town.id, inn.x, inn.y + 3, { instant: true });
+  const who = s.party.members[1], n0 = s.party.members.length;
+  const err = s.restMember(who);
+  const npc = s.map.entities.find((e) => e.reserveOf === who.id);
+  const resting = { err, out: s.party.members.length === n0 - 1, npc: !!npc, listed: /Resting at inns/i.test(document.querySelector('.hud-resting')?.textContent || '') };
+  const back = s.callBack(npc);
+  const rejoined = { err: back, in: s.party.members.includes(who), healed: who.hp > 5, gone: !s.map.entities.some((e) => e.reserveOf) };
+  // Wynn waits until her wolf is dead, then asks
+  const wynn = s.map.entities.find((e) => e.id === 'npc_wynn');
+  const early = Q.npcMarker(s, wynn);
+  if (!s.state.quests.q_wolf) Q.startQuest(s, 'q_wolf');
+  Q.completeQuest(s, 'q_wolf');
+  return { resting, rejoined, early, offered: (s.state.joinOffers || []).includes('npc_wynn'), late: Q.npcMarker(s, wynn) };
+});
+check('a hero rests at the inn and waits there as a person', !r.resting.err && r.resting.out && r.resting.npc && r.resting.listed, r);
+check('talking to them calls them back, rested', !r.rejoined.err && r.rejoined.in && r.rejoined.healed && r.rejoined.gone, r);
+check('a quest companion asks to join once the quest is done', r.early !== 'recruit' && r.offered && r.late === 'recruit', r);
+
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 if (errors.length) fails++;
 await browser.close();
