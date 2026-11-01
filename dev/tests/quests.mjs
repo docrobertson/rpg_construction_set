@@ -29,6 +29,8 @@ const settle = async () => {
     // the victory screen waits for "Onward", a level-up card for "Done"
     for (let i = 0; i < 3; i++) {
       document.querySelector('.victory-modal .modal-buttons button, .levelup-modal .modal-buttons button')?.click();
+      // a companion's offer to join: "Not now"
+      [...document.querySelectorAll('.resting-modal .modal-buttons button')].pop()?.click();
       await new Promise((r) => setTimeout(r, 150));
     }
   });
@@ -221,6 +223,7 @@ check('a pinned quest stays on the tracker while another moves on', st.still ===
 check('unpinning follows the story again', st.after === 'q_main', st);
 
 // --- the journal
+await settle();
 await page.keyboard.press('j');
 await wait(400);
 st = await ev(() => ({ open: !!document.querySelector('.journal-modal'), text: document.querySelector('.journal-modal')?.innerText || '' }));
