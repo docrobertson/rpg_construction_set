@@ -23,6 +23,74 @@ import { findBuildings } from '../world/buildings.js';
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
 
+// The four sides of a map, as the step that leaves through them
+const SIDES = { N: [0, -1], S: [0, 1], W: [-1, 0], E: [1, 0] };
+
+// Where a town can be walked into from outside: for each side with open
+// ground on the map's edge, the square just inside it (nearest the middle of
+// that side, and on a road or street if one runs out there). Maps walled all
+// round (dungeons, towers) have none and use their entry point.
+function edgeGates(map) {
+  if (map._gates) return map._gates;
+  const out = {};
+  const { w, h } = map;
+  const open = (x, y) => { const t = terrain(getTile(map, x, y)); return t.walk && !t.dmg && !t.wall && (!t.water || t.key === 'bridge'); };
+  const paved = (x, y) => ['road', 'cobble', 'bridge'].includes(terrain(getTile(map, x, y)).key);
+  // how far every square is from the middle of the town, on foot
+  const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+  let start = null;
+  for (let r = 0; r < Math.max(w, h) && !start; r++) for (let dy = -r; dy <= r && !start; dy++) for (let dx = -r; dx <= r && !start; dx++) if (inBounds(map, cx + dx, cy + dy) && open(cx + dx, cy + dy)) start = [cx + dx, cy + dy];
+  const dist = new Int32Array(w * h).fill(-1);
+  if (start) {
+    const q = [start]; dist[start[1] * w + start[0]] = 0;
+    for (let i = 0; i < q.length; i++) {
+      const [x, y] = q[i];
+      for (const [dx, dy] of DIR4) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(map, nx, ny) || dist[ny * w + nx] >= 0 || !open(nx, ny)) continue;
+        dist[ny * w + nx] = dist[y * w + x] + 1;
+        q.push([nx, ny]);
+      }
+    }
+  }
+  const sides = {
+    N: Array.from({ length: w }, (_, i) => [i, 0]), S: Array.from({ length: w }, (_, i) => [i, h - 1]),
+    W: Array.from({ length: h }, (_, i) => [0, i]), E: Array.from({ length: h }, (_, i) => [w - 1, i]),
+  };
+  for (const [k, tiles] of Object.entries(sides)) {
+    const [dx, dy] = SIDES[k];
+    const len = tiles.length;
+    // a way in: open ground in the middle stretch of the side whose path to
+    // the heart of town is fairly direct (not round the outside of a moat)
+    const cands = tiles.filter(([x, y], i) => {
+      if (i < len * 0.2 || i > len * 0.8 || !open(x, y) || !inBounds(map, x - dx, y - dy) || !open(x - dx, y - dy)) return false;
+      const d = dist[y * w + x];
+      return d >= 0 && (!start || d <= 1.35 * (Math.abs(x - start[0]) + Math.abs(y - start[1])) + 6);
+    });
+    if (!cands.length) continue;
+    const mid = k === 'N' || k === 'S' ? w / 2 : h / 2;
+    const along = ([x, y]) => (k === 'N' || k === 'S' ? x : y);
+    cands.sort((a2, b2) => (paved(...b2) - paved(...a2)) || Math.abs(along(a2) - mid) - Math.abs(along(b2) - mid));
+    const [x, y] = cands[0];
+    out[k] = { x: x - dx, y: y - dy };
+  }
+  Object.defineProperty(map, '_gates', { value: out, enumerable: false, configurable: true });
+  return out;
+}
+
+// the side of a map a square lies nearest
+function sideOf(map, x, y) {
+  const d = { N: y, S: map.h - 1 - y, W: x, E: map.w - 1 - x };
+  return Object.keys(d).sort((a, b) => d[a] - d[b])[0];
+}
+
+// sides in order of preference for someone wanting `want`: that side, then
+// the two beside it, then the far one
+function sidesFrom(want) {
+  const order = { N: ['N', 'W', 'E', 'S'], S: ['S', 'E', 'W', 'N'], W: ['W', 'S', 'N', 'E'], E: ['E', 'N', 'S', 'W'] };
+  return order[want] || ['S', 'E', 'W', 'N'];
+}
+
 export function moodFor(map) {
   return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
 }
@@ -424,7 +492,7 @@ export class PlaySession {
     this.view.face('party', dx, dy);
     const map = this.map;
     if (!inBounds(map, nx, ny)) {
-      if (map.exit) return this.leaveMap();
+      if (map.exit) return this.leaveMap(nx < 0 ? 'W' : nx >= map.w ? 'E' : ny < 0 ? 'N' : 'S');
       this.log('You cannot travel beyond the edge of the world.');
       sfx('bump');
       return;
@@ -719,32 +787,57 @@ export class PlaySession {
     if (portal.requires) this.log(portal.openText || `The ${itemOf(this.game, portal.requires)?.name || 'key'} turns... the way opens!`, 'good');
     this.persistExplored();
     if (portal.style === 'waygate') this.view.sparkle(this.state.pos.x, this.state.pos.y, 0x80b0ff, 24);
-    const x = tgt.x ?? dest.entry?.x ?? Math.floor(dest.w / 2);
-    const y = tgt.y ?? dest.entry?.y ?? dest.h - 2;
+    let x = tgt.x ?? dest.entry?.x ?? Math.floor(dest.w / 2);
+    let y = tgt.y ?? dest.entry?.y ?? dest.h - 2;
+    // walking into a town from the wide world: come in on the side the company
+    // approached from (or the nearest side with a way in), unless the portal
+    // names a particular square of its own
+    const atEntry = tgt.x == null || (dest.entry && tgt.x === dest.entry.x && tgt.y === dest.entry.y);
+    if (this.map.type === 'world' && dest.type !== 'world' && dest.type !== 'dungeon' && atEntry) {
+      const gates = edgeGates(dest);
+      const [fx, fy] = this.state.facing || [0, -1];
+      // moving east means arriving from the west
+      const want = Math.abs(fx) >= Math.abs(fy) ? (fx > 0 ? 'W' : 'E') : (fy > 0 ? 'N' : 'S');
+      const side = sidesFrom(want).find((k) => gates[k]);
+      if (side) ({ x, y } = gates[side]);
+    }
     await this.enterMap(dest.id, x, y);
     this.autosave();
   }
 
-  async leaveMap() {
+  // side: the edge the company walked out through ('N', 'S', 'E', 'W'); by
+  // stairs or a doorway it is the side of the map's way in
+  async leaveMap(side = null) {
     const exit = this.map.exit;
     if (!exit) return;
     const dest = getMap(this.game, exit.map);
     if (!dest) return;
+    const from = this.map;
     this.persistExplored();
-    this.log(`You leave ${this.map.name}.`);
-    // come out beside the site, in front of it if we can: the world map draws
-    // a town larger than its square, so standing on it puts the company on
-    // its roofs (and behind it, the walls hide them)
+    this.log(`You leave ${from.name}.`);
+    if (!side) {
+      const gates = edgeGates(from), keys = Object.keys(gates);
+      side = keys.length === 1 ? keys[0] : sideOf(from, from.entry?.x ?? this.state.pos.x, from.entry?.y ?? this.state.pos.y);
+    }
+    // come out beside the site on that side: the world map draws a town
+    // larger than its square, so standing on it puts the company on its
+    // roofs (and behind it, the walls hide them)
     let { x, y } = exit;
     if (dest.type === 'world' && terrain(getTile(dest, x, y)).feature) {
-      for (const [dx, dy] of [[0, 1], [-1, 1], [1, 1], [-1, 0], [1, 0], [0, -1]]) {
-        const nx = x + dx, ny = y + dy;
-        if (!inBounds(dest, nx, ny)) continue;
+      const ok = (nx, ny) => {
+        if (!inBounds(dest, nx, ny)) return false;
         const t = terrain(getTile(dest, nx, ny));
-        if (!t.walk || t.feature || t.water || t.dmg || (dest.entities || []).some((e) => e.x === nx && e.y === ny)) continue;
-        x = nx; y = ny;
-        break;
+        return t.walk && !t.feature && !t.water && !t.dmg && !(dest.entities || []).some((e) => e.x === nx && e.y === ny);
+      };
+      let spot = null;
+      for (const k of sidesFrom(side)) {
+        const [dx, dy] = SIDES[k];
+        // straight out first, then the squares beside that, then a step further
+        const tries = [[dx, dy], [dx + dy, dy + dx], [dx - dy, dy - dx], [dx * 2, dy * 2]];
+        spot = tries.map(([ox, oy]) => [x + ox, y + oy]).find(([nx, ny]) => ok(nx, ny));
+        if (spot) { this.state.facing = SIDES[k]; break; }
       }
+      if (spot) [x, y] = spot;
     }
     await this.enterMap(dest.id, x, y, { quiet: true });
     this.autosave();

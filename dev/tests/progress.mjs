@@ -362,6 +362,33 @@ check('a hero rests at the inn and waits there as a person', !r.resting.err && r
 check('talking to them calls them back, rested', !r.rejoined.err && r.rejoined.in && r.rejoined.healed && r.rejoined.gone, r);
 check('a quest companion asks to join once the quest is done', r.early !== 'recruit' && r.offered && r.late === 'recruit', r);
 
+// ---- towns are entered and left on the side the company comes and goes
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game;
+  const world = g.maps.find((m) => m.type === 'world');
+  const portalTo = (name) => { const t = g.maps.find((m) => m.name === name); return [t, world.entities.find((e) => e.type === 'portal' && e.target?.map === t.id)]; };
+  const enterFrom = async (name, dx, dy) => {
+    const [t, p] = portalTo(name);
+    await s.enterMap(world.id, p.x - dx, p.y - dy, { instant: true });
+    s.state.facing = [dx, dy];
+    await s.usePortal(p);
+    return { x: s.state.pos.x, y: s.state.pos.y, w: t.w, h: t.h };
+  };
+  const west = await enterFrom('Westhold', 1, 0);
+  const north = await enterFrom('Westhold', 0, 1);
+  const castle = await enterFrom('Caer Aldon', 1, 0); // walled by a moat: only the south bridge
+  const [wt, wp] = portalTo('Westhold');
+  await s.enterMap(wt.id, wt.w - 2, 19, { instant: true });
+  await s.move(1, 0); await s.move(1, 0);
+  for (let i = 0; i < 40 && s.transitioning; i++) await new Promise((res) => setTimeout(res, 50));
+  const outE = { dx: s.state.pos.x - wp.x, dy: s.state.pos.y - wp.y, map: s.map.type };
+  return { west, north, castle, outE };
+});
+check('entering a town from the west comes in at its west gate', r.west.x <= 2, r);
+check('entering from the north comes in at the north gate', r.north.y <= 2, r);
+check('a moated castle is always entered by its one bridge', r.castle.y >= r.castle.h - 3, r);
+check('walking out of the east gate leaves the town on its east side', r.outE.map === 'world' && r.outE.dx > 0, r);
+
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 if (errors.length) fails++;
 await browser.close();
