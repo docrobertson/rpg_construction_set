@@ -123,7 +123,17 @@ export class Explorer {
       if (t) return t;
     }
     const t = v.pick(cx, cy);
-    if (!t || !inBounds(s.map, t.x, t.y)) return null;
+    if (!t) return null;
+    if (!inBounds(s.map, t.x, t.y)) {
+      // beyond the edge of a town: leave that way
+      const m = s.map;
+      if (!m.exit || s.state.vehicle) return null;
+      const ox = t.x < 0 ? -t.x : t.x >= m.w ? t.x - m.w + 1 : 0;
+      const oy = t.y < 0 ? -t.y : t.y >= m.h ? t.y - m.h + 1 : 0;
+      const out = ox >= oy ? [t.x < 0 ? -1 : 1, 0] : [0, t.y < 0 ? -1 : 1];
+      const x = Math.min(m.w - 1, Math.max(0, t.x)), y = Math.min(m.h - 1, Math.max(0, t.y));
+      return { kind: 'tile', x, y, outside: out };
+    }
     // a building (its roof or walls), unless the party is already inside it
     let bi = v.pickBuilding ? v.pickBuilding(cx, cy) : -1;
     if (bi == null || bi < 0) bi = this.buildingIndexAt(t.x, t.y);
@@ -220,6 +230,15 @@ export class Explorer {
       case 'companion': return { here: true, arrive: () => this.ui.selectHero(tg.m), tone: 'self' };
       case 'tile': {
         const { x, y } = tg;
+        if (tg.outside) {
+          // clicked beyond the edge: walk to the nearest open square on that
+          // side, then step off it
+          const [ox, oy] = tg.outside;
+          const onSide = (gx, gy) => (ox < 0 ? gx === 0 : ox > 0 ? gx === map.w - 1 : oy < 0 ? gy === 0 : gy === map.h - 1);
+          const open = (gx, gy) => { const tt = terrain(getTile(map, gx, gy)); return tt.walk && !tt.water; };
+          if (onSide(s.state.pos.x, s.state.pos.y) && open(s.state.pos.x, s.state.pos.y)) return { here: true, arrive: () => s.move(ox, oy), tone: 'enter', leave: true };
+          return { goal: (gx, gy) => onSide(gx, gy) && open(gx, gy), gx: x, gy: y, arrive: () => s.move(ox, oy), tone: 'enter', leave: true };
+        }
         const t = terrain(getTile(map, x, y));
         if (s.visible && !map.explored[y * map.w + x]) return null;
         if (t.locked) return { goal: this.besideGoal({ x, y }, false), arrive: bump({ x, y }), tone: 'use' };
@@ -395,6 +414,7 @@ export class Explorer {
       }
       case 'tile': {
         const { x, y } = tg;
+        if (tg.outside) return reach ? { title: `Leave ${map.name}`, act: `Click to walk out this way${far}`, tone } : { title: `Leave ${map.name}`, act: 'No way out on this side', tone: 'none' };
         if (s.visible && !map.explored[y * map.w + x]) return { title: 'Unexplored', tone: 'none' };
         const t = terrain(getTile(map, x, y));
         if (!plan) {
