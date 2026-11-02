@@ -4,17 +4,27 @@ import { h, modal } from './dom.js';
 import { iconSvg } from './icons.js';
 import { getPref, setPref } from '../core/storage.js';
 import { STAT_NAMES } from '../data/defaults.js';
+import { schoolLook } from '../game/magic.js';
 
-// One line per school of magic: what fuels it, which attribute powers it and
-// what it is good for. ids limits it to the schools a caster actually uses.
+// how each school's window looks, in a word or two
+const STYLE_WORDS = { book: 'spellbook', prayer: 'prayer beads', song: 'songs', runes: 'rune-stones', herbs: 'herb satchel' };
+
+// One line per school of magic, in its own colour and mark: what it burns,
+// which attribute powers it, who wields it and what it is good for. ids
+// limits it to the schools a caster actually uses.
 export function magicGuide(game, ids = null) {
   const list = (game.magic || []).filter((m) => m.enabled !== false && !m.monsterOnly && (!ids || ids.includes(m.id)));
   if (!list.length) return null;
-  return h('div.magic-guide', ...list.map((m) => h('div.mg-row',
-    h('i.mg-dot', { style: { background: m.color || '#ccc' } }),
-    h('b.mg-name', m.name),
-    h('span.mg-fuel', m.resource === 'reagents' ? 'uses reagents' : 'uses mana', ' · ', STAT_NAMES[m.stat] || m.stat),
-    h('span.mg-desc', m.desc || ''))));
+  return h('div.magic-guide', ...list.map((m) => {
+    const look = schoolLook(m);
+    const who = (game.classes || []).filter((k) => (k.magic || []).some((x) => x.system === m.id)).map((k) => k.name);
+    return h('div.mg-row', { style: { '--school': look.color } },
+      h('i.mg-ico', { html: iconSvg(look.icon) }),
+      h('b.mg-name', m.name),
+      h('span.mg-fuel', `${look.resName} · ${STAT_NAMES[m.stat] || m.stat}${who.length ? ` · ${who.join(', ')}` : ''}`),
+      h('span.mg-desc', m.desc || ''),
+      h('span.mg-style', STYLE_WORDS[look.style] || ''));
+  }));
 }
 
 const ico = (name) => h('i.hw-ico', { html: iconSvg(name) });
@@ -61,7 +71,7 @@ export function openHelpOverlay(ui, rulesHtml) {
         row(kbd('G'), 'Guard (+3 armour)'),
         row(kbd('Space'), 'End the turn'))),
     game && magicGuide(game) ? h('section.hw-magic', h('h3', ico('sparkle'), ' Magic'), magicGuide(game),
-      h('p.mg-note', 'Mana returns when you rest; reagents are bought from herbalists. Casters learn more spells as they gain levels.')) : null,
+      h('p.mg-note', 'Mana, faith and voice return when you rest. Runes burn reagents from herbalists; rangers gather herbs in wild country as you travel. Wizards copy spell scrolls into their spellbooks. The Pack says who can use each reagent, herb and scroll.')) : null,
     h('div.hw-tip', ico('sparkle'), ' Hover over almost anything — heroes, buttons, foes, the numbers in the top bar — to see what it means.'),
     h('details.hw-rules', h('summary', 'The full rules: towns, quests, tactics and survival'), h('div.help', { html: rulesHtml })),
   );

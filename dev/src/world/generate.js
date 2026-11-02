@@ -450,7 +450,8 @@ function makeNpc(role, race, x, y, rng, extra = {}) {
     greeting: extra.greeting || '',
     job: extra.job || '',
     keywords: extra.keywords || [],
-    shop: SHOP_ROLES[role] ? { kind: SHOP_ROLES[role].kind, stock: [] } : null,
+    // sages sell spell scrolls for wizards' books
+    shop: SHOP_ROLES[role] ? { kind: SHOP_ROLES[role].kind, stock: [] } : role === 'sage' ? { kind: 'scrolls', stock: [] } : null,
   };
 }
 
@@ -982,13 +983,13 @@ const ROLE_TEXT = {
   weapons: { job: 'I forge blades and sell arms. Wouldst thou BUY or SELL?', greet: 'Steel for the road, traveller?' },
   armor: { job: 'I sell armour of every kind. Wouldst thou BUY or SELL?', greet: 'A good hauberk is a friend for life.' },
   provisions: { job: 'I sell FOOD, torches and potions. Wouldst thou BUY?', greet: 'Hungry? The road is long.' },
-  reagents: { job: 'I gather reagents for rune-craft. Wouldst thou BUY?', greet: 'Mind the nightshade, it bites.' },
+  reagents: { job: 'I gather reagents for rune-craft and herbs for remedies. Wouldst thou BUY?', greet: 'Mind the nightshade, it bites.' },
   inn: { job: 'I keep this inn. A ROOM for the night will mend thy wounds.', greet: 'Welcome, weary travellers!' },
   tavern: { job: 'I pour ale and hear many RUMOURS.', greet: 'Pull up a stool!' },
   healer: { job: 'I tend the sick. I can HEAL, CURE poison, or RAISE the fallen.', greet: 'Peace be upon thee.' },
   guard: { job: 'I keep the peace. Mind thy manners.', greet: 'Halt! Ah, travellers. Pass.' },
   lord: { job: 'I rule these lands. Seek me when thou hast proven thy worth.', greet: 'Welcome to my hall, adventurers.' },
-  sage: { job: 'I study the old lore and the stars.', greet: 'Hmm? Oh, visitors.' },
+  sage: { job: 'I study the old lore and the stars, and copy out spell scrolls. Wouldst thou BUY?', greet: 'Hmm? Oh, visitors.' },
   bowyer: { job: 'I make bows of yew and ash. Wouldst thou BUY or SELL?', greet: 'A fine bow is a friend in the wild.' },
   villager: { job: 'I work hard and keep my head down.', greet: 'Good day to thee.' },
 };
@@ -1026,6 +1027,7 @@ export function defaultStock(game, kind) {
     case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 130).map((it) => it.id);
     case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
+    case 'scrolls': return items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id);
     case 'mixed': return items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id);
     default: return [];
   }

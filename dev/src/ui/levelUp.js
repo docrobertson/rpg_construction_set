@@ -8,6 +8,7 @@ import { newAtLevel, charLook, classOf, raceOf, maxHp, maxMp, talentTree } from 
 import { TALENT_TREES } from '../data/defaults.js';
 import { perkPicker } from './combatHud.js';
 import { sfx } from '../core/sound.js';
+import { poolName } from '../game/magic.js';
 
 export class LevelUpCard {
   constructor(ui) {
@@ -58,7 +59,7 @@ export class LevelUpCard {
           h('div.lvl-head', h('b', m.name), h('span.lvl-badge', `Level ${m.level}`), h('span.lvl-cls', `${raceOf(g, m).name} ${classOf(g, m).name}`)),
           h('div.lvl-gains',
             h('span', `Health ${maxHp(g, m)}`),
-            mp > 0 ? h('span', `Mana ${mp}`) : null,
+            mp > 0 ? h('span', `${poolName(g, m)} ${mp}`) : null,
             ...newAtLevel(g, m).map((n) => h('span.lvl-new', `New: ${n}`)),
             m.points > 0 ? h('span.lvl-pts', `▲ ${m.points} attribute point${m.points === 1 ? '' : 's'} — spend on the hero sheet`) : null,
             tree ? h('span.lvl-tree', { title: `${classOf(g, m).name}s are offered ${tree.toLowerCase()} talents most often` }, `${tree} talents`) : null),

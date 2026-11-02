@@ -82,14 +82,15 @@ function fieldInput(obj, f, changed) {
       return el;
     }
     case 'color': {
-      const el = h('input', { type: 'color', value: hex(val ?? f.default ?? 0x888888) });
+      // f.css: stored as a CSS colour string ('#7ab0ff') rather than a number
+      const el = h('input', { type: 'color', value: f.css && typeof val === 'string' ? val : hex(val ?? f.default ?? 0x888888) });
       const wrap = h('span.color-wrap', el);
       if (f.nullable) {
         const clr = h('button.small', { title: 'None', onclick: (e) => { e.preventDefault(); set(null, true); } }, '∅');
         wrap.appendChild(clr);
         if (val == null) el.classList.add('unset');
       }
-      el.addEventListener('input', () => { el.classList.remove('unset'); set(unhex(el.value)); });
+      el.addEventListener('input', () => { el.classList.remove('unset'); set(f.css ? el.value : unhex(el.value)); });
       return wrap;
     }
     case 'multicheck': {

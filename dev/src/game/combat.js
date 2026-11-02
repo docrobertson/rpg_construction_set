@@ -16,6 +16,7 @@ import {
   perkCount, mod, classOf, levelUpNote,
 } from './rules.js';
 import { sfx } from '../core/sound.js';
+import { lootTag } from './magic.js';
 import { BattleFx } from '../render/fx.js';
 
 const PARTY_SPOTS = [[6, 7], [5, 7], [7, 7], [4, 7], [8, 7], [6, 8], [5, 8], [7, 8]];
@@ -1286,12 +1287,17 @@ export class Battle {
     const give = (it, how) => {
       inv[it.id] = (inv[it.id] || 0) + 1;
       this.loot.push(it.name);
-      this.log(`${how} ${/^[aeiou]/i.test(it.name) ? 'an' : 'a'} ${it.name}!`, 'loot');
+      this.log(`${how} ${/^[aeiou]/i.test(it.name) ? 'an' : 'a'} ${it.name}!${lootTag(this.game, this.s.party.members, it)}`, 'loot');
       sfx('gold');
     };
     if (rng.chance(Math.min(0.6, 0.22 + power * 0.04))) {
       const drops = this.game.items.filter((it) => it.type === 'consumable' && it.combat && (it.price || 0) <= 40 + power * 6);
       if (drops.length) give(rng.pick(drops), 'Among the fallen you find');
+    }
+    // now and then a spell scroll, for a wizard's book
+    if (rng.chance(Math.min(0.2, 0.04 + power * 0.012))) {
+      const scrolls = this.game.items.filter((it) => it.type === 'scroll' && !it.unique && (it.price || 0) <= 60 + power * 25);
+      if (scrolls.length) give(rng.pick(scrolls), 'Tucked in a satchel you find');
     }
     if (this.game.settings.loot === false) return;
     const boss = this.killedIds.some((id) => byId(this.game.monsters, id)?.boss);
@@ -1366,7 +1372,7 @@ export class Battle {
       default: break;
     }
     const color = spell.fx ?? 0xffffff;
-    const kind = /fire|flame|meteor|ember/i.test(spell.name) ? 'fire' : /frost|ice/i.test(spell.name) ? 'frost' : /drain|dark|shadow/i.test(spell.name) ? 'shadow' : spell.system === 'divine' ? 'holy' : 'arcane';
+    const kind = /fire|flame|meteor|ember/i.test(spell.name) ? 'fire' : /frost|ice/i.test(spell.name) ? 'frost' : /drain|dark|shadow/i.test(spell.name) ? 'shadow' : spell.system === 'divine' ? 'holy' : spell.system === 'herbal' ? 'poison' : 'arcane';
     if (spell.target === 'enemy' || spell.target === 'area') {
       if (kind === 'holy' && spell.target === 'enemy') await this.fx.beam(target.x, target.y, color);
       else await this.fx.bolt(caster, target, color, kind, spell.target === 'area' ? 8 : 11);

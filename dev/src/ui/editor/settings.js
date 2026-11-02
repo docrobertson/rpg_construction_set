@@ -47,7 +47,7 @@ export function renderSettings(ed, left, main) {
     const nSpells = game.spells.filter((s) => s.system === m.id).length;
     const classes = game.classes.filter((c) => (c.magic || []).some((x) => x.system === m.id)).map((c) => c.name);
     magic.appendChild(h('label.magic-toggle', { style: { borderColor: m.color || '#888' } }, cb,
-      h('div', h('b', { style: { color: m.color || '#fff' } }, m.name), h('span.res', m.resource === 'reagents' ? ' · uses reagents' : ' · uses mana'),
+      h('div', h('b', { style: { color: m.color || '#fff' } }, m.name), h('span.res', ` · burns ${(m.resName || (m.resource === 'reagents' ? 'reagents' : 'mana')).toLowerCase()}`),
         h('p', m.desc || ''), h('small', `${nSpells} spells · ${classes.length ? 'used by ' + classes.join(', ') : 'no class uses it yet'}`))));
   }
   main.appendChild(section('set-magic', '🔮 Magic systems', h('p.hint', 'Switch whole schools of magic on or off. Edit their spells under World Data → Spells, and decide which classes wield them under World Data → Classes.'), magic));

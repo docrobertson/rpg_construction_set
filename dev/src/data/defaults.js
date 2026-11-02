@@ -172,20 +172,27 @@ export const PERKS = [
 
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
-export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'key', 'quest', 'map'];
+export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'scroll', 'key', 'quest', 'map'];
 export const ITEM_EFFECTS = ['heal', 'cure', 'revive', 'mp', 'light', 'food', 'reveal', 'recall'];
 export const SPELL_TARGETS = ['enemy', 'area', 'allEnemies', 'ally', 'allAllies', 'self'];
 export const SPELL_EFFECTS = ['damage', 'heal', 'cure', 'revive', 'sleep', 'fear', 'shield', 'bless', 'drain', 'light', 'reveal', 'recall'];
 
+// Each school of magic looks and plays differently. style picks its cast
+// window (book is a spellbook that scrolls can be copied into); resName names
+// what it burns (a pool like mana, or the items of a reagent school); verb
+// names the battle button; icon and color mark the school wherever it shows.
+export const MAGIC_STYLES = { book: 'Spellbook (learns from scrolls)', prayer: 'Prayer beads', song: 'Song staves', runes: 'Rune tablets', herbs: 'Herb satchel' };
 export const MAGIC_SYSTEMS = [
-  { id: 'arcane', name: 'Sorcery', stat: 'int', resource: 'mp', enabled: true, color: '#7ab0ff',
-    desc: 'The high art of wizards: words of power drawn from the Intellect. Mighty in battle, costly in mana.' },
-  { id: 'divine', name: 'Prayer', stat: 'wis', resource: 'mp', enabled: true, color: '#ffe27a',
+  { id: 'arcane', name: 'Sorcery', stat: 'int', resource: 'mp', enabled: true, color: '#7ab0ff', style: 'book', resName: 'Mana', verb: 'Cast', icon: 'book',
+    desc: 'Words of power kept in a spellbook. Mighty in battle, costly in mana; spell scrolls can be copied into the book.' },
+  { id: 'divine', name: 'Prayer', stat: 'wis', resource: 'mp', enabled: true, color: '#ffe27a', style: 'prayer', resName: 'Faith', verb: 'Pray', icon: 'sun',
     desc: 'Miracles granted to the faithful through Wisdom: healing, protection, and bane of the undead.' },
-  { id: 'runic', name: 'Rune-craft', stat: 'int', resource: 'reagents', enabled: true, color: '#ff9a50',
+  { id: 'runic', name: 'Rune-craft', stat: 'int', resource: 'reagents', enabled: true, color: '#ff9a50', style: 'runes', resName: 'Reagents', verb: 'Carve', icon: 'rune',
     desc: 'The old craft of the dwarves. Runes need no mana — but every rune consumes its reagents.' },
-  { id: 'song', name: 'Elven Song', stat: 'wis', resource: 'mp', enabled: true, color: '#8affc0',
+  { id: 'song', name: 'Elven Song', stat: 'wis', resource: 'mp', enabled: true, color: '#8affc0', style: 'song', resName: 'Voice', verb: 'Sing', icon: 'note',
     desc: 'Songs of power that sway the whole battlefield, heartening friends and dismaying foes.' },
+  { id: 'herbal', name: 'Herb-lore', stat: 'wis', resource: 'reagents', enabled: true, color: '#c2d65a', style: 'herbs', resName: 'Herbs', verb: 'Brew', icon: 'herb',
+    desc: 'Remedies and charms of the wild. No mana: each uses up herbs, which a ranger gathers as the company travels.' },
   { id: 'innate', name: 'Innate (monsters only)', stat: 'int', resource: 'mp', enabled: true, color: '#ff6060', monsterOnly: true,
     desc: 'Breath weapons and dark gifts used only by monsters.' },
 ];
@@ -207,8 +214,8 @@ export const CLASSES = [
     hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], armor: 'plate', shields: true,
     abilities: ['cleave'], special: 'whirlwind', skills: ['shield_bash', 'taunt'], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
     look: { body: 0xa8302a, hat: 'helm', hatColor: 0x8c94a0, wings: true, helmTrim: 0xd8a83a, weapon: 'sword', shield: 0x9a6a30, pauldrons: 'plate', cape: 0x6a1c1a, pose: 'raise' } },
-  { id: 'ranger', talents: 'archer', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow and wise in woodcraft. Learns a little Prayer.',
-    hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
+  { id: 'ranger', talents: 'archer', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow. Gathers herbs on the road and brews remedies from them.',
+    hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
     abilities: ['tracker'], special: 'volley', skills: ['aimed_shot', 'pinning_shot'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
     look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
   { id: 'wizard', talents: 'caster', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
@@ -282,13 +289,24 @@ export const ITEMS = [
   { id: 'rations', name: 'Rations (x25)', type: 'consumable', effect: 'food', power: '25', price: 20, combat: false, desc: 'Waybread, salt meat and dried apples. Adds 25 food.' },
   { id: 'scroll_seeing', name: 'Scroll of Seeing', type: 'consumable', effect: 'reveal', price: 60, combat: false, desc: 'Reveals the lay of the land around you.' },
   { id: 'iron_key', name: 'Iron Key', type: 'key', price: 30, desc: 'Opens one locked door. Consumed on use.' },
-  // reagents
-  { id: 'moonpetal', name: 'Moonpetal', type: 'reagent', price: 5, desc: 'A pale flower that blooms only by moonlight. Mending and purity.' },
-  { id: 'ember_salt', name: 'Ember Salt', type: 'reagent', price: 6, desc: 'Red crystals warm to the touch. Fire.' },
-  { id: 'wyrmroot', name: 'Wyrmroot', type: 'reagent', price: 7, desc: 'A twisted root from old dragon-haunts. Raw power.' },
-  { id: 'nightshade', name: 'Nightshade', type: 'reagent', price: 6, desc: 'A deadly berry. Sleep and shadow.' },
-  { id: 'silverdust', name: 'Silverdust', type: 'reagent', price: 8, desc: 'Fine dust of truesilver. Warding and sight.' },
-  { id: 'spidersilk', name: 'Spidersilk', type: 'reagent', price: 4, desc: 'Sticky thread from great spiders. Binding.' },
+  // reagents (icon and tint draw them in the pack and on the rune tablets)
+  { id: 'moonpetal', name: 'Moonpetal', type: 'reagent', price: 5, icon: 'flower', tint: 0xe4e0ff, desc: 'A pale flower that blooms only by moonlight. Mending and purity.' },
+  { id: 'ember_salt', name: 'Ember Salt', type: 'reagent', price: 6, icon: 'gem', tint: 0xff7a48, desc: 'Red crystals warm to the touch. Fire.' },
+  { id: 'wyrmroot', name: 'Wyrmroot', type: 'reagent', price: 7, icon: 'root', tint: 0xc8925a, desc: 'A twisted root from old dragon-haunts. Raw power.' },
+  { id: 'nightshade', name: 'Nightshade', type: 'reagent', price: 6, icon: 'berry', tint: 0xa070e0, desc: 'A deadly berry. Sleep and shadow.' },
+  { id: 'silverdust', name: 'Silverdust', type: 'reagent', price: 8, icon: 'sparkle', tint: 0xdfe8f4, desc: 'Fine dust of truesilver. Warding and sight.' },
+  { id: 'spidersilk', name: 'Spidersilk', type: 'reagent', price: 4, icon: 'thread', tint: 0xf2efe6, desc: 'Sticky thread from great spiders. Binding.' },
+  // herbs: reagents of Herb-lore, gathered on the kinds of ground in forage
+  { id: 'silverleaf', name: 'Silverleaf', type: 'reagent', price: 4, icon: 'leaf', tint: 0xb8e0b0, forage: ['forest', 'meadow'], desc: 'Soft grey-green leaves that close a wound. Grows in woods and meadows.' },
+  { id: 'bitterwort', name: 'Bitterwort', type: 'reagent', price: 4, icon: 'herb', tint: 0x9cc840, forage: ['swamp'], desc: 'A foul marsh weed that draws out poison. Grows in swamps.' },
+  { id: 'hawkweed', name: 'Hawkweed', type: 'reagent', price: 5, icon: 'flower', tint: 0xffc840, forage: ['hills', 'meadow'], desc: 'A yellow flower whose smoke sharpens the eye. Grows on hills and meadows.' },
+  { id: 'puffcap', name: 'Puffcap', type: 'reagent', price: 6, icon: 'mushroom', tint: 0xd8b48a, forage: ['forest', 'swamp'], desc: 'A mushroom that bursts into choking spores. Grows in damp woods and swamps.' },
+  { id: 'ironbark', name: 'Ironbark', type: 'reagent', price: 6, icon: 'bark', tint: 0xa07a50, forage: ['pines', 'hills'], desc: 'Bark of the hill-pine; its sap sets hard as horn. Found in pine woods and hills.' },
+  // spell scrolls: copied into a spellbook, each teaches its spell for good
+  { id: 'scroll_acid_arrow', name: 'Scroll: Acid Arrow', type: 'scroll', spell: 'acid_arrow', price: 90, desc: 'A spell in a cramped green hand, smelling of vinegar.' },
+  { id: 'scroll_phantasm', name: 'Scroll: Phantasmal Terror', type: 'scroll', spell: 'phantasm', price: 110, desc: 'The ink seems to crawl when you are not looking at it.' },
+  { id: 'scroll_vampiric', name: 'Scroll: Vampiric Touch', type: 'scroll', spell: 'vampiric_touch', price: 160, desc: 'Written in rust-brown ink. Best not to ask.' },
+  { id: 'scroll_ice_storm', name: 'Scroll: Ice Storm', type: 'scroll', spell: 'ice_storm', price: 240, desc: 'Frost forms on the vellum as you unroll it.' },
 ];
 
 export const SPELLS = [
@@ -303,6 +321,11 @@ export const SPELLS = [
   { id: 'lightning_storm', name: 'Lightning Storm', system: 'arcane', level: 4, cost: 10, target: 'allEnemies', effect: 'damage', power: '2d8', combat: true, field: false, fx: 0xe0e0ff, desc: 'Lightning strikes every foe.' },
   { id: 'recall', name: 'Recall', system: 'arcane', level: 4, cost: 10, target: 'self', effect: 'recall', combat: false, field: true, fx: 0xa0c0ff, desc: 'Returns the party to where the journey began.' },
   { id: 'meteor_swarm', name: 'Meteor Swarm', system: 'arcane', level: 5, cost: 16, target: 'allEnemies', effect: 'damage', power: '4d8', combat: true, field: false, fx: 0xff5010, desc: 'Fire falls from the heavens.' },
+  // found only on scrolls (scroll: true): a wizard copies them into the spellbook
+  { id: 'acid_arrow', name: 'Acid Arrow', system: 'arcane', level: 2, cost: 4, scroll: true, target: 'enemy', effect: 'damage', power: '2d4+2', range: 7, statuses: [{ id: 'poisoned', rounds: 3, power: 2 }], combat: true, field: false, fx: 0x9be070, desc: 'A hissing dart of acid that keeps on burning.' },
+  { id: 'phantasm', name: 'Phantasmal Terror', system: 'arcane', level: 2, cost: 5, scroll: true, target: 'allEnemies', effect: 'fear', power: '3', chance: 0.5, combat: true, field: false, fx: 0xb080ff, desc: 'Each foe may see its worst nightmare, and flee.' },
+  { id: 'vampiric_touch', name: 'Vampiric Touch', system: 'arcane', level: 3, cost: 6, scroll: true, target: 'enemy', effect: 'drain', power: '3d6', range: 2, combat: true, field: false, fx: 0x80ff90, desc: 'Steals a foe\'s life to mend the caster.' },
+  { id: 'ice_storm', name: 'Ice Storm', system: 'arcane', level: 4, cost: 9, scroll: true, target: 'area', radius: 2, effect: 'damage', power: '3d6', range: 7, statuses: [{ id: 'slowed', rounds: 2 }], combat: true, field: false, fx: 0xb8ecff, desc: 'Hail and ice batter a wide area, slowing all caught in it.' },
   // Prayer
   { id: 'heal', name: 'Heal', system: 'divine', level: 1, cost: 2, target: 'ally', effect: 'heal', power: '1d8+3', combat: true, field: true, fx: 0x80ffa0, desc: 'Mends the wounds of one companion.' },
   { id: 'bless', name: 'Bless', system: 'divine', level: 1, cost: 3, target: 'allAllies', effect: 'bless', power: '2', duration: 6, combat: true, field: false, fx: 0xffe080, desc: '+2 to hit for the whole party.' },
@@ -314,14 +337,14 @@ export const SPELLS = [
   { id: 'raise_dead', name: 'Raise Dead', system: 'divine', level: 4, cost: 12, target: 'ally', effect: 'revive', combat: true, field: true, fx: 0xffffff, desc: 'Calls a fallen companion back to life.' },
   { id: 'divine_wrath', name: 'Divine Wrath', system: 'divine', level: 5, cost: 15, target: 'allEnemies', effect: 'damage', power: '3d10', combat: true, field: false, fx: 0xfff0a0, desc: 'Every foe is struck by holy fire.' },
   // Rune-craft
-  { id: 'rune_purity', name: 'Rune of Purity', system: 'runic', level: 1, cost: 0, reagents: ['moonpetal'], target: 'ally', effect: 'cure', combat: true, field: true, fx: 0xa0ffd0, desc: 'Moonpetal. Cures poison.' },
-  { id: 'rune_mending', name: 'Rune of Mending', system: 'runic', level: 1, cost: 0, reagents: ['moonpetal', 'spidersilk'], target: 'ally', effect: 'heal', power: '2d8+4', combat: true, field: true, fx: 0x80ffa0, desc: 'Moonpetal + Spidersilk. Strong healing.' },
-  { id: 'rune_flame', name: 'Rune of Flame', system: 'runic', level: 1, cost: 0, reagents: ['ember_salt', 'wyrmroot'], target: 'area', radius: 1, effect: 'damage', power: '3d6', range: 6, combat: true, field: false, fx: 0xff7020, desc: 'Ember Salt + Wyrmroot. A burst of rune-fire.' },
-  { id: 'rune_binding', name: 'Rune of Binding', system: 'runic', level: 2, cost: 0, reagents: ['spidersilk', 'nightshade'], target: 'area', radius: 1, effect: 'sleep', power: '3', range: 6, combat: true, field: false, fx: 0xc0a0ff, desc: 'Spidersilk + Nightshade. Foes are held fast.' },
-  { id: 'rune_warding', name: 'Rune of Warding', system: 'runic', level: 2, cost: 0, reagents: ['silverdust', 'moonpetal'], target: 'allAllies', effect: 'shield', power: '2', duration: 8, combat: true, field: false, fx: 0xd0e0ff, desc: 'Silverdust + Moonpetal. +2 armour for the party.' },
-  { id: 'rune_seeing', name: 'Rune of Seeing', system: 'runic', level: 2, cost: 0, reagents: ['silverdust', 'nightshade'], target: 'self', effect: 'reveal', combat: false, field: true, fx: 0xd0e0ff, desc: 'Silverdust + Nightshade. Reveals the land.' },
-  { id: 'rune_thunder', name: 'Rune of Thunder', system: 'runic', level: 3, cost: 0, reagents: ['ember_salt', 'silverdust', 'wyrmroot'], target: 'allEnemies', effect: 'damage', power: '3d6', combat: true, field: false, fx: 0xe0e0ff, desc: 'Ember Salt + Silverdust + Wyrmroot. Thunder breaks upon every foe.' },
-  { id: 'rune_life', name: 'Rune of Life', system: 'runic', level: 4, cost: 0, reagents: ['moonpetal', 'wyrmroot', 'silverdust'], target: 'ally', effect: 'revive', combat: true, field: true, fx: 0xffffff, desc: 'Moonpetal + Wyrmroot + Silverdust. Restores the fallen.' },
+  { id: 'rune_purity', name: 'Rune of Purity', system: 'runic', level: 1, cost: 0, reagents: ['moonpetal'], target: 'ally', effect: 'cure', combat: true, field: true, fx: 0xa0ffd0, desc: 'Cures poison.' },
+  { id: 'rune_mending', name: 'Rune of Mending', system: 'runic', level: 1, cost: 0, reagents: ['moonpetal', 'spidersilk'], target: 'ally', effect: 'heal', power: '2d8+4', combat: true, field: true, fx: 0x80ffa0, desc: 'Strong healing.' },
+  { id: 'rune_flame', name: 'Rune of Flame', system: 'runic', level: 1, cost: 0, reagents: ['ember_salt', 'wyrmroot'], target: 'area', radius: 1, effect: 'damage', power: '3d6', range: 6, combat: true, field: false, fx: 0xff7020, desc: 'A burst of rune-fire.' },
+  { id: 'rune_binding', name: 'Rune of Binding', system: 'runic', level: 2, cost: 0, reagents: ['spidersilk', 'nightshade'], target: 'area', radius: 1, effect: 'sleep', power: '3', range: 6, combat: true, field: false, fx: 0xc0a0ff, desc: 'Foes are held fast.' },
+  { id: 'rune_warding', name: 'Rune of Warding', system: 'runic', level: 2, cost: 0, reagents: ['silverdust', 'moonpetal'], target: 'allAllies', effect: 'shield', power: '2', duration: 8, combat: true, field: false, fx: 0xd0e0ff, desc: '+2 armour for the party.' },
+  { id: 'rune_seeing', name: 'Rune of Seeing', system: 'runic', level: 2, cost: 0, reagents: ['silverdust', 'nightshade'], target: 'self', effect: 'reveal', combat: false, field: true, fx: 0xd0e0ff, desc: 'Reveals the land.' },
+  { id: 'rune_thunder', name: 'Rune of Thunder', system: 'runic', level: 3, cost: 0, reagents: ['ember_salt', 'silverdust', 'wyrmroot'], target: 'allEnemies', effect: 'damage', power: '3d6', combat: true, field: false, fx: 0xe0e0ff, desc: 'Thunder breaks upon every foe.' },
+  { id: 'rune_life', name: 'Rune of Life', system: 'runic', level: 4, cost: 0, reagents: ['moonpetal', 'wyrmroot', 'silverdust'], target: 'ally', effect: 'revive', combat: true, field: true, fx: 0xffffff, desc: 'Restores the fallen.' },
   // Elven Song
   { id: 'song_courage', name: 'Song of Courage', system: 'song', level: 1, cost: 3, target: 'allAllies', effect: 'bless', power: '2', duration: 6, combat: true, field: false, fx: 0x8affc0, desc: 'The party fights with fresh heart (+2 to hit).' },
   { id: 'lullaby', name: 'Lullaby', system: 'song', level: 1, cost: 4, target: 'allEnemies', effect: 'sleep', power: '2', chance: 0.55, combat: true, field: false, fx: 0xc0a0ff, desc: 'Each foe may drowse off for a time.' },
@@ -330,6 +353,13 @@ export const SPELLS = [
   { id: 'song_stars', name: 'Song of the Stars', system: 'song', level: 3, cost: 5, target: 'self', effect: 'light', power: '250', combat: false, field: true, fx: 0xe0f0ff, desc: 'Starlight gathers about the party.' },
   { id: 'ballad_heroes', name: 'Ballad of Heroes', system: 'song', level: 4, cost: 9, target: 'allAllies', effect: 'shield', power: '3', duration: 8, combat: true, field: false, fx: 0xffe080, desc: '+3 armour for the whole party.' },
   { id: 'song_doom', name: 'Song of Doom', system: 'song', level: 5, cost: 14, target: 'allEnemies', effect: 'damage', power: '3d8', combat: true, field: false, fx: 0xa0ffe0, desc: 'A terrible chord that shatters foes.' },
+  // Herb-lore: a ranger's remedies, each using up its herbs
+  { id: 'poultice', name: 'Poultice', system: 'herbal', level: 1, cost: 0, reagents: ['silverleaf'], target: 'ally', effect: 'heal', power: '1d8+3', combat: true, field: true, fx: 0x9fe08a, desc: 'Silverleaf bound over a wound.' },
+  { id: 'antidote_brew', name: 'Antidote Brew', system: 'herbal', level: 1, cost: 0, reagents: ['bitterwort'], target: 'ally', effect: 'cure', combat: true, field: true, fx: 0xa8e070, desc: 'Bitterwort steeped hot. Draws out poison.' },
+  { id: 'hunters_mark', name: 'Hunter\'s Mark', system: 'herbal', level: 1, cost: 0, reagents: ['hawkweed'], target: 'self', effect: 'bless', power: '3', duration: 8, combat: true, field: false, fx: 0xffc840, desc: 'Hawkweed smoke sharpens the eye: +3 to hit for a while.' },
+  { id: 'smoke_pouch', name: 'Smoke Pouch', system: 'herbal', level: 2, cost: 0, reagents: ['puffcap'], target: 'area', radius: 1, effect: 'sleep', power: '2', chance: 0.75, range: 5, combat: true, field: false, fx: 0xd8c8a0, desc: 'A burst of puffcap spores: foes choke and drowse.' },
+  { id: 'barkskin', name: 'Bark-skin', system: 'herbal', level: 2, cost: 0, reagents: ['ironbark'], target: 'ally', effect: 'shield', power: '3', duration: 6, combat: true, field: false, fx: 0xc09a60, desc: 'Ironbark sap hardens the skin: +3 armour.' },
+  { id: 'woodland_salve', name: 'Woodland Salve', system: 'herbal', level: 3, cost: 0, reagents: ['silverleaf', 'ironbark'], target: 'allAllies', effect: 'heal', power: '1d6+2', combat: true, field: true, fx: 0x9fe08a, desc: 'A salve for the whole company.' },
   // Innate (monsters)
   { id: 'fire_breath', name: 'Fire Breath', system: 'innate', level: 1, cost: 0, target: 'area', radius: 1, effect: 'damage', power: '3d6', range: 5, combat: true, field: false, fx: 0xff5010, desc: 'A gout of flame.' },
   { id: 'drain_life', name: 'Drain Life', system: 'innate', level: 1, cost: 0, target: 'enemy', effect: 'drain', power: '2d6', range: 4, combat: true, field: false, fx: 0x60ff80, desc: 'Steals the life of the living.' },

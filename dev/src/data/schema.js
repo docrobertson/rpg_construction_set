@@ -17,7 +17,7 @@ export function defaultSettings() {
     maxParty: 6,
     startGold: 150,
     startFood: 80,
-    startItems: [{ id: 'healing_draught', n: 3 }, { id: 'torch', n: 2 }, { id: 'moonpetal', n: 4 }, { id: 'ember_salt', n: 3 }, { id: 'wyrmroot', n: 3 }, { id: 'spidersilk', n: 3 }],
+    startItems: [{ id: 'healing_draught', n: 3 }, { id: 'torch', n: 2 }, { id: 'moonpetal', n: 4 }, { id: 'ember_salt', n: 3 }, { id: 'wyrmroot', n: 3 }, { id: 'spidersilk', n: 3 }, { id: 'silverleaf', n: 3 }, { id: 'bitterwort', n: 2 }, { id: 'hawkweed', n: 2 }],
     food: true,
     lineOfSight: true,
     encounterRate: 1,
@@ -36,6 +36,7 @@ export function newGame(opts = {}) {
   const game = {
     format: FORMAT,
     version: VERSION,
+    magicV: MAGIC_V,
     id: uid('game'),
     meta: {
       title: opts.title || 'Untitled Realm',
@@ -145,6 +146,7 @@ export function migrateGame(game) {
   ensure('spells', SPELLS);
   ensure('monsters', MONSTERS);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
+  migrateMagic(game);
   // classes from before class specials existed get their default one
   for (const k of game.classes) if (k.special === undefined) k.special = CLASSES.find((d) => d.id === k.id)?.special || null;
   // monsters from before travel costs: the ground they are at home on
@@ -153,6 +155,46 @@ export function migrateGame(game) {
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// Magic was reworked (MAGIC_V 2): every school got a look of its own, rangers
+// traded their scrap of Prayer for Herb-lore, and wizards keep spellbooks that
+// scrolls can be copied into. Older games get the new schools, herbs, scrolls
+// and spells added; the ranger is changed only while it is still the default one.
+export const MAGIC_V = 2;
+const OLD_START_ITEMS = '[{"id":"healing_draught","n":3},{"id":"torch","n":2},{"id":"moonpetal","n":4},{"id":"ember_salt","n":3},{"id":"wyrmroot","n":3},{"id":"spidersilk","n":3}]';
+function migrateMagic(game) {
+  // look fields for schools that predate them (custom schools keep their own)
+  for (const m of game.magic) {
+    const d = MAGIC_SYSTEMS.find((x) => x.id === m.id);
+    if (!d) continue;
+    for (const k of ['style', 'resName', 'verb', 'icon']) if (m[k] === undefined && d[k] !== undefined) m[k] = d[k];
+  }
+  if ((game.magicV || 1) >= MAGIC_V) return;
+  game.magicV = MAGIC_V;
+  const add = (list, defs) => { for (const d of defs) if (!list.some((x) => x.id === d.id)) list.push(deepClone(d)); };
+  add(game.magic, MAGIC_SYSTEMS.filter((m) => m.id === 'herbal'));
+  const herbal = new Set(SPELLS.filter((sp) => sp.system === 'herbal').flatMap((sp) => sp.reagents || []));
+  const fresh = ITEMS.filter((it) => (it.type === 'reagent' && herbal.has(it.id)) || it.type === 'scroll');
+  add(game.items, fresh);
+  add(game.spells, SPELLS.filter((sp) => sp.system === 'herbal' || sp.scroll));
+  // reagents from before icons: draw them as the defaults do
+  for (const it of game.items) {
+    const d = ITEMS.find((x) => x.id === it.id && x.type === 'reagent');
+    if (d && it.type === 'reagent' && it.icon === undefined) { it.icon = d.icon; it.tint = d.tint; }
+  }
+  const ranger = game.classes.find((k) => k.id === 'ranger');
+  if (ranger && JSON.stringify(ranger.magic) === '[{"system":"divine","rate":0.5}]') {
+    const d = CLASSES.find((k) => k.id === 'ranger');
+    ranger.magic = deepClone(d.magic);
+    if (/Learns a little Prayer\.$/.test(ranger.desc || '')) ranger.desc = d.desc;
+  }
+  if (JSON.stringify(game.settings.startItems) === OLD_START_ITEMS) game.settings.startItems = deepClone(defaultSettings().startItems);
+  // herbalists stock the new herbs too
+  const herbs = fresh.filter((it) => it.type === 'reagent').map((it) => it.id);
+  for (const map of game.maps) for (const e of map.entities || []) {
+    if (e.shop?.kind === 'reagents' && Array.isArray(e.shop.stock) && e.shop.stock.length) e.shop.stock.push(...herbs.filter((id) => !e.shop.stock.includes(id)));
+  }
 }
 
 export function cloneGame(game) {

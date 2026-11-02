@@ -10,6 +10,7 @@ import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
+import { heroSchool, poolName } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 
 const hexCss = (n) => '#' + ((n ?? 0xe8c069) >>> 0).toString(16).padStart(6, '0');
@@ -258,7 +259,7 @@ export class CombatHud {
     const targets = b.attackTargets(u);
     const head = h('div.cbt-who',
       h('b', `${u.name}'s turn`),
-      h('span', `${raceOf(g, m).name} ${classOf(g, m).name} · HP ${m.hp}/${maxHp(g, m)}${maxMp(g, m) ? ` · MP ${m.mp}/${maxMp(g, m)}` : ''} · Armour ${b.acOf(u)}`),
+      h('span', `${raceOf(g, m).name} ${classOf(g, m).name} · HP ${m.hp}/${maxHp(g, m)}${maxMp(g, m) ? ` · ${poolName(g, m)} ${m.mp}/${maxMp(g, m)}` : ''} · Armour ${b.acOf(u)}`),
       h('button.cbt-help', { title: 'How battles work (?)', onclick: () => this.ui.openHelp() }, '?'));
     const row = h('div.cbt-btns');
     bar.append(head, row);
@@ -294,11 +295,21 @@ export class CombatHud {
     const spells = b.combatSpells(u);
     const inv = this.s.party.inventory;
     const castable = spells.filter((sp) => canCast(g, m, sp, inv).ok);
+    // dressed for the hero's school: Cast (spellbook), Pray, Sing, Carve, Brew
+    const look = heroSchool(g, m);
+    const res = look?.resName || 'Mana';
+    const TIPS = {
+      book: 'Open the spellbook. Spells cost mana, which returns with rest.',
+      prayer: 'Pray for a miracle. Prayers cost faith, which returns with rest.',
+      song: 'Sing a song of power. Songs cost voice, which returns with rest.',
+      runes: 'Carve a rune. Runes need no mana, but each burns its reagents.',
+      herbs: 'Brew a remedy. Remedies need no mana, but each uses up its herbs.',
+    };
     add({
-      icon: 'wand', name: 'Cast', key: 'C', off: !castable.length,
-      sub: !spells.length ? 'No spells' : maxMp(g, m) ? `MP ${m.mp}/${maxMp(g, m)}` : `${castable.length} ready`,
-      why: !spells.length ? `${u.name} knows no battle magic.` : 'Not enough mana or reagents for any spell.',
-      tip: 'Cast a spell from your book. Spells cost mana (or reagents for Rune-craft).',
+      icon: look?.icon || 'wand', name: look?.verb || 'Cast', key: 'C', off: !castable.length, color: look ? parseInt(look.color.replace('#', ''), 16) : null,
+      sub: !spells.length ? 'No spells' : maxMp(g, m) ? `${res} ${m.mp}/${maxMp(g, m)}` : `${castable.length} ready`,
+      why: !spells.length ? `${u.name} knows no battle magic.` : `Not enough ${res.toLowerCase()} for any of them.`,
+      tip: TIPS[look?.style] || 'Cast a spell. Spells cost mana (or reagents).',
       onClick: () => this.cast(),
     });
     const items = b.combatItems();
@@ -479,7 +490,7 @@ export class CombatHud {
     return h('div.tc-unit.party',
       h('div.tc-head', pic ? h('img', { src: pic }) : null, h('div', h('b', m.name), h('span.tc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`))),
       this.hpBar(hp, mhp),
-      h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}`), maxMp(g, m) ? h('span', `MP ${m.mp}/${maxMp(g, m)}`) : null),
+      h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}`), maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
       this.statusRows(unit),
       this.previewBlock(pv, label, unit));
   }

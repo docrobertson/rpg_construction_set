@@ -102,6 +102,13 @@ const ICONS = {
   armor: F('M4.6 4l3.8-1.4L12 5.3l3.6-2.7L19.4 4l.6 5.1-1.8 2V18.6L12 21.6l-6.2-3V11.1L4 9.1z') + '<path d="M12 5.3v16.3M7.6 12.5c2.6.8 6.2.8 8.8 0" stroke="#0007" stroke-width="1.4" fill="none"/>',
   key: '<circle cx="7.4" cy="12" r="5.2"/><circle cx="7.4" cy="12" r="2" fill="#000a"/>' + F('M11.8 10.4H22.3v3.2h-2v3h-3.2v-3h-5.3z'),
   herb: S('M12 22V10.5', 2) + F('M12 11.5C7.8 11.5 4.6 8.8 4.6 4c4.2 0 7.4 2.7 7.4 7.5z') + F('M12 14c3.7 0 7.4-2.1 7.4-6.9-4.2 0-7.4 2.6-7.4 6.9z'),
+  // reagents and herbs
+  flower: '<circle cx="12" cy="6.4" r="3.7"/><circle cx="17.6" cy="10.4" r="3.7"/><circle cx="15.5" cy="16.9" r="3.7"/><circle cx="8.5" cy="16.9" r="3.7"/><circle cx="6.4" cy="10.4" r="3.7"/><circle cx="12" cy="12.2" r="2.7" fill="#0007"/>',
+  berry: '<circle cx="8.3" cy="15.6" r="4.4"/><circle cx="15.7" cy="15.6" r="4.4"/><circle cx="12" cy="9.6" r="4.4"/>' + S('M12 5.4c0-1.9 1.3-3.1 3.4-3.4', 1.8) + '<circle cx="10.6" cy="8.2" r="1.1" fill="#fff8"/>',
+  root: F('M10.4 2h3.2l-.3 6.1c2.6.9 4.8 3 5.3 6.2l-2 .4c-.4-1.9-1.5-3.3-3.2-4.1l-.3 6.3 2.6 4.6-1.8 1-1.9-3.4-1.9 3.4-1.8-1 2.6-4.6-.3-6.3c-1.7.8-2.8 2.2-3.2 4.1l-2-.4c.5-3.2 2.7-5.3 5.3-6.2z'),
+  mushroom: F('M12 3C6.4 3 2.4 6.7 2.4 11.2h19.2C21.6 6.7 17.6 3 12 3z') + F('M9.4 11.2h5.2l.9 8.4a2 2 0 01-2 2.3h-3a2 2 0 01-2-2.3z') + '<circle cx="8" cy="7.6" r="1.4" fill="#fff9"/><circle cx="14.6" cy="6" r="1.1" fill="#fff9"/><circle cx="17" cy="9" r=".9" fill="#fff9"/>',
+  thread: F('M5.5 2.5h13V5h-13zM5.5 19h13v2.5h-13z') + F('M8 5h8v14H8z') + '<path d="M8 8.5l8 2M8 12l8 2M8 15.5l8 2" stroke="#0006" stroke-width="1.2" fill="none"/>',
+  bark: F('M6 2.6c3.2 1 8.8 1 12 0v18.8c-3.2 1-8.8 1-12 0z') + '<path d="M9.2 4.5c.6 3-.8 5 .2 8s-.4 5 .1 7.5M14.6 4.5c-.6 2.6.9 4.6-.1 7.6s.5 4.8 0 7.4" stroke="#0007" stroke-width="1.3" fill="none" stroke-linecap="round"/>',
 };
 
 export const ICON_NAMES = Object.keys(ICONS);
@@ -139,7 +146,8 @@ export function itemIcon(it) {
     case 'armor': return it.weight === 'cloth' ? ['robe', 'cloth'] : ['armor', it.weight === 'leather' ? 'leather' : 'steel'];
     case 'shield': return ['shield', 'steel'];
     case 'consumable': return [EFFECT_ICONS[it.effect] || 'potion', EFFECT_TONES[it.effect] || 'paper'];
-    case 'reagent': return ['herb', 'herb'];
+    case 'reagent': return [it.icon || 'herb', 'herb'];
+    case 'scroll': return ['scroll', 'paper'];
     case 'key': return ['key', 'goldish'];
     case 'quest': return ['gem', 'quest'];
     case 'map': return ['map', 'paper'];
@@ -153,5 +161,6 @@ export function itemTile(it, cls = '') {
   const s = document.createElement('span');
   s.className = `item-ico tone-${tone}${cls ? ' ' + cls : ''}`;
   s.innerHTML = iconSvg(name);
+  if (it?.tint != null) s.style.color = '#' + (it.tint >>> 0).toString(16).padStart(6, '0');
   return s;
 }

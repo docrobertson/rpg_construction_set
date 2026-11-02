@@ -10,6 +10,7 @@ import { T } from '../data/terrain.js';
 import { randomName, nameWords, npcNameWords } from '../world/generate.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { byId } from '../data/schema.js';
+import { heroSchool } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 import { randomPerson, randomOutfit, SKINS, HAIRS, OUTFITS, STYLE_NAMES, FACE_NAMES, EYE_COLOURS } from '../game/looks.js';
 
@@ -237,7 +238,14 @@ export function partyCreation(app, game, { onDone, onBack }) {
           h('div.ch-line', ico(raceIcon(r)), ` ${r?.name || ''} `, ico(classIcon(k)), ` ${k?.name || ''}`),
           h('div.ch-quick',
             quick('heart', 'Health', maxHp(game, c), 'Health: how much harm this hero can take'),
-            maxMp(game, c) > 0 ? quick('drop', 'Mana', maxMp(game, c), 'Mana: fuel for spells') : null,
+            (() => {
+              // the school's own pool (Mana, Faith, Voice), or what its art burns
+              const look = heroSchool(game, c);
+              if (!look) return null;
+              const n = maxMp(game, c);
+              return n > 0 ? quick(look.icon, look.resName, n, `${look.resName}: fuel for ${look.sys.name}`)
+                : h('span.cq', { title: `${look.sys.name} burns ${look.resName.toLowerCase()} rather than mana` }, ico(look.icon), ` ${look.sys.name}: ${look.resName.toLowerCase()}`);
+            })(),
             quick('shield', 'Armour', armorClass(game, c), 'Armour: foes must roll this or more to hit'),
             quick('boot', 'Moves', combatMoves(game, c), 'Squares this hero can move in a battle turn')),
           sp ? h('div.ch-special', { title: sp.desc }, ico('star'), h('b', ` ${sp.name}`), h('span', ' — once per battle')) : null)),
@@ -355,7 +363,7 @@ const RACE_PLAY = {
 };
 const CLASS_PLAY = {
   warrior: 'Front line: heavy armour, bashes foes and draws their blows.',
-  ranger: 'Archer: deadly from afar, pins foes in place.',
+  ranger: 'Archer: deadly from afar; gathers herbs and brews remedies.',
   wizard: 'Spellcaster: fire and frost at range, but frail.',
   cleric: 'Healer: mends wounds and smites the dead.',
   burglar: 'Skirmisher: backstabs, poison and smoke; opens locks.',
@@ -367,7 +375,7 @@ const STAT_PLAY = {
   str: 'Strength: melee damage and to-hit, and health',
   dex: 'Dexterity: armour, and to-hit with bows and daggers',
   int: 'Intellect: power and mana for Sorcery and Rune-craft',
-  wis: 'Wisdom: power and mana for Prayer and Elven Song',
+  wis: 'Wisdom: power for Prayer, Elven Song and Herb-lore',
 };
 
 function racePlay(race) {

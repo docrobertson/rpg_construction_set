@@ -5,7 +5,7 @@ import { terrain } from '../data/terrain.js';
 import { diceAvg } from '../core/rng.js';
 import { getTile } from '../world/map.js';
 import {
-  maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, knownSpells, canCast, xpForLevel, gainXp,
+  maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
@@ -18,7 +18,7 @@ import { attachGestures } from '../render/gestures.js';
 import { portrait } from '../render/portrait.js';
 import { CombatHud, sheetAbilities } from './combatHud.js';
 import { iconSvg, itemIcon, itemTile } from './icons.js';
-import { openHelpOverlay, magicGuide } from './help.js';
+import { openHelpOverlay } from './help.js';
 import { QuestUI } from './journal.js';
 import { Explorer, glyph } from './explore.js';
 import { clockText, durationText, travelTimes } from '../game/travel.js';
@@ -27,6 +27,8 @@ import { questPins } from '../game/quests.js';
 import { fillVellum, inkEdges } from './vellum.js';
 import { showTreasureMap, treasureCircles, drawTreasureCircles } from './treasureMap.js';
 import { isDug } from '../game/treasure.js';
+import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
+import { reagentUse, scrollUse, canCopy, copyScroll, hasBook } from '../game/magic.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -209,7 +211,7 @@ export class PlayUI {
     const g = this.s.game;
     const active = this.s.battle?.active?.member;
     this.s.party.members.forEach((m, i) => {
-      const mhp = maxHp(g, m), mmp = maxMp(g, m);
+      const mhp = maxHp(g, m);
       const w = weaponOf(g, m), rw = rangedOf(g, m);
       const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
       const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
@@ -226,7 +228,7 @@ export class PlayUI {
             i === 0 ? h('span.pc-lead', 'Leader') : null),
           h('div.pc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
           bar('HP', m.hp, mhp, 'hp'),
-          mmp > 0 ? bar('MP', m.mp, mmp, 'mp') : null,
+          resourceLine(g, m, this.s.party.inventory),
           h('div.pc-xp', { title: isFinite(next) ? `${m.xp} / ${next} experience to level ${m.level + 1}` : `${m.xp} experience` }, h('i', { style: { width: Math.round(xpf * 100) + '%' } })),
           h('div.pc-gear',
             h('span', { title: 'Armour: foes must roll this or more to hit' }, h('i.gi', { html: iconSvg('shield') }), String(armorClass(g, m))),
@@ -272,7 +274,7 @@ export class PlayUI {
           h('div.sheet-sub', `Level ${m.level} ${r.name} ${k.name}`))),
       h('div.sheet-bars',
         bar('HP', m.hp, maxHp(g, m), 'hp'),
-        maxMp(g, m) > 0 ? bar('MP', m.mp, maxMp(g, m), 'mp') : null,
+        resourceLine(g, m, inv),
         isFinite(next) ? h('div.bar.xp', { title: `${m.xp} / ${next} experience` }, h('i', { style: { width: Math.round(100 * Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev)))) + '%' } }), h('span', `XP ${m.xp} / ${next}`)) : null),
     );
     // attributes, with points to spend after levelling up
@@ -319,13 +321,8 @@ export class PlayUI {
     add(eq);
     // battle skills, special and talents
     add(sheetAbilities(this, m, changed));
-    // spells
-    const spells = knownSpells(g, m);
-    if (spells.length) {
-      add(h('div.spells', h('div.sub', 'Spells', h('span.sub-note', 'C casts')), h('div.spell-tags', ...spells.map((x) => h('span.tag.spell-tag', {
-        title: `${x.desc || ''} — ${spellCost(g, x)}${x.combat === false ? ' · not in battle' : ''}`,
-      }, h('i.gi', { html: iconSvg(spellIcon(x)) }), x.name)))));
-    }
+    // spells, by school
+    add(sheetSpells(g, m, inv));
     const idx = s.party.members.indexOf(m);
     add(h('div.sheet-actions',
       h('button.small', { title: 'Everything the company carries (I)', onclick: () => this.openParty() }, '🎒 The Pack'),
@@ -769,19 +766,8 @@ export class PlayUI {
     });
   }
 
-  chooseSpell(member, spells) {
-    const g = this.s.game;
-    const inv = this.s.party.inventory;
-    return this.chooseFrom(`${member.name} casts… (MP ${member.mp}/${maxMp(g, member)})`, spells.map((sp) => {
-      const can = canCast(g, member, sp, inv);
-      const sys = byId(g.magic, sp.system);
-      const reach = SPELL_REACH[sp.target];
-      return {
-        label: sp.name, tag: spellCost(g, sp, inv), icon: spellIcon(sp), value: sp, disabled: !can.ok, why: can.why,
-        sub: `${sp.desc || ''}${reach ? ` · ${reach}` : ''}${sys ? ` · ${sys.name}` : ''}${can.ok ? '' : ' — ' + can.why}`,
-      };
-    }), magicGuide(g, [...new Set(spells.map((sp) => sp.system))]));
-  }
+  // the school's own window: spellbook, prayer beads, staves, tablets, satchel
+  chooseSpell(member, spells) { return castWindow(this, member, spells); }
 
   // need(m) may return a reason this hero gains nothing from it ("already at full health")
   chooseMember(title, filter = () => true, need = null) {
@@ -956,13 +942,15 @@ export class PlayUI {
           const price = this.priceOf(it, npc);
           const owned = s.party.inventory[it.id] || 0;
           const afford = s.party.gold >= price;
-          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear'),
+          const magic = magicNote(g, s.party.members, it);
+          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
             h('div.sr-main',
               h('div.sr-name', h('b', it.name), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
               h('span.sr-stats', itemStats(it)),
               it.desc ? h('div.sr-desc', it.desc) : null,
-              itemUse(g, it) ? h('span.sr-use', itemUse(g, it)) : null,
+              shownUse(g, it, magic) ? h('span.sr-use', shownUse(g, it, magic)) : null,
+              magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null,
               verdicts(it)),
             h('div.sr-side', h('span.price' + (afford ? '' : '.short'), { title: afford ? 'Price' : `You need ${price - s.party.gold} more gold` }, coin(), String(price)),
               h('button' + (afford ? '.primary' : '.disabled'), {
@@ -984,9 +972,11 @@ export class PlayUI {
         if (!owned.length) list.appendChild(h('p', 'You have nothing to sell.'));
         for (const it of owned) {
           const price = this.priceOf(it, npc, true);
-          list.appendChild(h('div.shop-row',
+          const magic = magicNote(g, s.party.members, it);
+          list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
-            h('div.sr-main', h('div.sr-name', h('b', it.name), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it))),
+            h('div.sr-main', h('div.sr-name', h('b', it.name), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
+              magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),
             h('div.sr-side', h('span.price', coin(), String(price)), h('button', {
               onclick: () => { inv[it.id]--; s.party.gold += price; sfx('gold'); render(); this.refresh(); },
             }, 'Sell'))));
@@ -1087,7 +1077,8 @@ export class PlayUI {
     const groups = [
       ['Arms & armour', (it) => !!slotFor(it)],
       ['Potions & supplies', (it) => it.type === 'consumable'],
-      ['Reagents', (it) => it.type === 'reagent'],
+      ['Reagents & herbs', (it) => it.type === 'reagent'],
+      ['Spell scrolls', (it) => it.type === 'scroll'],
       ['Keys & treasures', () => true],
     ];
     const placed = new Set();
@@ -1099,7 +1090,8 @@ export class PlayUI {
       for (const it of list) {
         placed.add(it);
         const slot = slotFor(it);
-        const use = itemUse(g, it);
+        const magic = magicNote(g, s.party.members, it);
+        const use = shownUse(g, it, magic);
         // who could wear it, and would it be better than what they have?
         const who = slot ? heroes.filter((x) => canEquip(g, x, it).ok) : [];
         const chips = !slot ? [] : who.length ? who.map((x) => {
@@ -1109,11 +1101,31 @@ export class PlayUI {
             onclick: () => { closeTopModal(); this.equipFromPack(x, it); },
           }, cmpArrow(c), `${x.name} ${c.text}`);
         }) : [h('span.cmp.none', 'No one in your company can use this')];
-        const row = h('div.inv-row', { title: it.desc || null },
+        // reagents and herbs say plainly who burns them; scrolls offer to be
+        // copied into each spellbook-keeper's book
+        if (it.type === 'scroll' && !s.battle) {
+          for (const x of heroes.filter((x) => hasBook(g, x, byId(g.spells, it.spell)?.system))) {
+            const can = canCopy(g, x, it);
+            if (can.known) continue;
+            chips.push(h('button.cmp.copy' + (can.ok ? '.up' : '.disabled'), {
+              title: can.ok ? `${x.name} copies ${can.spell.name} into the spellbook, and knows it for good. The scroll is used up.` : can.why,
+              onclick: () => {
+                const res = copyScroll(g, x, it, inv);
+                if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); return; }
+                sfx('level');
+                s.log(`${x.name} copies ${res.spell.name} into the spellbook.`, 'magic');
+                closeTopModal(); this.refresh(); this.openParty();
+              },
+            }, h('i', { html: iconSvg('quill') }), can.ok ? `Copy into ${x.name}'s spellbook` : can.why.replace(/\.$/, '')));
+          }
+        }
+        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : ''), { title: it.desc || null },
           itemTile(it),
           h('span.inv-name', h('b', it.name), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
             use ? h('span.inv-use', use) : null,
+            // a scroll's copy buttons already say who can copy it
+            magic && !(it.type === 'scroll' && chips.length) ? h('span.cmp.use.' + magic.cls, magic.text) : null,
             ...chips));
         if (it.type === 'consumable' && !s.battle) {
           row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
@@ -1397,18 +1409,6 @@ function fmtMod(n) { return n >= 0 ? '+' + n : String(n); }
 // the colours journal.js draws points of interest in, for the map key
 const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
 
-const SPELL_ICONS = { heal: 'heart', cure: 'cross', revive: 'sun', sleep: 'sleep', fear: 'fear', shield: 'shield', bless: 'sparkle', drain: 'skull', light: 'torch', reveal: 'eye', recall: 'blink' };
-function spellIcon(sp) {
-  if (sp.effect === 'damage') return /frost/i.test(sp.id) ? 'frost' : sp.system === 'song' ? 'note' : sp.system === 'runic' ? 'rune' : sp.system === 'divine' ? 'sun' : 'fire';
-  return SPELL_ICONS[sp.effect] || 'wand';
-}
-function spellCost(g, sp, inv) {
-  return sp.reagents && sp.reagents.length
-    ? sp.reagents.map((r) => `${itemOf(g, r)?.name || r}${inv ? ` (${inv[r] || 0})` : ''}`).join(' + ')
-    : `${sp.cost || 0} MP`;
-}
-// what a spell reaches, in words
-const SPELL_REACH = { enemy: 'one foe', area: 'a group of foes', allEnemies: 'every foe', ally: 'one companion', allAllies: 'the whole company', self: 'the caster' };
 
 // how an item compares with what a hero already has in that slot
 function compareText(g, m, it) {
@@ -1442,7 +1442,12 @@ export function itemUse(g, it) {
     const spells = (g.spells || []).filter((sp) => (sp.reagents || []).includes(it.id));
     if (!spells.length) return 'A spell reagent (no spell in this realm uses it)';
     const arts = [...new Set(spells.map((sp) => byId(g.magic || [], sp.system)?.name).filter(Boolean))];
-    return `Burned to cast ${spells.map((sp) => sp.name).join(', ')}${arts.length ? ` (${arts.join(', ')})` : ''}`;
+    const where = (it.forage || []).length ? ` · found in ${it.forage.map((k) => GROUND_WORDS[k] || k).join(', ')}` : '';
+    return `Burned to cast ${spells.map((sp) => sp.name).join(', ')}${arts.length ? ` (${arts.join(', ')})` : ''}${where}`;
+  }
+  if (it.type === 'scroll') {
+    const sp = byId(g.spells || [], it.spell);
+    return sp ? `Copy into a spellbook to learn ${sp.name} for good (${byId(g.magic || [], sp.system)?.name || ''}, circle ${sp.level || 1})` : 'A spell scroll';
   }
   if (it.type === 'key') return 'Opens a locked door or chest (used up)';
   if (it.type === 'quest') return 'Needed for a quest';
@@ -1459,6 +1464,22 @@ export function itemUse(g, it) {
     case 'recall': return 'Read it to return to where your journey began';
     default: return '';
   }
+}
+
+const GROUND_WORDS = { forest: 'woods', pines: 'pine woods', meadow: 'meadows', hills: 'hills', swamp: 'swamps', grass: 'grassland', snow: 'snow', desert: 'desert', sand: 'sand', ash: 'ash' };
+
+// The use line under an item: once a reagent says who burns it (✓ Used by…),
+// only where it grows is worth adding
+function shownUse(g, it, magic) {
+  if (magic?.cls !== 'yes') return itemUse(g, it);
+  return (it.forage || []).length ? `Found in ${it.forage.map((k) => GROUND_WORDS[k] || k).join(', ')}` : '';
+}
+
+// For reagents, herbs and scrolls: can anyone in the company use it? (null otherwise)
+function magicNote(g, members, it) {
+  if (it.type === 'reagent') return reagentUse(g, members, it);
+  if (it.type === 'scroll') return scrollUse(g, members, it);
+  return null;
 }
 
 // Why a hero would gain nothing from a heal / cure / mana (null if they would)
@@ -1482,7 +1503,8 @@ export function itemStats(it) {
     case 'armor': return `AC +${it.ac} (${it.weight})`;
     case 'shield': return `AC +${it.ac}`;
     case 'consumable': return it.effect === 'food' ? `+${it.power} food` : it.power ? `${it.effect} ${it.power}` : it.effect;
-    case 'reagent': return 'reagent';
+    case 'reagent': return (it.forage || []).length ? 'herb' : 'reagent';
+    case 'scroll': return 'spell scroll';
     case 'key': return 'key';
     case 'map': return 'treasure map';
     default: return it.type;
@@ -1520,6 +1542,11 @@ Shrines, campfires, standing stones and stranger things are scattered across the
 for melee and a <b>ranged weapon</b> (bow, crossbow or sling) — change either, and armour and shield, straight from the sheet.
 The <b>Pack</b> (I) holds what the company shares; each piece of gear in it shows who it suits (▲ better, ▼ worse). Every level brings a choice of
 <b>talent</b> (★), and every second level an <b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
+<h3>Magic</h3>
+<p>Each school works its own way. <b>Wizards</b> cast from a spellbook and spend mana; spell scrolls, found or bought from sages,
+can be copied into the book from the Pack. <b>Clerics</b> pray and spend faith; <b>minstrels</b> sing and spend voice — mana, faith and
+voice all return with rest. <b>Runesmiths</b> carve runes that burn reagents, and <b>rangers</b> brew remedies from herbs they gather
+in woods, meadows, hills and swamps as the company travels. The Pack and the shops say whether anyone in your company can use a reagent, herb or scroll.</p>
 <h3>Talking</h3>
 <p>Type a word to ask about it — <b>NAME</b>, <b>JOB</b> and anything the person mentions. Highlighted words are worth asking about.
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company (some only once you have helped them).

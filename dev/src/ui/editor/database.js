@@ -4,7 +4,7 @@ import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
   STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
-  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES,
+  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES,
 } from '../../data/defaults.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
@@ -103,7 +103,14 @@ export function categories(game) {
         { key: 'power', label: 'Power', type: 'text', placeholder: '2d8+2', show: (o) => o.type === 'consumable', hint: 'Healing dice, light duration, food amount…' },
         { key: 'combat', label: 'Usable in battle', type: 'check', show: (o) => o.type === 'consumable' },
         { key: 'treasure', label: 'Leads to', type: 'select', options: () => game.maps.flatMap((m) => (m.entities || []).filter((e) => e.type === 'treasure').map((e) => [e.id, `${e.name || 'Buried treasure'} (${m.name} ${e.x}, ${e.y})`])), empty: '— nowhere —', nullable: true, show: (o) => o.type === 'map', hint: 'Bury treasure with the ⛏ tool on a map; its map item is made with it.' },
-        { type: 'info', label: 'Reagents fuel Rune-craft spells. Keys open locked doors and chests (one key per lock). Quest items can be required by portals and checked in conversations.', show: (o) => ['reagent', 'key', 'quest'].includes(o.type) },
+        { key: 'forage', label: 'Gathered while travelling through', type: 'multicheck', show: (o) => o.type === 'reagent',
+          options: () => TERRAIN_LIST.filter((t) => t.group === 'world' && t.walk && !t.feature && !t.water).map((t) => [t.key, t.name]),
+          hint: 'A hero whose art burns it (a ranger, for herbs) sometimes finds a few on this ground. Leave empty: bought only.' },
+        { key: 'icon', label: 'Icon', type: 'select', empty: '— herb —', nullable: true, options: ICON_NAMES, show: (o) => o.type === 'reagent' },
+        { key: 'tint', label: 'Icon colour', type: 'color', nullable: true, show: (o) => o.type === 'reagent' },
+        { key: 'spell', label: 'Teaches', type: 'select', options: () => game.spells.filter((sp) => !sysOf(sp)?.monsterOnly).map((sp) => [sp.id, `${sp.name} (${sysOf(sp)?.name || sp.system}, circle ${sp.level || 1})`]), show: (o) => o.type === 'scroll',
+          hint: 'Copied into the spellbook of a hero whose school is drawn as a spellbook, once its circle is within reach.' },
+        { type: 'info', label: 'Reagents fuel reagent schools such as Rune-craft and Herb-lore. Keys open locked doors and chests (one key per lock). Quest items can be required by portals and checked in conversations.', show: (o) => ['reagent', 'key', 'quest'].includes(o.type) },
       ],
     },
     spells: {
@@ -114,6 +121,7 @@ export function categories(game) {
         { key: 'name', label: 'Name', type: 'text' },
         { key: 'system', label: 'Magic system', type: 'select', options: systems, rerender: true },
         { key: 'level', label: 'Circle', type: 'number', min: 1, max: 5, hint: 'Casters learn circle N at about level 2N-1' },
+        { key: 'scroll', label: 'Learned only from a scroll', type: 'check', hint: 'Not learned by levelling: copied into a spellbook from a scroll item (Items → kind "scroll").' },
         { key: 'cost', label: 'Mana cost', type: 'number', min: 0, show: (o) => sysOf(o)?.resource !== 'reagents' },
         { key: 'reagents', label: 'Reagents consumed', type: 'ids', options: () => game.items.filter((i) => i.type === 'reagent').map((i) => [i.id, i.name]), show: (o) => sysOf(o)?.resource === 'reagents' || (o.reagents && o.reagents.length) },
         { key: 'target', label: 'Target', type: 'select', options: SPELL_TARGETS, rerender: true },
@@ -236,12 +244,17 @@ export function categories(game) {
     },
     magic: {
       label: 'Magic Systems', icon: '🔮', list: game.magic,
-      blank: () => ({ name: 'New Art', stat: 'int', resource: 'mp', enabled: true, color: '#c0a0ff', desc: '' }),
+      blank: () => ({ name: 'New Art', stat: 'int', resource: 'mp', enabled: true, color: '#c0a0ff', style: 'prayer', resName: 'Mana', verb: 'Cast', icon: 'wand', desc: '' }),
       fields: [
         { key: 'name', label: 'Name', type: 'text' },
         { key: 'enabled', label: 'Enabled in this game', type: 'check', hint: 'Disabled systems vanish from play: their spells cannot be cast and classes that require them are hidden.' },
         { key: 'stat', label: 'Powered by', type: 'select', options: STATS.map((s) => [s, STAT_NAMES[s]]) },
-        { key: 'resource', label: 'Spells cost', type: 'select', options: [['mp', 'Mana'], ['reagents', 'Reagents']] },
+        { key: 'resource', label: 'Spells cost', type: 'select', options: [['mp', 'A pool of points (mana)'], ['reagents', 'Reagents (items)']] },
+        { key: 'resName', label: 'Called', type: 'text', placeholder: 'Mana', hint: 'What the player sees: Mana, Faith, Voice… or Reagents, Herbs' },
+        { key: 'style', label: 'Look', type: 'select', options: Object.entries(MAGIC_STYLES), hint: 'The cast window. A spellbook can also learn spells from scrolls.' },
+        { key: 'verb', label: 'Battle button', type: 'text', placeholder: 'Cast' },
+        { key: 'icon', label: 'Icon', type: 'select', options: ICON_NAMES },
+        { key: 'color', label: 'Colour', type: 'color', css: true },
         { key: 'desc', label: 'Description', type: 'textarea' },
         { key: 'monsterOnly', label: 'Monsters only', type: 'check' },
       ],

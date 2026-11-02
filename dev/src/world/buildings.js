@@ -8,7 +8,7 @@ export const INDOOR = new Set(['floor_wood', 'floor_stone', 'carpet', 'counter',
 
 const KEEPERS = {
   weapons: ['Weaponsmith', 'weapons for sale'], armor: ['Armourer', 'armour for sale'], bowyer: ['Bowyer', 'bows and arrows'],
-  provisions: ['Provisioner', 'food, torches and supplies'], reagents: ['Herbalist', 'reagents and potions'],
+  provisions: ['Provisioner', 'food, torches and supplies'], reagents: ['Herbalist', 'reagents and herbs'],
   inn: ['Inn', 'rest and recover'], tavern: ['Tavern', 'drinks and rumours'], healer: ['Temple', 'healing'],
   lord: ['Hall', 'the lord of this place'], sage: ['Library', 'a sage'], merchant: ['Trading post', 'goods for sale'],
 };

@@ -184,13 +184,17 @@ export function maxMp(game, c) {
 
 // Spells within reach of the caster's power, lowest first; a novice knows
 // only two per school, a second-level caster four, then all within reach.
+// Scroll-only spells are never learned this way: they must be copied into a
+// spellbook (c.book), and come into use once their circle is within reach.
 export function knownSpells(game, c) {
   const out = [];
   const cap = (c.level || 1) * 2;
+  const book = c.book || [];
   for (const ci of casting(game, c)) {
-    const mine = game.spells.filter((sp) => sp.system === ci.sys.id && (sp.level || 1) <= ci.maxSpell);
-    mine.sort((a, b) => (a.level || 1) - (b.level || 1));
-    out.push(...mine.slice(0, cap));
+    const reach = game.spells.filter((sp) => sp.system === ci.sys.id && (sp.level || 1) <= ci.maxSpell);
+    const mine = reach.filter((sp) => !sp.scroll).sort((a, b) => (a.level || 1) - (b.level || 1)).slice(0, cap);
+    for (const sp of reach) if (book.includes(sp.id) && !mine.includes(sp)) mine.push(sp);
+    out.push(...mine.sort((a, b) => (a.level || 1) - (b.level || 1)));
   }
   return out;
 }
@@ -213,7 +217,7 @@ export function canCast(game, c, sp, inventory) {
   if (c.status === 'asleep') return { ok: false, why: `${c.name} is asleep.` };
   const sys = byId(game.magic, sp.system);
   if (!sys || !sys.enabled) return { ok: false, why: 'That magic is unknown in this realm.' };
-  if ((sp.cost || 0) > c.mp) return { ok: false, why: 'Not enough mana.' };
+  if ((sp.cost || 0) > c.mp) return { ok: false, why: `Not enough ${(sys.resName || 'mana').toLowerCase()}.` };
   if (sp.reagents && sp.reagents.length) {
     const need = {};
     for (const r of sp.reagents) need[r] = (need[r] || 0) + 1;
@@ -305,6 +309,7 @@ export function normalizeMember(game, c, inv) {
     c.equip.weapon = null;
   }
   c.points = c.points || 0;
+  if (!Array.isArray(c.book)) c.book = []; // spells copied from scrolls
   // heroes from before talents existed get one for every level already gained
   const fresh = !Array.isArray(c.perks);
   c.perks = fresh ? [] : c.perks;

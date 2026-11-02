@@ -15,6 +15,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile, inBounds } from '../world/map.js';
 import { partyAlive, gainXp, itemOf, levelUpNote } from './rules.js';
 import { bfsPath } from './walk.js';
+import { lootTag } from './magic.js';
 
 export const GOAL_TYPES = {
   talk: 'Talk to someone',
@@ -212,7 +213,7 @@ export function applyReward(session, r) {
     if (!def) continue;
     const n = Math.max(1, parseInt(it.n, 10) || 1);
     p.inventory[def.id] = (p.inventory[def.id] || 0) + n;
-    got.push(n > 1 ? `${n} × ${def.name}` : def.name);
+    got.push((n > 1 ? `${n} × ${def.name}` : def.name) + lootTag(g, p.members, def));
   }
   const xp = parseInt(r.xp, 10) || 0;
   if (xp) {

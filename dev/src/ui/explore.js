@@ -22,7 +22,7 @@ const TONE_COLOR = { talk: 0xffd860, attack: 0xff5a40, enter: 0x9ad8ff, use: 0xf
 
 const SHOP_WORDS = {
   weapons: 'weapons for sale', armor: 'armour for sale', armour: 'armour for sale', bowyer: 'bows and arrows', provisions: 'food, torches and supplies',
-  reagents: 'reagents and potions', magic: 'magic for sale', mixed: 'all sorts of goods',
+  reagents: 'reagents and herbs', scrolls: 'spell scrolls', magic: 'magic for sale', mixed: 'all sorts of goods',
 };
 
 // small glyphs for the Nearby bar and the command grid (24×24, currentColor)

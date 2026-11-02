@@ -14,11 +14,11 @@ const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['ho
 const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
 export const NPC_ROLES = [
-  ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage'],
+  ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage (sells spell scrolls)'],
   ['weapons', 'Weaponsmith (shop)'], ['armor', 'Armourer (shop)'], ['provisions', 'Provisioner (shop)'], ['reagents', 'Herbalist (shop)'], ['bowyer', 'Bowyer (shop)'],
   ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'], ['merchant', 'Travelling merchant (shop)'],
 ];
-const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons', merchant: 'mixed' };
+const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons', merchant: 'mixed', sage: 'scrolls' };
 
 export const LOOK_FIELDS = [
   { key: 'look.race', label: 'Body', type: 'select', options: RACES },
@@ -119,7 +119,8 @@ export function inspectEntity(ed, ent, container) {
           if (!ent.shop || ent.shop.kind !== kind) ent.shop = { kind, stock: defaultStock(game, kind), priceMod: 1 };
         } else ent.shop = null;
       };
-      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); changed(); }));
+      // a sage placed before sages sold scrolls has no shop yet: ticking stock opens one
+      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
       // companion section (custom)
       const rec = h('div.form');
       const cb = h('input', { type: 'checkbox' });

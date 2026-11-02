@@ -143,10 +143,10 @@ function buildSample() {
   fp.lockedText = 'Great gates of black iron bar the way, sealed with a shadow-spell. There is a keyhole carved with dwarven runes...';
 
   // --- the Rune-Key lies in Grimholt's deepest chest
-  barrow.chest.items = [{ id: 'rune_key', n: 1 }, { id: 'healing_draught', n: 2 }];
+  barrow.chest.items = [{ id: 'rune_key', n: 1 }, { id: 'healing_draught', n: 2 }, { id: 'scroll_vampiric', n: 1 }];
   barrow.chest.gold = '150';
   // the hermit's treasure, behind locked doors
-  tower.chest.items = [{ id: 'staff_of_power', n: 1 }, { id: 'phoenix_feather', n: 1 }];
+  tower.chest.items = [{ id: 'staff_of_power', n: 1 }, { id: 'phoenix_feather', n: 1 }, { id: 'scroll_ice_storm', n: 1 }];
   lockRoom(tower.map, tower.last);
   // the fortress hoard
   fortress.chest.items = [{ id: 'truesilver_mail', n: 1 }, { id: 'greater_draught', n: 3 }];
@@ -505,7 +505,7 @@ function buildQuests(barrowId, fortressId) {
         { text: 'Bring the star-chart back to Merek in Caer Aldon', goal: { type: 'deliver', npc: '', item: 'star_chart' },
           say: 'The chart! And annotated! The third moon — of course! Here, take these from my stores, with a scholar\'s thanks.' },
       ],
-      reward: { xp: 75, items: [{ id: 'scroll_seeing', n: 2 }, { id: 'mana_tonic', n: 3 }] },
+      reward: { xp: 75, items: [{ id: 'scroll_seeing', n: 2 }, { id: 'mana_tonic', n: 3 }, { id: 'scroll_phantasm', n: 1 }] },
       thanks: 'My couriers of the third moon! The chart is a wonder — I have not slept for joy.',
     },
     {
@@ -706,12 +706,16 @@ function dressCastle(game, map) {
   const sage = byRole(map, 'sage')[0];
   if (sage) Object.assign(sage, {
     id: 'npc_merek', name: 'Merek', desc: 'the royal sage, ink-stained and absent-minded',
+    shop: { kind: 'scrolls', stock: ['scroll_acid_arrow', 'scroll_phantasm'], priceMod: 1 },
     greeting: 'Hmm? Oh — visitors! Do mind the scrolls.',
-    job: 'I study the four ARTS of MAGIC, and the stars.',
+    job: 'I study the five ARTS of MAGIC, and the stars. I sell spell SCROLLS too — wouldst thou BUY?',
     keywords: [
-      kw('ARTS', 'SORCERY, PRAYER, RUNE-CRAFT and SONG. Each draws on a different power.'),
-      kw('MAGIC', 'Magic in Eldmark takes four forms: SORCERY, PRAYER, RUNE-CRAFT and SONG.'),
-      kw('SORCERY', 'The art of wizards. It draws upon the Intellect and burns mana.'),
+      kw('ARTS', 'SORCERY, PRAYER, RUNE-CRAFT, SONG and HERB-LORE. Each draws on a different power.'),
+      kw('MAGIC', 'Magic in Eldmark takes five forms: SORCERY, PRAYER, RUNE-CRAFT, SONG and HERB-LORE.'),
+      kw('SORCERY', 'The art of wizards. It draws upon the Intellect and burns mana. A wizard keeps a SPELLBOOK.'),
+      kw('SPELLBOOK', 'Every wizard\'s book holds the spells they have mastered. Copy a spell SCROLL into it and the spell is thine for good — if thou art learned enough for its circle.'),
+      kw('SCROLLS', 'Some spells are found only on scrolls: Acid Arrow, Ice Storm and stranger things. I have a few. Others turn up in barrows and on the bodies of the foolish.'),
+      kw('HERB-LORE', 'Rangers know the green things of the wild. They gather herbs as they walk the woods, hills and marshes, and brew remedies from them. No mana at all!'),
       kw('PRAYER', 'Clerics and paladins pray for miracles. Wisdom is their strength. Holy power sears the UNDEAD.'),
       kw('RUNE-CRAFT', 'The dwarves carve runes fuelled by REAGENTS — moonpetal, ember salt, wyrmroot and the like. No mana is needed, but each rune burns its reagents.'),
       kw('REAGENTS', 'Herbalists sell them. The dwarves of Hammerdeep surely do.'),

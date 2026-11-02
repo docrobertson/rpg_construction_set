@@ -20,6 +20,7 @@ import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from '
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
 import { treasureState, digTreasure } from './treasure.js';
+import { forageFind, lootTag } from './magic.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -703,6 +704,7 @@ export class PlaySession {
         this.view.burst(p.x, p.y, 0xff6020, 10);
         sfx('fire');
       }
+      if (map.type === 'world') this.forage(t.key);
     }
     for (let k = 0; k < ticks; k++) {
       if (k > 0) this.updateVisibility();
@@ -871,7 +873,7 @@ export class PlaySession {
       const def = itemOf(this.game, it.id);
       if (!def) continue;
       this.party.inventory[it.id] = (this.party.inventory[it.id] || 0) + (it.n || 1);
-      got.push((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name);
+      got.push(((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name) + lootTag(this.game, this.party.members, def));
     }
     sfx('gold');
     this.view.burst(chest.x, chest.y, 0xffd040, 14, { up: 2, speed: 0.8 });
@@ -1691,6 +1693,17 @@ export class PlaySession {
       }
     }
     return parts.join(' — ');
+  }
+
+  // A step through wild country: a ranger (or anyone whose art burns the herbs
+  // growing there) may gather a few. Returns the find, if any.
+  forage(ground, r = rng) {
+    const f = forageFind(this.game, this.party.members, this.party.inventory, ground, r);
+    if (!f) return null;
+    this.log(`${f.m.name} gathers ${f.n} ${f.item.name}.`, 'loot');
+    this.tip('forage', `${f.m.name} gathers herbs as the company travels: each kind of wild country grows its own. Herb-lore burns herbs, not mana — see what each is for in the Pack (I).`);
+    this.view.sparkle?.(this.state.pos.x, this.state.pos.y, 0xc2d65a, 8);
+    return f;
   }
 
   spellsFor(m, context) {
