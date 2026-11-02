@@ -1,5 +1,5 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
 import { roll, RNG, hashString } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
@@ -86,6 +86,9 @@ export function talentTree(game, c) {
 export function perkChoices(game, c) {
   const ok = PERKS.filter((p) => (p.stack || !perkCount(c, p.id))
     && (p.needs !== 'mana' || maxMp(game, c) > 0)
+    && (p.needs !== 'magic' || (() => { const ids = casting(game, c).map((ci) => ci.sys.id); return (game.spells || []).some((sp) => ids.includes(sp.system) && (sp.effect === 'damage' || sp.effect === 'drain')); })())
+    && (p.needs !== 'reagents' || casting(game, c).some((ci) => ci.sys.resource === 'reagents'))
+    && (p.needs !== 'herbs' || knownSpells(game, c).some((sp) => (sp.reagents || []).some((id) => (itemOf(game, id)?.forage || []).length)))
     && (p.needs !== 'heals' || heroAbilities(game, c).some((a) => a.heal || a.healPct) || knownSpells(game, c).some((sp) => sp.effect === 'heal') || casting(game, c).some((ci) => ci.sys.id === 'divine'))
     && (p.needs !== 'ranged' || classOf(game, c).weapons?.some((w) => ['bow', 'crossbow', 'sling'].includes(w))));
   const tree = talentTree(game, c);
@@ -228,9 +231,12 @@ export function canCast(game, c, sp, inventory) {
   return { ok: true };
 }
 
+// returns true when Thrifty Hands spared the reagents
 export function payForSpell(c, sp, inventory) {
   c.mp -= sp.cost || 0;
+  if ((sp.reagents || []).length && perkCount(c, 'thrifty') && Math.random() < 1 / 3) return true;
   for (const r of sp.reagents || []) inventory[r] = Math.max(0, (inventory[r] || 0) - 1);
+  return false;
 }
 
 // --- equipment
@@ -387,9 +393,9 @@ export function gainXp(game, c, amount) {
   while (c.level < MAX_LEVEL && c.xp >= xpForLevel(c.level + 1)) {
     const oldHp = maxHp(game, c), oldMp = maxMp(game, c);
     c.level++;
-    // every second level brings an attribute point to spend on the sheet
-    // (every level made attributes, and so every hit, grow too fast)
-    if (c.level % 2 === 0) c.points = (c.points || 0) + 1;
+    // every second level an attribute grows by itself (every level made
+    // attributes, and so every hit, grow too fast)
+    c.grew = c.level % 2 === 0 ? growStat(game, c) : null;
     // ...and every level a choice of talent
     c.perkPending = (c.perkPending || 0) + 1;
     c.hp += maxHp(game, c) - oldHp;
@@ -401,12 +407,28 @@ export function gainXp(game, c, amount) {
 
 // "Helga is now level 3! (a new talent to choose)" — what a level-up brings
 export function levelUpNote(c, game = null) {
-  const pts = c.points || 0;
   const learned = game ? newAtLevel(game, c) : [];
-  return `${c.name} is now level ${c.level}! (${learned.length ? `learns ${learned.join(', ')}; ` : ''}${pts > 0 ? `▲ ${pts} attribute point${pts === 1 ? '' : 's'} and ` : ''}a new talent to choose)`;
+  const grew = c.grew && c.grew.level === c.level ? `${STAT_NAMES[c.grew.stat]} rises to ${c.grew.to}; ` : '';
+  return `${c.name} is now level ${c.level}! (${grew}${learned.length ? `learns ${learned.join(', ')}; ` : ''}a new talent to choose)`;
 }
 
 export const STAT_MAX = 25;
+
+// One attribute grows: by chance, but the class's chief attributes (its
+// primary list, most important first) far more often than the rest, so a
+// warrior mostly grows stronger yet now and then wiser. Returns
+// { stat, to, level } (kept on the hero for the level-up card).
+export function growStat(game, c, rand = Math.random) {
+  const prim = classOf(game, c).primary || [];
+  const w = STATS.map((st) => (c[st] >= STAT_MAX ? 0 : st === prim[0] ? 5 : st === prim[1] ? 3 : 1));
+  const total = w.reduce((a, b) => a + b, 0);
+  if (!total) return null;
+  let r = rand() * total, i = 0;
+  while (r >= w[i]) { r -= w[i]; i++; }
+  const stat = STATS[i];
+  c[stat]++;
+  return { stat, to: c[stat], level: c.level };
+}
 
 export function spendPoint(game, c, stat) {
   if (!(c.points > 0) || !STATS.includes(stat) || c[stat] >= STAT_MAX) return false;

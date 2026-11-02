@@ -33,6 +33,15 @@ export function manaSchool(game, c) { return schoolLook(casting(game, c).find((c
 // "Mana", "Faith", "Voice": what this hero's spell points are called
 export function poolName(game, c) { return manaSchool(game, c)?.resName || 'Mana'; }
 
+// A talent as this hero sees it: the deeper-pool talent is named for the
+// pool they actually draw on (a cleric's Faith, a minstrel's Voice)
+const POOL_TALENT = { Mana: 'Deep Well', Faith: 'Deep Faith', Voice: 'Strong Voice' };
+export function perkText(game, c, p) {
+  if (!p || p.id !== 'arcane') return p;
+  const pool = poolName(game, c);
+  return { ...p, name: POOL_TALENT[pool] || `Deep ${pool}`, desc: `+4 maximum ${pool.toLowerCase()}.` };
+}
+
 // the level at which a caster of this school reaches a spell's circle
 function levelFor(ci, sp) { return Math.ceil((2 * (sp.level || 1) - 1) / (ci.rate || 1)); }
 
@@ -124,9 +133,10 @@ export function forageFind(game, members, inv, ground, rng) {
     const schools = casting(game, m).map((ci) => ci.sys.id);
     const mine = herbs.filter((it) => (inv[it.id] || 0) < FORAGE_CAP
       && (game.spells || []).some((sp) => schools.includes(sp.system) && (sp.reagents || []).includes(it.id)));
-    if (!mine.length || !rng.chance(FORAGE_CHANCE)) continue;
+    const forager = (m.perks || []).includes('forager');
+    if (!mine.length || !rng.chance(FORAGE_CHANCE * (forager ? 2 : 1))) continue;
     const it = rng.pick(mine);
-    const n = Math.min(FORAGE_CAP - (inv[it.id] || 0), rng.chance(0.35) ? 2 : 1);
+    const n = Math.min(FORAGE_CAP - (inv[it.id] || 0), (rng.chance(0.35) ? 2 : 1) + (forager ? 1 : 0));
     inv[it.id] = (inv[it.id] || 0) + n;
     return { m, item: it, n };
   }

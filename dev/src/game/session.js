@@ -8,7 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember,
+  equipKit, normalizeMember, growStat,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -1331,7 +1331,8 @@ export class PlaySession {
     });
     c.level = Math.max(1, parseInt(r.level, 10) || 1);
     c.xp = xpForLevel(c.level);
-    c.points = Math.floor(c.level / 2); // seasoned companions arrive with points to spend
+    // seasoned companions arrive with the attributes their years have grown
+    for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
     // they keep their own face and hair; the class dresses them
@@ -1460,7 +1461,7 @@ export class PlaySession {
       const who = spell.target === 'allAllies' ? partyAlive(this.party) : target ? [target] : [];
       if (!who.some((m) => m.status !== 'dead' && m.hp < maxHp(this.game, m))) { this.log(who.length === 1 ? `${who[0].name} is already at full health.` : 'No one needs healing.', 'warn'); sfx('error'); return false; }
     }
-    payForSpell(caster, spell, this.party.inventory);
+    if (payForSpell(caster, spell, this.party.inventory)) this.log(`${caster.name}'s thrifty hands spare the reagents.`);
     sfx('spell');
     this.log(`${caster.name} casts ${spell.name}.`, 'magic');
     const p = this.state.pos;

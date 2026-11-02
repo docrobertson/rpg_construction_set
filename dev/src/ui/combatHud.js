@@ -10,7 +10,7 @@ import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
-import { heroSchool, poolName } from '../game/magic.js';
+import { perkText, heroSchool, poolName } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 
 const hexCss = (n) => '#' + ((n ?? 0xe8c069) >>> 0).toString(16).padStart(6, '0');
@@ -766,10 +766,10 @@ function targetChoices(game, units, effect) {
 export function perkPicker(ui, m, after) {
   const g = ui.s.game;
   if (!(m.perkPending > 0)) {
-    const last = perkOf((m.perks || [])[m.perks.length - 1]);
+    const last = perkText(g, m, perkOf((m.perks || [])[m.perks.length - 1]));
     return h('div.perk-done', last ? [icon(last.icon), ` Learned ${last.name}: ${last.desc}`] : '');
   }
-  const opts = perkChoices(g, m);
+  const opts = perkChoices(g, m).map((p) => perkText(g, m, p));
   return h('div.perk-pick',
     h('div.pp-title', `Choose a talent${m.perkPending > 1 ? ` (${m.perkPending} to choose)` : ''}:`),
     h('div.pp-opts', ...opts.map((p) => h('button.perk', {
@@ -815,7 +815,7 @@ export function sheetAbilities(ui, m, onChange) {
     for (const id of m.perks) counts[id] = (counts[id] || 0) + 1;
     wrap.appendChild(h('div.sub', 'Talents'));
     wrap.appendChild(h('div.sa-perks', ...Object.entries(counts).map(([id, n]) => {
-      const p = perkOf(id);
+      const p = perkText(g, m, perkOf(id));
       return p ? h('span.tag', { title: p.desc }, icon(p.icon), ` ${p.name}${n > 1 ? ' ×' + n : ''}`) : null;
     })));
   }

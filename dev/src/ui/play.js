@@ -1541,7 +1541,7 @@ Shrines, campfires, standing stones and stranger things are scattered across the
 <p>Click a hero on the right to see their sheet: that is where gear is put on and taken off. Each hero carries a <b>hand weapon</b>
 for melee and a <b>ranged weapon</b> (bow, crossbow or sling) — change either, and armour and shield, straight from the sheet.
 The <b>Pack</b> (I) holds what the company shares; each piece of gear in it shows who it suits (▲ better, ▼ worse). Every level brings a choice of
-<b>talent</b> (★), and every second level an <b>attribute point</b> (▲) to spend with the <b>+</b> buttons.</p>
+<b>talent</b> (★), and every second level one <b>attribute</b> grows by itself (▲): most often the ones the hero's calling needs most.</p>
 <h3>Magic</h3>
 <p>Each school works its own way. <b>Wizards</b> cast from a spellbook and spend mana; spell scrolls, found or bought from sages,
 can be copied into the book from the Pack. <b>Clerics</b> pray and spend faith; <b>minstrels</b> sing and spend voice — mana, faith and

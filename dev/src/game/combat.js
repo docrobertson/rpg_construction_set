@@ -1347,7 +1347,7 @@ export class Battle {
       const who = spell.target === 'ally' ? [target] : spell.target === 'self' ? [u] : this.partyUnits;
       if (!this.wounded(who).length) { this.log(spell.target === 'ally' ? `${target.name} is already at full health.` : 'No one needs healing.', 'warn'); sfx('error'); return false; }
     }
-    payForSpell(m, spell, inv);
+    if (payForSpell(m, spell, inv)) this.log(`${m.name}'s thrifty hands spare the reagents.`);
     this.log(`${u.name} casts ${spell.name}!`, 'magic');
     this.fx.callout(u.x, u.y, spell.name, spell.fx ?? 0xc0a0ff);
     sfx(spell.effect === 'damage' && /fire|flame|meteor/i.test(spell.name) ? 'fire' : 'spell');

@@ -162,12 +162,15 @@ export const PERKS = [
   { id: 'fleet', name: 'Fleet-footed', icon: 'boot', trees: ['archer', 'rogue'], desc: '+1 square of movement in battle.' },
   { id: 'deadly', name: 'Deadly', icon: 'dagger', trees: ['rogue', 'archer'], desc: 'Critical hits on one more number of the die.' },
   { id: 'marksman', name: 'Marksman', icon: 'bow', needs: 'ranged', trees: ['archer'], desc: '+1 range and +1 damage with bows, crossbows and slings.' },
+  // (named for the hero's pool: Deep Well for mana, Deep Faith, Strong Voice — see magic.js perkText)
   { id: 'arcane', name: 'Deep Well', icon: 'rune', stack: true, needs: 'mana', trees: ['caster', 'healer'], desc: '+4 maximum mana.' },
   { id: 'quick', name: 'Quick Recovery', icon: 'hourglass', trees: ['caster', 'rogue'], desc: 'Skill cooldowns are one round shorter.' },
   { id: 'iron_will', name: 'Iron Will', icon: 'star', trees: ['fighter', 'healer', 'caster'], desc: 'Cannot be stunned, put to sleep or frightened.' },
   { id: 'alert', name: 'Alert', icon: 'eye', trees: ['archer', 'rogue', 'caster'], desc: '+4 initiative: acts earlier in battle.' },
   { id: 'mender', name: 'Healing Hands', icon: 'heart', stack: true, needs: 'heals', trees: ['healer'], desc: 'Every heal this hero gives mends 3 more health.' },
-  { id: 'spellfire', name: 'Spellfire', icon: 'fire', stack: true, trees: ['caster'], desc: '+2 damage with spells, runes and magical skills.' },
+  { id: 'spellfire', name: 'Spellfire', icon: 'fire', stack: true, needs: 'magic', trees: ['caster'], desc: '+2 damage with spells, runes and magical skills.' },
+  { id: 'forager', name: 'Forager', icon: 'herb', needs: 'herbs', trees: ['archer', 'healer'], desc: 'Finds herbs twice as often on the road, and one more each time.' },
+  { id: 'thrifty', name: 'Thrifty Hands', icon: 'rune', needs: 'reagents', trees: ['caster', 'fighter', 'archer'], desc: 'One time in three, a rune or remedy burns none of its reagents.' },
 ];
 
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
