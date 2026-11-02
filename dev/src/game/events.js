@@ -18,6 +18,7 @@ export const EVENT_KINDS = {
   campfire: { label: 'Campfire', icon: '🔥' },
   lore: { label: 'Lore stone', icon: '🗿' },
   well: { label: 'Well', icon: '⛲' },
+  lodge: { label: 'Lodge', icon: '🛖' },
   person: { label: 'Someone', icon: '🧍' },
   creature: { label: 'Creature', icon: '👹' },
   cache: { label: 'Hidden cache', icon: '🎁' },
@@ -53,6 +54,7 @@ export function eventLook(e) {
     case 'campfire': return { kind: 'campfire' };
     case 'lore': return has('lorestone') ? { kind: 'lorestone' } : { kind: 'sign', color: 0x8a8c96 };
     case 'well': return has('well') ? { kind: 'well' } : { kind: 'marker', color: 0x50a0ff };
+    case 'lodge': return { kind: 'lodge' };
     case 'cache': return { kind: 'chest', color: 0x6a5a3a };
     case 'person': return { kind: 'humanoid', race: 'human', body: 0x6a5a3a, hat: 'hood', hatColor: 0x5a4a2a };
     case 'creature': return { kind: 'humanoid', race: 'troll', body: 0x5a4a3a, weapon: 'club' };
@@ -269,6 +271,11 @@ export const EVENT_TEMPLATES = {
       ch('Drink the water', 'The water is cold and clean. You feel refreshed.', { heal: '1d8' }, { chance: 0.7, failText: 'Ugh — brackish and foul. Your stomach turns.', failEffects: { poison: true, keep: true } }),
       leave(),
     ],
+  },
+  lodge: {
+    kind: 'lodge', name: 'Hunters\' Lodge', repeat: 'daily',
+    text: 'A lodge of rough-cut logs, antlers nailed over the door and smoke curling from the chimney. A hunter is skinning a deer on the step. "Come far? Sit, eat. There\'s plenty."',
+    choices: [ch('Share their supper', 'Venison stew and black bread. You leave warm, rested and with a parcel of smoked meat.', { food: 20, heal: '2d6' }), leave('Walk on')],
   },
   traveller: {
     kind: 'person', name: 'Stranded Traveller', repeat: 'once',

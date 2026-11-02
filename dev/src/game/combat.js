@@ -509,6 +509,7 @@ export class Battle {
         summary.heroes.push({ member: m, from: before, gained: half, levels: [], fallen: true });
       }
       this.dropLoot();
+      this.dropCarried();
       summary.loot = [...this.loot];
       await this.view.wait(1.2);
     } else if (outcome === 'fled') {
@@ -1299,6 +1300,20 @@ export class Battle {
     const budget = 30 + power * 20 + bossLevel * 30;
     const gear = this.game.items.filter((it) => ['weapon', 'armor', 'shield'].includes(it.type) && !it.noLoot && !it.unique && (it.price || 0) <= budget && (it.price || 0) >= budget * 0.12);
     if (gear.length) give(rng.weighted(gear, (it) => 1 + (it.price || 0) / 50), boss ? 'The great foe leaves behind' : 'You claim');
+  }
+
+  // What a placed band was carrying (its map entity's loot: a treasure map,
+  // a stolen key), found on the fallen
+  dropCarried() {
+    const inv = this.s.party.inventory;
+    for (const it of this.opts.source?.loot || []) {
+      const def = byId(this.game.items, it.id);
+      if (!def) continue;
+      inv[def.id] = (inv[def.id] || 0) + (it.n || 1);
+      this.loot.push(def.name);
+      this.log(`On the fallen you find ${/^[aeiou]/i.test(def.name) ? 'an' : 'a'} ${def.name}!`, 'loot');
+      sfx('gold');
+    }
   }
 
   // ------------------------------------------------------------ spells

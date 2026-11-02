@@ -337,17 +337,18 @@ export const DECOR = {
   },
   trees(c) {
     const { B, cx, cz, r, outside } = c;
-    const n = 2 + (r(1) < 0.45 ? 1 : 0);
+    // beside a point of interest (c.thin) one tree stands at the back
+    const n = c.thin ? 1 : 2 + (r(1) < 0.45 ? 1 : 0);
     const spots = [[-0.22, -0.2], [0.22, -0.12], [-0.08, 0.22], [0.26, 0.26]];
     for (let i = 0; i < n; i++) {
-      const [ox, oz] = spots[(i + Math.floor(r(2) * 4)) % 4];
+      const [ox, oz] = spots[c.thin ? Math.floor(r(2) * 2) : (i + Math.floor(r(2) * 4)) % 4];
       const px = cx + ox + (r(10 + i) - 0.5) * 0.14, pz = cz + oz + (r(20 + i) - 0.5) * 0.14;
       const py = c.gy(px, pz), s = 1.1 + r(30 + i) * 0.45;
       const kind = r(40 + i);
       if (kind < 0.12) birch(B, px, py, pz, s * 0.95, r(50 + i));
       else tree(B, px, py, pz, s, r(50 + i), kind > 0.93 && !outside ? AUTUMN : OAKS);
     }
-    if (r(5) < 0.5) {
+    if (r(5) < 0.5 && !c.thin) {
       const px = cx + (r(6) - 0.5) * 0.7, pz = cz + (r(7) - 0.5) * 0.7;
       bush(B, px, c.gy(px, pz), pz, 0.9, r(8), 0x3f7a2c);
     }
@@ -355,10 +356,10 @@ export const DECOR = {
   pines(c) {
     const { B, cx, cz, r, map } = c;
     const snowy = map && c.nbCount((t) => t.key === 'snow' || t.key === 'peaks') > 1;
-    const n = 3 + (r(1) < 0.5 ? 1 : 0);
+    const n = c.thin ? 1 + (r(1) < 0.5 ? 1 : 0) : 3 + (r(1) < 0.5 ? 1 : 0);
     const spots = [[-0.24, -0.22], [0.22, -0.2], [-0.2, 0.2], [0.24, 0.22], [0, 0]];
     for (let i = 0; i < n; i++) {
-      const [ox, oz] = spots[(i + Math.floor(r(2) * 5)) % 5];
+      const [ox, oz] = spots[c.thin ? i : (i + Math.floor(r(2) * 5)) % 5];
       const px = cx + ox + (r(10 + i) - 0.5) * 0.1, pz = cz + oz + (r(20 + i) - 0.5) * 0.1;
       pine(B, px, c.gy(px, pz), pz, 1.0 + r(30 + i) * 0.5, r(40 + i), snowy);
     }
@@ -370,7 +371,7 @@ export const DECOR = {
     if (r(1) < 0.6) { const [px, py, pz] = at(2); grassTuft(B, px, py, pz, 1.3, r(4), 0x8a9a48); }
     if (r(5) < 0.3) { const [px, py, pz] = at(6); bush(B, px, py, pz, 1, r(8), 0x6f8a3a); }
     if (r(9) < 0.2) { const [px, py, pz] = at(10, 0.5); rock(B, px, py - 0.04, pz, 0.8 + r(11) * 0.5, r(12), null, true); }
-    if (r(13) < 0.12) { const [px, py, pz] = at(14, 0.4); tree(B, px, py, pz, 0.9, r(16)); }
+    if (r(13) < 0.12 && !c.thin) { const [px, py, pz] = at(14, 0.4); tree(B, px, py, pz, 0.9, r(16)); }
   },
   mountain(c) { mountainDeco(c, false); },
   peak(c) { mountainDeco(c, true); },
@@ -388,7 +389,7 @@ export const DECOR = {
       const px = cx - 0.35 + r(10 + i) * 0.7, pz = cz - 0.35 + r(20 + i) * 0.7;
       reedClump(B, px, c.gy(px, pz), pz, 1 + r(30 + i) * 0.5, r(40 + i));
     }
-    if (r(7) < 0.15) {
+    if (r(7) < 0.15 && !c.thin) {
       const px = cx + (r(8) - 0.5) * 0.4, pz = cz + (r(9) - 0.5) * 0.4;
       deadTree(B, px, c.gy(px, pz), pz, 1.1, r(11), 0x4a4434);
     }

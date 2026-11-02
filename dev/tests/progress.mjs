@@ -389,6 +389,107 @@ check('entering from the north comes in at the north gate', r.north.y <= 2, r);
 check('a moated castle is always entered by its one bridge', r.castle.y >= r.castle.h - 3, r);
 check('walking out of the east gate leaves the town on its east side', r.outE.map === 'world' && r.outE.dx > 0, r);
 
+// ---- treasure maps: found as loot, read, marked roughly on the big map, dug up once
+await fresh();
+r = await ev(() => {
+  const s = window.__app.session, g = s.game;
+  const maps = g.items.filter((i) => i.type === 'map');
+  const spots = maps.map((it) => g.maps.flatMap((m) => m.entities).find((e) => e.id === it.treasure && e.type === 'treasure'));
+  const world = g.maps.find((m) => m.type === 'world');
+  const westhold = g.maps.find((m) => m.name === 'Westhold');
+  return {
+    n: maps.length, clues: spots.every((e) => e && e.clue && e.clue.length > 20), rewards: new Set(spots.map((e) => e?.items?.[0]?.id)).size,
+    chest: world.entities.find((e) => e.id === 'chest_wolfwood')?.items.some((i) => i.id === 'tmap_poacher'),
+    drop: world.entities.some((e) => e.type === 'monster' && (e.loot || []).some((i) => i.id === 'tmap_downs')),
+    quest: g.quests.some((q) => (q.reward?.items || []).some((i) => i.id === 'tmap_sailor')),
+    sold: westhold.entities.find((e) => e.id === 'npc_nim')?.shop?.stock.includes('tmap_tithe'),
+    dear: (g.items.find((i) => i.id === 'tmap_tithe')?.price || 0) >= 200,
+  };
+});
+check('the sample hides four hoards with clues and different rewards', r.n === 4 && r.clues && r.rewards === 4, r);
+check('its maps are found in a chest, on bandits, as a quest reward and sold dear', r.chest && r.drop && r.quest && r.sold && r.dear, r);
+
+r = await ev(async () => {
+  const s = window.__app.session, ui = s.ui, g = s.game;
+  const it = g.items.find((i) => i.id === 'tmap_poacher');
+  const spot = s.map.entities.find((e) => e.id === it.treasure);
+  const place = (x, y) => { s.state.pos.x = x; s.state.pos.y = y; s.refreshPartyVisual(); s.updateVisibility(true); };
+  const labels = () => ui.explore.nearby().map((a) => a.label);
+  place(spot.x, spot.y);
+  const noMap = labels().includes('Dig here');
+  s.party.inventory[it.id] = 1;
+  ui.readMap(it);
+  await new Promise((res) => setTimeout(res, 200));
+  const sketch = !!document.querySelector('.tmap-canvas') && document.querySelector('.tmap-clue')?.textContent.includes('Hunters\' Lodge');
+  document.querySelector('.modal-back .modal-x')?.click();
+  ui.openMap();
+  await new Promise((res) => setTimeout(res, 200));
+  const legend = document.querySelector('.map-legend')?.textContent.includes('Buried treasure');
+  document.querySelector('.modal-back .modal-x')?.click();
+  const read = s.state.treasure[spot.id]?.read != null;
+  const near = (place(spot.x + 2, spot.y), labels());
+  const far = (place(spot.x + 4, spot.y), labels());
+  const here = (place(spot.x, spot.y), labels());
+  const gold0 = s.party.gold;
+  const dig = ui.explore.nearby().find((a) => a.label === 'Dig here');
+  const turn0 = s.state.turn;
+  await dig.run();
+  return {
+    noMap, sketch, legend, read, near, far, here, turn: s.state.turn - turn0, gold: s.party.gold - gold0,
+    bow: s.party.inventory.whisperwind || 0, dug: !!s.state.treasure[spot.id]?.dug, gone: !s.map.entities.includes(spot),
+    again: labels().includes('Dig here'), live: s.buildLiveMap(s.map.id).entities.some((e) => e.id === spot.id),
+  };
+});
+check('no Dig here without the map', !r.noMap, r);
+check('reading a map shows its sketch and clue, and marks the big map', r.sketch && r.legend && r.read, r);
+check('near the spot a hint, on it Dig here', r.near.includes('Something is buried near here') && !r.far.some((l) => /buried|Dig/.test(l)) && r.here.includes('Dig here'), r);
+check('digging takes time and unearths the treasure', r.turn >= 5 && r.gold > 0 && r.bow === 1, r);
+check('a dug spot cannot be dug again, even after a reload', r.dug && r.gone && !r.again && !r.live, r);
+
+// a guarded hoard: its guardians rise before the chest can be opened
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game;
+  const it = g.items.find((i) => i.id === 'tmap_downs');
+  const spot = s.map.entities.find((e) => e.id === it.treasure);
+  s.party.inventory[it.id] = 1;
+  for (const m of s.party.members) { m.hp = 80; m.status = 'ok'; }
+  s.state.pos.x = spot.x; s.state.pos.y = spot.y; s.refreshPartyVisual(); s.updateVisibility(true);
+  s.digTreasure(spot);
+  for (let i = 0; i < 150 && !s.battle?.active; i++) await new Promise((res) => setTimeout(res, 100));
+  const foes = s.battle ? s.battle.enemies.map((e) => e.def?.id || e.monster || e.id) : [];
+  const b = s.battle;
+  if (b) for (const e of b.enemies) { e.hp = 0; e.dead = true; }
+  if (b && b.active) b.actPass();
+  for (let i = 0; i < 900; i++) { if (!s.battle && s.mode === 'explore' && !s.busy && s.party.inventory.fallen_hauberk) break; await new Promise((res) => setTimeout(res, 100)); }
+  return { fought: !!b, foes: foes.length, mail: s.party.inventory.fallen_hauberk || 0, mode: s.mode, battle: !!s.battle, log: [...document.querySelectorAll('.log-line')].slice(-4).map((x) => x.textContent) };
+});
+check('a guardian rises to defend a guarded hoard, and the hoard is won after', r.fought && r.foes >= 2 && r.mail === 1, r);
+await closeModals();
+
+// an old save (from before treasure maps) still loads
+r = await ev(async () => {
+  const app = window.__app;
+  const st = JSON.parse(JSON.stringify(app.session.serializeState()));
+  delete st.treasure;
+  app.endPlay(false);
+  app.playGame(app.sample, { quick: true, noSave: true, state: st });
+  for (let i = 0; i < 100; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((res) => setTimeout(res, 100)); }
+  return { ok: !!app.session?.map, treasure: typeof app.session.state.treasure };
+});
+check('an old save without treasure state loads', r.ok && r.treasure === 'object', r);
+
+// generated worlds hide two or three hoards, their maps handed out by encounters
+const { newGame } = await import(path.resolve(HERE, '../src/data/schema.js'));
+const gens = [11, 222, 3333].map((seed) => {
+  const g = newGame({ seed });
+  const world = g.maps[0];
+  const spots = world.entities.filter((e) => e.type === 'treasure');
+  const maps = g.items.filter((i) => i.type === 'map');
+  const given = maps.filter((it) => world.entities.some((e) => e.type === 'event' && (e.choices || []).some((c) => (c.effects?.items || []).some((x) => x.id === it.id))));
+  return { seed, spots: spots.length, maps: maps.length, given: given.length, clues: spots.every((e) => /pace|Dig/.test(e.clue)) };
+});
+check('generated worlds bury 2-3 treasures whose maps are handed out', gens.every((x) => x.spots >= 2 && x.spots <= 3 && x.maps === x.spots && x.given === x.maps && x.clues), gens);
+
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 if (errors.length) fails++;
 await browser.close();

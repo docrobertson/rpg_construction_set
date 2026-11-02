@@ -9,6 +9,7 @@ import { T, terrain } from './terrain.js';
 import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
 import { eventFromTemplate } from '../game/events.js';
+import { buryable, pacesText, addCrab } from '../game/treasure.js';
 
 export const SAMPLE_ID = 'sample_shadow_over_eldmark';
 
@@ -212,7 +213,74 @@ function buildSample() {
   // --- things to find, and the quests that tie it all together
   placeWonders(game, w, { barrow, fortress, tower, village });
   game.quests = buildQuests(barrow.map.id, fortress.map.id);
+  // (last of all, so every id made before keeps its place in old saves)
+  hideTreasures(game, w, westhold);
   return game;
+}
+
+// Four torn maps and the hoards they lead to, each found a different way: in
+// Greyfang's wood, on a band of bandits, from Osric for slaying the serpent,
+// and from a shady fellow in Westhold who wants far too much for it
+function hideTreasures(game, w, westhold) {
+  game.items.push(
+    { id: 'tmap_poacher', name: 'Poacher\'s Map', type: 'map', treasure: 'tr_poacher', price: 60, desc: 'A greasy scrap of deer-hide, a map scratched into it with a knife point. Someone has drawn a little lodge, and an X beside it.' },
+    { id: 'tmap_downs', name: 'Bloodstained Map', type: 'map', treasure: 'tr_downs', price: 80, desc: 'A soldier\'s map of the Barrow Downs, brown with old blood. An X is inked among the hills, and beneath it: "the King\'s pay-chest — we buried it as they came".' },
+    { id: 'tmap_sailor', name: 'Drowned Sailor\'s Chart', type: 'map', treasure: 'tr_strand', price: 100, desc: 'A sea-chart, salt-stained and wrinkled from the water. The coast below Westhold is drawn with care, and an X sits on the strand.' },
+    { id: 'tmap_tithe', name: 'Map of the Laughing God\'s Tithe', type: 'map', treasure: 'tr_tithe', price: 260, desc: 'A fine vellum map in a thief\'s cramped hand. It shows where the stolen offerings of the Laughing God were buried, and the thief never came back for them.' },
+    { id: 'whisperwind', name: 'Whisperwind', type: 'weapon', wkind: 'bow', dmg: '1d8+1', hit: 2, range: 8, price: 220, model: 'bow', unique: true, desc: 'A poacher\'s longbow of black yew. Its arrows fly without a sound.' },
+    { id: 'fallen_hauberk', name: 'Hauberk of the Fallen Host', type: 'armor', weight: 'chain', ac: 6, price: 420, unique: true, desc: 'Bright mail of the old kings, untouched by rust after a hundred years in the earth.' },
+    { id: 'coral_cutlass', name: 'Coral Cutlass', type: 'weapon', wkind: 'blade', dmg: '1d8+2', hit: 2, range: 1, price: 300, model: 'sword', glow: 0x60e0d0, unique: true, desc: 'A sea-captain\'s blade with a hilt of pink coral. It shines faintly, like light through water.' },
+    { id: 'gilded_buckler', name: 'Gilded Buckler', type: 'shield', ac: 3, price: 360, unique: true, desc: 'Gold leaf over oak, stamped with a fat grinning face. Blows seem to slide off it, laughing.' },
+  );
+  addCrab(game);
+  const ent = (id) => w.entities.find((e) => e.id === id);
+  // a hoard some paces from a landmark (the nearest open square to the
+  // intended one), its clue counting the paces it really is
+  const bury = (id, from, dx, dy, clue, extra) => {
+    let at = null;
+    for (let r = 0; r < 4 && !at; r++) for (let oy = -r; oy <= r && !at; oy++) for (let ox = -r; ox <= r && !at; ox++) {
+      if (buryable(w, from.x + dx + ox, from.y + dy + oy)) at = { x: from.x + dx + ox, y: from.y + dy + oy };
+    }
+    const paces = pacesText(at.x - from.x, at.y - from.y);
+    w.entities.push({ id, type: 'treasure', x: at.x, y: at.y, clue: clue(paces.replace(/^./, (c) => c.toUpperCase())), from: from.id, ...extra });
+  };
+  bury('tr_poacher', ent('ev_lodge'), 3, 0, (p) => `${p} of the Hunters' Lodge, on the brow of the hill. Right under their noses, the fools.`, {
+    name: 'The Poacher\'s Stash', gold: '40+2d20', items: [{ id: 'whisperwind', n: 1 }, { id: 'healing_draught', n: 2 }],
+  });
+  const ruins = ent('sign_ruins');
+  bury('tr_downs', { id: ruins.id, x: ruins.x - 1, y: ruins.y }, -5, 0, (p) => `Where King Elendur's host fell: ${p.toLowerCase()} of the broken stones, in the heather of the Barrow Downs. The dead keep it still.`, {
+    name: 'The King\'s Pay-chest', gold: '120+4d20', items: [{ id: 'fallen_hauberk', n: 1 }, { id: 'greater_draught', n: 2 }],
+    guardian: 'skeleton', count: '3', guardText: 'Bony hands burst from the earth round the chest — the soldiers who buried it rise to guard it still!',
+  });
+  const town = w.entities.find((e) => e.type === 'portal' && e.target?.map === westhold.id);
+  bury('tr_strand', town, 0, 5, (p) => `${p} of Westhold's gate, down on the strand above the tide-line, where the gulls quarrel.`, {
+    name: 'The Drowned Sailor\'s Sea-chest', gold: '200+4d20', items: [{ id: 'coral_cutlass', n: 1 }, { id: 'mana_tonic', n: 2 }],
+    guardian: 'giant_crab', count: '1', guardText: 'The sand bursts apart — a giant crab has made its home on the sea-chest, and it does not mean to give it up!',
+  });
+  bury('tr_tithe', ent('ev_shrine_fortune'), 6, 0, (p) => `${p} of the Laughing God, where the road to the pass bends east. He is laughing at you even now.`, {
+    name: 'The Laughing God\'s Tithe', gold: '320+6d20', items: [{ id: 'gilded_buckler', n: 1 }, { id: 'phoenix_feather', n: 1 }],
+  });
+  // where the maps are found
+  ent('chest_wolfwood').items.push({ id: 'tmap_poacher', n: 1 });
+  const bandits = w.entities.find((e) => e.type === 'monster' && e.monster === 'bandit');
+  if (bandits) bandits.loot = [{ id: 'tmap_downs', n: 1 }];
+  const qs = game.quests.find((q) => q.id === 'q_serpent');
+  qs.reward.items.push({ id: 'tmap_sailor', n: 1 });
+  qs.stages[1].say = 'Gulper\'s gone? Ha! Drinks are on me tonight — and take these. The shield came up in my nets years back, too fine for a fisherman. The chart I took off a drowned sailor washed up on the strand. Never had the nerve to follow it.';
+  const bar = byRole(westhold, 'tavern')[0] || { x: 18, y: 18 };
+  const nim = addNpc(westhold, bar.x + 2, bar.y + 3, {
+    id: 'npc_nim', name: 'Sly Nim', race: 'human', role: 'merchant', wander: 1, desc: 'a hooded fellow with a gold tooth and quick eyes',
+    lookExtra: { body: 0x2e2a30, hat: 'hood', hatColor: 0x24202a, cape: 0x3a2a3a },
+    greeting: 'Psst. Over here. Want to get rich?',
+    job: 'I buy and sell... things. Lately, MAPS.',
+    keywords: [
+      kw('MAPS', 'A treasure map, friend! The offerings the pilgrims left the Laughing God, stolen and buried by a thief who never came back for them. Yours for two hundred and sixty gold. Ask to BUY.'),
+      kw('THIEF', 'Never you mind who. He won\'t be needing it. Ask to BUY.'),
+    ],
+    shop: { kind: 'mixed', stock: ['tmap_tithe', 'iron_key', 'antidote', 'torch'], priceMod: 1 },
+    rumour: 'That hooded fellow by the tavern sells treasure maps. Overpriced, if you ask me — but who knows?',
+  });
+  nim.look.face = 'bold';
 }
 
 // Points of interest and little events across Eldmark
@@ -271,10 +339,9 @@ function placeWonders(game, w, { barrow, fortress, tower, village }) {
       { label: 'Walk on', leave: true },
     ],
   });
-  put(w, 'ev_lodge', 'traveller', 39, 26, {
-    name: 'Hunters\' Lodge', kind: 'person', repeat: 'daily',
-    look: { kind: 'humanoid', race: 'human', body: 0x4a5a32, hat: 'hood', hatColor: 0x3a4a2a, weapon: 'bow' },
-    text: 'A lodge of rough-cut logs stands among the foothills. A hunter is skinning a deer by the door. "Bound for the mountain? Sit, eat. There\'s plenty."',
+  put(w, 'ev_lodge', 'lodge', 39, 26, {
+    name: 'Hunters\' Lodge',
+    text: 'A lodge of rough-cut logs stands among the foothills, antlers nailed over the door. A hunter is skinning a deer on the step. "Bound for the mountain? Sit, eat. There\'s plenty."',
     choices: [
       { label: 'Share their supper', text: 'Venison stew and black bread. You leave warm, rested and with a parcel of smoked meat.', effects: { food: 20, heal: '2d6' } },
       { label: 'Walk on', leave: true },

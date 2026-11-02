@@ -566,7 +566,7 @@ export class View {
       }
     }
     const e = {
-      id, root, leanG, faceG, model, info, x, y,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -856,6 +856,18 @@ export class View {
       n = 1;
     }
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
+    // points of interest near the company: nothing tall in front hides them
+    if (party && this.map?.type === 'world') {
+      const px = party.root.position.x, pz = party.root.position.z;
+      const near = [];
+      for (const e of this.entities.values()) {
+        if (!e.poi || !e.root.visible || this.cutFocus.has(e.id)) continue;
+        const d = Math.max(Math.abs(e.root.position.x - px), Math.abs(e.root.position.z - pz));
+        if (d <= 6) near.push([d, e]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      for (const [, e] of near.slice(0, 3)) ent(e, -10);
+    }
     if (this.cursor.visible && this.map?.type === 'arena') {
       const c = this.cursor.position, s = this.cursor.scale.x;
       add(c.x + s / 2, c.y, c.z + s / 2, 0.9, 34 + s * 10);

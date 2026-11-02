@@ -25,6 +25,8 @@ import { clockText, durationText, travelTimes } from '../game/travel.js';
 import { LevelUpCard } from './levelUp.js';
 import { questPins } from '../game/quests.js';
 import { fillVellum, inkEdges } from './vellum.js';
+import { showTreasureMap, treasureCircles, drawTreasureCircles } from './treasureMap.js';
+import { isDug } from '../game/treasure.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -403,6 +405,8 @@ export class PlayUI {
       ctx.strokeStyle = '#000';
       ctx.beginPath(); ctx.arc(sx(e.x + 0.5), sy(e.y + 0.5), Math.max(u * 2.6, k * 0.36), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
+    // read treasure maps: the rough circle
+    drawTreasureCircles(ctx, treasureCircles(s, map), sx, sy, k, u);
     // quest goals: a diamond, or an arrow at the rim pointing the way
     const pins = questPins(s).sort((a, b) => a.tracked - b.tracked);
     for (const pin of pins) {
@@ -811,7 +815,7 @@ export class PlayUI {
   async fieldUse() {
     if (this.s.mode !== 'explore' || this.s.busy) return;
     const inv = this.s.party.inventory;
-    const items = this.s.game.items.filter((it) => it.type === 'consumable' && inv[it.id] > 0);
+    const items = this.s.game.items.filter((it) => (it.type === 'consumable' || it.type === 'map') && inv[it.id] > 0);
     if (!items.length) { this.s.log('You have nothing to use.', 'warn'); return; }
     const item = await this.chooseFrom('Use which item?', items.map((it) => ({ label: it.name, tag: `×${inv[it.id]}`, sub: itemUse(this.s.game, it) || it.desc, icon: itemIcon(it)[0], tone: itemIcon(it)[1], value: it })));
     if (!item) return;
@@ -914,7 +918,8 @@ export class PlayUI {
 
   openShop(npc) {
     const s = this.s, g = s.game;
-    const stock = (npc.shop?.stock || []).map((id) => itemOf(g, id)).filter(Boolean);
+    // (a treasure map is sold only while the company has none and its hoard is undug)
+    const stock = (npc.shop?.stock || []).map((id) => itemOf(g, id)).filter((it) => it && !(it.type === 'map' && ((s.party.inventory[it.id] || 0) > 0 || isDug(s, it.treasure))));
     const body = h('div.shop');
     const coin = () => h('i.coin', { html: iconSvg('coin') });
     const face = portrait(this.view, s.entityLook(npc));
@@ -1113,6 +1118,7 @@ export class PlayUI {
         if (it.type === 'consumable' && !s.battle) {
           row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
         }
+        if (it.type === 'map') row.appendChild(h('button', { title: 'Study the map and its clue', onclick: () => { closeTopModal(); this.readMap(it); } }, 'Read'));
         invList.appendChild(row);
       }
     }
@@ -1137,6 +1143,7 @@ export class PlayUI {
   }
 
   async fieldUseItem(it) {
+    if (it.type === 'map') { this.readMap(it); return; }
     let target = null;
     if (['heal', 'cure', 'mp', 'revive'].includes(it.effect)) {
       const g = this.s.game;
@@ -1147,6 +1154,9 @@ export class PlayUI {
     }
     this.s.useItemField(it, target);
   }
+
+  // a treasure map: its sketch and clue (ui/treasureMap.js)
+  readMap(it) { return showTreasureMap(this, it); }
 
   // ------------------------------------------------------------ map
   openMap() {
@@ -1210,6 +1220,8 @@ export class PlayUI {
     ctx.arc(p.x * scale + scale / 2, p.y * scale + scale / 2, Math.max(3, scale), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    const circles = treasureCircles(s, map);
+    drawTreasureCircles(ctx, circles, (x) => x * scale, (y) => y * scale, scale);
     const shown = this.quests.drawPins(ctx, scale, { events: true }) || {};
     // what the marks mean (only those on this map)
     const row = (cls, color, label) => h('div.ml-row', h('i.' + cls, { style: { background: color } }), label);
@@ -1218,6 +1230,7 @@ export class PlayUI {
       shown.tracked ? row('dia', '#ffe040', 'Your current goal') : null,
       shown.other ? row('dia', '#e0a0ff', 'Goals of other quests') : null,
       row('sq', '#fff', 'Towns, sites and stairs'),
+      circles.length ? row('dot.tx', 'rgba(179,36,27,0.35)', 'Buried treasure: somewhere in the circle') : null,
       ...Object.entries(EVENT_DOTS).filter(([k]) => shown.events?.has(k)).map(([, [color, label]]) => row('dot', color, label)),
       s.visible ? h('p.hint', vellum ? 'Blank parchment is land you have not explored yet.' : 'Dark parts are not explored yet.') : null);
     modal(h('div.map-wrap', c, legend), { title: map.name, icon: 'map', cls: 'map-modal' });
@@ -1433,6 +1446,7 @@ export function itemUse(g, it) {
   }
   if (it.type === 'key') return 'Opens a locked door or chest (used up)';
   if (it.type === 'quest') return 'Needed for a quest';
+  if (it.type === 'map') return 'Read it to see where the treasure lies';
   if (it.type !== 'consumable') return '';
   switch (it.effect) {
     case 'heal': return `Drink to heal one hero (${it.power || '2d8'} health)`;
@@ -1470,6 +1484,7 @@ export function itemStats(it) {
     case 'consumable': return it.effect === 'food' ? `+${it.power} food` : it.power ? `${it.effect} ${it.power}` : it.effect;
     case 'reagent': return 'reagent';
     case 'key': return 'key';
+    case 'map': return 'treasure map';
     default: return it.type;
   }
 }
@@ -1493,6 +1508,9 @@ Any key stops a walk. Two fingers pinch to zoom; the mouse wheel zooms too.</p>
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Stop walking / menu</td></tr>
 </table>
 <p>Step onto towns, caves and stairs to enter them; walk off the edge of a town to leave.</p>
+<p><b>Treasure maps</b> turn up in chests, on beaten foes, as rewards and (for a price) from shady folk. Read one (<b>U</b>, or
+<b>Read</b> in the pack) to see a sketch of the place and its clue; your map (<b>M</b>) then rings the area in red. Find the very
+square the clue speaks of and <b>Dig here</b> appears in the Nearby bar. Some hoards are guarded.</p>
 <h3>Quests</h3>
 <p>Your current goal is always shown at the top left of the map, with an arrow pointing the way. People with a task for you
 are marked <b>!</b>; talk to them to take it on. Press <b>J</b> for the Journal: every quest, its steps and its reward.

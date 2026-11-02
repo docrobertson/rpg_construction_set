@@ -7,6 +7,7 @@ import { MAP_TYPES } from '../../world/map.js';
 import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
+import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -157,6 +158,7 @@ export function inspectEntity(ed, ent, container) {
         { key: 'passive', label: 'Never gives chase', type: 'check' },
         { key: 'boss', label: 'Boss (drawn larger)', type: 'check' },
         { key: 'flag', label: 'Sets flag when defeated', type: 'text', placeholder: 'e.g. troll_slain' },
+        { key: 'loot', label: 'Carrying (found when beaten)', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]), hint: 'A treasure map, a key, a stolen heirloom…' },
       ], (k) => { if (k === 'monster') ed.lastMonster = ent.monster; changed(); if (k === 'monster') { ed.refreshEntities(); } }));
       break;
     }
@@ -170,6 +172,31 @@ export function inspectEntity(ed, ent, container) {
         { key: 'flag', label: 'Sets flag when opened', type: 'text' },
       ], changed));
       break;
+    case 'treasure': {
+      container.appendChild(head('Buried treasure', `at ${ent.x}, ${ent.y}`));
+      if (ent.bonus === undefined) ent.bonus = true; // (the game treats a missing one as on)
+      container.appendChild(buildForm(ent, [
+        { key: 'name', label: 'Name', type: 'text', placeholder: 'The Smugglers\' Hoard' },
+        { key: 'clue', label: 'Clue on the map', type: 'textarea', rows: 3, hint: 'Count the paces from something the player can find: "Three paces east of the lone standing stone".' },
+        { key: 'gold', label: 'Gold', type: 'dice', placeholder: '6d20 or 150' },
+        { key: 'items', label: 'Items', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]) },
+        { key: 'bonus', label: 'Extra gold and gear for stronger companies', type: 'check', hint: 'On unless unticked: more gold and a piece of gear that grow with the party\'s level.' },
+        { key: 'guardian', label: 'Guarded by', type: 'select', options: () => game.monsters.map((m) => [m.id, `${m.name} (lvl ${m.level})`]), empty: '— nothing —', nullable: true, rerender: true },
+        { key: 'count', label: 'How many', type: 'text', placeholder: '1 or 2-3', show: (o) => !!o.guardian },
+        { key: 'guardChance', label: 'Chance they rise', type: 'number', step: 0.05, min: 0, max: 1, nullable: true, show: (o) => !!o.guardian, hint: 'Blank = always.' },
+        { key: 'guardText', label: 'When they rise', type: 'textarea', rows: 2, show: (o) => !!o.guardian },
+      ], changed));
+      const maps = game.items.filter((it) => it.type === 'map' && it.treasure === ent.id);
+      container.appendChild(h('div.form', h('div.form-section', 'Its map'),
+        maps.length ? h('p.hint', `Led to by: ${maps.map((it) => it.name).join(', ')} (edit it under World data → Items). Give it out in a chest, a shop, a quest reward or a monster band's loot.`)
+          : h('p.hint', 'No map leads here yet.'),
+        h('div.row', h('button.small', {
+          onclick: () => { game.items.push(newMapItem(ent, { name: `Map to ${ent.name || 'Buried Treasure'}` })); ed.markDirty(); inspectEntity(ed, ent, container); toast('A new map item was made.'); },
+        }, '+ Make a map item'), h('button.small', {
+          onclick: () => { ent.clue = clueFor(ed.map, ent.x, ent.y); ent.from = landmarksNear(ed.map, ent.x, ent.y)[0]?.e.id; ed.markDirty(); inspectEntity(ed, ent, container); },
+        }, '🎲 Write a clue from the landmarks'))));
+      break;
+    }
     case 'sign':
       container.appendChild(head('Signpost'));
       container.appendChild(buildForm(ent, [{ key: 'text', label: 'It reads', type: 'textarea', rows: 4 }], changed));

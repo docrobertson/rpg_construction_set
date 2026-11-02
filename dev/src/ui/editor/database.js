@@ -102,6 +102,7 @@ export function categories(game) {
         { key: 'effect', label: 'Effect', type: 'select', options: ITEM_EFFECTS, show: (o) => o.type === 'consumable' },
         { key: 'power', label: 'Power', type: 'text', placeholder: '2d8+2', show: (o) => o.type === 'consumable', hint: 'Healing dice, light duration, food amount…' },
         { key: 'combat', label: 'Usable in battle', type: 'check', show: (o) => o.type === 'consumable' },
+        { key: 'treasure', label: 'Leads to', type: 'select', options: () => game.maps.flatMap((m) => (m.entities || []).filter((e) => e.type === 'treasure').map((e) => [e.id, `${e.name || 'Buried treasure'} (${m.name} ${e.x}, ${e.y})`])), empty: '— nowhere —', nullable: true, show: (o) => o.type === 'map', hint: 'Bury treasure with the ⛏ tool on a map; its map item is made with it.' },
         { type: 'info', label: 'Reagents fuel Rune-craft spells. Keys open locked doors and chests (one key per lock). Quest items can be required by portals and checked in conversations.', show: (o) => ['reagent', 'key', 'quest'].includes(o.type) },
       ],
     },

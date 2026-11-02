@@ -142,6 +142,7 @@ export function itemIcon(it) {
     case 'reagent': return ['herb', 'herb'];
     case 'key': return ['key', 'goldish'];
     case 'quest': return ['gem', 'quest'];
+    case 'map': return ['map', 'paper'];
     default: return ['star', 'plain'];
   }
 }

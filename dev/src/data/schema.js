@@ -6,6 +6,7 @@ import { generateWorld } from '../world/generate.js';
 import { T } from './terrain.js';
 import { migrateQuests } from '../game/quests.js';
 import { nativeOf } from '../game/travel.js';
+import { buryTreasures } from '../game/treasure.js';
 
 export const FORMAT = 'rpgcs-game';
 export const VERSION = 1;
@@ -66,7 +67,10 @@ export function newGame(opts = {}) {
       else if (d < 1.3) world.tiles[y * world.w + x] = T.shallows;
     }
   } else {
-    world = generateWorld(opts.w || 80, opts.h || 80, opts.seed ?? Math.floor(Math.random() * 1e9));
+    const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
+    world = generateWorld(opts.w || 80, opts.h || 80, seed);
+    // two or three hoards, their maps given out by the world's encounters
+    buryTreasures(game, world, seed);
   }
   world.name = 'The World';
   game.maps.push(world);

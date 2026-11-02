@@ -1368,3 +1368,10 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .rc-sub { font: 12.5px var(--font-ui); color: var(--muted); }
 .rc-say { margin: 6px 0 0; font: italic 15px/1.45 var(--font-display); color: var(--text); }
 @media (max-width: 860px) { .hud-resting { display: none; } }
+
+/* a torn treasure map, read from the pack */
+.tmap-modal { max-width: 560px; }
+.tmap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.tmap-canvas { width: min(440px, 80vw); height: auto; display: block; }
+.tmap-clue { font: italic 18px/1.4 var(--font-display); color: var(--text); text-align: center; margin: 2px 12px; }
+.map-legend i.tx { border: 2px dashed #b3241b; border-radius: 50%; }

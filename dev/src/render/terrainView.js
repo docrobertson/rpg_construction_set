@@ -46,6 +46,29 @@ const isPit = (t) => t.key === 'chasm' || t.key === 'void';
 const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55 };
 // small scenery cleared from the squares round a site, so nothing grows through its walls
 const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks']);
+// rock too tall to clear: in front of a point of interest it is drawn low
+const CRAGS = new Set(['mountain', 'peak']);
+// things on the world map that stand in a little clearing of their own
+const CLEARED = new Set(['event', 'chest', 'sign']);
+
+// Points of interest, chests and signposts on the world map stand in a glade:
+// nothing grows on their square or in the row in front of it (the camera looks
+// north, so that row is what would hide them), and the woods on either side
+// and behind thin out. 2: cleared, 1: thinned. Null on other maps.
+export function clearingsFor(map) {
+  if (!map || map.type !== 'world') return null;
+  const c = new Uint8Array(map.w * map.h);
+  for (const e of map.entities || []) {
+    if (!CLEARED.has(e.type) && !(e.type === 'portal' && e.style === 'waygate')) continue;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = e.x + dx, y = e.y + dy;
+      if (x < 0 || y < 0 || x >= map.w || y >= map.h) continue;
+      const k = (dx === 0 && dy === 0) || dy === 1 ? 2 : 1;
+      if (c[y * map.w + x] < k) c[y * map.w + x] = k;
+    }
+  }
+  return c;
+}
 
 // height of the ground itself (walls stand on it; water fills above it)
 const GROUND = {
@@ -97,6 +120,7 @@ export class TerrainView {
     this.owned = null;
     this.groundSubst = null;
     this.extraLights = [];
+    this.clearing = null;
   }
 
   dispose() {
@@ -125,6 +149,7 @@ export class TerrainView {
     this.style = inferStyle(map);
     // arenas get a deep frame of scenery, other maps a thin one
     this.M = map.type === 'arena' ? 8 : 3;
+    this.clearing = clearingsFor(map);
     const M = this.M;
     this.TW = map.w + 2 * M;
     this.TH = map.h + 2 * M;
@@ -243,6 +268,17 @@ export class TerrainView {
     const c = Math.max(0, Math.floor((c0 + M - 1) / CHUNK));
     const d = Math.min(this.ch - 1, Math.floor((d0 + M + 1) / CHUNK));
     for (let cy = c; cy <= d; cy++) for (let cx = a; cx <= b; cx++) this.dirty.add(cy * this.cw + cx);
+  }
+
+  // the map's points of interest came or went (the editor): open or close
+  // their clearings
+  refreshClearings() {
+    if (!this.map) return;
+    const before = this.clearing, after = clearingsFor(this.map);
+    this.clearing = after;
+    if (!before || !after) return;
+    const w = this.map.w;
+    for (let i = 0; i < after.length; i++) if (before[i] !== after[i]) this.markDirty(i % w, Math.floor(i / w), i % w, Math.floor(i / w));
   }
 
   markAllDirty() {
@@ -558,9 +594,12 @@ export class TerrainView {
     const world = this.map.type === 'world';
     const site = world && SITE_SCALE[t0.deco];
     if (world && !site && CLUTTER.has(t0.deco) && this._nearSite(x, y)) return;
+    const glade = world && !outside && this.clearing ? this.clearing[y * this.map.w + x] : 0;
+    if (glade === 2 && CLUTTER.has(t0.deco)) return;
     const deco = prop || (t0.deco && DECOR[t0.deco]);
     if (deco) {
-      const marks = site ? [P.pos.length, G.pos.length, W.pos.length, lights.length] : null;
+      const low = glade === 2 && CRAGS.has(t0.deco) ? 0.4 : 0;
+      const marks = site || low ? [P.pos.length, G.pos.length, W.pos.length, lights.length] : null;
       const ctx = {
         B: P, W, G, x, z: y, cx: x + 0.5, cz: y + 0.5,
         y: t.water ? WATER_Y : top,
@@ -575,12 +614,19 @@ export class TerrainView {
         },
         light: (px, pz, rad, color, s = 1) => lights.push([px, pz, rad, lin(color), s]),
         torch: !outside && wallTorchAt(this.map, x, y),
+        thin: glade === 1,
       };
       P.auxAt = null;
       // scenery beyond the edge is seen from afar: lighter trees
       P.cheap = outside;
       deco(ctx);
       P.auxAt = null;
+      if (low) {
+        for (const [B, from] of [[P, marks[0]], [G, marks[1]], [W, marks[2]]]) {
+          const p = B.pos;
+          for (let i = from + 1; i < p.length; i += 3) p[i] = center + (p[i] - center) * low;
+        }
+      }
       if (site) {
         const cx = x + 0.5, cz = y + 0.5;
         for (const [B, from] of [[P, marks[0]], [G, marks[1]], [W, marks[2]]]) {

@@ -172,7 +172,7 @@ export const PERKS = [
 
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
-export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'key', 'quest'];
+export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'key', 'quest', 'map'];
 export const ITEM_EFFECTS = ['heal', 'cure', 'revive', 'mp', 'light', 'food', 'reveal', 'recall'];
 export const SPELL_TARGETS = ['enemy', 'area', 'allEnemies', 'ally', 'allAllies', 'self'];
 export const SPELL_EFFECTS = ['damage', 'heal', 'cure', 'revive', 'sleep', 'fear', 'shield', 'bless', 'drain', 'light', 'reveal', 'recall'];

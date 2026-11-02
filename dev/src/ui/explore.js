@@ -14,6 +14,7 @@ import { partyAlive, partyLevel, raceOf, classOf, itemOf } from '../game/rules.j
 import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
 import { markerGlyph } from '../render/markers.js';
+import { digOptions } from '../game/treasure.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -47,6 +48,7 @@ const GLYPHS = {
   sign: P('M11 10h2v12h-2z') + P('M3 3h18v8H3z'),
   star: P('M12 2.2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17.1l-6.1 3.5 1.5-6.8-5.2-4.6 6.9-.7z'),
   leave: P('M3 3h10v18H3z') + ST('M14 12h8M18.5 8.5L22 12l-3.5 3.5', 2.4),
+  dig: ST('M16.5 3.5L9.5 13', 2.6) + P('M14.6 1.6l5.8 4-1.4 2-5.8-4z') + P('M8.2 10.8l4 2.8-2.6 5.6c-.7 1.5-2.6 2-4 1L4 19c-1.3-.9-1.6-2.8-.6-4.1z'),
 };
 export const glyph = (k) => `<svg class="xg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${GLYPHS[k] || GLYPHS.star}</svg>`;
 
@@ -130,7 +132,7 @@ export class Explorer {
       const here = this.buildingIndexAt(s.state.pos.x, s.state.pos.y);
       if (b && here !== bi) return { kind: 'building', b, bi, x: t.x, y: t.y };
     }
-    const at = s.map.entities.filter((e) => e.x === t.x && e.y === t.y && e.type !== 'npc' && e.type !== 'monster');
+    const at = s.map.entities.filter((e) => e.x === t.x && e.y === t.y && e.type !== 'npc' && e.type !== 'monster' && e.type !== 'treasure');
     for (const e of at) { const et = this.entityTarget(e); if (et) return et; }
     return { kind: 'tile', x: t.x, y: t.y };
   }
@@ -575,6 +577,11 @@ export class Explorer {
       const out = p.x === 0 ? [-1, 0] : p.x === map.w - 1 ? [1, 0] : p.y === 0 ? [0, -1] : [0, 1];
       acts.push({ kind: 'enter', icon: 'leave', label: `Leave ${map.name}`, run: () => s.move(out[0], out[1]), pri: 2 });
     }
+    // buried treasure, with its map in the pack: dig on the very square; a
+    // square or two off, only a hint
+    const dig = ship ? {} : digOptions(s);
+    if (dig.here) acts.push({ kind: 'use', icon: 'dig', label: 'Dig here', run: () => s.digTreasure(dig.here), pri: 0 });
+    else if (dig.near) acts.push({ kind: 'none', icon: 'dig', label: 'Something is buried near here', run: () => s.log('Your map says it is close: something is buried within a pace or two. Find the very spot the clue speaks of.'), pri: 3 });
     acts.sort((a, b) => a.pri - b.pri);
     // keys: T talks, E does the first other thing, then 1-4
     let n = 1;

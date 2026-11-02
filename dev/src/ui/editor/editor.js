@@ -12,6 +12,7 @@ import { DatabaseEditor } from './database.js';
 import { renderSettings } from './settings.js';
 import { QuestEditor, EVENT_TOOL, eventTemplatePicker } from './quests.js';
 import { eventLook } from '../../game/events.js';
+import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
 import { attachGestures } from '../../render/gestures.js';
@@ -237,7 +238,7 @@ export class Editor {
       pal,
       h('label.field.check', allCb, h('span.field-label', 'Show every tile type'))));
     // entities
-    const ents = ['select', 'npc', 'monster', 'chest', 'sign', 'ship', 'waygate', 'portal', 'start'];
+    const ents = ['select', 'npc', 'monster', 'chest', 'treasure', 'sign', 'ship', 'waygate', 'portal', 'start'];
     if (!isWorld) ents.push('entry');
     ents.push('erase');
     L.appendChild(section('Characters & objects', 'Place people, monsters and treasure. Select them to edit.',
@@ -353,7 +354,7 @@ export class Editor {
 
   makeMap(type, gen, name, seed = Math.floor(Math.random() * 1e9)) {
     let m;
-    if (gen === 'world') m = generateWorld(80, 80, seed);
+    if (gen === 'world') { m = generateWorld(80, 80, seed); buryTreasures(this.game, m, seed); }
     else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes('dungeon') && x.level <= 3).map((x) => x.id) }).map;
     else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; nameNpcs(m, this.game, seed); }
     else m = createMap({ type, name });
@@ -394,6 +395,9 @@ export class Editor {
           map.w = m.w; map.h = m.h;
           map.entities = [...m.entities, ...keepPortals.map((k) => k.p)];
           for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+          // the old hoards went with the old land: new ones, with new maps
+          forgetLostMaps(this.game);
+          if (gen.value === 'world') buryTreasures(this.game, map, seed);
           map.entry = m.entry;
           map.lighting = m.lighting;
           map.fill = m.fill;
@@ -505,6 +509,7 @@ export class Editor {
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : { kind: 'marker', color: 0x60a0ff };
       case 'event': return eventLook(e);
+      case 'treasure': return { kind: 'marker', color: 0xd03020 };
       default: return { kind: 'marker' };
     }
   }
@@ -516,6 +521,7 @@ export class Editor {
     if (s.map === this.map.id) this.view.addEntity('__start', { kind: 'marker', color: 0xffd040 }, s.x, s.y);
     if (this.map.type !== 'world' && this.map.entry) this.view.addEntity('__entry', { kind: 'marker', color: 0x40e080 }, this.map.entry.x, this.map.entry.y);
     if (this.selected) this.view.setRing(this.selected.id, 0xffe040);
+    this.view.terrain.refreshClearings();
   }
 
   addVisual(e) {
@@ -530,6 +536,7 @@ export class Editor {
     this.view.removeEntity(e.id);
     this.addVisual(e);
     if (this.selected === e) this.view.setRing(e.id, 0xffe040);
+    this.view.terrain.refreshClearings();
   }
 
   entityAt(x, y) {
@@ -540,6 +547,7 @@ export class Editor {
   removeEntity(e) {
     this.map.entities = this.map.entities.filter((x) => x !== e);
     this.view.removeEntity(e.id);
+    this.view.terrain.refreshClearings();
     if (this.selected === e) this.select(null);
     this.markDirty();
   }

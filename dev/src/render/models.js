@@ -225,6 +225,115 @@ function well(spec) {
   return { B, G, height: 0.98, noLean: true };
 }
 
+// A hunters' lodge: a cabin of notched logs, its gable end to the road with a
+// stag's antlers over the door, a mossy shingle roof, smoke from a stone
+// chimney, a lamp in the window, a hide stretched to dry and firewood.
+function lodge(spec) {
+  const { B, G } = builders();
+  const log = spec.color ?? 0x8a5c34, roof = spec.roof ?? 0x8a6c4a;
+  const stone = 0xa29c90, bone = 0xf2e8d0;
+  const W = 0.3, D = 0.32, top = 0.4, ridge = 0.8;
+  // a fieldstone footing and the solid core of the walls
+  B.box(deep(stone, 0.8), { y: 0, sx: W * 2 + 0.08, sy: 0.05, sz: D * 2 + 0.08, grad: 0.3 });
+  B.box(deep(log, 0.7), { y: 0.04, sx: W * 2 - 0.04, sy: top - 0.04, sz: D * 2 - 0.04 });
+  // notched logs: the side courses cross the end courses at the corners
+  for (let k = 0; k < 5; k++) {
+    const y = 0.075 + k * 0.07;
+    const c = k % 2 ? log : tint(log, 1.1);
+    for (const x of [-W, W]) tube(B, [[x, y, -D - 0.05], [x, y, D + 0.05]], 0.036, [deep(c, 0.8), c, deep(c, 0.8)], { segs: 6 });
+    for (const z of [-D, D]) tube(B, [[-W - 0.05, y + 0.035, z], [W + 0.05, y + 0.035, z]], 0.034, [deep(c, 0.85), c, deep(c, 0.85)], { segs: 6 });
+  }
+  // the gable ends: boards up to the ridge, the front one paler
+  for (const z of [-D, D]) {
+    const c = z > 0 ? tint(log, 1.12) : deep(log, 0.85);
+    const a = [-W - 0.02, top + 0.02, z], b = [W + 0.02, top + 0.02, z], m = [0, ridge - 0.02, z];
+    B.tri(a, b, m, c); B.tri(a, m, b, c);
+    if (z > 0) for (const x of [-0.16, 0, 0.16]) B.detail.box(deep(log, 0.6), { x, y: top + 0.02, z: z + 0.004, sx: 0.008, sy: (ridge - top) * (1 - Math.abs(x) / W) - 0.04, sz: 0.004 });
+  }
+  // the roof: two shingled slopes running back from the gable, a deep overhang
+  for (const s of [-1, 1]) {
+    sheet(B, (u, v) => [s * (0.01 + v * (W + 0.14)), ridge - v * (ridge - top + 0.06), (u - 0.5) * (D * 2 + 0.22)], [tint(roof, 1.18), deep(roof, 0.82)], { nu: 4, nv: 3, thick: 0.035, flipN: s < 0, back: deep(roof, 0.45) });
+    for (const v of [0.28, 0.52, 0.76]) B.detail.box(deep(roof, 0.55), { x: s * (0.01 + v * (W + 0.14)), y: ridge - v * (ridge - top + 0.06) + 0.02, z: 0, sx: 0.012, sy: 0.008, sz: D * 2 + 0.22 });
+  }
+  tube(B, [[0, ridge + 0.01, -D - 0.12], [0, ridge + 0.01, D + 0.12]], 0.03, deep(roof, 0.6), { segs: 6 });
+  ball(B, deep(MOSS, 0.8), 0.14, ridge - 0.17, -0.12, 0.08, 0.03, 0.1);
+  // chimney and its smoke
+  B.box(stone, { x: -0.2, y: 0.36, z: -0.16, sx: 0.12, sy: 0.6, sz: 0.12, grad: 0.3 });
+  B.box(deep(stone, 0.7), { x: -0.2, y: 0.95, z: -0.16, sx: 0.15, sy: 0.03, sz: 0.15 });
+  for (const [x, y, r] of [[-0.2, 1.04, 0.05], [-0.16, 1.12, 0.065], [-0.09, 1.2, 0.075]]) ball(B, 0xe4e2dc, x, y, -0.16, r, r * 0.8, r);
+  // the door and its frame, a stag's antlers on the gable above
+  const F = D + 0.04;
+  B.box(0x3a2614, { x: -0.07, y: 0.05, z: F - 0.01, sx: 0.15, sy: 0.27, sz: 0.02 });
+  for (const x of [-0.155, 0.015]) B.box(deep(log, 0.55), { x, y: 0.05, z: F, sx: 0.026, sy: 0.29, sz: 0.026 });
+  B.box(deep(log, 0.55), { x: -0.07, y: 0.32, z: F, sx: 0.21, sy: 0.026, sz: 0.026 });
+  ball(B, 0xc8a050, -0.03, 0.18, F + 0.005, 0.013);
+  const hy = 0.5;
+  ball(B, 0x6a4a30, 0, hy, F, 0.045, 0.04, 0.025);
+  ball(B, 0x8a6a48, 0, hy - 0.02, F + 0.03, 0.03, 0.04, 0.03);
+  for (const sd of [-1, 1]) {
+    const x0 = sd * 0.03;
+    tube(B, [[x0, hy + 0.02, F + 0.01], [x0 + sd * 0.1, hy + 0.07, F + 0.03], [x0 + sd * 0.16, hy + 0.17, F + 0.02]], [0.014, 0.01, 0.005], bone, { segs: 5, outline: true });
+    tube(B, [[x0 + sd * 0.08, hy + 0.06, F + 0.03], [x0 + sd * 0.07, hy + 0.13, F + 0.04]], [0.008, 0.004], bone, { segs: 4, outline: true });
+    tube(B, [[x0 + sd * 0.13, hy + 0.12, F + 0.025], [x0 + sd * 0.19, hy + 0.14, F + 0.03]], [0.007, 0.003], bone, { segs: 4, outline: true });
+  }
+  // a lamp-lit window with green shutters
+  G.box(0xffc060, { x: 0.15, y: 0.17, z: F - 0.005, sx: 0.09, sy: 0.09, sz: 0.01 });
+  B.box(deep(log, 0.5), { x: 0.15, y: 0.21, z: F, sx: 0.09, sy: 0.012, sz: 0.008 });
+  for (const sd of [-1, 1]) B.box(0x4a7a3a, { x: 0.15 + sd * 0.065, y: 0.16, z: F, sx: 0.04, sy: 0.11, sz: 0.012 });
+  // a deer hide stretched on a frame beside the cabin
+  for (const x of [0.42, 0.62]) tube(B, [[x, 0, 0.2], [x, 0.42, 0.2]], 0.014, WOODC, { segs: 5, outline: true });
+  tube(B, [[0.4, 0.38, 0.2], [0.64, 0.38, 0.2]], 0.012, WOODC, { segs: 5, outline: true });
+  sheet(B, (u, v) => [0.44 + u * 0.16, 0.36 - v * 0.25, 0.205 + Math.sin(u * 3.1) * 0.015], [0xd0a070, 0xa8784a], { nu: 3, nv: 3, thick: 0.01, back: 0x7a5232 });
+  // firewood stacked against the side, and a chopping block with its axe
+  for (let k = 0; k < 5; k++) {
+    const y = 0.035 + Math.floor(k / 3) * 0.06, x = -0.48 + (k % 3) * 0.06 + (k >= 3 ? 0.03 : 0);
+    tube(B, [[x, y, -0.2], [x, y, 0.14]], 0.03, [0xd8aa70, 0x8a5a30, 0xd8aa70], { segs: 6 });
+  }
+  lathe(B, [[0.06, 0, 0.06, 0.48], [0.06, 0.08, 0.06, 0.48], [0.055, 0.09, 0.055, 0.48]], [0x6a4224, 0xd8aa70], { segs: 8, dx: () => -0.34 });
+  tube(B, [[-0.34, 0.09, 0.48], [-0.31, 0.25, 0.48]], 0.011, WOODC, { segs: 4, outline: true });
+  B.box(IRONC, { x: -0.345, y: 0.075, z: 0.48, sx: 0.07, sy: 0.04, sz: 0.012 });
+  pebbles(B, 5, 0.52, 0x8a8478, 0.7);
+  return { B, G, height: 1.1, noLean: true };
+}
+
+// A giant crab: a broad knobbly shell, eyes on stalks, six jointed legs and
+// two great pincers raised towards the viewer.
+function crab(spec) {
+  const { B, G } = builders();
+  const c = spec.color ?? 0xc8542c, belly = spec.mark ?? 0xf2c890;
+  const hi = tint(c, 1.18), lo = deep(c, 0.6);
+  // the shell: wide and low, a paler underside, knobs along the rim
+  ball(B, belly, 0, 0.2, 0, 0.36, 0.08, 0.27);
+  ball(B, c, 0, 0.25, -0.01, 0.38, 0.13, 0.29, { grad: 0.4 });
+  ball(B, hi, 0, 0.33, -0.03, 0.22, 0.06, 0.16);
+  for (let k = -3; k <= 3; k++) ball(B, k % 2 ? hi : lo, k * 0.1, 0.27 + (3 - Math.abs(k)) * 0.008, 0.25 - Math.abs(k) * 0.025, 0.035, 0.025, 0.03);
+  // legs: three a side, bent at the knee, pointed feet
+  for (const sd of [-1, 1]) for (let i = 0; i < 3; i++) {
+    const z = -0.14 + i * 0.1, x0 = sd * 0.3;
+    const knee = [sd * (0.5 + i * 0.02), 0.32, z - 0.03 + i * 0.02], foot = [sd * (0.62 + i * 0.03), 0, z - 0.06 + i * 0.05];
+    tube(B, [[x0, 0.22, z], knee], [0.04, 0.032], [lo, c], { segs: 6 });
+    tube(B, [knee, foot], [0.032, 0.006], [c, lo], { segs: 6 });
+  }
+  // the pincers: an arm up and forward, a fat claw with a hooked finger
+  for (const sd of [-1, 1]) {
+    const sh = [sd * 0.24, 0.24, 0.18], el = [sd * 0.36, 0.36, 0.34], wr = [sd * 0.22, 0.46, 0.46];
+    tube(B, [sh, el], [0.05, 0.045], [lo, c], { segs: 7 });
+    tube(B, [el, wr], [0.045, 0.05], [c, hi], { segs: 7 });
+    ball(B, c, wr[0], wr[1] + 0.02, wr[2] + 0.06, 0.09, 0.075, 0.12, { grad: 0.3 });
+    tube(B, [[wr[0] - sd * 0.02, wr[1] + 0.06, wr[2] + 0.12], [wr[0] - sd * 0.04, wr[1] + 0.1, wr[2] + 0.22], [wr[0] - sd * 0.08, wr[1] + 0.06, wr[2] + 0.28]], [0.04, 0.03, 0.008], [c, deep(c, 0.4)], { segs: 6 });
+    tube(B, [[wr[0] + sd * 0.01, wr[1] - 0.02, wr[2] + 0.14], [wr[0] - sd * 0.02, wr[1] - 0.03, wr[2] + 0.22], [wr[0] - sd * 0.06, wr[1] + 0.01, wr[2] + 0.26]], [0.03, 0.02, 0.006], [c, deep(c, 0.4)], { segs: 6 });
+  }
+  // eyes on stalks, and a little frothing mouth
+  for (const sd of [-1, 1]) {
+    tube(B, [[sd * 0.06, 0.3, 0.2], [sd * 0.08, 0.42, 0.24]], 0.016, c, { segs: 5, outline: true });
+    ball(B, 0x14100e, sd * 0.08, 0.44, 0.245, 0.03, 0.032, 0.028);
+    ball(B, 0xffffff, sd * 0.08 - 0.008, 0.455, 0.268, 0.009);
+    if (spec.eyes != null && spec.eyes !== 0x101010) G.shape(TPL.ico0, spec.eyes, { x: sd * 0.08, y: 0.44, z: 0.27, s: 0.02 });
+  }
+  for (let k = 0; k < 3; k++) ball(B, 0xf4f4ee, (k - 1) * 0.03, 0.25, 0.27, 0.016);
+  return { B, G, height: 0.62 };
+}
+
 // record metal so the shader paints a glint on it (as figures do)
 function MT(B, fn) {
   const a = B.count, d = B.detail ? B.detail.count : 0;
@@ -248,7 +357,7 @@ function marker(spec) {
 
 const humanoid = (spec) => figure(spec, TPL);
 
-const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker, shrine, lorestone, well };
+const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker, shrine, lorestone, well, lodge, crab };
 
 // The outline shell needs one normal per corner, or blocky parts split open
 // at their edges: average the normals of every vertex sharing a position.

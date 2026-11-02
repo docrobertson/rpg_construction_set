@@ -19,6 +19,7 @@ import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, adv
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
+import { treasureState, digTreasure } from './treasure.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -158,6 +159,7 @@ export class PlaySession {
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
     ensureQuestState(state); // older saves have no quest log
+    treasureState(state); // nor treasure maps
   }
 
   get party() { return this.state.party; }
@@ -262,7 +264,8 @@ export class PlaySession {
     if (!look) return;
     if (this.state.vehicle && this.state.vehicle.id === e.id) return;
     const scale = e.type === 'monster' && e.boss ? 1.2 : 1;
-    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale });
+    const poi = e.type === 'event' || e.type === 'chest' || e.type === 'sign';
+    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale, poi });
   }
 
   // The company: the leader stands on the party's square and everyone else
@@ -286,7 +289,7 @@ export class PlaySession {
     this.view.setFollowers?.(alive.slice(1).map((m) => ({ key: m.id || m.name, look: charLook(this.game, m) })), {
       scale, spacing: (world ? 0.5 : 0.58) * (big ? 1.25 : 1),
       walkable: (x, y) => this.followerGround(x, y),
-      taken: (x, y) => this.map.entities.some((e) => e.x === x && e.y === y),
+      taken: (x, y) => this.map.entities.some((e) => e.x === x && e.y === y && e.type !== 'treasure'),
     });
   }
 
@@ -878,6 +881,9 @@ export class PlaySession {
     checkQuests(this);
     this.checkVictory();
   }
+
+  // dig for buried treasure on the party's square (game/treasure.js)
+  digTreasure(e) { return digTreasure(this, e); }
 
   removeEntity(e, persist = true) {
     this.map.entities = this.map.entities.filter((x) => x !== e);
