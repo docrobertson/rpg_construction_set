@@ -26,6 +26,7 @@ await ready();
 // food: walk 30 steps back and forth on the world
 log(await ev(async () => {
   const s = window.__app.session;
+  s.map.encounterRate = 0; // a wandering band would start a battle nobody here fights
   const before = s.party.food;
   for (let i = 0; i < 30; i++) { await s.move(i % 2 ? 1 : -1, 0); while (s.busy) await new Promise((r) => setTimeout(r, 10)); if (s.mode !== 'explore') break; }
   return { before, after: s.party.food, mode: s.mode, turn: s.state.turn };
@@ -35,6 +36,7 @@ log(await ev(async () => {
   const s = window.__app.session;
   if (s.mode !== 'explore') return 'not exploring: ' + s.mode;
   s.map.entities = s.map.entities.filter((e) => e.type !== 'monster');
+  s.map.encounterRate = 0; // no ambush: the camp should finish
   s.party.members[0].hp = 1;
   await s.camp();
   return { hp: s.party.members[0].hp, food: s.party.food };

@@ -94,11 +94,14 @@ log(await ev(async () => {
 }));
 // 7. Leave dungeon via exit
 log(await ev(async () => { const s = window.__app.session; await s.leaveMap(); return { map: s.map.name, pos: s.state.pos }; }));
-// 8. Ship: board the ship near Westhold and sail
+// 8. Ship: buy one from the shipwright at Gullhaven, board her at the quay and sail
 log(await ev(async () => {
   const s = window.__app.session;
   const w = s.game.maps[0];
   if (s.map.id !== w.id) await s.enterMap(w.id, 20, 52, { instant: true });
+  const wright = s.game.maps.flatMap((m) => m.entities).find((e) => e.role === 'shipwright');
+  s.party.gold += 500;
+  s.say(wright, 'BUY');
   const ship = s.map.entities.find((e) => e.type === 'ship');
   // stand next to it
   const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: ship.x + dx, y: ship.y + dy, dx: -dx, dy: -dy }));
@@ -136,7 +139,7 @@ log(await ev(async () => {
   const boss = s.map.entities.find((e) => e.boss);
   s.engage(boss);
   await new Promise((r) => setTimeout(r, 2500));
-  for (const u of s.battle.enemies) { u.hp = 2; }
+  for (const u of s.battle.enemies) { u.hp = 2; u.phased = true; } // (skip the boss's second phase)
   for (let i = 0; i < 400 && s.battle; i++) {
     const b = s.battle;
     if (b.active && !b.acting) {

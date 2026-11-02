@@ -164,7 +164,203 @@ const loot = await ev(() => {
 check('foes drop loot', loot.nobattle || (loot.changed && loot.lines.length > 0), loot);
 // finish the battle
 await ev(() => { const b = window.__app.session.battle; if (b) for (const e of b.enemies) { e.hp = 0; e.dead = true; } if (b && b.active) b.actPass(); });
-await wait(3000);
+const idle = () => ev(async () => { for (let i = 0; i < 300; i++) { const s = window.__app.session; if (!s.battle && s.mode === 'explore' && !s.busy) return true; await new Promise((r) => setTimeout(r, 100)); } return false; });
+await idle();
+await wait(500);
+await ev(() => document.querySelectorAll('.modal-back').forEach((m) => m.remove()));
+
+// --- the battle overhaul: initiative, action bar, odds, skills, tactics, telegraphed blows, talents
+await ev(() => { const s = window.__app.session; for (const m of s.party.members) { m.hp = 60; m.status = 'ok'; } s.fight([{ id: 'orc', n: 2 }, { id: 'goblin', n: 2 }], 'grass', {}); });
+const heroUp = async () => { for (let i = 0; i < 200; i++) { if (await ev(() => !!window.__app.session.battle?.active && !window.__app.session.battle.acting)) return true; await wait(150); } return false; };
+await heroUp();
+const hud = await ev(() => {
+  const b = window.__app.session.battle;
+  return {
+    chips: document.querySelectorAll('.cbt-chip').length, now: document.querySelectorAll('.cbt-chip.now').length, units: b.units.length,
+    buttons: [...document.querySelectorAll('.cbt-btn .cb-name')].map((x) => x.textContent),
+    plates: document.querySelectorAll('.cbt-plate').length, ordered: b.order.every((u, i) => !i || b.order[i - 1].init >= u.init),
+  };
+});
+check('initiative strip shows who acts now and next', hud.chips >= hud.units && hud.now === 1 && hud.ordered, hud);
+// (a level-1 hero has one skill and no special yet: those come at levels 2 and 3)
+check('action bar lists moves, attack, skills, cast, item, guard and end turn', hud.buttons.length >= 7 && hud.buttons.includes('Guard') && hud.buttons.includes('End turn'), hud.buttons);
+check('health plates float over every figure', hud.plates === hud.units, hud.plates);
+// the HUD keeps out of the way: every label fits, the prompt leaves the log
+// alone, nobody stands under the turn strip, and floating words never overlap
+const fit = await ev(() => {
+  const bad = [];
+  for (const el of document.querySelectorAll('.cbt-btn .cb-name, .cbt-btn .cb-sub')) if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) bad.push(el.textContent);
+  const p = document.querySelector('.hud-prompt').getBoundingClientRect(), l = document.querySelector('.hud-log').getBoundingClientRect();
+  const strip = document.querySelector('.cbt-strip').getBoundingClientRect();
+  const under = [...document.querySelectorAll('.cbt-plate .pl-in')].map((e) => e.getBoundingClientRect()).filter((r) => r.height && r.top < strip.bottom).length;
+  return { bad, promptOverLog: !(p.bottom <= l.top || p.top >= l.bottom || p.right <= l.left || p.left >= l.right), under, deploy: window.__app.session.battle.enemies.map((e) => e.y) };
+});
+check('every battle button label fits', !fit.bad.length, fit.bad);
+check('the prompt does not cover the battle log', !fit.promptOverLog);
+check('no fighter stands under the turn strip', fit.under === 0, fit.under);
+check('foes deploy within a turn or two of the heroes', fit.deploy.every((y) => y >= 1 && y <= 4), fit.deploy);
+const floats = await ev(() => {
+  const b = window.__app.session.battle; const u = b.active, v = b.partyUnits.find((p) => p !== u && b.alive(p));
+  for (const t of ['Prayer of Mending', 'Aimed Shot', 'LEVEL UP!']) { b.fx.callout(u.x, u.y, t); b.fx.callout(v.x, v.y, t); }
+  for (let i = 0; i < 3; i++) b.fx.number(u.x, u.y, String(10 + i), 'heal');
+  const rs = [...document.querySelectorAll('.fx-callout, .fx-num')].map((e) => e.getBoundingClientRect());
+  let hits = 0;
+  for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) { const a = rs[i], c = rs[j]; if (a.left < c.right - 1 && c.left < a.right - 1 && a.top < c.bottom - 1 && c.top < a.bottom - 1) hits++; }
+  const n = rs.length;
+  b.fx.clear();
+  return { n, hits };
+});
+check('floating words take turns instead of piling up', floats.n <= 8 && floats.hits === 0, floats);
+const shotWhy = await ev(() => {
+  const s = window.__app.session, b = s.battle, u = b.active, m = u.member;
+  const e = b.enemies.find((x) => b.alive(x));
+  const keep = { ranged: m.equip.ranged, ex: e.x, ey: e.y, tile: null };
+  m.equip.ranged = 'short_bow';
+  const tx = u.x, ty = u.y - 1, ey = u.y - 3;
+  const occupant = b.units.filter((x) => b.alive(x) && x !== e && x.x === tx && (x.y === ty || x.y === ey));
+  for (const o of occupant) o.dead = true;
+  const i = ty * b.arena.w + tx;
+  keep.tile = b.arena.tiles[i];
+  b.arena.tiles[i] = 56; // a tree
+  e.x = tx; e.y = ey;
+  const why = window.__app.playUI.chud.whyNot(u, e);
+  const can = b.canAttack(u, e);
+  b.arena.tiles[i] = keep.tile; e.x = keep.ex; e.y = keep.ey; m.equip.ranged = keep.ranged;
+  for (const o of occupant) o.dead = false;
+  return { why, can };
+});
+check('a blocked shot says the line of fire is blocked', !shotWhy.can && /line of fire blocked/.test(shotWhy.why), shotWhy);
+// odds on hover: put a goblin beside the active hero, with a friend flanking it
+const odds = await ev(() => {
+  const b = window.__app.session.battle; const u = b.active;
+  const gob = b.enemies.find((e) => b.alive(e) && e.def.id === 'goblin');
+  const spot = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: u.x + dx, y: u.y + dy })).find((c) => b.walkable(c.x, c.y, gob));
+  gob.x = spot.x; gob.y = spot.y; b.view.placeEntity(gob.id, gob.x, gob.y);
+  const plain = b.preview(u, gob);
+  const mate = b.partyUnits.find((p) => p !== u && b.alive(p));
+  const fs = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: gob.x + dx, y: gob.y + dy })).find((c) => b.walkable(c.x, c.y, mate));
+  mate.x = fs.x; mate.y = fs.y; b.view.placeEntity(mate.id, mate.x, mate.y);
+  const flanked = b.preview(u, gob);
+  b.s.ui.combatTurn(u);
+  return { plain: plain.chance, flanked: flanked.chance, notes: flanked.notes, lo: flanked.lo, hi: flanked.hi };
+});
+check('attack preview gives odds and damage, and flanking helps', odds.plain > 0 && odds.plain <= 1 && odds.flanked > odds.plain && odds.notes.some((n) => /Flanking/.test(n)) && odds.hi >= odds.lo, odds);
+const card = await ev(async () => {
+  const b = window.__app.session.battle; const v = b.view;
+  const gob = b.enemies.find((e) => b.alive(e) && b.adjacent(b.active, e));
+  const r = v.renderer.domElement.getBoundingClientRect(); const p = v.worldToScreen(gob.x + 0.5, 0.3, gob.y + 0.5);
+  return { x: p.x + r.left, y: p.y + r.top };
+});
+await page.mouse.move(card.x, card.y);
+await wait(300);
+const tip = await ev(() => { const t = document.querySelector('.cbt-tip'); return t && !t.hidden ? t.textContent : ''; });
+check('hovering a foe shows its card with the chance to hit', /to hit/.test(tip) && /Armour/.test(tip), tip.slice(0, 120));
+await page.mouse.move(5, 795);
+// a skill with a cooldown, and a status effect
+const skill = await ev(async () => {
+  const b = window.__app.session.battle; const u = b.active;
+  const ab = b.abilitiesOf(u).find((a) => a.cooldown && b.canUseAbility(u, a).ok && b.abilityTargets(u, a).kind === 'enemy' && b.abilityTargets(u, a).units.length);
+  if (!ab) return { none: b.abilitiesOf(u).map((a) => a.id + ':' + b.canUseAbility(u, a).why) };
+  const t = b.abilityTargets(u, ab).units[0];
+  const used = await b.actAbility(ab, t, u);
+  return { id: ab.id, used, cd: u.cd[ab.id], again: b.canUseAbility(u, ab).ok, why: b.canUseAbility(u, ab).short };
+});
+check('skills go on cooldown after use', skill.id && skill.cd > 0 && !skill.again && /Ready in/.test(skill.why), skill);
+// conditions apply, show and run out
+const cond = await ev(() => {
+  const b = window.__app.session.battle;
+  const e = b.enemies.find((x) => b.alive(x));
+  b.addStatus(e, 'weakened', 1, 0, null);
+  const shown = b.statusList(e).some((s) => s.id === 'weakened');
+  b.endTurn(e);
+  return { shown, after: b.has(e, 'weakened') };
+});
+check('conditions show and expire', cond.shown && !cond.after, cond);
+// breaking away from a foe invites a free strike
+await heroUp();
+const opp = await ev(async () => {
+  const b = window.__app.session.battle; const u = b.active;
+  const foe = b.enemies.find((e) => b.alive(e));
+  const spots = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: u.x + dx, y: u.y + dy, dx, dy }));
+  const at = spots.find((c) => b.walkable(c.x, c.y, foe) && b.walkable(u.x - c.dx, u.y - c.dy, u));
+  if (!at) return { skipped: true };
+  foe.x = at.x; foe.y = at.y; foe.reacted = false; foe.stun = 0; foe.sleep = 0; b.view.placeEntity(foe.id, foe.x, foe.y);
+  const warned = b.provokers(u, u.x - at.dx, u.y - at.dy).includes(foe);
+  u.moves = Math.max(1, u.moves || 0);
+  const lines = document.querySelectorAll('.log-line').length;
+  await b.actMove(-at.dx, -at.dy);
+  const log = [...document.querySelectorAll('.log-line')].slice(lines).map((l) => l.textContent);
+  return { warned, reacted: foe.reacted, log };
+});
+check('stepping away from a foe provokes a free strike', opp.skipped || (opp.warned && opp.reacted && opp.log.some((l) => /strikes at/.test(l))), opp);
+// a telegraphed blow lands only on whoever stays in the marked squares
+const wind = await ev(async () => {
+  const b = window.__app.session.battle;
+  const orc = b.enemies.find((e) => b.alive(e));
+  const smash = b.game.abilities.find((a) => a.id === 'brutal_smash');
+  const hero = b.partyUnits.find((p) => b.alive(p));
+  b.current = orc;
+  await b.beginWindup(orc, smash, { x: hero.x, y: hero.y });
+  const marked = !!orc.charging && orc.charging.tiles.some((t) => t.x === hero.x && t.y === hero.y);
+  const hp0 = hero.member.hp;
+  // the hero steps out of the way before it lands
+  const free = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: hero.x + dx, y: hero.y + dy })).find((c) => b.walkable(c.x, c.y, hero));
+  hero.x = free.x; hero.y = free.y; b.view.placeEntity(hero.id, hero.x, hero.y);
+  await b.releaseWindup(orc);
+  b.current = null;
+  return { marked, dodged: hero.member.hp === hp0, cleared: !orc.charging };
+});
+check('telegraphed blows mark their squares and can be dodged', wind.marked && wind.dodged && wind.cleared, wind);
+// guard is a turn-ending brace
+await heroUp();
+const guard = await ev(async () => { const b = window.__app.session.battle; const u = b.active; const ac = b.acOf(u); await b.actGuard(u); return { before: ac, after: b.acOf(u), ended: b.active !== u }; });
+check('guard braces for +3 armour and ends the turn', guard.after === guard.before + 3 && guard.ended, guard);
+await shot('feat-battle-hud');
+// win: the victory screen sums it up, with talents to choose after a level-up
+await ev(() => { for (const m of window.__app.session.party.members) m.xp = 49; });
+await heroUp();
+await ev(async () => { const b = window.__app.session.battle; for (const e of b.enemies) if (b.alive(e)) await b.kill(e); if (b.active) b.actPass(); });
+await idle();
+await wait(1500);
+const vic = await ev(() => ({
+  title: document.querySelector('.victory-modal .modal-title')?.textContent, rows: document.querySelectorAll('.vic-hero').length,
+  perks: document.querySelectorAll('.victory-modal .perk').length, pending: window.__app.session.party.members.map((m) => m.perkPending),
+}));
+check('victory screen shows experience and offers talents', /Victory/.test(vic.title || '') && vic.rows >= 1 && vic.perks >= 2 && vic.pending.some((p) => p > 0), vic);
+const vfit = await ev(() => { const b = document.querySelector('.victory-modal .modal-body'); const last = [...document.querySelectorAll('.victory-modal .perk')].pop()?.getBoundingClientRect(); return { sh: b.scrollHeight, ch: b.clientHeight, lastBottom: last && Math.round(last.bottom), win: window.innerHeight, levelled: document.querySelectorAll('.vic-hero.up').length }; });
+check('a victory with several level-ups shows every talent pick without scrolling', vfit.levelled < 3 || (vfit.sh <= vfit.ch + 2 && vfit.lastBottom < vfit.win), vfit);
+const perk = await ev(() => {
+  const s = window.__app.session; const m = s.party.members.find((x) => x.perkPending > 0);
+  const btn = document.querySelector('.victory-modal .perk');
+  const before = { perks: m.perks.length, pending: m.perkPending };
+  btn.click();
+  return { before, after: { perks: m.perks.length, pending: m.perkPending } };
+});
+check('choosing a talent learns it', perk.after.perks === perk.before.perks + 1 && perk.after.pending === perk.before.pending - 1, perk);
+await shot('feat-victory');
+await ev(() => document.querySelectorAll('.modal-back').forEach((m) => m.remove()));
+await idle();
+
+// --- older games gain battle abilities, class skills and monster behaviours
+// (the battle code and the editor fill them in on first use)
+await ev(() => {
+  const s = window.__app.session, g = s.game;
+  delete g.abilities;
+  for (const k of g.classes) delete k.skills;
+  for (const m of g.monsters) { delete m.abilities; delete m.ai; }
+  for (const m of s.party.members) { m.hp = 60; m.status = 'ok'; }
+  s.fight([{ id: 'troll', n: 1 }], 'grass', {});
+});
+await heroUp();
+const migr = await ev(() => {
+  const s = window.__app.session; const g = s.game; const b = s.battle;
+  return { abilities: g.abilities?.length, warrior: g.classes.find((k) => k.id === 'warrior').skills, troll: g.monsters.find((m) => m.id === 'troll').abilities, bar: [...document.querySelectorAll('.cbt-btn .cb-name')].map((x) => x.textContent).length, active: !!b?.active };
+});
+check('older games gain the default abilities', migr.abilities > 20 && migr.warrior?.length === 2 && migr.troll?.includes('brutal_smash') && migr.bar >= 8, migr);
+await ev(async () => { const b = window.__app.session.battle; if (b) { for (const e of b.enemies) if (b.alive(e)) await b.kill(e); if (b.active) b.actPass(); } });
+await idle();
+await wait(1200);
+await ev(() => document.querySelectorAll('.modal-back').forEach((m) => m.remove()));
 
 // --- old saves: a bow in the weapon slot moves to the ranged slot
 const mig = await ev(() => {
@@ -180,6 +376,18 @@ const mig = await ev(() => {
   return { equip: r2.equip, points: r2.points };
 });
 check('old saves migrate bows to the ranged slot', mig.equip.ranged === 'long_bow' && mig.equip.weapon === null && mig.points === 0, mig);
+
+// --- the help explains the mouse as well as the keys
+const help = await ev(async () => {
+  const ui = window.__app.playUI;
+  if (!ui) return '';
+  ui.openHelp();
+  await new Promise((r) => setTimeout(r, 200));
+  const t = document.querySelector('.help')?.textContent || '';
+  document.querySelector('.help')?.closest('.modal-back')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  return t;
+});
+check('help explains pointing, clicking, right-click and the Nearby bar', /Point at anything/.test(help) && /Right-click/.test(help) && /Nearby/.test(help) && /E, 1–4/.test(help));
 
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no errors');
 console.log(fails.length ? `${fails.length} FAILED` : 'all passed');

@@ -5,6 +5,7 @@ import { STAMPS, PATHS, ROOMS, buildRoom, furnish, forBlob, line4, placeFeature,
 import { RNG, hash2 } from '../../core/rng.js';
 import { uid } from '../../core/util.js';
 import { promptDialog, toast } from '../dom.js';
+import { newTreasure, newMapItem } from '../../game/treasure.js';
 
 function brushTiles(cx, cy, size) {
   const out = [];
@@ -213,7 +214,7 @@ export function roomTool(key) {
 
 export function featureTool(kind) {
   const fk = FEATURE_KINDS[kind];
-  const icons = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏' };
+  const icons = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏', harbour: '⚓', seacave: '🌊' };
   return {
     label: fk.label, icon: icons[kind] || '⌂', hint: `Click to found a ${fk.label.toLowerCase()}. Its map is generated for you — double-click the site to edit it.`, cursor: 'tile',
     async down(ed, t) {
@@ -237,7 +238,8 @@ function defaultSiteName(kind) {
   const r = new RNG(Math.floor(Math.random() * 1e9));
   const a = ['Ash', 'Bright', 'Cold', 'Elder', 'Green', 'High', 'Long', 'Mist', 'Oak', 'Red', 'Silver', 'Stone', 'Thorn', 'West', 'Wolf', 'Raven'];
   const b = { town: ['ford', 'bury', 'wick', 'hold', 'by', 'ton'], castle: ['guard', 'watch', 'keep', 'hall'], village: ['stead', 'wood', 'brook', 'field'],
-    cave: ['delve', 'hollow', 'barrow', 'den'], tower: ['spire', 'tower', 'needle'], fortress: ['gloom', 'fang', 'doom'], elfhall: ['glade', 'bower', 'eaves'], dwarfgate: ['deep', 'forge', 'gate'] }[kind] || ['hold'];
+    cave: ['delve', 'hollow', 'barrow', 'den'], tower: ['spire', 'tower', 'needle'], fortress: ['gloom', 'fang', 'doom'], elfhall: ['glade', 'bower', 'eaves'], dwarfgate: ['deep', 'forge', 'gate'],
+    harbour: ['haven', 'mouth', 'quay', 'port'], seacave: ['cove', 'grotto', 'hole'] }[kind] || ['hold'];
   return r.pick(a) + r.pick(b);
 }
 
@@ -253,6 +255,7 @@ const ENTITY_DEFAULTS = {
     return { type: 'monster', monster: def?.id, count: def?.group ? `${def.group[0]}-${def.group[1]}` : '1', wander: 4 };
   },
   chest: () => ({ type: 'chest', gold: '2d20', items: [] }),
+  treasure: (ed, t) => { const { id, ...rest } = newTreasure(ed.map, t.x, t.y); void id; return rest; },
   sign: () => ({ type: 'sign', text: 'Here lies the road to adventure.' }),
   ship: () => ({ type: 'ship' }),
   waygate: (ed, t) => ({ type: 'portal', style: 'waygate', label: 'Waygate', target: { map: ed.map.id, x: t.x, y: t.y + 2 } }),
@@ -264,6 +267,7 @@ export const ENTITY_TOOLS = {
   npc: { label: 'Person', icon: '🧙', hint: 'Place a person to talk to. Edit their words in the inspector.', cursor: 'tile' },
   monster: { label: 'Monsters', icon: '👹', hint: 'Place a group of monsters that roams nearby.', cursor: 'tile' },
   chest: { label: 'Chest', icon: '🧰', hint: 'Place a treasure chest.', cursor: 'tile' },
+  treasure: { label: 'Buried treasure', icon: '⛏', hint: 'Bury a hoard, and make the torn map that leads to it. Put the map in a chest, a shop, a quest reward or a band of monsters\' loot; the player reads it, finds the spot and digs.', cursor: 'tile' },
   sign: { label: 'Sign', icon: '🪧', hint: 'Place a signpost with a message.', cursor: 'tile' },
   ship: { label: 'Ship', icon: '⛵', hint: 'Place a ship on water. The party boards by walking onto it.', cursor: 'tile' },
   waygate: { label: 'Waygate', icon: '🌀', hint: 'A magic gate that teleports the party. Set its destination in the inspector.', cursor: 'tile' },
@@ -299,7 +303,7 @@ for (const [k, tool] of Object.entries(ENTITY_TOOLS)) {
       ed.view.placeEntity(d.ent.id, t.x, t.y);
       ed.markDirty();
     };
-    tool.up = function (ed) { if (this.drag0?.moved) ed.inspect(); this.drag0 = null; };
+    tool.up = function (ed) { if (this.drag0?.moved) { ed.inspect(); ed.view.terrain.refreshClearings(); } this.drag0 = null; };
     continue;
   }
   if (k === 'erase') {
@@ -341,6 +345,8 @@ for (const [k, tool] of Object.entries(ENTITY_TOOLS)) {
     else if ((k === 'npc' || k === 'monster') && !td.walk) toast('That spot is not walkable.', 'warn');
     ed.beginEdit();
     ed.map.entities.push(ent);
+    // a hoard comes with its map, ready to hand out
+    if (k === 'treasure') ed.game.items.push(newMapItem(ent, { name: 'Treasure Map' }));
     ed.refreshEntities();
     ed.select(ent);
     ed.markDirty();

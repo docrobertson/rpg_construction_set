@@ -4,6 +4,9 @@ import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
 import { T } from './terrain.js';
+import { migrateQuests } from '../game/quests.js';
+import { nativeOf } from '../game/travel.js';
+import { buryTreasures } from '../game/treasure.js';
 
 export const FORMAT = 'rpgcs-game';
 export const VERSION = 1;
@@ -14,14 +17,15 @@ export function defaultSettings() {
     maxParty: 6,
     startGold: 150,
     startFood: 80,
-    startItems: [{ id: 'healing_draught', n: 3 }, { id: 'torch', n: 2 }, { id: 'moonpetal', n: 4 }, { id: 'ember_salt', n: 3 }, { id: 'wyrmroot', n: 3 }, { id: 'spidersilk', n: 3 }],
+    startItems: [{ id: 'healing_draught', n: 3 }, { id: 'torch', n: 2 }, { id: 'moonpetal', n: 4 }, { id: 'ember_salt', n: 3 }, { id: 'wyrmroot', n: 3 }, { id: 'spidersilk', n: 3 }, { id: 'silverleaf', n: 3 }, { id: 'bitterwort', n: 2 }, { id: 'hawkweed', n: 2 }],
     food: true,
     lineOfSight: true,
     encounterRate: 1,
     creationPoints: 24,
     startLevel: 1,
     victory: { type: 'none', target: '' },
-    pitch: 72,
+    pitch: 52,
+    cameraV: 2,
     dayNight: true,
     combatMoves: 3,
     loot: true,
@@ -32,6 +36,7 @@ export function newGame(opts = {}) {
   const game = {
     format: FORMAT,
     version: VERSION,
+    magicV: MAGIC_V,
     id: uid('game'),
     meta: {
       title: opts.title || 'Untitled Realm',
@@ -49,6 +54,7 @@ export function newGame(opts = {}) {
     items: deepClone(ITEMS),
     spells: deepClone(SPELLS),
     monsters: deepClone(MONSTERS),
+    quests: [],
     maps: [],
   };
   let world;
@@ -62,7 +68,10 @@ export function newGame(opts = {}) {
       else if (d < 1.3) world.tiles[y * world.w + x] = T.shallows;
     }
   } else {
-    world = generateWorld(opts.w || 80, opts.h || 80, opts.seed ?? Math.floor(Math.random() * 1e9));
+    const seed = opts.seed ?? Math.floor(Math.random() * 1e9);
+    world = generateWorld(opts.w || 80, opts.h || 80, seed);
+    // two or three hoards, their maps given out by the world's encounters
+    buryTreasures(game, world, seed);
   }
   world.name = 'The World';
   game.maps.push(world);
@@ -118,22 +127,74 @@ export function migrateGame(game) {
   game.version = VERSION;
   game.id = game.id || uid('game');
   game.meta = { title: 'Untitled Realm', author: '', description: '', intro: '', victoryText: '', ...(game.meta || {}) };
+  const oldCamera = !game.settings?.cameraV;
   game.settings = { ...defaultSettings(), ...(game.settings || {}) };
+  // the camera used to look almost straight down: bring old games to the new 3D view
+  if (oldCamera) {
+    if (!(game.settings.pitch < 70)) game.settings.pitch = defaultSettings().pitch;
+    game.settings.cameraV = 2;
+  }
   const ensure = (key, defs) => {
     if (!Array.isArray(game[key])) game[key] = deepClone(defs);
   };
   ensure('magic', MAGIC_SYSTEMS);
   ensure('races', RACES);
+  // humans were once called "Man"
+  for (const r of game.races) if (r.id === 'human' && r.name === 'Man') r.name = 'Human';
   ensure('classes', CLASSES);
   ensure('items', ITEMS);
   ensure('spells', SPELLS);
   ensure('monsters', MONSTERS);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
+  migrateMagic(game);
   // classes from before class specials existed get their default one
   for (const k of game.classes) if (k.special === undefined) k.special = CLASSES.find((d) => d.id === k.id)?.special || null;
+  // monsters from before travel costs: the ground they are at home on
+  for (const m of game.monsters) if (!Array.isArray(m.native)) m.native = nativeOf({ ...m, native: undefined }).slice();
+  migrateQuests(game); // quests arrived after the first files were saved
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// Magic was reworked (MAGIC_V 2): every school got a look of its own, rangers
+// traded their scrap of Prayer for Herb-lore, and wizards keep spellbooks that
+// scrolls can be copied into. Older games get the new schools, herbs, scrolls
+// and spells added; the ranger is changed only while it is still the default one.
+export const MAGIC_V = 2;
+const OLD_START_ITEMS = '[{"id":"healing_draught","n":3},{"id":"torch","n":2},{"id":"moonpetal","n":4},{"id":"ember_salt","n":3},{"id":"wyrmroot","n":3},{"id":"spidersilk","n":3}]';
+function migrateMagic(game) {
+  // look fields for schools that predate them (custom schools keep their own)
+  for (const m of game.magic) {
+    const d = MAGIC_SYSTEMS.find((x) => x.id === m.id);
+    if (!d) continue;
+    for (const k of ['style', 'resName', 'verb', 'icon']) if (m[k] === undefined && d[k] !== undefined) m[k] = d[k];
+  }
+  if ((game.magicV || 1) >= MAGIC_V) return;
+  game.magicV = MAGIC_V;
+  const add = (list, defs) => { for (const d of defs) if (!list.some((x) => x.id === d.id)) list.push(deepClone(d)); };
+  add(game.magic, MAGIC_SYSTEMS.filter((m) => m.id === 'herbal'));
+  const herbal = new Set(SPELLS.filter((sp) => sp.system === 'herbal').flatMap((sp) => sp.reagents || []));
+  const fresh = ITEMS.filter((it) => (it.type === 'reagent' && herbal.has(it.id)) || it.type === 'scroll');
+  add(game.items, fresh);
+  add(game.spells, SPELLS.filter((sp) => sp.system === 'herbal' || sp.scroll));
+  // reagents from before icons: draw them as the defaults do
+  for (const it of game.items) {
+    const d = ITEMS.find((x) => x.id === it.id && x.type === 'reagent');
+    if (d && it.type === 'reagent' && it.icon === undefined) { it.icon = d.icon; it.tint = d.tint; }
+  }
+  const ranger = game.classes.find((k) => k.id === 'ranger');
+  if (ranger && JSON.stringify(ranger.magic) === '[{"system":"divine","rate":0.5}]') {
+    const d = CLASSES.find((k) => k.id === 'ranger');
+    ranger.magic = deepClone(d.magic);
+    if (/Learns a little Prayer\.$/.test(ranger.desc || '')) ranger.desc = d.desc;
+  }
+  if (JSON.stringify(game.settings.startItems) === OLD_START_ITEMS) game.settings.startItems = deepClone(defaultSettings().startItems);
+  // herbalists stock the new herbs too
+  const herbs = fresh.filter((it) => it.type === 'reagent').map((it) => it.id);
+  for (const map of game.maps) for (const e of map.entities || []) {
+    if (e.shop?.kind === 'reagents' && Array.isArray(e.shop.stock) && e.shop.stock.length) e.shop.stock.push(...herbs.filter((id) => !e.shop.stock.includes(id)));
+  }
 }
 
 export function cloneGame(game) {

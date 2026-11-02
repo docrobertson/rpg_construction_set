@@ -1,4 +1,5 @@
-// Tiny DOM helpers: element builder, modals, toasts, prompts.
+// Tiny DOM helpers: element builder, modals, toasts, tooltips, prompts.
+import { iconSvg } from './icons.js';
 
 export function h(tag, attrs, ...children) {
   const [name, ...classes] = tag.split('.');
@@ -12,7 +13,7 @@ export function h(tag, attrs, ...children) {
     for (const [k, v] of Object.entries(attrs)) {
       if (v == null || v === false) continue;
       if (k === 'class') el.className += (el.className ? ' ' : '') + v;
-      else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+      else if (k === 'style' && typeof v === 'object') { for (const [p, x] of Object.entries(v)) { if (p.startsWith('--')) el.style.setProperty(p, x); else el.style[p] = x; } }
       else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === 'html') el.innerHTML = v;
       else if (k in el && k !== 'list' && k !== 'type') {
@@ -39,10 +40,18 @@ export function clear(el) {
 
 let modalStack = [];
 
+// opts: title, icon (an icons.js name shown before the title), sub (a line
+// under the title), cls, buttons, onClose, closeOnBack, closeOnEsc, dim
 export function modal(content, opts = {}) {
   const back = h('div.modal-back' + (opts.dim === false ? '.nodim' : ''));
   const box = h('div.modal' + (opts.cls ? '.' + opts.cls : ''));
-  if (opts.title) box.appendChild(h('div.modal-title', opts.title));
+  if (opts.title) {
+    const closable = opts.closeOnEsc !== false && opts.closeX !== false;
+    box.appendChild(h('div.modal-title',
+      opts.icon ? h('span.mt-ico', { html: iconSvg(opts.icon) }) : null,
+      h('span.mt-text', opts.title, opts.sub ? h('small.mt-sub', opts.sub) : null),
+      closable ? h('button.modal-x', { title: 'Close (Esc)', 'aria-label': 'Close', onclick: () => close(), html: iconSvg('close') }) : null));
+  }
   const body = h('div.modal-body');
   box.appendChild(body);
   if (typeof content === 'function') content(body, () => close());
@@ -86,10 +95,72 @@ export function toast(msg, kind = '') {
     host = h('div', { id: 'toasts' });
     document.getElementById('ui').appendChild(host);
   }
-  const t = h('div.toast' + (kind ? '.' + kind : ''), msg);
+  const t = h('div.toast' + (kind ? '.' + kind : ''), h('span.toast-ico', { html: iconSvg(kind === 'bad' || kind === 'warn' ? 'warn' : 'sparkle') }), h('span', msg));
   host.appendChild(t);
   setTimeout(() => t.classList.add('out'), 2600);
   setTimeout(() => t.remove(), 3200);
+}
+
+// ---------------------------------------------------------------- tooltips
+// Every `title` in the interface becomes a styled tooltip: on first hover the
+// attribute moves to data-tip (so the browser's own plain tooltip stays away)
+// and a framed card appears beside the element after a short pause. Touch
+// screens keep their long-press behaviour; nothing shows for them.
+let tipEl = null, tipFor = null, tipTimer = 0;
+
+const hide = () => { clearTimeout(tipTimer); tipFor = null; if (tipEl) tipEl.hidden = true; };
+
+// a redrawn panel replaces the element under a resting pointer without any
+// pointerout: the card would stay over whatever took its place
+function watchTip() {
+  if (!tipEl || tipEl.hidden) return;
+  if (!tipFor?.isConnected) { hide(); return; }
+  setTimeout(watchTip, 250);
+}
+
+export function initTooltips() {
+  if (tipEl) return;
+  tipEl = h('div.ui-tip', { role: 'tooltip' });
+  tipEl.hidden = true;
+  document.body.appendChild(tipEl);
+  document.addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;
+    const t = e.target.closest?.('[title], [data-tip]');
+    if (t === tipFor) return;
+    hide();
+    if (!t || t.tagName === 'svg' || t.closest('svg')) return;
+    if (t.hasAttribute('title')) {
+      const v = t.getAttribute('title');
+      t.removeAttribute('title');
+      if (v) {
+        t.dataset.tip = v;
+        if (!t.hasAttribute('aria-label') && !t.textContent.trim()) t.setAttribute('aria-label', v);
+      }
+    }
+    const text = t.dataset.tip;
+    if (!text) return;
+    tipFor = t;
+    tipTimer = setTimeout(() => showTip(t, text), 350);
+  });
+  document.addEventListener('pointerout', (e) => { if (tipFor && !tipFor.contains(e.relatedTarget)) hide(); });
+  document.addEventListener('pointerdown', hide, true);
+  document.addEventListener('keydown', hide, true);
+  document.addEventListener('wheel', hide, { passive: true, capture: true });
+  window.addEventListener('blur', hide);
+}
+
+function showTip(t, text) {
+  if (!t.isConnected || tipFor !== t) return;
+  tipEl.textContent = text;
+  tipEl.hidden = false;
+  const r = t.getBoundingClientRect();
+  const w = tipEl.offsetWidth, ht = tipEl.offsetHeight;
+  let x = r.left + r.width / 2 - w / 2;
+  x = Math.max(6, Math.min(innerWidth - w - 6, x));
+  let y = r.bottom + 8;
+  if (y + ht > innerHeight - 6) y = r.top - ht - 8;
+  tipEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(Math.max(6, y))}px)`;
+  setTimeout(watchTip, 250);
 }
 
 export function confirmDialog(text, title = 'Are you sure?') {

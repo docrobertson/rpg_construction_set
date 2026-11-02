@@ -5,17 +5,21 @@ import { ACTIONS, CONDITIONS } from '../../game/dialog.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 import { MAP_TYPES } from '../../world/map.js';
 import { defaultStock } from '../../world/generate.js';
+import { inspectEvent, npcQuestSection } from './quests.js';
+import { DEFAULT_LEASH } from '../../game/travel.js';
+import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
-const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap']];
-const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow']];
+const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
+const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
 export const NPC_ROLES = [
-  ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage'],
+  ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage (sells spell scrolls)'],
   ['weapons', 'Weaponsmith (shop)'], ['armor', 'Armourer (shop)'], ['provisions', 'Provisioner (shop)'], ['reagents', 'Herbalist (shop)'], ['bowyer', 'Bowyer (shop)'],
-  ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'],
+  ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'], ['merchant', 'Travelling merchant (shop)'],
+  ['shipwright', 'Shipwright (sells a ship)'],
 ];
-const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons' };
+const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons', merchant: 'mixed', sage: 'scrolls' };
 
 export const LOOK_FIELDS = [
   { key: 'look.race', label: 'Body', type: 'select', options: RACES },
@@ -31,6 +35,23 @@ export const LOOK_FIELDS = [
   { key: 'look.weapon', label: 'Carries', type: 'select', options: WEAPONS },
   { key: 'look.shield', label: 'Shield', type: 'color', nullable: true },
   { key: 'look.cape', label: 'Cape', type: 'color', nullable: true },
+  // (art) finer touches of the figure builder
+  { key: 'look.face', label: 'Face', type: 'select', options: [['bold', 'Bold'], ['fair', 'Fair']], empty: 'Any', nullable: true },
+  { key: 'look.hairStyle', label: 'Hair style', type: 'select', options: [['short', 'Short'], ['long', 'Long'], ['ponytail', 'Ponytail'], ['braids', 'Braids'], ['topknot', 'Topknot'], ['bald', 'Bald']], empty: 'Any', nullable: true },
+  { key: 'look.iris', label: 'Eyes', type: 'select', options: [[0, 'Brown'], [1, 'Blue'], [2, 'Green'], [3, 'Grey'], [4, 'Amber'], [5, 'Violet']], empty: 'Any', nullable: true, number: true },
+  { key: 'look.lashes', label: 'Eyelashes', type: 'check' },
+  { key: 'look.pose', label: 'Stance', type: 'select', options: [['raise', 'Weapon raised'], ['overhead', 'Weapon overhead'], ['cast', 'Casting hand'], ['hip', 'Hand on hip'], ['bow', 'Bow across the body']], empty: 'Natural', nullable: true },
+  { key: 'look.pauldrons', label: 'Pauldrons', type: 'select', options: [['plate', 'Plate'], ['leather', 'Leather'], ['spiked', 'Spiked']], empty: 'By armour', nullable: true },
+  { key: 'look.plume', label: 'Helm plume', type: 'color', nullable: true, show: (o) => o.look?.hat === 'helm' },
+  { key: 'look.wings', label: 'Winged helm', type: 'check', show: (o) => o.look?.hat === 'helm' },
+  { key: 'look.tabard', label: 'Tabard', type: 'color', nullable: true },
+  { key: 'look.mantle', label: 'Mantle and stole', type: 'color', nullable: true },
+  { key: 'look.scarf', label: 'Scarf', type: 'color', nullable: true },
+  { key: 'look.shieldShape', label: 'Shield shape', type: 'select', options: [['round', 'Round'], ['kite', 'Kite']], empty: 'By armour', nullable: true, show: (o) => o.look?.shield != null },
+  { key: 'look.emblem', label: 'Shield emblem', type: 'color', nullable: true, show: (o) => o.look?.shield != null },
+  { key: 'look.offhand', label: 'Off hand', type: 'select', options: [['dagger', 'Dagger']], empty: 'Nothing', nullable: true },
+  { key: 'look.back', label: 'On the back', type: 'select', options: [['lute', 'Lute']], empty: 'Nothing', nullable: true },
+  { key: 'look.runes', label: 'Glowing runes', type: 'color', nullable: true },
 ];
 
 function keywordFields(game) {
@@ -44,12 +65,14 @@ function keywordFields(game) {
     { key: 'text', label: 'Reply', type: 'textarea', rows: 3, hint: 'Mention other keywords in your reply and they become clickable.' },
     { key: 'cond.type', label: 'Only if…', type: 'select', options: Object.entries(CONDITIONS), rerender: true },
     { key: 'cond.value', label: 'Item', type: 'select', options: items, show: (r) => r.cond?.type === 'item' },
-    { key: 'cond.value', label: 'Value', type: 'text', show: (r) => condNeeds(r) && r.cond.type !== 'item', placeholder: 'flag name or number' },
+    { key: 'cond.value', label: 'Quest', type: 'select', options: () => (game.quests || []).map((q) => [q.id, q.name]), show: (r) => ['quest', 'questdone', 'noquest'].includes(r.cond?.type) },
+    { key: 'cond.value', label: 'Value', type: 'text', show: (r) => condNeeds(r) && !['item', 'quest', 'questdone', 'noquest'].includes(r.cond.type), placeholder: 'flag name or number' },
     { key: 'elseText', label: 'Reply otherwise', type: 'textarea', rows: 2, show: condNeeds },
     { key: 'action.type', label: 'Then…', type: 'select', options: Object.entries(ACTIONS), rerender: true },
     { key: 'action.value', label: 'Item', type: 'select', options: items, show: (r) => ['give_item', 'take_item'].includes(act(r)) },
     { key: 'action.value', label: 'Fights as', type: 'select', options: monsters, show: (r) => act(r) === 'fight' },
     { key: 'action.value', label: 'Flag name', type: 'text', show: (r) => ['set_flag', 'clear_flag'].includes(act(r)) },
+    { key: 'action.value', label: 'Quest', type: 'select', options: () => (game.quests || []).map((q) => [q.id, q.name]), show: (r) => ['start_quest', 'advance_quest', 'complete_quest'].includes(act(r)) },
     { key: 'action.n', label: 'Amount', type: 'number', min: 1, show: (r) => ['give_item', 'take_item', 'give_gold', 'take_gold', 'give_xp'].includes(act(r)) },
     { key: 'action.map', label: 'To map', type: 'select', options: maps, show: (r) => act(r) === 'teleport' },
     { key: 'action.x', label: 'X', type: 'number', show: (r) => act(r) === 'teleport' },
@@ -65,6 +88,7 @@ export function npcFields(game) {
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'desc', label: 'Description', type: 'text', placeholder: 'a grizzled dwarf smith', hint: 'Shown as “You meet …”' },
     { key: 'role', label: 'Role', type: 'select', options: NPC_ROLES, rerender: true },
+    { key: 'shopName', label: 'Name over the door', type: 'text', placeholder: 'The Gilded Griffin', show: (o) => !['villager', 'guard'].includes(o.role || 'villager'), hint: 'Names the building this person keeps (blank: a name is made up).' },
     { key: 'wander', label: 'Wanders up to', type: 'number', min: 0, max: 30, hint: 'tiles from home (0 = stays put)' },
     { type: 'section', label: 'Conversation' },
     { key: 'greeting', label: 'Greeting', type: 'textarea', rows: 2 },
@@ -76,6 +100,13 @@ export function npcFields(game) {
     { key: 'shop.stock', label: 'Sells', type: 'multicheck', options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]), show: (o) => !!SHOP_KINDS[o.role] },
     { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.1, min: 0.1, show: (o) => !!SHOP_KINDS[o.role], hint: '1 = normal prices' },
     { key: 'price', label: 'Room price per hero', type: 'number', min: 0, show: (o) => o.role === 'inn' },
+    { type: 'section', label: 'The ship for sale', show: (o) => o.role === 'shipwright' },
+    { type: 'info', label: 'Players ask about the SHIP and say BUY. Once paid for, she is moored on the world map in the nearest open water beside this person\'s site (or at the square below).', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.name', label: 'Ship\'s name', type: 'text', placeholder: 'Seahorse', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.price', label: 'Price (gold)', type: 'number', min: 0, placeholder: '450', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.pitch', label: 'Says of her', type: 'textarea', rows: 2, show: (o) => o.role === 'shipwright', hint: 'The price is added after.' },
+    { key: 'ship.x', label: 'Moored at X (world map)', type: 'number', nullable: true, show: (o) => o.role === 'shipwright', hint: 'Blank: beside the site.' },
+    { key: 'ship.y', label: 'Moored at Y (world map)', type: 'number', nullable: true, show: (o) => o.role === 'shipwright' },
     { type: 'section', label: 'Appearance' },
     ...LOOK_FIELDS,
   ];
@@ -91,12 +122,14 @@ export function inspectEntity(ed, ent, container) {
     case 'npc': {
       container.appendChild(head('Person', `at ${ent.x}, ${ent.y}`));
       const onRole = () => {
+        if (ent.role === 'shipwright' && !ent.ship) ent.ship = { name: 'Seahorse', price: 450 };
         const kind = SHOP_KINDS[ent.role];
         if (kind) {
           if (!ent.shop || ent.shop.kind !== kind) ent.shop = { kind, stock: defaultStock(game, kind), priceMod: 1 };
         } else ent.shop = null;
       };
-      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); changed(); }));
+      // a sage placed before sages sold scrolls has no shop yet: ticking stock opens one
+      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
       // companion section (custom)
       const rec = h('div.form');
       const cb = h('input', { type: 'checkbox' });
@@ -110,6 +143,8 @@ export function inspectEntity(ed, ent, container) {
           { key: 'recruit.race', label: 'Race', type: 'select', options: () => game.races.map((r) => [r.id, r.name]) },
           { key: 'recruit.level', label: 'Level', type: 'number', min: 1, max: 20 },
           { key: 'recruit.joinText', label: 'Says on joining', type: 'text' },
+          { key: 'recruit.after', label: 'Joins after quest', type: 'select', options: () => [['', '— any time —'], ...(game.quests || []).map((q) => [q.id, q.name])], hint: 'Only once this quest is done; they ask to join as it ends' },
+          { key: 'recruit.offerText', label: 'Says when offering', type: 'text', show: (o) => !!o.recruit?.after },
         ], changed));
       };
       cb.addEventListener('change', () => {
@@ -119,6 +154,7 @@ export function inspectEntity(ed, ent, container) {
       rec.append(h('div.form-section', 'Companion'), h('label.field.check', cb, h('span.field-label', 'Can JOIN the party')), sub);
       renderRec();
       container.appendChild(rec);
+      container.appendChild(npcQuestSection(ed, ent));
       break;
     }
     case 'monster': {
@@ -128,9 +164,11 @@ export function inspectEntity(ed, ent, container) {
         { key: 'monster', label: 'Monster', type: 'select', options: () => game.monsters.map((m) => [m.id, `${m.name} (lvl ${m.level})`]), rerender: true },
         { key: 'count', label: 'How many', type: 'text', placeholder: '2-4', hint: 'A number or a range. Escorts are added automatically.' },
         { key: 'wander', label: 'Roams up to', type: 'number', min: 0, max: 99, hint: 'tiles from home (0 = guards its post)' },
+        { key: 'leash', label: 'Gives up the chase beyond', type: 'number', min: 0, max: 99, nullable: true, placeholder: String(DEFAULT_LEASH), hint: `tiles between the party and its home; then it walks back (empty = ${DEFAULT_LEASH}, 0 = never gives up)` },
         { key: 'passive', label: 'Never gives chase', type: 'check' },
         { key: 'boss', label: 'Boss (drawn larger)', type: 'check' },
         { key: 'flag', label: 'Sets flag when defeated', type: 'text', placeholder: 'e.g. troll_slain' },
+        { key: 'loot', label: 'Carrying (found when beaten)', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]), hint: 'A treasure map, a key, a stolen heirloom…' },
       ], (k) => { if (k === 'monster') ed.lastMonster = ent.monster; changed(); if (k === 'monster') { ed.refreshEntities(); } }));
       break;
     }
@@ -144,13 +182,42 @@ export function inspectEntity(ed, ent, container) {
         { key: 'flag', label: 'Sets flag when opened', type: 'text' },
       ], changed));
       break;
+    case 'treasure': {
+      container.appendChild(head('Buried treasure', `at ${ent.x}, ${ent.y}`));
+      if (ent.bonus === undefined) ent.bonus = true; // (the game treats a missing one as on)
+      container.appendChild(buildForm(ent, [
+        { key: 'name', label: 'Name', type: 'text', placeholder: 'The Smugglers\' Hoard' },
+        { key: 'clue', label: 'Clue on the map', type: 'textarea', rows: 3, hint: 'Count the paces from something the player can find: "Three paces east of the lone standing stone".' },
+        { key: 'gold', label: 'Gold', type: 'dice', placeholder: '6d20 or 150' },
+        { key: 'items', label: 'Items', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]) },
+        { key: 'bonus', label: 'Extra gold and gear for stronger companies', type: 'check', hint: 'On unless unticked: more gold and a piece of gear that grow with the party\'s level.' },
+        { key: 'guardian', label: 'Guarded by', type: 'select', options: () => game.monsters.map((m) => [m.id, `${m.name} (lvl ${m.level})`]), empty: '— nothing —', nullable: true, rerender: true },
+        { key: 'count', label: 'How many', type: 'text', placeholder: '1 or 2-3', show: (o) => !!o.guardian },
+        { key: 'guardChance', label: 'Chance they rise', type: 'number', step: 0.05, min: 0, max: 1, nullable: true, show: (o) => !!o.guardian, hint: 'Blank = always.' },
+        { key: 'guardText', label: 'When they rise', type: 'textarea', rows: 2, show: (o) => !!o.guardian },
+      ], changed));
+      const maps = game.items.filter((it) => it.type === 'map' && it.treasure === ent.id);
+      container.appendChild(h('div.form', h('div.form-section', 'Its map'),
+        maps.length ? h('p.hint', `Led to by: ${maps.map((it) => it.name).join(', ')} (edit it under World data → Items). Give it out in a chest, a shop, a quest reward or a monster band's loot.`)
+          : h('p.hint', 'No map leads here yet.'),
+        h('div.row', h('button.small', {
+          onclick: () => { game.items.push(newMapItem(ent, { name: `Map to ${ent.name || 'Buried Treasure'}` })); ed.markDirty(); inspectEntity(ed, ent, container); toast('A new map item was made.'); },
+        }, '+ Make a map item'), h('button.small', {
+          onclick: () => { ent.clue = clueFor(ed.map, ent.x, ent.y); ent.from = landmarksNear(ed.map, ent.x, ent.y)[0]?.e.id; ed.markDirty(); inspectEntity(ed, ent, container); },
+        }, '🎲 Write a clue from the landmarks'))));
+      break;
+    }
     case 'sign':
       container.appendChild(head('Signpost'));
       container.appendChild(buildForm(ent, [{ key: 'text', label: 'It reads', type: 'textarea', rows: 4 }], changed));
       break;
+    case 'event':
+      inspectEvent(ed, ent, container, head, changed);
+      break;
     case 'ship':
       container.appendChild(head('Ship'));
-      container.appendChild(h('p.hint', 'The party boards by walking onto the ship, sails across water, and goes ashore by stepping onto land. The ship stays where they leave it.'));
+      container.appendChild(buildForm(ent, [{ key: 'name', label: 'Name', type: 'text', placeholder: 'Seahorse' }], changed));
+      container.appendChild(h('p.hint', 'The party boards by walking onto the ship, sails across water, and goes ashore by stepping onto land. The ship stays where they leave it. (A shipwright sells ships: give a person the Shipwright role.)'));
       break;
     case 'portal': {
       container.appendChild(head(ent.style === 'waygate' ? 'Waygate' : ent.style === 'site' ? 'Site entrance' : 'Passage'));

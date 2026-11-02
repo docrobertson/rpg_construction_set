@@ -7,23 +7,15 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 ## What's inside
 
 ### Play
-- **A fixed, high-angle 3D "game board" view** (about 70°; adjustable), framed by docked panels: the company and a character sheet on the right, a scrolling log, commands and minimap below. Smooth rolling terrain, depth-shaded water, and chunky toy figures inspired by building-block minifigures, leaned toward the camera so people read clearly from above.
-- **Party of up to six** — Men, Dwarves and Elves; Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith. Point-buy attributes, skin, hair and outfit colours, with a live 3D preview — or roll a completely random company.
-- **Your company at a glance**: a portrait card for each hero (level, health, mana, experience, armour and weapons), the leader marked with a crown. Out in the wide world the whole company travels together on the map.
-- **A character sheet for every hero**, popping out when you click their card: attributes, armour and to-hit, and four equipment slots — hand weapon, **ranged weapon** (bows, crossbows, slings), armour and shield — changed with a click. Each level brings an attribute point to spend.
-- **Three scales of map**: the broad overworld, zoomed-in settlements and dungeons, and close-up tactical battles.
-- **Ultima III/IV-style mechanics**: turn-based movement, line of sight and fog of war, food, swamps that poison, dark dungeons that need torches, ships, waygates, locked doors and keys, chests and traps.
-- **Keyword conversations** (`NAME`, `JOB`, and whatever people mention — highlighted words are clickable). Shops, inns, healers, rumours, and companions who will `JOIN` you.
-- **Tactical combat**: each hero moves up to three squares (click a highlighted square) and then strikes, shoots, casts or uses an item; then the monsters charge in. Arrows in flight, area spells, sleep, fear, buffs, poison, fleeing off the field.
-- **A special move per class, once per battle**: Whirlwind, Volley, Blink, Prayer of Mending, Shadow Strike, Rally, Dazzling Air, Earthshaker.
-- **Loot**: fallen foes sometimes leave potions, weapons or armour, scaled to how tough they were.
-- **Day and night** outdoors: evenings draw in, night cuts your sight and brings out more monsters.
-- **Four magic systems**, each switchable on or off per game:
-  - *Sorcery* (Intellect, mana) — missiles, fireballs, lightning
-  - *Prayer* (Wisdom, mana) — healing, blessing, turning the undead
-  - *Rune-craft* (reagents instead of mana) — dwarven runes fuelled by moonpetal, ember salt, wyrmroot…
-  - *Elven Song* (Wisdom, mana) — songs that sway the whole battlefield
-- **Sample adventure — *Shadow over Eldmark***: recover the stolen Rune-Key and break the Shadow Lord in Dol Garoth.
+- **A lit 3D diorama**: a perspective camera at about 52° (adjustable), real shadows, painted terrain, layered forests, sculpted mountains and animated water. Walls, trees and roofs fade away around the company so it is never hidden. Unexplored land is blank parchment.
+- **Heroic stylised characters**: Humans, Dwarves and Elves as Warrior, Ranger, Wizard, Cleric, Burglar, Paladin, Minstrel and Runesmith, each readable at a glance by silhouette and colour, with painted faces. Roll a random company or shape each hero's look.
+- **The company is always on the map as a group**, the leader in front. A portrait card per hero; click one for their sheet. Rest heroes at an inn to rotate the company (up to six), and call them back later; some people offer to join once you have helped them.
+- **Towns you walk through**: buildings with roofs that lift as you enter, shop signs, furnished rooms. Click a person to talk, or a building to visit its keeper. "!" and "?" mark people with tasks. Towns are entered and left on the side you come and go.
+- **Quests and a journal**, with a tracker that always says where to go next. Points of interest to find: shrines, wells, campfires, lore stones, a fighting pit, a fortune-teller, a fairy ring, a lighthouse. **Treasure maps** with clues lead to buried hoards.
+- **Travel that matters**: roads are quick, sand and swamp slow (elves ease the woods, dwarves the hills); a clock shows how long things take; food, day and night. Monsters guard their ground and give up the chase. Buy a ship at the Gullhaven shipyard to reach islands and a smugglers' cove.
+- **Tactical battles**: initiative order with a portrait strip, an action bar that says why an action is unavailable, hit chances and damage previews, class skills with cooldowns (more unlock as heroes level), flanking, cover and conditions, monsters with distinct behaviour and bosses with a second phase. A victory screen with experience and loot; each level offers a choice of three talents, and attributes grow by themselves.
+- **Five schools of magic**, each with its own look and resource: *Sorcery* (a wizard's spellbook; copy spell scrolls into it), *Prayer* (Faith), *Elven Song* (Voice), *Rune-craft* (reagents) and *Herb-lore* (rangers' remedies, from herbs gathered on the road). Reagents say who in the company can use them.
+- **Sample adventure — *Shadow over Eldmark***: recover the stolen Rune-Key and break the Shadow Lord in Dol Garoth, with side quests, hidden places and treasure along the way.
 
 ### Construct
 - **Chunky placement**: click (or drag) to drop islands, lakes, forests, deep woods, hills, mountain ranges, swamps, deserts, snowfields and blighted lands. Drag out roads (auto-bridging), rivers, ridges, walls and fences.
@@ -43,10 +35,11 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 
 | Exploring | | Battle | |
 |---|---|---|---|
-| Arrows / WASD / click | Move | Arrows | Move, bump to strike |
+| Arrows / WASD / click | Move (click people and buildings to visit) | Arrows / click | Move, bump to strike |
 | T | Talk | F | Attack / shoot a target |
-| L | Look | Click a blue square | Move there (up to 3 squares) |
-| | | Q | Class special (once per battle) |
+| L | Look | Click a red foe | Attack it |
+| J | Journal | 1, 2 / Q | Class skills / special |
+| E | Do what is nearby | G | Guard |
 | C | Cast | C | Cast |
 | U | Use item | U | Use item |
 | I | Pack & equipment | Space | End the hero's turn |
@@ -79,8 +72,8 @@ dev/
     data/              terrain types, default rules content, game schema, sample adventure
     world/             map helpers and generators (stamps, settlements, dungeons, arenas)
     render/            three.js view, chunked terrain, decorations, procedural models
-    game/              rules, exploration session, combat, dialogue, line of sight, pathfinding
-    ui/                play HUD, party creation, editor (tools, inspectors, data, settings)
+    game/              rules, exploration session, combat, quests, events, magic, travel, treasure, dialogue
+    ui/                play HUD, battle HUD, journal, spellbook, party creation, editor
   tests/               Playwright scripts that drive the built page and take screenshots
 ```
 

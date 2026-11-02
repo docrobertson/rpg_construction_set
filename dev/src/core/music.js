@@ -2,6 +2,7 @@
 // mood per kind of place. Generated on the fly with WebAudio — no files.
 import { getPref, setPref } from './storage.js';
 import { mulberry32 } from './rng.js';
+import { audioUnlocked, whenAudioUnlocked } from './sound.js';
 
 const MOODS = {
   world: { root: 50, scale: [0, 2, 4, 7, 9], bpm: 84, density: 0.62, wave: 'triangle', seed: 11 },
@@ -111,11 +112,20 @@ function start(mood) {
   timer = setInterval(tick, 120);
 }
 
+let pending = false;
 export function playMusic(mood) {
   if (current === mood && timer) return;
   current = mood;
   stopTimer();
   if (!enabled || !mood) return;
+  // before the first click: remember the mood and start it on that click
+  if (!audioUnlocked()) {
+    if (!pending) {
+      pending = true;
+      whenAudioUnlocked(() => { pending = false; const m = current; current = null; if (m) playMusic(m); });
+    }
+    return;
+  }
   if (!audio()) return;
   if (ctx.state === 'suspended') {
     // browsers only allow audio after a user gesture; try again on the next one

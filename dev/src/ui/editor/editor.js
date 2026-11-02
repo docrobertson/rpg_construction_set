@@ -4,12 +4,15 @@ import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
 import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
 import { serializeGame, cloneGame, getMap } from '../../data/schema.js';
-import { saveProject, getPref, setPref } from '../../core/storage.js';
+import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
 import { inspectEntity, inspectMap } from './inspector.js';
 import { DatabaseEditor } from './database.js';
 import { renderSettings } from './settings.js';
+import { QuestEditor, EVENT_TOOL, eventTemplatePicker } from './quests.js';
+import { eventLook } from '../../game/events.js';
+import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
 import { attachGestures } from '../../render/gestures.js';
@@ -40,7 +43,10 @@ export class Editor {
     this.undoStack = [];
     this.redoStack = [];
     this.selected = null;
-    this.dirty = false;
+    // a remix, a new realm or an imported file is not in this browser yet:
+    // say so until the first save (on the first edit, Save, or leaving)
+    this.neverSaved = !listProjects().some((p) => p.id === game.id);
+    this.dirty = this.neverSaved;
     this.mouse = { down: false, panning: false };
     this.keys = new Set();
     this.tools = { ...PAINT_TOOLS, ...ENTITY_TOOLS };
@@ -48,6 +54,7 @@ export class Editor {
     for (const k of Object.keys(PATHS)) this.tools['path_' + k] = pathTool(k);
     for (const k of Object.keys(ROOMS)) this.tools['room_' + k] = roomTool(k);
     for (const k of Object.keys(FEATURE_KINDS)) this.tools['site_' + k] = featureTool(k);
+    this.tools.event = EVENT_TOOL;
     this.toolId = 'select';
     this.autosave = debounce(() => this.save(true), 2000);
     this.build();
@@ -70,7 +77,7 @@ export class Editor {
     this.titleInput = h('input.ed-title', { type: 'text', value: this.game.meta.title, title: 'Game title' });
     this.titleInput.addEventListener('input', () => { this.game.meta.title = this.titleInput.value; this.markDirty(); });
     this.tabBtns = {};
-    const tabs = h('div.ed-tabs', ...[['map', '🗺 Map'], ['data', '📚 World Data'], ['settings', '⚙ Settings']].map(([k, label]) => {
+    const tabs = h('div.ed-tabs', ...[['map', '🗺 Map'], ['data', '📚 World Data'], ['quests', '📜 Quests'], ['settings', '⚙ Settings']].map(([k, label]) => {
       const b = h('button', { onclick: () => this.setTab(k) }, label);
       this.tabBtns[k] = b;
       return b;
@@ -97,6 +104,7 @@ export class Editor {
     root.append(top, this.left, this.main, this.right, this.status);
     this.app.ui.appendChild(root);
     this.db = new DatabaseEditor(this, this.left, this.main);
+    this.questEd = new QuestEditor(this, this.left, this.main);
     this.setTab('map');
   }
 
@@ -121,7 +129,7 @@ export class Editor {
     this.app.setLayout(this.tab === 'map' ? 'editor' : 'editor-data');
     this.root.style.display = '';
     this.bindInput();
-    this.view.setPitch(this.game.settings.pitch || 70);
+    this.view.setPitch(this.game.settings.pitch || 52);
     if (this.tab === 'map') this.loadMap(this.map, true); else this.setTab(this.tab);
   }
 
@@ -132,6 +140,7 @@ export class Editor {
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('on', k === tab);
     this.root.classList.toggle('tab-map', tab === 'map');
     this.root.classList.toggle('tab-data', tab !== 'map');
+    this.root.classList.toggle('tab-quests', tab === 'quests');
     this.app.setLayout(tab === 'map' ? 'editor' : 'editor-data');
     if (tab === 'map') {
       this.main.style.display = 'none';
@@ -145,6 +154,7 @@ export class Editor {
       this.view.showCursor(null);
       this.view.showBrush(null);
       if (tab === 'data') this.db.render();
+      else if (tab === 'quests') { this.questEd.render(); this.showPreview(null); }
       else { renderSettings(this, this.left, this.main); this.showPreview(null); }
     }
   }
@@ -228,11 +238,13 @@ export class Editor {
       pal,
       h('label.field.check', allCb, h('span.field-label', 'Show every tile type'))));
     // entities
-    const ents = ['select', 'npc', 'monster', 'chest', 'sign', 'ship', 'waygate', 'portal', 'start'];
+    const ents = ['select', 'npc', 'monster', 'chest', 'treasure', 'sign', 'ship', 'waygate', 'portal', 'start'];
     if (!isWorld) ents.push('entry');
     ents.push('erase');
     L.appendChild(section('Characters & objects', 'Place people, monsters and treasure. Select them to edit.',
       h('div.tool-grid', ...ents.map(toolBtn))));
+    L.appendChild(section('Points of interest', 'Shrines, campfires, lore stones and little events with choices. Pick one, then click the map.',
+      h('div.tool-grid', toolBtn('event')), eventTemplatePicker(this)));
     L.appendChild(section('Generate', 'Replace this whole map with a freshly generated one.',
       h('button', { onclick: () => this.regenerateDialog() }, '🎲 Regenerate this map…'),
       isDungeon ? h('button', { onclick: () => this.addDeeperLevel(), title: 'Generate a new level below this one, linked by stairs' }, '⬇ Add a deeper level') : null));
@@ -277,13 +289,13 @@ export class Editor {
     this.selected = null;
     this.view.setMap(map);
     this.view.setVisibilityEnabled(false);
-    this.view.setPitch(this.game.settings.pitch || 70);
+    this.view.setPitch(this.game.settings.pitch || 52);
     if (!keepCamera || prev !== map) {
       const s = this.game.settings.start;
       const fx = s.map === map.id ? s.x : map.entry?.x ?? map.w / 2;
       const fy = s.map === map.id ? s.y : map.entry?.y ?? map.h / 2;
       this.view.focus(fx, fy, true);
-      this.view.setZoom(map.type === 'world' ? 40 : 26, true);
+      this.view.setZoom(map.type === 'world' ? 30 : 20, true);
     }
     this.refreshEntities();
     if (this.tab === 'map') { this.renderMapPanel(); this.inspect(); }
@@ -342,7 +354,7 @@ export class Editor {
 
   makeMap(type, gen, name, seed = Math.floor(Math.random() * 1e9)) {
     let m;
-    if (gen === 'world') m = generateWorld(80, 80, seed);
+    if (gen === 'world') { m = generateWorld(80, 80, seed); buryTreasures(this.game, m, seed); }
     else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes('dungeon') && x.level <= 3).map((x) => x.id) }).map;
     else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; nameNpcs(m, this.game, seed); }
     else m = createMap({ type, name });
@@ -383,6 +395,9 @@ export class Editor {
           map.w = m.w; map.h = m.h;
           map.entities = [...m.entities, ...keepPortals.map((k) => k.p)];
           for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+          // the old hoards went with the old land: new ones, with new maps
+          forgetLostMaps(this.game);
+          if (gen.value === 'world') buryTreasures(this.game, map, seed);
           map.entry = m.entry;
           map.lighting = m.lighting;
           map.fill = m.fill;
@@ -493,6 +508,8 @@ export class Editor {
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : { kind: 'marker', color: 0x60a0ff };
+      case 'event': return eventLook(e);
+      case 'treasure': return { kind: 'marker', color: 0xd03020 };
       default: return { kind: 'marker' };
     }
   }
@@ -504,6 +521,7 @@ export class Editor {
     if (s.map === this.map.id) this.view.addEntity('__start', { kind: 'marker', color: 0xffd040 }, s.x, s.y);
     if (this.map.type !== 'world' && this.map.entry) this.view.addEntity('__entry', { kind: 'marker', color: 0x40e080 }, this.map.entry.x, this.map.entry.y);
     if (this.selected) this.view.setRing(this.selected.id, 0xffe040);
+    this.view.terrain.refreshClearings();
   }
 
   addVisual(e) {
@@ -518,6 +536,7 @@ export class Editor {
     this.view.removeEntity(e.id);
     this.addVisual(e);
     if (this.selected === e) this.view.setRing(e.id, 0xffe040);
+    this.view.terrain.refreshClearings();
   }
 
   entityAt(x, y) {
@@ -528,6 +547,7 @@ export class Editor {
   removeEntity(e) {
     this.map.entities = this.map.entities.filter((x) => x !== e);
     this.view.removeEntity(e.id);
+    this.view.terrain.refreshClearings();
     if (this.selected === e) this.select(null);
     this.markDirty();
   }
@@ -609,15 +629,16 @@ export class Editor {
 
   updateSaveState(err) {
     if (err) { this.saveState.textContent = '⚠ Not saved'; this.saveState.title = err; this.saveState.className = 'save-state bad'; return; }
-    this.saveState.textContent = this.dirty ? '● Unsaved' : '✓ Saved';
+    this.saveState.textContent = this.dirty ? (this.neverSaved ? '● Not saved yet' : '● Unsaved') : '✓ Saved';
     this.saveState.className = 'save-state' + (this.dirty ? ' dirty' : '');
-    this.saveState.title = this.dirty ? 'Changes will be saved to this browser automatically' : 'Saved in this browser';
+    this.saveState.title = this.neverSaved ? 'This realm is not in this browser yet: it is saved as soon as you change something, press Save, or leave' : this.dirty ? 'Changes will be saved to this browser automatically' : 'Saved in this browser';
   }
 
   save(silent) {
     try {
       saveProject(this.game);
       this.dirty = false;
+      this.neverSaved = false;
       this.updateSaveState();
       if (!silent) toast('Saved to this browser.');
       return true;
@@ -683,7 +704,7 @@ export class Editor {
       down: (e) => this.onDown(e),
       move: (e) => this.onMove(e),
       up: (e) => this.onUp(e),
-      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.zoomBy(e.deltaY > 0 ? 1.12 : 0.89); },
+      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
       ctx: (e) => e.preventDefault(),
       key: (e) => this.onKey(e),
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),
@@ -902,6 +923,9 @@ Place <b>monster groups</b>, <b>chests</b>, <b>signs</b>, <b>ships</b>, <b>wayga
 <h3>5 · Rules of the realm</h3>
 <p><b>World Data</b> holds the races, classes, items, spells, monsters and the magic systems themselves. <b>Settings</b> holds your story, the starting point and kit,
 the victory condition, and switches for the four kinds of magic — Sorcery, Prayer, Rune-craft and Elven Song.</p>
+<p><b>Quests</b> give the player goals: who offers each one, its steps (talk to someone, bring an item, reach a place, defeat a foe, find
+something, clear a dungeon) and its rewards. The player always sees the current step and which way to go. Select a person to see the
+quests they are part of. Under <b>Points of interest</b> on the map, place shrines, campfires, lore stones and little events with choices.</p>
 <h3>6 · Playtest and share</h3>
 <p>Press <b>▶ Playtest</b> at any time — from the start, or from wherever you are looking. Use <b>File → Export</b> to save a <i>.json</i> game file,
 or a single <i>.html</i> page your friends can simply open and play.</p>

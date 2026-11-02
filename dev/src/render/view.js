@@ -1,34 +1,34 @@
-// The 3D view: renderer, fixed high-angle camera rig, lights, terrain,
-// entity visuals, overlays and effects.
+// The 3D view: renderer, fixed north-up camera rig, lights and atmosphere,
+// terrain, entity visuals, overlays and effects.
 import * as THREE from 'three';
 import { createMaterials, shared, silhouetteMaterial } from './materials.js';
-import { TerrainView, WATER_Y } from './terrainView.js';
+import { TerrainView, WATER_Y, LAVA_Y } from './terrainView.js';
+import { BuildingsView } from './houses.js';
 import { makeModel } from './models.js';
+import { Followers } from './followers.js';
+import { HeadMarkers, PathPreview, HoverGlow } from './markers.js';
 import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import { clamp } from '../core/util.js';
 
-const _tmpColor = new THREE.Color(), _bgColor = new THREE.Color();
+// the camera's default angle above the horizon
+export const DEFAULT_PITCH = 52;
 
-// where each member of a travelling company stands on its square, by size
-const PARTY_FORMATION = [
-  [[0, 0]],
-  [[0, 0.05]],
-  [[0, 0.17], [0, -0.17]],
-  [[0, 0.2], [-0.2, -0.1], [0.2, -0.1]],
-  [[0, 0.24], [-0.2, 0.0], [0.2, 0.0], [0, -0.26]],
-  [[0, 0.26], [-0.21, 0.04], [0.21, 0.04], [-0.17, -0.25], [0.17, -0.25]],
-  [[0, 0.28], [-0.22, 0.08], [0.22, 0.08], [-0.27, -0.22], [0, -0.26], [0.27, -0.22]],
-  [[0, 0.3], [-0.22, 0.1], [0.22, 0.1], [-0.3, -0.16], [0, -0.18], [0.3, -0.16], [-0.12, -0.36]],
-  [[0, 0.3], [-0.22, 0.1], [0.22, 0.1], [-0.3, -0.16], [0, -0.18], [0.3, -0.16], [-0.15, -0.36], [0.15, -0.36]],
-];
+const _tmpColor = new THREE.Color();
+const _v3 = new THREE.Vector3();
 
+// bg: haze/fog colour, sky: colour mirrored in water, light: strength of
+// torch and lava pools, party: the glow carried by the party
 const LIGHTING = {
-  day: { bg: 0x8fbde6, hemiSky: 0xdcefff, hemiGround: 0x6a5a40, hemi: 1.5, sun: 2.6, sunColor: 0xfff0d8, amb: 0 },
-  dusk: { bg: 0x5a4a6a, hemiSky: 0xffc8a0, hemiGround: 0x3a2a40, hemi: 1.1, sun: 1.6, sunColor: 0xffb070, amb: 0 },
-  night: { bg: 0x101828, hemiSky: 0x6080c0, hemiGround: 0x101018, hemi: 0.7, sun: 0.6, sunColor: 0x8090ff, amb: 0 },
-  dark: { bg: 0x050505, hemiSky: 0xb0b4c8, hemiGround: 0x3a3028, hemi: 1.7, sun: 1.5, sunColor: 0xffd8a0, amb: 0 },
+  day: { bg: 0xb4cfe4, sky: 0xa6d0f0, hemiSky: 0xc4dcff, hemiGround: 0x5e4a30, hemi: 1.15, sun: 3.1, sunColor: 0xffe4bc, light: 0, party: 0, vellum: 1, fogNear: 1.35, fogFar: 3.6 },
+  dusk: { bg: 0x6c5a78, sky: 0xe8a07a, hemiSky: 0x9a90d0, hemiGround: 0x3a2830, hemi: 0.95, sun: 2.0, sunColor: 0xffa060, light: 0.75, party: 0.35, vellum: 0.8, fogNear: 1.2, fogFar: 3.2 },
+  // night is blue moonlight, never black; underground is moody but readable
+  night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, vellum: 0.5, fogNear: 1.3, fogFar: 3.6 },
+  dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
+const WORLD_FIGURE = 0.78;
+const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
+const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {
   constructor(container) {
@@ -38,26 +38,30 @@ export class View {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
-    this.renderer.autoClear = false;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.Fog(0xb4cfe4, 20, 60);
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 400);
+    this.camera.layers.enableAll();
     this.mats = createMaterials();
 
-    this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.4);
+    // cool sky fill and a warm key sun
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
     this.scene.add(this.hemi);
-    this.sun = new THREE.DirectionalLight(0xffffff, 2.5);
+    this.sun = new THREE.DirectionalLight(0xffffff, 2.8);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.bias = -0.0006;
-    this.sun.shadow.normalBias = 0.02;
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.045;
+    this.sun.shadow.radius = 3;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
     this.hemi.layers.enableAll();
     this.sun.layers.enableAll();
 
     this.terrain = new TerrainView(this.scene, this.mats);
+    this.buildings = new BuildingsView(this.scene, this.mats, this.terrain);
     this.entities = new Map();
     this.entityGroup = new THREE.Group();
     this.scene.add(this.entityGroup);
@@ -67,10 +71,11 @@ export class View {
     this.scene.add(this.overlayGroup);
 
     // camera rig
-    this.rig = { x: 8, z: 8, tx: 8, tz: 8, dist: 16, tdist: 16, pitch: 70, minDist: 5, maxDist: 80 };
+    this.rig = { x: 8, y: 0, z: 8, tx: 8, tz: 8, dist: 12, tdist: 12, pitch: DEFAULT_PITCH, minDist: 4, maxDist: 80 };
     this.followSpeed = 8;
     this.unitScale = 1.3;
-    this.setPitch(70);
+    this.cutFocus = new Set();
+    this.setPitch(DEFAULT_PITCH);
 
     this.tweens = [];
     this.particles = [];
@@ -79,6 +84,10 @@ export class View {
     this.time = 0;
     this.onTick = null;
 
+    // a soft vignette frames the diorama
+    this.vignette = document.createElement('div');
+    this.vignette.style.cssText = 'position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse 75% 70% at 50% 46%, rgba(0,0,0,0) 58%, rgba(12,8,4,.32) 100%);';
+    container.appendChild(this.vignette);
     this.floatLayer = document.createElement('div');
     this.floatLayer.className = 'float-layer';
     container.appendChild(this.floatLayer);
@@ -88,6 +97,7 @@ export class View {
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
     this.visOn = false;
+    this.light = { ...LIGHTING.day };
     this.setLighting('day');
     window.addEventListener('resize', () => this.resize());
     // the map lives in a docked frame whose size changes with the layout
@@ -106,40 +116,47 @@ export class View {
     this.camera.updateProjectionMatrix();
   }
 
-  // Units are drawn in a second pass on top of the terrain and leaned back
-  // towards the camera so that figures read clearly from a high angle.
+  // Degrees above the horizon. Figures always stand upright.
   setPitch(deg) {
-    this.rig.pitch = clamp(deg, 45, 85);
-    this.lean = -THREE.MathUtils.degToRad(Math.max(0, this.rig.pitch - 22));
-    for (const e of this.entities?.values?.() || []) {
-      if (!e.info.noLean) e.leanG.rotation.x = this.lean;
-      for (const lg of e.model.userData.leanParts || []) lg.rotation.x = this.lean;
-    }
+    this.rig.pitch = clamp(deg || DEFAULT_PITCH, 35, 80);
   }
 
-  setLighting(name) {
-    const L = LIGHTING[name] || LIGHTING.day;
-    this.lighting = name;
+  _applyLight(L) {
+    this.light = L;
     this.renderer.setClearColor(L.bg, 1);
+    this.scene.fog.color.setHex(L.bg);
     this.hemi.color.setHex(L.hemiSky);
     this.hemi.groundColor.setHex(L.hemiGround);
     this.hemi.intensity = L.hemi;
     this.sun.color.setHex(L.sunColor);
     this.sun.intensity = L.sun;
+    shared.uSky.value.setHex(L.sky);
+    shared.uLightOn.value = L.light;
+    // blank vellum dims with the daylight, so it never glows at night
+    shared.uVellum.value.y = L.vellum ?? 1;
+  }
+
+  // the party carries a torch (or a spell of light)
+  setCarriedLight(on) { this.carriedLight = !!on; }
+
+  setLighting(name) {
+    const L = LIGHTING[name] || LIGHTING.day;
+    this.lighting = name;
+    this._applyLight({ ...L });
   }
 
   // Blend the outdoor light through the day: 0 = full day, 0.5 = dusk, 1 = night
   setDaylight(k) {
     const D = LIGHTING.day, U = LIGHTING.dusk, N = LIGHTING.night;
     const [A, B, t] = k < 0.5 ? [D, U, k * 2] : [U, N, (k - 0.5) * 2];
-    const mixc = (target, a, b) => target.setHex(a).lerp(_tmpColor.setHex(b), t);
     this.lighting = k > 0.75 ? 'night' : k > 0.25 ? 'dusk' : 'day';
-    this.renderer.setClearColor(mixc(_bgColor, A.bg, B.bg), 1);
-    mixc(this.hemi.color, A.hemiSky, B.hemiSky);
-    mixc(this.hemi.groundColor, A.hemiGround, B.hemiGround);
-    this.hemi.intensity = A.hemi + (B.hemi - A.hemi) * t;
-    mixc(this.sun.color, A.sunColor, B.sunColor);
-    this.sun.intensity = A.sun + (B.sun - A.sun) * t;
+    const L = {};
+    for (const key of Object.keys(A)) {
+      L[key] = ['bg', 'sky', 'hemiSky', 'hemiGround', 'sunColor'].includes(key)
+        ? _tmpColor.setHex(A[key]).lerp(new THREE.Color(B[key]), t).getHex()
+        : A[key] + (B[key] - A[key]) * t;
+    }
+    this._applyLight(L);
   }
 
   // ---- map ----
@@ -147,29 +164,117 @@ export class View {
     this.map = map;
     this.clearEntities();
     this.clearFx();
+    // buildings claim their walls before the terrain is built round them
+    this.buildings.prepare(map);
+    this.terrain.extraLights = []; // the last map's glows (build() adds this map's)
     this.terrain.setMap(map);
+    this.buildings.build();
+    this._buildingsDirty = false;
     this.setLighting(map.lighting || 'day');
     this._initVisibility(map.w, map.h);
     this.rig.maxDist = Math.max(30, Math.max(map.w, map.h) * 1.2);
+    this.reach = null; // play sets this (see zoomLimit)
+  }
+
+  // How far out the camera may pull: in play, only about `reach` squares
+  // either side of the party fit across the view; the editor is unlimited.
+  zoomLimit() {
+    if (!this.reach) return this.rig.maxDist;
+    const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const aspect = Math.max(0.6, this.camera.aspect || 1.5);
+    return Math.max(this.rig.minDist, Math.min(this.rig.maxDist, (2 * this.reach + 1) / (2 * t * aspect)));
   }
 
   refreshTiles(x0, y0, x1, y1) {
     this.terrain.markDirty(x0, y0, x1, y1);
+    // rebuilding every house costs ~100 ms: only when the change can reach one
+    if (!this._buildingsDirty && this.buildings.touches(x0 - 1, y0 - 1, x1 + 1, y1 + 1)) this._buildingsDirty = true;
   }
 
   refreshAll() {
     this.terrain.markAllDirty();
+    this._buildingsDirty = true;
+  }
+
+  // ---- settlement buildings ----
+  // The buildings of a town or castle (from findBuildings). setMap works them
+  // out itself; passing the same list again costs nothing.
+  setBuildings(list) {
+    if (!this.map || !BuildingsView.enabledFor(this.map)) return;
+    const b = this.buildings;
+    if (list && b.sig === BuildingsView.sig(list.slice(0, 48))) return;
+    this._rebuildBuildings(list);
+  }
+
+  _rebuildBuildings(list) {
+    const b = this.buildings;
+    const before = this.terrain.owned ? this.terrain.owned.slice() : null;
+    const sig = b.sig;
+    b.prepare(this.map, list);
+    const after = this.terrain.owned;
+    // tiles whose walls changed hands are rebuilt by the terrain
+    const m = this.map;
+    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+    for (let i = 0; i < m.w * m.h; i++) {
+      const a = before ? before[i] : 0, c = after ? after[i] : 0;
+      if (!a !== !c) { const x = i % m.w, y = Math.floor(i / m.w); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    }
+    if (x1 >= 0) this.terrain.markDirty(x0 - 1, y0 - 1, x1 + 1, y1 + 1);
+    // the walls themselves may have changed even when the plan has not
+    void sig;
+    b.build();
+  }
+
+  // a glow round the building the player points at (-1: none)
+  highlightBuilding(i) { this.buildings.setHover(i ?? -1); }
+
+  // hold a building open (roof off) whatever the party does (-1: none)
+  openBuilding(i) { this.buildings.setOpen(i ?? -1); }
+
+  // index of the building on a square (its floor or walls), or -1
+  buildingAt(x, y) { return this.buildings.at(x, y); }
+
+  // index of the building under the pointer (its walls and roof), or -1
+  pickBuilding(clientX, clientY) {
+    if (!this.buildings.list.length) return -1;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.buildings.pick(this.raycaster.ray);
+  }
+
+  _updateBuildings(dt) {
+    const b = this.buildings;
+    if (!b.list.length) return;
+    // the party's building stands open; in the editor (no party), the one
+    // under the cursor
+    const party = this.entities.get('party');
+    const inside = party ? b.at(party.x, party.y) : -1;
+    const cursor = !party && this.cursor.visible && this._cursorTile ? b.at(this._cursorTile.x, this._cursorTile.y) : -1;
+    b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null, exp: this.visOn ? this.expCur : null });
   }
 
   heightAt(x, y) {
     if (!this.map) return 0;
     const t = terrain(getTile(this.map, x, y));
-    if (t.key === 'bridge') return 0.04;
+    if (t.deck) return 0.05;
     if (t.water) return WATER_Y;
+    if (t.key === 'lava') return LAVA_Y;
     const g = this.terrain.groundAt(x, y);
     if (t.wall) return g + t.h;
     if (t.deco === 'stairsup') return g + 0.1;
     return g;
+  }
+
+  // what a ray from the camera meets: ground, water or the top of a wall
+  surfaceAt(px, pz) {
+    const tx = Math.floor(px), ty = Math.floor(pz);
+    if (this.map && tx >= 0 && ty >= 0 && tx < this.map.w && ty < this.map.h) {
+      const t = terrain(getTile(this.map, tx, ty));
+      if (t.water) return t.deck ? 0.05 : WATER_Y;
+      if (t.wall) return this.terrain.groundAt(tx, ty) + t.h;
+    }
+    return Math.max(this.terrain.heightAtPoint(px, pz), WATER_Y);
   }
 
   // ---- visibility (fog of war) ----
@@ -179,14 +284,19 @@ export class View {
     this.visH = h;
     this.visCur = new Float32Array(w * h).fill(1);
     this.visTarget = new Float32Array(w * h).fill(1);
-    this.visData = new Uint8Array(w * h).fill(255);
-    this.visTex = new THREE.DataTexture(this.visData, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+    // explored (1) or never seen (0) per tile, eased the same way
+    this.expCur = new Float32Array(w * h).fill(1);
+    this.expTarget = new Float32Array(w * h).fill(1);
+    // red: how lit / seen a tile is; green: explored at all
+    this.visData = new Uint8Array(w * h * 2).fill(255);
+    this.visTex = new THREE.DataTexture(this.visData, w, h, THREE.RGFormat, THREE.UnsignedByteType);
     this.visTex.magFilter = THREE.LinearFilter;
     this.visTex.minFilter = THREE.LinearFilter;
     this.visTex.needsUpdate = true;
     shared.uVisTex.value = this.visTex;
     shared.uVisSize.value.set(w, h);
     this.setVisibilityEnabled(false);
+    this.setVellum(false);
   }
 
   setVisibilityEnabled(on) {
@@ -194,13 +304,23 @@ export class View {
     shared.uVisOn.value = on ? 1 : 0;
   }
 
-  // levels: Float32Array/array of 0..1 per tile
-  setVisibility(levels, instant = false) {
+  // Never-explored tiles drawn as blank parchment (outdoor maps) rather than black
+  setVellum(on) { shared.uVellum.value.x = on ? 1 : 0; }
+
+  // levels: Float32Array/array of 0..1 per tile; explored: optional 0/1 per tile
+  setVisibility(levels, instant = false, explored = null) {
     if (!this.visTarget || levels.length !== this.visTarget.length) return;
     this.visTarget.set(levels);
+    if (explored && explored.length === this.expTarget.length) this.expTarget.set(explored);
+    else this.expTarget.fill(1);
     if (instant) {
       this.visCur.set(levels);
-      for (let i = 0; i < levels.length; i++) this.visData[i] = Math.round(levels[i] * 255);
+      this.expCur.set(this.expTarget);
+      const data = this.visData;
+      for (let i = 0; i < levels.length; i++) {
+        data[i * 2] = Math.round(levels[i] * 255);
+        data[i * 2 + 1] = Math.round(this.expCur[i] * 255);
+      }
       this.visTex.needsUpdate = true;
     }
   }
@@ -209,16 +329,29 @@ export class View {
     if (!this.visOn || !this.visTarget) return;
     let changed = false;
     const k = Math.min(1, dt * 7);
+    // newly charted land inks in a little slower than the light moves
+    const ke = Math.min(1, dt * 3.5);
     const cur = this.visCur, tgt = this.visTarget, data = this.visData;
+    const ec = this.expCur, et = this.expTarget;
     for (let i = 0; i < cur.length; i++) {
       const d = tgt[i] - cur[i];
       if (d > 0.004 || d < -0.004) {
         cur[i] += d * k;
-        data[i] = Math.round(cur[i] * 255);
+        data[i * 2] = Math.round(cur[i] * 255);
         changed = true;
       } else if (cur[i] !== tgt[i]) {
         cur[i] = tgt[i];
-        data[i] = Math.round(cur[i] * 255);
+        data[i * 2] = Math.round(cur[i] * 255);
+        changed = true;
+      }
+      const de = et[i] - ec[i];
+      if (de > 0.004 || de < -0.004) {
+        ec[i] += de * ke;
+        data[i * 2 + 1] = Math.round(ec[i] * 255);
+        changed = true;
+      } else if (ec[i] !== et[i]) {
+        ec[i] = et[i];
+        data[i * 2 + 1] = Math.round(ec[i] * 255);
         changed = true;
       }
     }
@@ -229,38 +362,82 @@ export class View {
   focus(x, y, instant = false) {
     this.rig.tx = x + 0.5;
     this.rig.tz = y + 0.5;
-    if (instant) { this.rig.x = this.rig.tx; this.rig.z = this.rig.tz; }
+    if (instant) { this.rig.x = this.rig.tx; this.rig.z = this.rig.tz; this.rig.y = this._lookY(this.rig.x, this.rig.z); }
   }
 
   setZoom(dist, instant = false) {
-    this.rig.tdist = clamp(dist, this.rig.minDist, this.rig.maxDist);
+    this.rig.tdist = clamp(dist, this.rig.minDist, this.zoomLimit());
     if (instant) this.rig.dist = this.rig.tdist;
   }
 
   zoomBy(f) { this.setZoom(this.rig.tdist * f); }
 
+  // Zoom by a wheel event in proportion to how far it scrolled: a mouse notch
+  // (about 100 px) is a tenth, while a trackpad's stream of small deltas, or a
+  // pinch (sent with ctrlKey), glides instead of racing.
+  wheelZoom(e) {
+    const px = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+    const k = e.ctrlKey ? 0.006 : 0.0011;
+    this.zoomBy(Math.exp(clamp(px, -120, 120) * k));
+  }
+
+  // the height the camera aims at: the ground under the target, gently
+  _lookY(x, z) {
+    if (!this.map) return 0;
+    return clamp(this.terrain.heightAtPoint(x, z), -0.1, 0.6);
+  }
+
+  _place(cam, x, y, z, dist) {
+    const p = THREE.MathUtils.degToRad(this.rig.pitch);
+    cam.position.set(x, y + Math.sin(p) * dist, z + Math.cos(p) * dist);
+    cam.lookAt(x, y, z);
+    cam.updateMatrixWorld();
+  }
+
   // Fit the world rectangle [x0,x1)x[z0,z1) inside the screen area left free by
-  // UI panels (pixel margins), choosing distance and target accordingly.
+  // UI panels (pixel margins), choosing distance and target accordingly. The
+  // far edge allows for figures standing on it.
   frameArea(x0, z0, x1, z1, m = {}) {
     const W = this.container.clientWidth || window.innerWidth;
     const H = this.container.clientHeight || window.innerHeight;
     const left = m.left || 0, right = m.right || 0, top = m.top || 0, bottom = m.bottom || 0;
     const fw = Math.max(100, W - left - right), fh = Math.max(100, H - top - bottom);
+    const cam = this.camera;
+    cam.aspect = W / H;
+    cam.updateProjectionMatrix();
+    const pts = [[x0, 0, z0], [x1, 0, z0], [x0, 0, z1], [x1, 0, z1], [x0 + 0.3, 1.1, z0 + 0.2], [x1 - 0.3, 1.1, z0 + 0.2]];
+    const box = (tx, tz, d) => {
+      this._place(cam, tx, 0, tz, d);
+      let ax = Infinity, bx = -Infinity, ay = Infinity, by = -Infinity;
+      for (const [px, py, pz] of pts) {
+        _v3.set(px, py, pz).project(cam);
+        const sx = (_v3.x * 0.5 + 0.5) * W, sy = (-_v3.y * 0.5 + 0.5) * H;
+        ax = Math.min(ax, sx); bx = Math.max(bx, sx); ay = Math.min(ay, sy); by = Math.max(by, sy);
+      }
+      return [ax, bx, ay, by];
+    };
+    let tx = (x0 + x1) / 2, tz = (z0 + z1) / 2, d = 10;
     const p = THREE.MathUtils.degToRad(this.rig.pitch);
-    const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
-    const aspect = W / H;
-    const ww = (x1 - x0) + 0.6, hh = (z1 - z0) + 1.4;
-    // world units visible at distance d: width = 2 d t aspect, depth ≈ 2 d t / sin(p)
-    const dW = (ww / (2 * t * aspect)) * (W / fw);
-    const dH = (hh * Math.sin(p) / (2 * t)) * (H / fh);
-    const d = Math.max(dW, dH, this.rig.minDist);
-    const unitsPerPx = (2 * d * t * aspect) / W;
-    const offX = ((left - right) / 2) * unitsPerPx;
-    const offZ = ((top - bottom) / 2) * unitsPerPx / Math.sin(p);
-    this.rig.tx = (x0 + x1) / 2 - offX;
-    this.rig.tz = (z0 + z1) / 2 - offZ + 0.25;
-    this.rig.x = this.rig.tx; this.rig.z = this.rig.tz;
-    this.rig.tdist = this.rig.dist = d;
+    for (let iter = 0; iter < 4; iter++) {
+      let lo = this.rig.minDist, hi = 400;
+      for (let k = 0; k < 28; k++) {
+        const mid = (lo + hi) / 2;
+        const [ax, bx, ay, by] = box(tx, tz, mid);
+        if (bx - ax <= fw && by - ay <= fh) hi = mid; else lo = mid;
+      }
+      d = hi;
+      const [ax, bx, ay, by] = box(tx, tz, d);
+      const upp = (2 * d * Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) / H;
+      const dx = (left + fw / 2) - (ax + bx) / 2, dy = (top + fh / 2) - (ay + by) / 2;
+      tx -= dx * upp;
+      tz -= dy * upp / Math.sin(p);
+    }
+    const r = this.rig;
+    r.tx = r.x = tx;
+    r.tz = r.z = tz;
+    r.y = 0;
+    r.tdist = r.dist = d;
+    this._fixed = 0.6; // hold the aim at y = 0 while the framing settles
   }
 
   // world units per screen pixel at the current target distance
@@ -281,29 +458,57 @@ export class View {
     r.x += (r.tx - r.x) * k;
     r.z += (r.tz - r.z) * k;
     r.dist += (r.tdist - r.dist) * (1 - Math.exp(-dt * 10));
-    const p = THREE.MathUtils.degToRad(r.pitch);
-    this.camera.position.set(r.x, Math.sin(p) * r.dist, r.z + Math.cos(p) * r.dist);
-    this.camera.lookAt(r.x, 0, r.z);
-    // sun follows the view so shadows stay crisp
-    const span = clamp(r.dist * 0.75, 8, 40);
-    this.sun.position.set(r.x - 12, 30, r.z + 10);
-    this.sun.target.position.set(r.x, 0, r.z);
+    if (this._fixed > 0) this._fixed -= dt;
+    else r.y += (this._lookY(r.x, r.z) - r.y) * (1 - Math.exp(-dt * 3));
+    this._place(this.camera, r.x, r.y, r.z, r.dist);
+    // fog and haze scale with the zoom
+    const L = this.light;
+    this.scene.fog.near = r.dist * L.fogNear;
+    this.scene.fog.far = r.dist * L.fogFar;
+    // the sun follows the view so shadows stay crisp: cover the visible ground,
+    // which reaches further north (up the screen) than south
+    const span = clamp(r.dist * 0.9, 6, 46);
+    const cx = r.x, cz = r.z - r.dist * 0.12;
+    this.sun.position.set(cx + SUN_DIR.x * 40, r.y + SUN_DIR.y * 40, cz + SUN_DIR.z * 40);
+    this.sun.target.position.set(cx, r.y, cz);
     const sc = this.sun.shadow.camera;
     if (sc.right !== span) {
       sc.left = -span; sc.right = span; sc.top = span; sc.bottom = -span;
-      sc.near = 1; sc.far = 80;
+      sc.near = 5; sc.far = 90;
       sc.updateProjectionMatrix();
     }
     this.sun.castShadow = r.dist < 60;
   }
 
-  // screen → tile
+  // screen → tile: march the ray down to whatever surface it meets first
   pick(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
+    const ray = this.raycaster.ray, o = ray.origin, d = ray.direction;
     const p = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.groundPlane, p)) return null;
+    if (this.map && d.y < -1e-4) {
+      let t = Math.max(0, (2.5 - o.y) / d.y);
+      const end = (-2.6 - o.y) / d.y;
+      const step = 0.06;
+      let prev = t;
+      for (; t <= end; t += step) {
+        ray.at(t, p);
+        if (p.y <= this.surfaceAt(p.x, p.z)) {
+          // refine between the last point above and this one below
+          let a = prev, b = t;
+          for (let k = 0; k < 8; k++) {
+            const m = (a + b) / 2;
+            ray.at(m, p);
+            if (p.y <= this.surfaceAt(p.x, p.z)) b = m; else a = m;
+          }
+          ray.at(b, p);
+          return { x: Math.floor(p.x), y: Math.floor(p.z), fx: p.x, fz: p.z };
+        }
+        prev = t;
+      }
+    }
+    if (!ray.intersectPlane(this.groundPlane, p)) return null;
     return { x: Math.floor(p.x), y: Math.floor(p.z), fx: p.x, fz: p.z };
   }
 
@@ -317,30 +522,35 @@ export class View {
   addEntity(id, spec, x, y, opts = {}) {
     this.removeEntity(id);
     const root = new THREE.Group();
-    const leanG = new THREE.Group();
+    const leanG = new THREE.Group(); // scale group (squash on hurt, topple on death)
     const faceG = new THREE.Group();
-    const model = spec.kind === 'party' ? this._partyModel(spec) : makeModel(spec, this.mats);
-    model.traverse((o) => { o.layers.set(1); });
+    const model = makeModel(spec, this.mats);
     const info = model.userData.info;
     faceG.add(model);
     leanG.add(faceG);
     root.add(leanG);
-    if (!info.noLean) leanG.rotation.x = this.lean;
-    const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale);
+    // On the world map a square is a league: figures stand smaller beside the
+    // (enlarged) towns and castles, and points of interest a little larger
+    const world = this.map?.type === 'world';
+    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI.has(spec.kind) ? 1.6 : 1) : WORLD_FIGURE;
+    const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale) * worldK;
     leanG.scale.setScalar(scale);
-    // blob shadow
+    // soft contact shadow under the feet
     if (!info.boat) {
-      const r = info.group ? 0.46 : 0.3 * scale * (spec.kind === 'dragon' ? 1.6 : 1);
-      const blob = new THREE.Mesh(new THREE.CircleGeometry(r, 16), this.mats.shadowBlob);
+      const r = info.group ? 0.5 : 0.3 * scale * (spec.kind === 'dragon' ? 1.6 : 1);
+      const blob = new THREE.Mesh(new THREE.CircleGeometry(r, 20), this.mats.shadowBlob);
       blob.rotation.x = -Math.PI / 2;
-      blob.position.y = 0.012;
+      blob.position.y = 0.035;
       blob.renderOrder = 1;
       root.add(blob);
     }
     if (opts.ring) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(0.33, 0.42, 24), new THREE.MeshBasicMaterial({ color: opts.ring, transparent: true, opacity: 0.85, depthWrite: false }));
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.43, 32), new THREE.MeshBasicMaterial({
+        color: opts.ring, transparent: true, opacity: 0.9, depthWrite: false, fog: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8,
+      }));
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.02;
+      ring.position.y = 0.05;
       ring.renderOrder = 2;
       root.add(ring);
       root.userData.ring = ring;
@@ -356,7 +566,7 @@ export class View {
       }
     }
     const e = {
-      id, root, leanG, faceG, model, info, x, y,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -369,31 +579,40 @@ export class View {
     return e;
   }
 
-  // The whole company on one square, leader in front and the rest in ranks
-  // behind. Each figure leans toward the camera on its own, so the group
-  // stays on the ground.
-  _partyModel(spec) {
-    const looks = spec.members || [];
-    const spots = PARTY_FORMATION[Math.min(looks.length, PARTY_FORMATION.length - 1)] || [[0, 0]];
-    const group = new THREE.Group();
-    const leanParts = [];
-    const k = spec.figureScale ?? 0.62;
-    let height = 0;
-    looks.forEach((look, i) => {
-      const m = makeModel(look, this.mats);
-      const lg = new THREE.Group();
-      lg.add(m);
-      lg.rotation.x = this.lean;
-      lg.scale.setScalar(this.unitScale * k);
-      const [ox, oz] = spots[i] || [0, 0];
-      lg.position.set(ox, 0, oz);
-      group.add(lg);
-      leanParts.push(lg);
-      height = Math.max(height, m.userData.info.height * this.unitScale * k);
-    });
-    group.userData.leanParts = leanParts;
-    group.userData.info = { height: height || 1, noLean: true, group: true, float: false, hover: 0 };
-    return group;
+  // The company walking behind the leader, the marks above people's heads,
+  // the path preview and the hover glow (made on first use)
+  get followers() { return this._followers || (this._followers = new Followers(this)); }
+  get markers() { return this._markers || (this._markers = new HeadMarkers(this)); }
+  get pathPreview() { return this._pathPreview || (this._pathPreview = new PathPreview(this)); }
+  get hoverGlow() { return this._hoverGlow || (this._hoverGlow = new HoverGlow(this)); }
+
+  // items: [{ key, look }] for everyone after the leader ('party')
+  // (opts.aboard: looks for the crew on the deck of the party's ship)
+  setFollowers(items, opts = {}) {
+    this.followers.set(items || [], opts);
+    if (opts.aboard) this.followers.aboard(opts.aboard);
+  }
+  setMarker(id, kind, always) { this.markers.set(id, kind, always); }
+
+  // The figure under the pointer (screen space, so a click on a head counts),
+  // nearest the camera first; filter(entity) can rule some out
+  pickEntity(clientX, clientY, filter) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mx = clientX - rect.left, my = clientY - rect.top;
+    let best = null, bestZ = -Infinity;
+    for (const e of this.entities.values()) {
+      if (!e.root.visible || (filter && !filter(e))) continue;
+      const p = e.root.position;
+      const h = Math.max(0.35, e.info.height * e.scale);
+      const foot = this.worldToScreen(p.x, p.y, p.z);
+      if (foot.behind) continue;
+      const head = this.worldToScreen(p.x, p.y + h, p.z);
+      const side = this.worldToScreen(p.x + (e.info.boat ? 0.5 : 0.3) * Math.max(0.8, e.scale), p.y, p.z);
+      const w = Math.max(10, Math.abs(side.x - foot.x));
+      if (mx < foot.x - w || mx > foot.x + w || my < head.y - 6 || my > foot.y + w * 0.45) continue;
+      if (p.z > bestZ) { bestZ = p.z; best = e; }
+    }
+    return best ? best.id : null;
   }
 
   _entityY(e, x, y) {
@@ -414,6 +633,7 @@ export class View {
     });
     if (e.hpBar) e.hpBar.el.remove();
     this.entities.delete(id);
+    this.cutFocus.delete(id);
   }
 
   clearEntities() {
@@ -435,6 +655,13 @@ export class View {
     if (!e || !e.root.userData.ring) return;
     if (color == null) e.root.userData.ring.visible = false;
     else { e.root.userData.ring.visible = true; e.root.userData.ring.material.color.setHex(color); }
+    // the unit whose turn it is (white ring) is always seen through scenery
+    if (color === 0xffffff) this.cutFocus.add(id); else this.cutFocus.delete(id);
+  }
+
+  // keep an entity visible through walls and trees in front of it
+  setCutFocus(id, on = true) {
+    if (on) this.cutFocus.add(id); else this.cutFocus.delete(id);
   }
 
   _applyFacing(e, dx, dy, instant) {
@@ -546,7 +773,7 @@ export class View {
     const e = this.entities.get(id);
     if (!e) return null;
     const p = e.root.position;
-    return this.worldToScreen(p.x, p.y + e.info.height * e.scale * 0.95 + 0.15, p.z - 0.2);
+    return this.worldToScreen(p.x, p.y + e.info.height * e.scale * 1.0 + 0.12, p.z);
   }
 
   _updateEntities(dt) {
@@ -580,84 +807,187 @@ export class View {
         e.hpBar.el.style.transform = `translate(${p.x - 18}px, ${p.y}px)`;
       }
     }
+    if (this._followers) this._followers.update(dt);
+    if (this._markers) this._markers.update();
+    if (this._hoverGlow) this._hoverGlow.update();
+  }
+
+  // ---- cutaway & carried light ----
+  // Scenery between the camera and the party (or the unit whose turn it is,
+  // or the square under the cursor) dithers away in a circle around them.
+  _updateCutaway() {
+    const cuts = shared.uCut.value, ys = shared.uCutY.value;
+    const pr = this.renderer.getPixelRatio();
+    const H = this._h || 1;
+    let n = 0;
+    const add = (x, y, z, h, rad) => {
+      if (n >= cuts.length) return;
+      const a = this.worldToScreen(x, y, z), b = this.worldToScreen(x, y + h, z);
+      const px = Math.abs(a.y - b.y);
+      // sized to the figure on screen, so a far-off party doesn't punch big holes
+      const r = px * 1.25 + rad * Math.min(1, px / 50);
+      cuts[n].set(((a.x + b.x) / 2) * pr, (H - (a.y + b.y) / 2) * pr, r * pr, z - 0.1);
+      ys[n] = y + 0.08;
+      n++;
+    };
+    const ent = (e, extra = 0) => {
+      if (!e.root.visible) return;
+      const p = e.root.position;
+      add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
+    };
+    const party = this.entities.get('party');
+    if (party && party.root.visible) {
+      // one clear window over the whole company: the box round every figure's
+      // feet and head on screen, cut from the northernmost of them forward
+      const group = [party];
+      for (const f of this._followers?.list || []) { const e = this.entities.get(f.id); if (e && e.root.visible) group.push(e); }
+      let ax = Infinity, bx = -Infinity, ay = Infinity, by = -Infinity, zMin = Infinity, yMin = Infinity, hMax = 0;
+      for (const e of group) {
+        const p = e.root.position, h = e.info.height * e.scale;
+        const a = this.worldToScreen(p.x, p.y, p.z), b = this.worldToScreen(p.x, p.y + h, p.z);
+        const w = Math.abs(a.y - b.y) * 0.4;
+        ax = Math.min(ax, a.x - w, b.x - w); bx = Math.max(bx, a.x + w, b.x + w);
+        ay = Math.min(ay, b.y); by = Math.max(by, a.y);
+        zMin = Math.min(zMin, p.z); yMin = Math.min(yMin, p.y); hMax = Math.max(hMax, Math.abs(a.y - b.y));
+      }
+      const r = Math.hypot(bx - ax, by - ay) * 0.5 + hMax * 0.55 + 18;
+      cuts[0].set(((ax + bx) / 2) * pr, (H - (ay + by) / 2) * pr, r * pr, zMin - 0.12);
+      ys[0] = yMin + 0.06;
+      n = 1;
+    }
+    for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
+    // points of interest near the company: nothing tall in front hides them
+    if (party && this.map?.type === 'world') {
+      const px = party.root.position.x, pz = party.root.position.z;
+      const near = [];
+      for (const e of this.entities.values()) {
+        if (!e.poi || !e.root.visible || this.cutFocus.has(e.id)) continue;
+        const d = Math.max(Math.abs(e.root.position.x - px), Math.abs(e.root.position.z - pz));
+        if (d <= 6) near.push([d, e]);
+      }
+      near.sort((a, b) => a[0] - b[0]);
+      for (const [, e] of near.slice(0, 3)) ent(e, -10);
+    }
+    if (this.cursor.visible && this.map?.type === 'arena') {
+      const c = this.cursor.position, s = this.cursor.scale.x;
+      add(c.x + s / 2, c.y, c.z + s / 2, 0.9, 34 + s * 10);
+    }
+    // in battle no tree or rock may hide any fighter
+    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8);
+    shared.uCutN.value = n;
+    // the party's own torchlight at night and underground
+    const L = this.light;
+    // (a torch or a light spell throws a wider, brighter pool)
+    if (party && L.party > 0) {
+      const p = party.root.position, torch = this.carriedLight;
+      const dark = this.lighting === 'dark';
+      shared.uParty.value.set(p.x, p.z, (dark ? 4.2 : 3.8) * (torch ? 1.55 : 1), L.party * (torch ? 1.35 : 0.85));
+    } else shared.uParty.value.set(0, 0, 0, 0);
   }
 
   // ---- overlays ----
   _initOverlays() {
-    const mk = (color, opacity = 0.9) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, depthTest: false });
+    // seen-through copies: what scenery hides still shows faintly
+    const pair = (color, opacity) => {
+      const front = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8 });
+      const back = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: opacity * 0.45, depthWrite: false, depthFunc: THREE.GreaterDepth, fog: false });
+      return [front, back];
+    };
     // tile cursor: square frame
     const frame = new THREE.Group();
-    const thick = 0.06;
-    const mat = mk(0xffffff);
-    for (const [x, z, sx, sz] of [[0.5, thick / 2, 1, thick], [0.5, 1 - thick / 2, 1, thick], [thick / 2, 0.5, thick, 1], [1 - thick / 2, 0.5, thick, 1]]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), mat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(x, 0, z);
-      frame.add(m);
+    const thick = 0.07;
+    const [mat, matBack] = pair(0xffffff, 0.95);
+    for (const m of [mat, matBack]) {
+      for (const [x, z, sx, sz] of [[0.5, thick / 2, 1, thick], [0.5, 1 - thick / 2, 1, thick], [thick / 2, 0.5, thick, 1], [1 - thick / 2, 0.5, thick, 1]]) {
+        const q = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), m);
+        q.rotation.x = -Math.PI / 2;
+        q.position.set(x, 0, z);
+        q.renderOrder = 20;
+        frame.add(q);
+      }
     }
-    frame.renderOrder = 20;
-    frame.traverse((o) => { o.renderOrder = 20; });
     frame.visible = false;
     this.cursor = frame;
     this.cursorMat = mat;
+    this.cursorMatBack = matBack;
     this.overlayGroup.add(frame);
 
     const ringGeo = new THREE.RingGeometry(0.96, 1, 48);
-    this.brushRing = new THREE.Mesh(ringGeo, mk(0xffe080, 0.8));
+    this.brushRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffe080, transparent: true, opacity: 0.8, depthWrite: false, depthTest: false, fog: false }));
     this.brushRing.rotation.x = -Math.PI / 2;
     this.brushRing.renderOrder = 20;
     this.brushRing.visible = false;
     this.overlayGroup.add(this.brushRing);
 
     this.highlightMesh = null;
-    this.highlightMat = new THREE.MeshBasicMaterial({ color: 0x40a0ff, transparent: true, opacity: 0.28, depthWrite: false, depthTest: false });
+    const [hm, hb] = pair(0x40a0ff, 0.28);
+    this.highlightMat = hm;
+    this.highlightMatBack = hb;
     this.lineObj = null;
   }
 
   showCursor(x, y, color = 0xffffff, size = 1) {
-    if (x == null) { this.cursor.visible = false; return; }
+    if (x == null) { this.cursor.visible = false; this._cursorTile = null; return; }
+    this._cursorTile = { x, y };
     this.cursor.visible = true;
-    const h = this.heightAt(x, y) + 0.03;
     const off = Math.floor((size - 1) / 2);
-    this.cursor.position.set(x - off, h, y - off);
+    // sit on the highest point of the square so the frame is never buried
+    let h = this.heightAt(x, y);
+    for (const [px, pz] of [[x + 0.05, y + 0.05], [x + 0.95, y + 0.05], [x + 0.05, y + 0.95], [x + 0.95, y + 0.95], [x + 0.5, y + 0.5]]) h = Math.max(h, this.surfaceAt(px, pz));
+    this.cursor.position.set(x - off, h + 0.04, y - off);
     this.cursor.scale.set(size, 1, size);
     this.cursorMat.color.setHex(color);
+    this.cursorMatBack.color.setHex(color);
   }
 
   showBrush(fx, fz, radius, color = 0xffe080) {
     if (fx == null) { this.brushRing.visible = false; return; }
     this.brushRing.visible = true;
-    this.brushRing.position.set(fx, 0.06, fz);
+    this.brushRing.position.set(fx, Math.max(0.06, this.surfaceAt(fx, fz) + 0.06), fz);
     this.brushRing.scale.set(radius, radius, 1);
     this.brushRing.material.color.setHex(color);
   }
 
+  // Squares drawn on the ground, following its rise and fall
   setHighlights(tiles, color = 0x40a0ff, opacity = 0.28) {
     if (this.highlightMesh) {
       this.overlayGroup.remove(this.highlightMesh);
-      this.highlightMesh.geometry.dispose();
-      this.highlightMesh.dispose?.();
+      this.highlightMesh.traverse((o) => o.geometry && o.geometry.dispose());
       this.highlightMesh = null;
     }
     if (!tiles || !tiles.length) return;
-    const geo = new THREE.PlaneGeometry(0.92, 0.92);
-    geo.rotateX(-Math.PI / 2);
-    // tiles may carry their own colour (e.g. squares to move to and foes to strike)
-    const mixed = tiles.some((t) => t.color != null);
-    const mat = mixed ? (this.highlightMatMixed ||= this.highlightMat.clone()) : this.highlightMat;
-    mat.color.setHex(mixed ? 0xffffff : color);
-    mat.opacity = opacity;
-    const inst = new THREE.InstancedMesh(geo, mat, tiles.length);
-    const m4 = new THREE.Matrix4();
+    const pos = [], col = [];
     const c = new THREE.Color();
-    tiles.forEach((t, i) => {
-      m4.makeTranslation(t.x + 0.5, this.heightAt(t.x, t.y) + 0.025, t.y + 0.5);
-      inst.setMatrixAt(i, m4);
-      if (mixed) inst.setColorAt(i, c.setHex(t.color ?? color));
-    });
-    inst.renderOrder = 5;
-    this.highlightMesh = inst;
-    this.overlayGroup.add(inst);
+    const inset = 0.05, N = 2;
+    for (const t of tiles) {
+      c.setHex(t.color ?? color);
+      const at = (u, v) => {
+        const px = t.x + inset + (1 - 2 * inset) * u, pz = t.y + inset + (1 - 2 * inset) * v;
+        return [px, this.surfaceAt(px, pz) + 0.035, pz];
+      };
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const a = at(i / N, (j + 1) / N), b = at((i + 1) / N, (j + 1) / N), cc = at((i + 1) / N, j / N), d = at(i / N, j / N);
+        for (const v of [a, b, cc, a, cc, d]) { pos.push(v[0], v[1], v[2]); col.push(c.r, c.g, c.b); }
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    for (const m of [this.highlightMat, this.highlightMatBack]) {
+      m.vertexColors = true;
+      m.color.setHex(0xffffff);
+      m.needsUpdate = true;
+    }
+    this.highlightMat.opacity = opacity;
+    this.highlightMatBack.opacity = opacity * 0.5;
+    const g = new THREE.Group();
+    const front = new THREE.Mesh(geo, this.highlightMat);
+    const back = new THREE.Mesh(geo, this.highlightMatBack);
+    front.renderOrder = 5;
+    back.renderOrder = 4;
+    g.add(back, front);
+    this.highlightMesh = g;
+    this.overlayGroup.add(g);
   }
 
   setLine(points, color = 0xffe080) {
@@ -667,8 +997,8 @@ export class View {
       this.lineObj = null;
     }
     if (!points || points.length < 2) return;
-    const g = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x + 0.5, 0.15, p.y + 0.5)));
-    this.lineObj = new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true }));
+    const g = new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x + 0.5, this.heightAt(p.x, p.y) + 0.15, p.y + 0.5)));
+    this.lineObj = new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, fog: false }));
     this.lineObj.renderOrder = 21;
     this.overlayGroup.add(this.lineObj);
   }
@@ -711,7 +1041,6 @@ export class View {
     const parts = [];
     for (let i = 0; i < count; i++) {
       const m = new THREE.Mesh(geo, mat);
-      m.layers.set(1);
       m.position.set(x + 0.5, baseY, y + 0.5);
       const a = Math.random() * Math.PI * 2;
       const sp = (opts.speed ?? 1.6) * (0.5 + Math.random());
@@ -752,7 +1081,6 @@ export class View {
     const mat = new THREE.MeshBasicMaterial({ color });
     const geo = new THREE.IcosahedronGeometry(size, 0);
     const m = new THREE.Mesh(geo, mat);
-    m.layers.set(1);
     const a = new THREE.Vector3(fx + 0.5, this.heightAt(fx, fy) + 0.5, fy + 0.5);
     const b = new THREE.Vector3(tx + 0.5, this.heightAt(tx, ty) + 0.45, ty + 0.5);
     const dist = a.distanceTo(b);
@@ -784,7 +1112,6 @@ export class View {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x, y, z);
       m.rotation.x = rx;
-      m.layers.set(1);
       g.add(m);
     };
     if (kind === 'stone') mk(new THREE.IcosahedronGeometry(0.06, 0), 0x9a958c);
@@ -847,7 +1174,8 @@ export class View {
   }
 
   _frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+    // a slow device still moves at a sensible pace
+    const dt = Math.min(0.1, this.clock.getDelta());
     this.time += dt;
     shared.uTime.value = this.time;
     for (let i = this.tweens.length - 1; i >= 0; i--) {
@@ -861,19 +1189,21 @@ export class View {
       }
     }
     if (this.onTick) this.onTick(dt);
+    if (this._buildingsDirty) { this._buildingsDirty = false; if (this.map) this._rebuildBuildings(); }
     this.terrain.update();
     this._updateCamera(dt);
     this._updateEntities(dt);
     this._updateParticles(dt);
     this._updateFloaters(dt);
     this._updateVisibility(dt);
+    this._updateCutaway();
+    this._updateBuildings(dt);
     const r = this.renderer;
     r.shadowMap.needsUpdate = true;
-    r.clear();
-    this.camera.layers.set(0);
+    // one pass: figures are depth-tested against the scenery like everything
+    // else; the cutaway keeps them in view
+    shared.uFx.value = 1;
     r.render(this.scene, this.camera);
-    r.clearDepth();
-    this.camera.layers.set(1);
-    r.render(this.scene, this.camera);
+    shared.uFx.value = 0;
   }
 }

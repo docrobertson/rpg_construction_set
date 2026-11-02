@@ -96,6 +96,8 @@ export const TPL = {
   blob: templ(new THREE.IcosahedronGeometry(0.5, 0), false, 'sphere'),
   ico1: templ(new THREE.IcosahedronGeometry(0.5, 1), false, 'sphere'),
   ball: templ(new THREE.SphereGeometry(0.5, 12, 8), false),
+  sphere: templ(new THREE.SphereGeometry(0.5, 11, 8), false),
+  sphereLo: templ(new THREE.SphereGeometry(0.5, 7, 5), false),
   dodec: templ(new THREE.DodecahedronGeometry(0.5, 0), false, 'flat'),
   hemi: templ(new THREE.SphereGeometry(0.5, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2)),
   dome: templ(new THREE.SphereGeometry(0.5, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 2, 1)),
@@ -150,6 +152,7 @@ export class GeoBuilder {
     this.pos = [];
     this.nor = [];
     this.col = [];
+    this.uv = null; // only face decals carry texture coordinates
   }
 
   get count() { return this.pos.length / 3; }
@@ -245,6 +248,7 @@ export class GeoBuilder {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    if (this.uv && this.uv.length === this.count * 2) g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;

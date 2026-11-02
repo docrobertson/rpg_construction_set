@@ -8,19 +8,110 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember,
+  equipKit, normalizeMember, growStat,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
 import { saveState } from '../core/storage.js';
 import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
+import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
+import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
+import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
+import { findBuildings } from '../world/buildings.js';
+import { treasureState, digTreasure } from './treasure.js';
+import { forageFind, lootTag } from './magic.js';
+import { buyShip } from './ships.js';
+
+// the parts of a person's look that are theirs, not their clothes
+const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
+
+// The four sides of a map, as the step that leaves through them
+const SIDES = { N: [0, -1], S: [0, 1], W: [-1, 0], E: [1, 0] };
+
+// Where a town can be walked into from outside: for each side with open
+// ground on the map's edge, the square just inside it (nearest the middle of
+// that side, and on a road or street if one runs out there). Maps walled all
+// round (dungeons, towers) have none and use their entry point.
+function edgeGates(map) {
+  if (map._gates) return map._gates;
+  const out = {};
+  const { w, h } = map;
+  const open = (x, y) => { const t = terrain(getTile(map, x, y)); return t.walk && !t.dmg && !t.wall && (!t.water || t.deck); };
+  const paved = (x, y) => ['road', 'cobble', 'bridge'].includes(terrain(getTile(map, x, y)).key);
+  // how far every square is from the middle of the town, on foot
+  const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+  let start = null;
+  for (let r = 0; r < Math.max(w, h) && !start; r++) for (let dy = -r; dy <= r && !start; dy++) for (let dx = -r; dx <= r && !start; dx++) if (inBounds(map, cx + dx, cy + dy) && open(cx + dx, cy + dy)) start = [cx + dx, cy + dy];
+  const dist = new Int32Array(w * h).fill(-1);
+  if (start) {
+    const q = [start]; dist[start[1] * w + start[0]] = 0;
+    for (let i = 0; i < q.length; i++) {
+      const [x, y] = q[i];
+      for (const [dx, dy] of DIR4) {
+        const nx = x + dx, ny = y + dy;
+        if (!inBounds(map, nx, ny) || dist[ny * w + nx] >= 0 || !open(nx, ny)) continue;
+        dist[ny * w + nx] = dist[y * w + x] + 1;
+        q.push([nx, ny]);
+      }
+    }
+  }
+  const sides = {
+    N: Array.from({ length: w }, (_, i) => [i, 0]), S: Array.from({ length: w }, (_, i) => [i, h - 1]),
+    W: Array.from({ length: h }, (_, i) => [0, i]), E: Array.from({ length: h }, (_, i) => [w - 1, i]),
+  };
+  for (const [k, tiles] of Object.entries(sides)) {
+    const [dx, dy] = SIDES[k];
+    const len = tiles.length;
+    // a way in: open ground in the middle stretch of the side whose path to
+    // the heart of town is fairly direct (not round the outside of a moat)
+    const cands = tiles.filter(([x, y], i) => {
+      if (i < len * 0.2 || i > len * 0.8 || !open(x, y) || !inBounds(map, x - dx, y - dy) || !open(x - dx, y - dy)) return false;
+      const d = dist[y * w + x];
+      return d >= 0 && (!start || d <= 1.35 * (Math.abs(x - start[0]) + Math.abs(y - start[1])) + 6);
+    });
+    if (!cands.length) continue;
+    const mid = k === 'N' || k === 'S' ? w / 2 : h / 2;
+    const along = ([x, y]) => (k === 'N' || k === 'S' ? x : y);
+    cands.sort((a2, b2) => (paved(...b2) - paved(...a2)) || Math.abs(along(a2) - mid) - Math.abs(along(b2) - mid));
+    const [x, y] = cands[0];
+    out[k] = { x: x - dx, y: y - dy };
+  }
+  Object.defineProperty(map, '_gates', { value: out, enumerable: false, configurable: true });
+  return out;
+}
+
+// the side of a map a square lies nearest
+function sideOf(map, x, y) {
+  const d = { N: y, S: map.h - 1 - y, W: x, E: map.w - 1 - x };
+  return Object.keys(d).sort((a, b) => d[a] - d[b])[0];
+}
+
+// sides in order of preference for someone wanting `want`: that side, then
+// the two beside it, then the far one
+function sidesFrom(want) {
+  const order = { N: ['N', 'W', 'E', 'S'], S: ['S', 'E', 'W', 'N'], W: ['W', 'S', 'N', 'E'], E: ['E', 'N', 'S', 'W'] };
+  return order[want] || ['S', 'E', 'W', 'N'];
+}
 
 export function moodFor(map) {
   return map.type === 'world' ? 'world' : map.type === 'dungeon' ? 'dungeon' : 'town';
 }
 
 export const STATE_VERSION = 1;
+
+// Out of sight this many turns, a chase ends; a wandering band chases this
+// many turns at most before it loses interest (placed monsters give up past
+// their leash: DEFAULT_LEASH in travel.js)
+const LOST_TURNS = 4;
+
+// kinds of country whose first sight counts as a discovery on the world map
+const REGION_KINDS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'peaks', 'ash', 'lava', 'ruins'];
+const REGION_NAMES = { forest: 'the greenwood', pines: 'pine woods', hills: 'the hills', mountains: 'the mountains', swamp: 'the marshes', desert: 'the desert', snow: 'the snowfields', peaks: 'snowy peaks', ash: 'the ashen waste', lava: 'fire-rivers', ruins: 'old ruins' };
+const ROAM_CHASE = 14;
+
+// steps in the wild per ration eaten by each hero
+export const FOOD_TURNS = 20;
 
 // A day lasts this many turns: morning, midday and afternoon, then evening,
 // night and dawn
@@ -69,6 +160,8 @@ export class PlaySession {
     this.ui = null; // set by PlayUI
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
+    ensureQuestState(state); // older saves have no quest log
+    treasureState(state); // nor treasure maps
   }
 
   get party() { return this.state.party; }
@@ -89,12 +182,22 @@ export class PlaySession {
     const map = { ...src, tiles: src.tiles.slice(), entities: deepClone(src.entities) };
     for (const [i, t] of Object.entries(ms.tiles)) map.tiles[+i] = t;
     const removed = new Set(ms.removed);
+    // things that arrived in play (a dug-up chest, a ship bought at the yard)
+    // go where they were left, and stay gone once gone, like the rest
+    for (const e of ms.added || []) map.entities.push(deepClone(e));
     map.entities = map.entities.filter((e) => !removed.has(e.id));
     for (const e of map.entities) {
       if (ms.moved[e.id]) [e.x, e.y] = ms.moved[e.id];
       e.home = { x: e.x, y: e.y };
     }
-    for (const e of ms.added || []) map.entities.push({ ...deepClone(e), home: { x: e.x, y: e.y } });
+    // a ship the company has sailed is theirs to keep, even if the map no
+    // longer has it (saves from when Westhold lent its ship for nothing)
+    for (const [id, at] of Object.entries(ms.moved)) {
+      if (/^ship/.test(id) && !removed.has(id) && !map.entities.some((e) => e.id === id)) map.entities.push({ id, type: 'ship', x: at[0], y: at[1], home: { x: at[0], y: at[1] } });
+    }
+    const v = this.state.vehicle;
+    if (v && this.state.pos.map === id && !map.entities.some((e) => e.id === v.id)) map.entities.push({ id: v.id, type: 'ship', x: this.state.pos.x, y: this.state.pos.y, home: { ...this.state.pos } });
+    for (const r of this.state.reserve || []) if (r.map === id) map.entities.push(this.restingNpc(map, r.member));
     map.explored = ms.explored ? rleDecode(ms.explored, map.w * map.h) : new Uint8Array(map.w * map.h);
     map.litMask = computeLitMask(map);
     return map;
@@ -115,7 +218,7 @@ export class PlaySession {
   }
 
   async _enterMap(map, id, x, y, opts) {
-    const zoomFor = (m) => (m.type === 'world' ? 18 : 15);
+    const zoomFor = (m) => (m.type === 'world' ? 9.5 : 10.5);
     // swoop the camera in (entering a site) or out (returning to the wide world)
     const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
     if (dir && !opts.instant) this.view.setZoom(this.view.rig.tdist * (dir === 'in' ? 0.45 : 1.8));
@@ -126,16 +229,21 @@ export class PlaySession {
     this.view.setMap(map);
     this.applyDaylight();
     playMusic(moodFor(map));
-    this.view.setPitch(this.game.settings.pitch || 70);
+    this.view.setPitch(this.game.settings.pitch || 52);
+    this.view.reach = 10; // zoom out no further than about ten squares round the party
+    if (map.type !== 'world' && map.entities.some((e) => e.type === 'npc' && e.role === 'inn')) this.state.lodging = { map: id, name: map.name };
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
-    this.view.focus(x, y, true);
+    this.camFocus(x, y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
     this.ui && this.ui.refresh();
     if (!opts.instant) await this.app.fade(false);
     if (!opts.quiet) this.log(map.type === 'world' ? `You are in ${map.name}.` : `You enter ${map.name}.`, 'place');
     this.ui && this.ui.onMapChanged();
+    // quests: the opening goals on a fresh game, and "reach a place" goals
+    if (this.ui && !this.state.questsBegun) { this.state.questsBegun = true; startAutoQuests(this); }
+    checkQuests(this);
   }
 
   persistExplored() {
@@ -151,6 +259,7 @@ export class PlaySession {
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
+      case 'event': return eventLook(e);
       default: return null;
     }
   }
@@ -166,18 +275,48 @@ export class PlaySession {
     if (!look) return;
     if (this.state.vehicle && this.state.vehicle.id === e.id) return;
     const scale = e.type === 'monster' && e.boss ? 1.2 : 1;
-    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale });
+    const poi = e.type === 'event' || e.type === 'chest' || e.type === 'sign';
+    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale, poi });
   }
 
-  // Out in the wide world the whole company travels together; in towns and
-  // dungeons the leader stands for them all
+  // The company: the leader stands on the party's square and everyone else
+  // walks behind as a figure of their own (render/followers.js). Afloat, the
+  // ship carries them all.
   addPartyVisual() {
     const p = this.state.pos;
-    if (this.state.vehicle) this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
-    else if (this.map?.type === 'world' && partyAlive(this.party).length > 1) {
-      const members = partyAlive(this.party).map((m) => charLook(this.game, m));
-      this.view.addEntity('party', { kind: 'party', members }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
-    } else this.view.addEntity('party', charLook(this.game, this.leader), p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+    if (this.state.vehicle) {
+      this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
+      this.view.setFollowers?.([], { aboard: partyAlive(this.party).map((m) => charLook(this.game, m)) });
+      return;
+    }
+    const alive = partyAlive(this.party);
+    const lead = alive[0] || this.leader;
+    const world = this.map?.type === 'world';
+    // five or six heroes stand a little smaller and further apart, so each
+    // can still be told apart instead of making one heap
+    const big = alive.length > 4;
+    const scale = (world ? 0.8 : 1) * (big ? 0.9 : 1);
+    this.view.addEntity('party', charLook(this.game, lead), p.x, p.y, { ring: 0xffd040, facing: this.state.facing, scale });
+    this.view.setFollowers?.(alive.slice(1).map((m) => ({ key: m.id || m.name, look: charLook(this.game, m) })), {
+      scale, spacing: (world ? 0.5 : 0.58) * (big ? 1.25 : 1),
+      walkable: (x, y) => this.followerGround(x, y),
+      taken: (x, y) => this.map.entities.some((e) => e.x === x && e.y === y && e.type !== 'treasure'),
+    });
+  }
+
+  // open ground where a companion may stand (not water, lava, doors or sites)
+  followerGround(x, y) {
+    if (!this.map || !inBounds(this.map, x, y)) return false;
+    const t = terrain(getTile(this.map, x, y));
+    if (!t.walk || t.door || t.dmg || t.feature || (t.water && !t.deck)) return false;
+    // world-map towns and castles are drawn larger than their square: keep
+    // the company off their edges (else they stand on the walls)
+    if (this.map.type === 'world') {
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if ((dx || dy) && inBounds(this.map, x + dx, y + dy) && terrain(getTile(this.map, x + dx, y + dy)).feature) return false;
+      }
+    }
+    return true;
   }
 
   refreshPartyVisual() {
@@ -234,10 +373,12 @@ export class PlaySession {
     const keen = this.party.members.some((m) => m.status !== 'dead' && hasTrait(this.game, m, 'keenSight'));
     const dark = this.party.members.some((m) => m.status !== 'dead' && hasTrait(this.game, m, 'darkSight'));
     if (lighting === 'dark') {
-      const light = this.party.light > 0 ? 5 : 1.6;
+      // lamp-lit halls underground (a dwarven town) are easier to see in than a barrow
+      const halls = this.map.type === 'town' || this.map.type === 'castle';
+      const light = (this.party.light > 0 ? 6.5 : 2.6) + (halls ? 2.5 : 0);
       return { sight: 14, light: light + (dark ? 1.2 : 0) };
     }
-    if (lighting === 'night') return { sight: 8, light: (this.party.light > 0 ? 7 : 4) + (keen || dark ? 1 : 0) };
+    if (lighting === 'night') return { sight: 8, light: (this.party.light > 0 ? 8 : 5) + (keen || dark ? 1 : 0) };
     const s = (this.map.type === 'world' ? 10.5 : 13) - (lighting === 'dusk' ? 2 : 0);
     return { sight: s + (keen ? 2 : 0), light: 99 };
   }
@@ -257,18 +398,66 @@ export class PlaySession {
     const vis = computeVisible(map, p.x, p.y, sight, light, map.litMask);
     this.visible = vis;
     const dark = map.lighting === 'dark';
+    // outdoors, land never seen is blank map vellum (drawn by the shader from
+    // the explored mask); underground it stays black
+    const vellum = this.vellumMap();
     const levels = new Float32Array(map.w * map.h);
     for (let i = 0; i < vis.length; i++) {
-      if (vis[i]) { map.explored[i] = 1; levels[i] = 1; }
-      else levels[i] = map.explored[i] ? (dark ? 0.32 : 0.45) : (dark ? 0 : 0.08);
+      if (vis[i]) { map.explored[i] = 1; levels[i] = 1; } else levels[i] = map.explored[i] ? (dark ? 0.42 : 0.55) : (dark ? 0 : vellum ? 0.55 : 0.12);
     }
-    this.view.setVisibility(levels, instant);
+    this.view.setCarriedLight?.(this.party.light > 0);
+    this.view.setVellum?.(vellum);
+    this.view.setVisibility(levels, instant, vellum ? map.explored : null);
     this.view.setVisibilityEnabled(true);
     for (const e of map.entities) {
       const i = e.y * map.w + e.x;
       const show = e.type === 'npc' || e.type === 'monster' ? !!vis[i] : !!map.explored[i];
       this.view.setEntityVisible(e.id, show);
     }
+    // what is in view on arrival is simply known; after that, news is news
+    this.noteDiscoveries(vis, instant);
+  }
+
+  // The first sight of a site, a curiosity or a new kind of country earns a
+  // line in the log and a little experience (kept per map in the save)
+  noteDiscoveries(vis, silent = false) {
+    const map = this.map;
+    if (!vis || this.mode !== 'explore' || !this.ui || map.type === 'town' || map.type === 'castle') return;
+    const found = this.state.found || (this.state.found = {});
+    // a save from before discoveries: what was already explored is known
+    if (!found[map.id]) { found[map.id] = []; vis = map.explored; silent = true; }
+    const list = found[map.id];
+    const have = new Set(list);
+    const news = [];
+    for (const e of map.entities) {
+      if ((e.type !== 'portal' && e.type !== 'event') || have.has(e.id) || !vis[e.y * map.w + e.x]) continue;
+      have.add(e.id); list.push(e.id);
+      const name = e.type === 'event' ? eventLabel(e) : map.type === 'world' ? e.label || getMap(this.game, e.target?.map)?.name : null;
+      if (name) news.push({ name, xp: e.type === 'portal' ? 8 : 3 });
+    }
+    if (map.type === 'world') {
+      const want = REGION_KINDS.filter((k) => !have.has('t:' + k));
+      if (want.length) {
+        const seen = new Set();
+        for (let i = 0; i < vis.length; i++) if (vis[i]) seen.add(terrain(map.tiles[i]).key);
+        for (const k of want) {
+          if (!seen.has(k)) continue;
+          have.add('t:' + k); list.push('t:' + k);
+          news.push({ name: REGION_NAMES[k] || terrain(T[k]).name, xp: 3 });
+        }
+      }
+    }
+    if (!news.length || silent) return;
+    const xp = news.reduce((n, d) => n + d.xp, 0);
+    const ups = [];
+    for (const m of partyAlive(this.party)) if (gainXp(this.game, m, xp).length) ups.push(`${m.name} reaches level ${m.level}`);
+    this.log(`Discovered: ${news.map((d) => d.name).join(', ')}. (+${xp} experience)${ups.length ? ' ' + ups.join('; ') + '!' : ''}`, ups.length ? 'level' : 'place');
+    if (ups.length) { sfx('level'); this.autosave(); }
+  }
+
+  // maps whose unknown parts are drawn as blank parchment rather than black
+  vellumMap(map = this.map) {
+    return !!map && map.lighting !== 'dark' && (map.type === 'world' || map.type === 'town' || map.type === 'castle');
   }
 
   isVisible(x, y) {
@@ -279,18 +468,29 @@ export class PlaySession {
   // ------------------------------------------------------------ movement
   entitiesAt(x, y) { return this.map.entities.filter((e) => e.x === x && e.y === y); }
 
+  // a signpost: the words go to the log and up on a card, so they can't be missed
+  readSign(e) {
+    this.queued = null;
+    this.log(`The sign reads: "${e.text || '...'}"`, 'say');
+    sfx('click');
+    this.ui?.showSign?.(e);
+  }
+
   blockingAt(x, y) {
-    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign'));
+    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event'));
   }
 
   async move(dx, dy) {
     if (this.mode !== 'explore' || this.transitioning) return;
-    if (this.busy) { this.queued = [dx, dy]; return; }
-    this.busy = true;
+    // a key pressed mid-step is kept for the next step; one pressed while
+    // camping or waiting is dropped (else it fires later as a stray extra step)
+    if (this.moving) { this.queued = [dx, dy]; return; }
+    if (this.busy) return;
+    this.busy = this.moving = true;
     try {
       await this._move(dx, dy);
     } finally {
-      this.busy = false;
+      this.busy = this.moving = false;
     }
     if (this.queued && this.mode === 'explore') {
       const q = this.queued;
@@ -306,7 +506,7 @@ export class PlaySession {
     this.view.face('party', dx, dy);
     const map = this.map;
     if (!inBounds(map, nx, ny)) {
-      if (map.exit) return this.leaveMap();
+      if (map.exit) return this.leaveMap(nx < 0 ? 'W' : nx >= map.w ? 'E' : ny < 0 ? 'N' : 'S');
       this.log('You cannot travel beyond the edge of the world.');
       sfx('bump');
       return;
@@ -315,7 +515,8 @@ export class PlaySession {
     if (blocker) {
       if (blocker.type === 'npc') return this.talkTo(blocker);
       if (blocker.type === 'monster') return this.engage(blocker);
-      if (blocker.type === 'sign') { this.log(`The sign reads: "${blocker.text || '...'}"`, 'say'); return; }
+      if (blocker.type === 'sign') { this.readSign(blocker); return; }
+      if (blocker.type === 'event') { this.queued = null; return this.ui.openEvent(blocker); }
     }
     const t = terrain(getTile(map, nx, ny));
     const gate = this.map.entities.find((e) => e.type === 'portal' && e.x === nx && e.y === ny && e.requires);
@@ -326,12 +527,12 @@ export class PlaySession {
     }
     const ship = this.map.entities.find((e) => e.type === 'ship' && e.x === nx && e.y === ny);
     if (this.state.vehicle) {
-      if (t.ship || (t.water && t.key !== 'bridge')) {
+      if (t.ship || (t.water && !t.deck)) {
         await this.stepParty(nx, ny, 0.14);
         const ve = this.map.entities.find((e) => e.id === this.state.vehicle.id);
         if (ve) { ve.x = nx; ve.y = ny; this.mapState(map.id).moved[ve.id] = [nx, ny]; }
         sfx('splash');
-        return this.afterStep();
+        return this.afterStep(false, 1);
       }
       if (t.walk) {
         // disembark; the ship stays where it is
@@ -340,8 +541,9 @@ export class PlaySession {
         this.refreshPartyVisual();
         if (ve) this.addVisual(ve);
         this.log('You go ashore.');
-        await this.stepParty(nx, ny);
-        return this.afterStep();
+        const cost = this.stepCost(nx, ny);
+        await this.stepParty(nx, ny, this.stepDuration(cost));
+        return this.afterStep(false, cost);
       }
       sfx('bump');
       return;
@@ -351,35 +553,94 @@ export class PlaySession {
       this.view.removeEntity(ship.id);
       await this.stepParty(nx, ny);
       this.refreshPartyVisual();
-      this.log('You board the ship. Sail the seas — step onto land to go ashore.', 'good');
+      this.log(`You board ${ship.name ? 'the ' + ship.name : 'the ship'}. Sail the seas — step onto land to go ashore.`, 'good');
       return this.afterStep();
     }
     if (t.locked) return this.tryUnlock(nx, ny);
+    // bumping a shop counter speaks with the keeper behind it
+    const across = t.talkOver && this.blockingAt(nx + dx, ny + dy);
+    if (!t.walk && across?.type === 'npc') return this.talkTo(across);
     if (!t.walk) {
       sfx('bump');
       this.log(t.water ? 'You cannot swim! (Find a ship or a bridge.)' : `Blocked by ${t.name.toLowerCase()}.`);
       return;
     }
-    if (t.slow && rng.chance(t.slow) && !this.mapIsTown()) {
-      this.log('Slow progress!');
-      return this.afterStep(true);
-    }
-    await this.stepParty(nx, ny);
+    // every step lands, but rough ground takes longer (and roads less): the
+    // turns it costs pass for food, encounters and the monsters on the map
+    const cost = this.stepCost(nx, ny);
+    this.travelNote(t, cost);
+    await this.stepParty(nx, ny, this.stepDuration(cost), cost < 1 ? 0.045 : cost > 1.6 ? 0.055 : 0.07);
     if (t.door) sfx('door'); else sfx('step');
-    return this.afterStep();
+    return this.afterStep(false, cost);
+  }
+
+  // Turns a step onto (x, y) takes the company: the ground's cost, lightened a
+  // little by a hero who knows that country (see game/travel.js)
+  stepCost(x, y) {
+    if (this.state.vehicle) return 1;
+    const t = terrain(getTile(this.map, x, y));
+    if (!(t.cost > 1)) return t.cost ?? 1;
+    return easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0);
+  }
+
+  // quick little steps along a road, a slow trudge through sand
+  stepDuration(cost) { return Math.max(0.085, Math.min(0.2, 0.13 * Math.pow(cost, 0.45))); }
+
+  // hover text on how hard the going is ('' for ordinary ground)
+  terrainNote(t) {
+    if (!this.map || this.mapIsTown() || this.state.vehicle || (t.water && !t.deck) || !t.walk) return '';
+    return costNote(this.game, this.party.members, t);
+  }
+
+  travelNote(t, cost) {
+    if (this.mapIsTown() || cost === 1) return;
+    // explained the first time; after that a short note now and then on heavy ground
+    if (this.tip('terrain', 'The ground decides your pace: a step along a road or bridge takes only half a turn, open grass a turn, woods and hills about 1½–2, swamp and snow 2, sand and desert 2½. Every turn eats food and lets monsters close in, so keep to the roads when you can. Some heroes know their country (elves the woods, dwarves the hills, rangers the wild) and go a little easier there. Point at a square to see its cost.')) return;
+    if (cost >= 2 && (this.state.turn || 0) - (this.lastSlowNote ?? -99) > 30) {
+      this.lastSlowNote = this.state.turn || 0;
+      this.log(`Heavy going through the ${t.name.toLowerCase()}…`);
+    }
   }
 
   mapIsTown() { return this.map.type === 'town' || this.map.type === 'castle'; }
+
+  onRoad(x, y) {
+    const k = terrain(getTile(this.map, x, y)).key;
+    return k === 'road' || k === 'bridge' || k === 'cobble' || k === 'pier';
+  }
+
+  // A hint shown once per game (kept in the save); returns true if shown now
+  tip(id, text) {
+    const t = this.state.tips || (this.state.tips = {});
+    if (t[id]) return false;
+    t[id] = true;
+    this.log(text, 'tip');
+    return true;
+  }
 
   hasItem(id) {
     return (this.party.inventory[id] || 0) > 0 || this.party.members.some((m) => Object.values(m.equip || {}).includes(id));
   }
 
-  async stepParty(x, y, dur = 0.13) {
+  // Centre the view on the party, but keep it over the map: at a town's edge
+  // (where every visit begins) centring on the party would fill half the
+  // screen with empty land beyond it. The margins stay inside what is on screen.
+  camFocus(x, y, instant = false) {
+    const m = this.map;
+    if (m && m.type !== 'world') {
+      const d = this.view.rig.tdist;
+      const side = Math.min(6, d * 0.5), north = Math.min(3, d * 0.28), south = Math.min(3.5, d * 0.3);
+      if (m.w > side * 2 + 1) x = Math.max(side - 0.5, Math.min(m.w - side - 0.5, x));
+      if (m.h > north + south + 1) y = Math.max(north - 0.5, Math.min(m.h - south - 0.5, y));
+    }
+    this.view.focus(x, y, instant);
+  }
+
+  async stepParty(x, y, dur = 0.13, hop = 0.07) {
     this.state.pos.x = x;
     this.state.pos.y = y;
-    this.view.focus(x, y);
-    await this.view.moveEntity('party', x, y, dur, this.state.vehicle ? 0 : 0.07);
+    this.camFocus(x, y);
+    await this.view.moveEntity('party', x, y, dur, this.state.vehicle ? 0 : hop);
   }
 
   async tryUnlock(x, y) {
@@ -416,24 +677,27 @@ export class PlaySession {
     try { await this.afterStep(true); } finally { this.busy = false; }
   }
 
-  // Called after every turn on a map
-  async afterStep(noMove = false) {
+  // Called after every step (or wait) on a map. cost: the turns it took —
+  // half a turn on a road, two and a half in sand. Whole turns are counted
+  // as they begin, so a road step and the next share one turn of the world.
+  async afterStep(noMove = false, cost = 1) {
     const st = this.state;
-    st.turn++;
-    this.applyDaylight();
-    this.checkPhase();
+    const c0 = st.clock || 0, c1 = c0 + cost;
+    const ticks = Math.max(0, Math.ceil(c1 - 1e-9) - Math.ceil(c0 - 1e-9));
+    st.clock = c1 - Math.floor(c1 + 1e-9);
     const map = this.map;
     const p = st.pos;
+    const turn0 = st.turn || 0;
     // portals & pickups
     if (!noMove) {
       const here = this.entitiesAt(p.x, p.y);
       const chest = here.find((e) => e.type === 'chest');
       if (chest) await this.openChest(chest);
       const portal = here.find((e) => e.type === 'portal');
-      if (portal && !st.vehicle) return this.usePortal(portal);
+      if (portal && !st.vehicle) { this.passTime(ticks); return this.usePortal(portal); }
       if (map.type !== 'world' && !st.vehicle) {
         const tk = terrain(getTile(map, p.x, p.y)).key;
-        if ((tk === 'stairs_up' || tk === 'stairs_down') && !portal && map.exit) return this.leaveMap();
+        if ((tk === 'stairs_up' || tk === 'stairs_down') && !portal && map.exit) { this.passTime(ticks); return this.leaveMap(); }
       }
     }
     // hazards
@@ -450,46 +714,72 @@ export class PlaySession {
         this.view.burst(p.x, p.y, 0xff6020, 10);
         sfx('fire');
       }
+      if (map.type === 'world') this.forage(t.key);
     }
-    // poison ticks
-    for (const m of partyAlive(this.party)) {
-      if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+    for (let k = 0; k < ticks; k++) {
+      if (k > 0) this.updateVisibility();
+      this.passTime(1);
+      if (this.checkDefeat()) return;
+      // the world moves
+      const combat = await this.monstersAct();
+      if (combat) return;
+      this.npcsAct();
+      this.maybeSpawnEncounter();
     }
-    // food
-    if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
-      st.foodTick++;
-      if (st.foodTick >= 10) {
-        st.foodTick = 0;
-        const n = partyAlive(this.party).length;
-        this.party.food = Math.max(0, this.party.food - n);
-        if (this.party.food <= 0) {
-          this.log('Starving!', 'bad');
-          for (const m of partyAlive(this.party)) this.hurtMember(m, rng.int(1, 3), 'hunger');
-        } else if (this.party.food < n * 5) this.log('Food is running low.', 'warn');
-      }
-    }
-    if (this.party.light > 0) {
-      this.party.light--;
-      if (this.party.light === 0) this.log('Your light goes out.', 'warn');
-    }
-    if (this.checkDefeat()) return;
-    // the world moves
-    const combat = await this.monstersAct();
-    if (combat) return;
-    this.npcsAct();
-    this.maybeSpawnEncounter();
+    if (!ticks && this.checkDefeat()) return;
     this.updateVisibility();
+    checkQuests(this);
     this.ui.refresh();
-    if (st.turn % 40 === 0) this.autosave();
+    if (Math.floor((st.turn || 0) / 40) !== Math.floor(turn0 / 40)) this.autosave();
+  }
+
+  // n turns go by: the sun moves, the company eats, poison and light wear on
+  passTime(n = 1) {
+    const st = this.state;
+    const map = this.map;
+    for (let i = 0; i < n; i++) {
+      st.turn++;
+      this.applyDaylight();
+      this.checkPhase();
+      // poison ticks
+      for (const m of partyAlive(this.party)) {
+        if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+      }
+      // food: in the wild each hero eats one ration every FOOD_TURNS turns
+      if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
+        st.foodTick++;
+        if (st.foodTick >= FOOD_TURNS) {
+          st.foodTick = 0;
+          const n = partyAlive(this.party).length;
+          this.party.food = Math.max(0, this.party.food - n);
+          if (this.party.food <= 0) {
+            this.log('Starving! Each hero loses a little health until you find food.', 'bad');
+            this.tip('starving', 'Out of food: the company weakens as it walks. Buy rations from a provisioner (every town has one), or look for farms, camps and caches along the roads.');
+            for (const m of partyAlive(this.party)) this.hurtMember(m, rng.int(1, 2), 'hunger');
+          } else if (this.party.food < n * 8) {
+            if (!this.tip('food', `Food is running low (${this.party.food} left). In the wild each hero eats one ration every ${FOOD_TURNS} turns; towns and inns cost nothing. Provisioners sell Rations — without food the company goes hungry and loses health.`)) {
+              if (this.party.food < n * 4) this.log(`Food is running low: ${this.party.food} left.`, 'warn');
+            }
+          }
+        }
+      }
+      if (this.party.light > 0) {
+        this.party.light--;
+        if (this.party.light === 0) this.log('Your light goes out.', 'warn');
+      }
+      blessingsTick(this);
+    }
   }
 
   hurtMember(m, dmg, why) {
     if (m.status === 'dead') return;
     m.hp -= dmg;
     if (m.hp <= 0) {
+      if (this.mode !== 'combat' && partyAlive(this.party).length === 1) this.lastStand = [m];
       m.hp = 0;
       m.status = 'dead';
       this.log(`${m.name} has died${why ? ' of ' + why : ''}!`, 'bad');
+      this.tip('death', 'The fallen stay dead until they are raised: a healer in any town can RAISE them for gold, or use a Phoenix Feather, or a Raise Dead prayer or Rune of Life once your casters are strong enough.');
       sfx('die');
       this.refreshPartyVisual();
     }
@@ -512,21 +802,59 @@ export class PlaySession {
     if (portal.requires) this.log(portal.openText || `The ${itemOf(this.game, portal.requires)?.name || 'key'} turns... the way opens!`, 'good');
     this.persistExplored();
     if (portal.style === 'waygate') this.view.sparkle(this.state.pos.x, this.state.pos.y, 0x80b0ff, 24);
-    const x = tgt.x ?? dest.entry?.x ?? Math.floor(dest.w / 2);
-    const y = tgt.y ?? dest.entry?.y ?? dest.h - 2;
+    let x = tgt.x ?? dest.entry?.x ?? Math.floor(dest.w / 2);
+    let y = tgt.y ?? dest.entry?.y ?? dest.h - 2;
+    // walking into a town from the wide world: come in on the side the company
+    // approached from (or the nearest side with a way in), unless the portal
+    // names a particular square of its own
+    const atEntry = tgt.x == null || (dest.entry && tgt.x === dest.entry.x && tgt.y === dest.entry.y);
+    if (this.map.type === 'world' && dest.type !== 'world' && dest.type !== 'dungeon' && atEntry) {
+      const gates = edgeGates(dest);
+      const [fx, fy] = this.state.facing || [0, -1];
+      // moving east means arriving from the west
+      const want = Math.abs(fx) >= Math.abs(fy) ? (fx > 0 ? 'W' : 'E') : (fy > 0 ? 'N' : 'S');
+      const side = sidesFrom(want).find((k) => gates[k]);
+      if (side) ({ x, y } = gates[side]);
+    }
     await this.enterMap(dest.id, x, y);
     this.autosave();
   }
 
-  async leaveMap() {
+  // side: the edge the company walked out through ('N', 'S', 'E', 'W'); by
+  // stairs or a doorway it is the side of the map's way in
+  async leaveMap(side = null) {
     const exit = this.map.exit;
     if (!exit) return;
     const dest = getMap(this.game, exit.map);
     if (!dest) return;
+    const from = this.map;
     this.persistExplored();
-    this.log(`You leave ${this.map.name}.`);
-    await this.enterMap(dest.id, exit.x, exit.y, { quiet: true });
-    // step off the site tile so that we don't immediately re-enter
+    this.log(`You leave ${from.name}.`);
+    if (!side) {
+      const gates = edgeGates(from), keys = Object.keys(gates);
+      side = keys.length === 1 ? keys[0] : sideOf(from, from.entry?.x ?? this.state.pos.x, from.entry?.y ?? this.state.pos.y);
+    }
+    // come out beside the site on that side: the world map draws a town
+    // larger than its square, so standing on it puts the company on its
+    // roofs (and behind it, the walls hide them)
+    let { x, y } = exit;
+    if (dest.type === 'world' && terrain(getTile(dest, x, y)).feature) {
+      const ok = (nx, ny) => {
+        if (!inBounds(dest, nx, ny)) return false;
+        const t = terrain(getTile(dest, nx, ny));
+        return t.walk && !t.feature && !t.water && !t.dmg && !(dest.entities || []).some((e) => e.x === nx && e.y === ny);
+      };
+      let spot = null;
+      for (const k of sidesFrom(side)) {
+        const [dx, dy] = SIDES[k];
+        // straight out first, then the squares beside that, then a step further
+        const tries = [[dx, dy], [dx + dy, dy + dx], [dx - dy, dy - dx], [dx * 2, dy * 2]];
+        spot = tries.map(([ox, oy]) => [x + ox, y + oy]).find(([nx, ny]) => ok(nx, ny));
+        if (spot) { this.state.facing = SIDES[k]; break; }
+      }
+      if (spot) [x, y] = spot;
+    }
+    await this.enterMap(dest.id, x, y, { quiet: true });
     this.autosave();
   }
 
@@ -555,15 +883,19 @@ export class PlaySession {
       const def = itemOf(this.game, it.id);
       if (!def) continue;
       this.party.inventory[it.id] = (this.party.inventory[it.id] || 0) + (it.n || 1);
-      got.push((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name);
+      got.push(((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name) + lootTag(this.game, this.party.members, def));
     }
     sfx('gold');
     this.view.burst(chest.x, chest.y, 0xffd040, 14, { up: 2, speed: 0.8 });
     this.log(got.length ? `The chest holds: ${got.join(', ')}.` : 'The chest is empty.', 'good');
     this.removeEntity(chest);
     if (chest.flag) this.party.flags[chest.flag] = true;
+    checkQuests(this);
     this.checkVictory();
   }
+
+  // dig for buried treasure on the party's square (game/treasure.js)
+  digTreasure(e) { return digTreasure(this, e); }
 
   removeEntity(e, persist = true) {
     this.map.entities = this.map.entities.filter((x) => x !== e);
@@ -578,22 +910,49 @@ export class PlaySession {
     const t = terrain(getTile(map, x, y));
     if (e.type === 'monster') {
       const def = byId(this.game.monsters, e.monster);
-      if (def?.swim) { if (!t.water || t.key === 'bridge') return false; }
+      if (def?.swim) { if (!t.water || t.deck) return false; }
       else if (!t.walk) return false;
       else if (def?.fly ? false : t.dmg) return false;
     } else if (!t.walk || t.door) {
       if (!(t.walk && t.door && e.type === 'npc')) return false;
     }
-    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship'))) return false;
+    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship' || o.type === 'event'))) return false;
     if (e.type === 'monster' && this.map.entities.some((o) => o.type === 'portal' && o.x === x && o.y === y)) return false;
     return true;
   }
 
+  // How far from its home a placed monster follows the party before giving up
+  // (tiles; 0 = it never gives up the chase). Wandering bands have no home.
+  leashOf(e) {
+    if (e.roaming) return 0;
+    const n = e.leash === '' || e.leash == null ? NaN : +e.leash;
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_LEASH;
+  }
+
+  // A chase ends: guards walk back to their post, wanderers lose interest and
+  // drift off for a while. The player hears of it when it is close by.
+  giveUp(e, def) {
+    const was = e.mood === 'chase';
+    e.lost = 0;
+    e.chased = 0;
+    if (e.roaming) { e.mood = 'bored'; e.calm = 12; } else e.mood = 'return';
+    const p = this.state.pos;
+    if (was && def && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 14) {
+      const one = e.boss || def.boss || String(e.count || '').trim() === '1' || (!e.count && def.group && def.group[1] <= 1);
+      const name = def.boss ? def.name : `The ${(one ? def.name : def.plural || def.name).toLowerCase()}`;
+      this.log(`${name} ${one ? 'loses' : 'lose'} interest.`);
+      this.tip('leash', 'Monsters that guard a place give up once you are far enough from it and go back; wandering bands lose interest after a while. Roads help you outrun them.');
+    }
+  }
+
+  // Monsters act once per turn of the world. Each has a little budget of
+  // movement: a turn's worth, spent on the ground it crosses (its native
+  // ground costs at most a turn a step, a road half a turn).
   async monstersAct() {
     const p = this.state.pos;
     const map = this.map;
     for (const e of [...map.entities]) {
-      if (e.type !== 'monster') continue;
+      if (e.type !== 'monster' || !map.entities.includes(e)) continue;
       const d = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
       if (d > 22) {
         if (e.roaming && d > 30) this.removeEntity(e, false);
@@ -602,28 +961,64 @@ export class PlaySession {
       if (e.passive) continue;
       const sees = d <= 9 && hasLOS(map, e.x, e.y, p.x, p.y) && (map.lighting !== 'dark' || this.isVisible(e.x, e.y) || d <= 4);
       const def = byId(this.game.monsters, e.monster);
-      let moves = def?.speed > 1 && rng.chance(0.4) ? 2 : 1;
-      while (moves-- > 0) {
-        if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1) break;
+      const home = e.home || (e.home = { x: e.x, y: e.y });
+      const leash = this.leashOf(e);
+      const fromHome = Math.abs(p.x - home.x) + Math.abs(p.y - home.y);
+      if (e.calm > 0) e.calm--;
+      // what it wants this turn
+      if (e.wander !== 0) {
+        if (e.mood === 'return') {
+          if (Math.abs(e.x - home.x) + Math.abs(e.y - home.y) <= 1) e.mood = null;
+          // back near its post, it takes up the chase again
+          else if (sees && (!leash || fromHome <= leash * 0.5)) e.mood = 'chase';
+        }
+        if (e.mood !== 'return') {
+          // a guard takes up the chase only while the party is on its ground
+          if (sees && (!(e.calm > 0) || d <= 2) && (e.mood === 'chase' || !leash || fromHome <= leash)) {
+            if (e.mood !== 'chase') { e.mood = 'chase'; e.chased = 0; }
+            e.lost = 0;
+            e.seen = { x: p.x, y: p.y };
+          } else if (e.mood === 'chase' && ++e.lost > LOST_TURNS) this.giveUp(e, def);
+        }
+        if (e.mood === 'chase') {
+          e.chased = (e.chased || 0) + 1;
+          if (!e.roaming && leash > 0 && fromHome > leash) this.giveUp(e, def);
+          else if (e.roaming && e.chased > ROAM_CHASE) this.giveUp(e, def);
+        }
+        if (e.mood === 'bored' && !(e.calm > 0)) e.mood = null;
+      }
+      // move, as far as its budget allows
+      const gain = def?.speed > 1 && rng.chance(0.4) ? 2 : 1;
+      e.mp = Math.min(gain, (e.mp || 0) + gain);
+      const pass = (x, y) => this.passableFor(e, x, y);
+      let wandered = false;
+      for (let guard = 0; guard < 4 && e.mp > 1e-6; guard++) {
+        const near = Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1;
+        if (near && e.mood === 'chase') break;
         let step = null;
-        if (sees && e.wander !== 0) {
-          step = stepToward(e.x, e.y, p.x, p.y, (x, y) => this.passableFor(e, x, y), 12);
-        } else if (e.wander !== 0 && rng.chance(0.4)) {
+        if (e.mood === 'chase') {
+          const goal = sees ? p : e.seen || p;
+          if (goal.x === e.x && goal.y === e.y) break;
+          step = stepToward(e.x, e.y, goal.x, goal.y, pass, 12);
+        } else if (e.mood === 'return') {
+          step = stepToward(e.x, e.y, home.x, home.y, pass, 24);
+          if (!step) { e.mood = null; break; }
+        } else if (e.wander !== 0 && !wandered && rng.chance(0.4)) {
+          wandered = true;
           const [dx, dy] = rng.pick(DIR4);
           const nx = e.x + dx, ny = e.y + dy;
-          const home = e.home || e;
           const wr = e.roaming ? 99 : (e.wander ?? 4);
-          if (Math.abs(nx - home.x) + Math.abs(ny - home.y) <= wr && this.passableFor(e, nx, ny) && !(nx === p.x && ny === p.y)) step = [nx, ny];
+          if (Math.abs(nx - home.x) + Math.abs(ny - home.y) <= wr && pass(nx, ny)) step = [nx, ny];
         }
-        if (step && !(step[0] === p.x && step[1] === p.y)) {
-          e.x = step[0]; e.y = step[1];
-          this.view.moveEntity(e.id, e.x, e.y, 0.14, 0.05);
-        }
+        if (!step || (step[0] === p.x && step[1] === p.y)) break;
+        e.mp -= monsterCost(def, terrain(getTile(map, step[0], step[1])));
+        e.x = step[0]; e.y = step[1];
+        this.view.moveEntity(e.id, e.x, e.y, 0.14, 0.05);
+        if (e.mood !== 'chase' && e.mood !== 'return') break; // an idle stroll is one square
       }
-      if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1 && (sees || d <= 2)) {
+      if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1 && (sees || d <= 2) && e.mood !== 'return' && (e.mood === 'chase' || !(e.calm > 0))) {
         this.view.face(e.id, p.x - e.x, p.y - e.y);
-        const name = def ? def.plural || def.name : 'Monsters';
-        this.log(`${name} attack!`, 'bad');
+        this.log(def?.boss ? `${def.name} attacks!` : `${def ? def.plural || def.name : 'Monsters'} attack!`, 'bad');
         await this.engage(e);
         return true;
       }
@@ -648,30 +1043,48 @@ export class PlaySession {
     }
   }
 
+  // Wandering monsters. On the world they turn up ahead of the party, within
+  // sight, so a long walk has a fight or two in it rather than none; never two
+  // in quick succession.
   maybeSpawnEncounter() {
     const map = this.map;
     const rate = (map.encounterRate ?? 0) * (this.game.settings.encounterRate ?? 1) * (1 + 0.5 * this.darkness());
     if (!rate) return;
+    const st = this.state;
+    if ((st.turn || 0) - (st.lastEncounter ?? -99) < 15) return;
     const tracker = partyAlive(this.party).some((m) => hasAbility(this.game, m, 'tracker'));
-    const base = map.type === 'dungeon' ? 0.03 : 0.035;
-    if (!rng.chance(base * rate * (tracker ? 0.7 : 1))) return;
+    const world = map.type === 'world';
+    const base = world ? 0.045 : 0.03;
+    if (!rng.chance(base * rate * (tracker ? 0.75 : 1))) return;
     if (map.entities.filter((e) => e.roaming).length >= 4) return;
-    const p = this.state.pos;
-    for (let a = 0; a < 20; a++) {
-      const x = p.x + rng.int(-9, 9), y = p.y + rng.int(-9, 9);
+    const p = st.pos;
+    // the first stretch inside a dungeon is a breather: nothing new wanders
+    // up to the way in (back-to-back packs at the door felt unfair)
+    const door = map.type === 'dungeon' && map.entry;
+    if (door && Math.abs(p.x - door.x) + Math.abs(p.y - door.y) < 10) return;
+    const [fx, fy] = st.facing || [0, 1];
+    for (let a = 0; a < 30; a++) {
+      let x, y;
+      if (world && a < 20) {
+        // somewhere ahead and to the side, close enough to be seen coming
+        const ahead = rng.int(4, 7), side = rng.int(-4, 4);
+        x = p.x + fx * ahead + (fx ? 0 : side); y = p.y + fy * ahead + (fy ? 0 : side);
+      } else { x = p.x + rng.int(-9, 9); y = p.y + rng.int(-9, 9); }
       const d = Math.abs(x - p.x) + Math.abs(y - p.y);
-      if (d < 6 || !inBounds(map, x, y)) continue;
-      if (this.isVisible(x, y) && map.type !== 'world') continue;
+      if (d < (world ? 4 : 6) || !inBounds(map, x, y)) continue;
+      if (this.isVisible(x, y) && !world) continue;
+      if (world && !hasLOS(map, x, y, p.x, p.y)) continue;
       const t = terrain(getTile(map, x, y));
       const habitat = map.type === 'dungeon' ? 'dungeon' : t.water ? 'water' : habitatOf(t);
       if (!habitat) continue;
       const mon = this.pickMonster(habitat);
       if (!mon) return;
-      const e = { id: uid('roam'), type: 'monster', monster: mon.id, x, y, roaming: true, count: `${mon.group?.[0] || 1}-${mon.group?.[1] || 3}`, wander: 99 };
+      const e = { id: uid('roam'), type: 'monster', monster: mon.id, x, y, roaming: true, count: encounterCount(mon, partyLevel(this.party)), wander: 99 };
       if (!this.passableFor(e, x, y)) continue;
       e.home = { x, y };
       map.entities.push(e);
       this.addVisual(e);
+      st.lastEncounter = st.turn || 0;
       return;
     }
   }
@@ -679,11 +1092,12 @@ export class PlaySession {
   pickMonster(habitat) {
     const lvl = partyLevel(this.party);
     const allowed = this.map.encounters && this.map.encounters.length ? new Set(this.map.encounters) : null;
-    const cands = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(habitat) && (!allowed || allowed.has(m.id)) && (m.level || 1) <= lvl + 2 + (this.map.level || 1) - 1);
+    // up to a level above the party (more on deeper maps); near its level is likeliest
+    const cands = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(habitat) && (!allowed || allowed.has(m.id)) && (m.level || 1) <= lvl + 1 + (this.map.level || 1) - 1);
     if (!cands.length) return null;
     return new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
-      const diff = Math.abs((m.level || 1) - lvl);
-      return diff === 0 ? 4 : diff === 1 ? 3 : 1;
+      const diff = (m.level || 1) - lvl;
+      return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : 1;
     });
   }
 
@@ -696,6 +1110,9 @@ export class PlaySession {
       const m = String(e.count).match(/^(\d+)(?:\s*-\s*(\d+))?$/);
       if (m) n = m[2] ? rng.int(+m[1], +m[2]) : +m[1];
     } else if (def.group) n = rng.int(def.group[0], def.group[1]);
+    // a big company draws a bigger crowd (the numbers were made for four)
+    const company = this.party ? partyAlive(this.party).length : 4;
+    if (!def.boss && company > 4) n += Math.round(n * (company - 4) * 0.2);
     const list = [{ id: def.id, n: Math.max(1, Math.min(n, 12)) }];
     for (const esc of def.escort || []) {
       const k = rng.int(esc.min || 0, esc.max || 0);
@@ -709,14 +1126,17 @@ export class PlaySession {
     if (!enemies.length) return;
     const p = this.state.pos;
     const t = terrain(getTile(this.map, p.x, p.y));
-    let style = this.state.vehicle ? 'water' : t.arena;
+    // (a fight may bring its own ground: the sand of a fighting pit)
+    let style = e.style || (this.state.vehicle ? 'water' : t.arena);
     if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
     if (this.mapIsTown() && style === 'grass') style = 'town';
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
+    this.state.lastEncounter = this.state.turn || 0;
     if (res.outcome === 'victory') {
       const real = this.map.entities.find((x) => x.id === e.id);
       if (real) this.removeEntity(real, !real.roaming);
       if (e.flag) { this.party.flags[e.flag] = true; this.checkVictory(); }
+      this.autosave(); // a won fight (and its level-ups) survives a closed tab
     } else if (res.outcome === 'fled' && e.roaming) {
       const real = this.map.entities.find((x) => x.id === e.id);
       if (real) this.removeEntity(real, false);
@@ -725,6 +1145,8 @@ export class PlaySession {
   }
 
   async fight(enemies, style, opts = {}) {
+    // who stands in this fight: if it is lost, only they rise again (see resurrect)
+    this.lastStand = partyAlive(this.party);
     this.mode = 'combat';
     this.queued = null;
     this.persistExplored();
@@ -733,17 +1155,37 @@ export class PlaySession {
     this.view.setZoom(this.view.rig.tdist * 0.5);
     playMusic('combat');
     await this.app.fade(true, 300);
+    if (this.app.session !== this) return { outcome: 'aborted' }; // quit during the fade
     this.battle = new Battle(this, enemies, style, opts);
+    const battle = this.battle;
+    // shrine blessings last the whole fight (the battle clears buffs as it sets up)
+    const setup = battle.setup.bind(battle);
+    battle.setup = () => { setup(); blessBattle(this, battle); };
     this.ui.setMode('combat');
     const res = await this.battle.run();
+    if (res.outcome === 'aborted') return res; // the player quit mid-fight
+    if (res.outcome !== 'defeat') this.lastStand = null;
+    if (res.outcome === 'victory' && battle.gold > 0 && hasBlessing(this, 'fortune')) {
+      const extra = Math.ceil(battle.gold / 2);
+      this.party.gold += extra;
+      this.log(`Fortune smiles: you find ${extra} more gold.`, 'good');
+    }
     this.battle = null;
+    // the beaten foe leaves the map before the map is drawn again (else it
+    // stands beside the party for a moment after the victory)
+    if (res.outcome === 'victory' && opts.source) {
+      for (const id of [opts.source.id, opts.source.alsoRemove]) {
+        const real = id && this.map.entities.find((x) => x.id === id);
+        if (real) this.removeEntity(real, !real.roaming);
+      }
+    }
     // restore the exploration view
     await this.app.fade(true, 200);
     this.view.setMap(this.map);
     this.applyDaylight();
     playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
-    this.view.setZoom(this.map.type === 'world' ? 18 : 15, true);
-    this.view.focus(this.state.pos.x, this.state.pos.y, true);
+    this.view.setZoom(this.map.type === 'world' ? 9.5 : 10.5, true);
+    this.camFocus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
     if (res.outcome === 'defeat') {
@@ -758,12 +1200,14 @@ export class PlaySession {
     this.ui.refresh();
     await this.app.fade(false, 250);
     if (res.killedIds) for (const id of res.killedIds) this.onMonsterKilled(id);
+    checkQuests(this);
     this.checkVictory();
     return res;
   }
 
   onMonsterKilled(monsterId) {
     this.party.flags['killed_' + monsterId] = true;
+    onKill(this, monsterId);
   }
 
   checkVictory() {
@@ -776,7 +1220,7 @@ export class PlaySession {
     if (won) {
       this.state.won = true;
       this.autosave();
-      setTimeout(() => this.ui.showVictory(), 600);
+      setTimeout(() => { if (this.app.session === this) this.ui.showVictory(); }, 600);
     }
     return won;
   }
@@ -784,6 +1228,7 @@ export class PlaySession {
   // ------------------------------------------------------------ talking
   talkTo(npc) {
     this.queued = null;
+    if (npc.reserveOf) return this.ui.openResting?.(npc);
     if (npc.hostile) return this.engage({ ...npc, monster: npc.hostile, count: '1' });
     this.view.face('party', npc.x - this.state.pos.x, npc.y - this.state.pos.y);
     this.view.face(npc.id, this.state.pos.x - npc.x, this.state.pos.y - npc.y);
@@ -830,7 +1275,7 @@ export class PlaySession {
     switch (a.type) {
       case 'give_item': {
         const it = itemOf(this.game, a.value);
-        if (it) { inv[it.id] = (inv[it.id] || 0) + n; res.note = `Received ${n > 1 ? n + ' × ' : ''}${it.name}.`; sfx('gold'); }
+        if (it) { inv[it.id] = (inv[it.id] || 0) + n; res.note = `Received ${n > 1 ? n + ' × ' : ''}${it.name}.`; sfx('gold'); this.log(`${npc.name || 'They'} gives you ${n > 1 ? n + ' × ' : ''}${it.name}.`, 'loot'); }
         break;
       }
       case 'take_item': {
@@ -839,12 +1284,14 @@ export class PlaySession {
         else { res.note = `You do not have ${n > 1 ? n + ' × ' : ''}${it ? it.name : 'that'}.`; ok = false; }
         break;
       }
-      case 'give_gold': this.party.gold += n; res.note = `Received ${n} gold.`; sfx('gold'); break;
+      case 'give_gold': this.party.gold += n; res.note = `Received ${n} gold.`; sfx('gold'); this.log(`${npc.name || 'They'} gives you ${n} gold.`, 'loot'); break;
       case 'give_xp': {
         const ups = [];
         for (const m of partyAlive(this.party)) if (gainXp(this.game, m, n).length) ups.push(`${m.name} reaches level ${m.level}`);
         res.note = `The party gains ${n} experience.${ups.length ? ' ' + ups.join('; ') + '!' : ''}`;
+        this.log(res.note, ups.length ? 'level' : 'good');
         sfx(ups.length ? 'level' : 'gold');
+        if (ups.length) this.autosave();
         break;
       }
       case 'take_gold':
@@ -865,20 +1312,28 @@ export class PlaySession {
       case 'teleport': res.teleport = a; break;
       case 'fight': res.fight = a.value || npc.hostile || 'bandit'; break;
       case 'victory': res.victory = true; break;
+      case 'start_quest': if (!startQuest(this, a.value)) ok = !!this.state.quests[a.value]; break;
+      case 'advance_quest': advanceQuest(this, a.value); break;
+      case 'complete_quest': completeQuest(this, a.value); break;
       case 'shop': res.shop = true; break;
       case 'inn': res.inn = true; break;
       case 'healer': res.healer = true; break;
+      case 'buy_ship': ok = buyShip(this, npc, res); break;
       default: break;
     }
+    checkQuests(this);
     this.ui.refresh();
     this.checkVictory();
     return ok;
   }
 
-  recruit(npc) {
-    if (!this.map.entities.includes(npc)) return `${npc.name} has already joined thee.`;
+  // toInn: the company is full, so the newcomer waits at the inn instead
+  recruit(npc, { toInn = false } = {}) {
+    if (!this.map.entities.includes(npc) && !npc.mapId) return `${npc.name} has already joined thee.`;
     const max = this.game.settings.maxParty || 6;
-    if (this.party.members.length >= max) return `Thy company is full (${max}).`;
+    if (this.party.members.length >= max && !(toInn && this.lodging())) return `Thy company is full (${max}).`;
+    const busy = questNeeding(this, npc.id);
+    if (busy) return `${npc.name} cannot leave yet — there is still the matter of “${busy.name}”.`;
     const r = npc.recruit || {};
     const c = createCharacter(this.game, {
       name: npc.name,
@@ -888,15 +1343,124 @@ export class PlaySession {
     });
     c.level = Math.max(1, parseInt(r.level, 10) || 1);
     c.xp = xpForLevel(c.level);
-    c.points = c.level - 1; // seasoned companions arrive with points to spend
+    // seasoned companions arrive with the attributes their years have grown
+    for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
+    // they keep their own face and hair; the class dresses them
     c.look = {};
-    this.party.members.push(c);
-    this.removeEntity(npc);
+    for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    if (this.party.members.length >= max) {
+      const lodge = this.lodging();
+      (this.state.reserve ||= []).push({ member: c, map: lodge.map, since: this.state.turn || 0 });
+      if (lodge.map === this.map.id) { const e = this.restingNpc(this.map, c); this.map.entities.push(e); this.addVisual(e); }
+      this.log(`${c.name} will wait for you at the inn in ${lodge.name} until there is room in the company.`, 'place');
+    } else this.party.members.push(c);
+    if (this.map.entities.includes(npc)) this.removeEntity(npc);
+    else if (npc.mapId) this.mapState(npc.mapId).removed.push(npc.id);
+    this.state.joinOffers = (this.state.joinOffers || []).filter((id) => id !== npc.id);
     this.refreshPartyVisual();
     sfx('level');
     this.ui.refresh();
+    return null;
+  }
+
+  // A person who offered to join when a quest ended (see quests.js finish):
+  // the live entity if they are on this map, else a copy that knows its map
+  nextJoinOffer() {
+    for (const id of this.state.joinOffers || []) {
+      const live = this.map?.entities.find((e) => e.id === id);
+      if (live) return live;
+      for (const m of this.game.maps) {
+        const e = m.entities.find((x) => x.id === id);
+        if (e && !this.mapState(m.id).removed.includes(id)) return { ...deepClone(e), mapId: m.id };
+      }
+    }
+    this.state.joinOffers = [];
+    return null;
+  }
+
+  // ------------------------------------------------------------ the reserve
+  // Heroes who leave the company rest at an inn (the one in this town, or
+  // else the last inn the company passed) until called back. They wait as
+  // people in the inn's common room; talking to them brings them back.
+
+  // { map, name } of the inn the company would leave someone at, or null
+  lodging() {
+    const inn = (m) => m?.entities?.some((e) => e.type === 'npc' && e.role === 'inn');
+    if (this.map && this.map.type !== 'world' && inn(this.map)) return { map: this.map.id, name: this.map.name };
+    return this.state.lodging || null;
+  }
+
+  // the person standing in for a resting hero, on a free floor square of the inn
+  restingNpc(map, m) {
+    const keeper = map.entities.find((e) => e.type === 'npc' && e.role === 'inn');
+    const taken = (x, y) => map.entities.some((e) => e.x === x && e.y === y) || (this.state.pos.map === map.id && this.state.pos.x === x && this.state.pos.y === y);
+    const free = (x, y) => inBounds(map, x, y) && !taken(x, y) && (() => { const t = terrain(getTile(map, x, y)); return t.walk && !t.door && !t.talkOver && !t.water; })();
+    let spot = null;
+    const b = keeper && findBuildings(map).find((bb) => bb.tiles.some(([x, y]) => x === keeper.x && y === keeper.y));
+    if (b) {
+      // as far from the door as the room allows, so they sit by the fire, not in the way
+      const d0 = b.doors[0] || [keeper.x, keeper.y];
+      const spots = b.tiles.filter(([x, y]) => free(x, y)).sort((p, q) => Math.hypot(q[0] - d0[0], q[1] - d0[1]) - Math.hypot(p[0] - d0[0], p[1] - d0[1]));
+      spot = spots.find(([x, y]) => !map.entities.some((e) => e.reserveOf && Math.abs(e.x - x) + Math.abs(e.y - y) < 1)) || spots[0];
+    }
+    if (!spot && keeper) for (let r = 1; r < 6 && !spot; r++) for (let dy = -r; dy <= r && !spot; dy++) for (let dx = -r; dx <= r && !spot; dx++) if (free(keeper.x + dx, keeper.y + dy)) spot = [keeper.x + dx, keeper.y + dy];
+    if (!spot) spot = [map.entry?.x ?? 1, map.entry?.y ?? 1];
+    const k = byId(this.game.classes, m.cls), rc = byId(this.game.races, m.race);
+    return {
+      id: 'rest_' + m.id, type: 'npc', name: m.name, x: spot[0], y: spot[1], home: { x: spot[0], y: spot[1] }, wander: 0,
+      role: 'companion', reserveOf: m.id, look: charLook(this.game, m),
+      desc: `${m.name}, a level ${m.level} ${rc?.name || ''} ${k?.name || ''} of your company, resting at the inn`,
+    };
+  }
+
+  // send a hero to rest at the inn; returns an error message or null
+  restMember(m) {
+    if (this.mode !== 'explore' || this.battle) return 'Not in the middle of things.';
+    const i = this.party.members.indexOf(m);
+    if (i < 0) return `${m.name} is not with the company.`;
+    if (!this.party.members.some((x) => x !== m && x.status !== 'dead')) return `${m.name} cannot leave: someone must carry on the quest.`;
+    const lodge = this.lodging();
+    if (!lodge) return 'There is no inn to rest at yet. Find a town with an inn first.';
+    this.party.members.splice(i, 1);
+    (this.state.reserve ||= []).push({ member: m, map: lodge.map, since: this.state.turn || 0 });
+    if (lodge.map === this.map.id) {
+      const e = this.restingNpc(this.map, m);
+      this.map.entities.push(e);
+      this.addVisual(e);
+      this.log(`${m.name} takes a room at the inn and waits for you there.`, 'place');
+    } else this.log(`${m.name} sets off to rest at the inn in ${lodge.name} and will wait for you there.`, 'place');
+    this.refreshPartyVisual();
+    this.ui.refresh();
+    this.autosave?.();
+    return null;
+  }
+
+  // call a resting hero back (swap: a member who takes their place at the inn)
+  callBack(npc, swap = null) {
+    const list = this.state.reserve || [];
+    const r = list.find((x) => x.member.id === npc.reserveOf);
+    if (!r) return `${npc.name} is not here.`;
+    const max = this.game.settings.maxParty || 6;
+    if (!swap && this.party.members.length >= max) return `Thy company is full (${max}).`;
+    if (swap) {
+      const err = this.restMember(swap);
+      if (err) return err;
+    }
+    list.splice(list.indexOf(r), 1);
+    const m = r.member;
+    // a good rest: whole again (the dead stay dead until raised)
+    if (m.status !== 'dead') { m.hp = maxHp(this.game, m); m.mp = maxMp(this.game, m); if (m.status === 'poisoned' || m.status === 'asleep') m.status = 'ok'; }
+    this.party.members.push(m);
+    const i = this.map.entities.indexOf(npc);
+    if (i >= 0) this.map.entities.splice(i, 1);
+    this.view.removeEntity(npc.id);
+    this.refreshPartyVisual();
+    this.log(`${m.name} rejoins the company, rested and ready.`, 'good');
+    sfx('level');
+    this.ui.refresh();
+    this.autosave?.();
     return null;
   }
 
@@ -905,7 +1469,11 @@ export class PlaySession {
     const can = canCast(this.game, caster, spell, this.party.inventory);
     if (!can.ok) { this.log(can.why, 'warn'); sfx('error'); return false; }
     if (!spell.field) { this.log('That spell can only be cast in battle.', 'warn'); return false; }
-    payForSpell(caster, spell, this.party.inventory);
+    if (spell.effect === 'heal') {
+      const who = spell.target === 'allAllies' ? partyAlive(this.party) : target ? [target] : [];
+      if (!who.some((m) => m.status !== 'dead' && m.hp < maxHp(this.game, m))) { this.log(who.length === 1 ? `${who[0].name} is already at full health.` : 'No one needs healing.', 'warn'); sfx('error'); return false; }
+    }
+    if (payForSpell(caster, spell, this.party.inventory)) this.log(`${caster.name}'s thrifty hands spare the reagents.`);
     sfx('spell');
     this.log(`${caster.name} casts ${spell.name}.`, 'magic');
     const p = this.state.pos;
@@ -915,9 +1483,9 @@ export class PlaySession {
       case 'heal':
         for (const m of targets) {
           if (m.status === 'dead') continue;
-          const amt = roll(spell.power || '1d8') + bonus;
-          m.hp = Math.min(maxHp(this.game, m), m.hp + amt);
-          this.log(`${m.name} is healed for ${amt}.`, 'good');
+          const before = m.hp;
+          m.hp = Math.min(maxHp(this.game, m), m.hp + roll(spell.power || '1d8') + bonus);
+          this.log(m.hp > before ? `${m.name} is healed for ${m.hp - before}.` : `${m.name} is already at full health.`, 'good');
         }
         this.view.sparkle(p.x, p.y);
         sfx('heal');
@@ -959,14 +1527,17 @@ export class PlaySession {
     await this.enterMap(s.map, s.x, s.y);
   }
 
-  reveal(radius = 14) {
-    const p = this.state.pos;
+  // lift the fog round the company (or round `at`: a fortune-teller's vision,
+  // which marks the place quietly, for the big map to show)
+  reveal(radius = 14, at = null, quiet = false) {
+    const p = at || this.state.pos;
     const map = this.map;
     for (let y = p.y - radius; y <= p.y + radius; y++) for (let x = p.x - radius; x <= p.x + radius; x++) {
       if (inBounds(map, x, y) && (x - p.x) ** 2 + (y - p.y) ** 2 <= radius * radius) map.explored[y * map.w + x] = 1;
     }
-    this.log('The land is revealed to your mind\'s eye.', 'magic');
     this.updateVisibility();
+    if (quiet) return;
+    this.log('The land is revealed to your mind\'s eye.', 'magic');
     this.ui.openMap();
   }
 
@@ -978,9 +1549,10 @@ export class PlaySession {
     switch (item.effect) {
       case 'heal': {
         if (!target || target.status === 'dead') return false;
-        const amt = roll(item.power || '2d8');
-        target.hp = Math.min(maxHp(this.game, target), target.hp + amt);
-        this.log(`${target.name} drinks the ${item.name} (+${amt} HP).`, 'good');
+        if (target.hp >= maxHp(this.game, target)) { this.log(`${target.name} is already at full health.`, 'warn'); sfx('error'); return false; }
+        const before = target.hp;
+        target.hp = Math.min(maxHp(this.game, target), target.hp + roll(item.power || '2d8'));
+        this.log(`${target.name} drinks the ${item.name} (+${target.hp - before} HP).`, 'good');
         this.view.sparkle(p.x, p.y); sfx('heal');
         consume(); break;
       }
@@ -1023,13 +1595,13 @@ export class PlaySession {
       return;
     }
     const n = partyAlive(this.party).length;
-    if (this.game.settings.food && this.party.food < n) { this.log('You have no food to make camp.', 'warn'); return; }
+    const hungry = this.game.settings.food && this.party.food < n;
     this.busy = true;
-    this.log('You make camp and rest...', 'place');
+    this.log(hungry ? 'You make a cold camp with nothing to eat, and rest as best you can (about 4 hours)...' : 'You make camp and rest (about 4 hours)...', 'place');
     this.view.addEntity('campfire', { kind: 'campfire' }, p.x, p.y + (inBounds(this.map, p.x, p.y + 1) && terrain(getTile(this.map, p.x, p.y + 1)).walk ? 1 : 0));
     await this.view.wait(1.2);
     this.view.removeEntity('campfire');
-    if (this.game.settings.food) this.party.food -= n;
+    if (this.game.settings.food && !hungry) this.party.food -= n;
     this.state.turn += 50;
     this.applyDaylight();
     this.checkPhase();
@@ -1044,11 +1616,13 @@ export class PlaySession {
         return;
       }
     }
+    // a fed camp mends half of everyone's health; a hungry one a quarter
+    const rest = hungry ? 0.25 : 0.5;
     for (const m of partyAlive(this.party)) {
-      m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * 0.5));
-      m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * 0.6));
+      m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
+      m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
     }
-    this.log('The party wakes refreshed.', 'good');
+    this.log(hungry ? 'You wake stiff and hungry; wounds mend only a little. (Rations make for a better rest.)' : 'The party wakes rested; wounds are half mended. (An inn heals fully.)', hungry ? 'warn' : 'good');
     sfx('heal');
     this.busy = false;
     this.ui.refresh();
@@ -1075,11 +1649,18 @@ export class PlaySession {
   // respawn the party at the start after defeat
   async resurrect() {
     const s = this.game.settings.start;
+    // only those who fell in the last fight rise: heroes already dead before it
+    // still need a healer (else a wipe would be the cheapest raise in the land)
+    const back = this.lastStand?.length ? this.lastStand : this.party.members;
+    this.lastStand = null;
+    const still = this.party.members.filter((m) => m.status === 'dead' && !back.includes(m));
     for (const m of this.party.members) {
+      if (!back.includes(m)) continue;
       m.status = 'ok';
       m.hp = Math.max(1, Math.floor(maxHp(this.game, m) / 2));
       m.mp = maxMp(this.game, m);
       m.buffs = [];
+      gainXp(this.game, m, 0); // levels earned while fallen
     }
     this.party.gold = Math.floor(this.party.gold / 2);
     this.state.vehicle = null;
@@ -1087,16 +1668,21 @@ export class PlaySession {
     this.ui.setMode('explore');
     await this.enterMap(s.map, s.x, s.y);
     this.log('You awaken where your journey began, your purse lighter.', 'place');
+    if (still.length) this.log(`${still.map((m) => m.name).join(' and ')} fell before that last fight and still ${still.length === 1 ? 'lies' : 'lie'} dead: a healer in any town can raise them.`, 'warn');
   }
 
   // ------------------------------------------------------------ helpers for the UI
   findPathTo(x, y) {
     const p = this.state.pos;
     const ship = !!this.state.vehicle;
+    // a person or curiosity at the destination: walk up to it and bump (talk / interact)
+    const goal = this.blockingAt(x, y);
+    const bumpable = goal && (goal.type === 'npc' || goal.type === 'event' || goal.type === 'sign');
     return findPath(p.x, p.y, x, y, (tx, ty) => {
       if (!inBounds(this.map, tx, ty)) return false;
+      if (bumpable && tx === x && ty === y) return true;
       const t = terrain(getTile(this.map, tx, ty));
-      if (ship ? !(t.water && t.key !== 'bridge') : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
       if (this.map.lighting === 'dark' && !this.map.explored[ty * this.map.w + tx]) return false;
       return !this.blockingAt(tx, ty);
     }, 30);
@@ -1104,25 +1690,51 @@ export class PlaySession {
 
   describeTile(x, y) {
     if (!inBounds(this.map, x, y)) return 'The edge of the world.';
-    if (this.visible && !this.map.explored[y * this.map.w + x]) return 'Darkness.';
+    if (this.visible && !this.map.explored[y * this.map.w + x]) return this.vellumMap() ? 'Unexplored land.' : 'Darkness.';
     const t = terrain(getTile(this.map, x, y));
     const parts = [t.name];
     if (this.isVisible(x, y)) {
       for (const e of this.entitiesAt(x, y)) {
-        if (e.type === 'npc') parts.push(e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone');
-        else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? `${d.plural || d.name}` : 'monsters'); }
+        if (e.type === 'npc') {
+          const mk = npcMarker(this, e);
+          const note = mk === 'quest' ? ' (!) — has a task for you' : mk === 'turnin' ? ' (?) — about your quest' : '';
+          parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
+        }
+        else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
         else if (e.type === 'chest') parts.push('a chest');
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');
+        else if (e.type === 'event') parts.push(eventLabel(e));
         else if (e.type === 'portal' && e.label) parts.push(e.label);
       }
     }
     return parts.join(' — ');
   }
 
+  // A step through wild country: a ranger (or anyone whose art burns the herbs
+  // growing there) may gather a few. Returns the find, if any.
+  forage(ground, r = rng) {
+    const f = forageFind(this.game, this.party.members, this.party.inventory, ground, r);
+    if (!f) return null;
+    this.log(`${f.m.name} gathers ${f.n} ${f.item.name}.`, 'loot');
+    this.tip('forage', `${f.m.name} gathers herbs as the company travels: each kind of wild country grows its own. Herb-lore burns herbs, not mana — see what each is for in the Pack (I).`);
+    this.view.sparkle?.(this.state.pos.x, this.state.pos.y, 0xc2d65a, 8);
+    return f;
+  }
+
   spellsFor(m, context) {
     return knownSpells(this.game, m).filter((s) => (context === 'combat' ? s.combat : s.field));
   }
+}
+
+// How many of a wandering monster turn up: its usual group, more of them
+// when they are well below the party's level, fewer when above it
+export function encounterCount(mon, lvl) {
+  let lo = mon.group?.[0] || 1, hi = mon.group?.[1] || 3;
+  const diff = lvl - (mon.level || 1);
+  if (diff >= 2) { lo += Math.floor(diff / 2); hi += Math.floor(diff / 2) + 1; }
+  else if (diff < 0) hi = Math.max(lo, hi - 1);
+  return `${lo}-${Math.min(hi, 8)}`;
 }
 
 export function habitatOf(t) {

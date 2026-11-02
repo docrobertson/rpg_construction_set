@@ -13,6 +13,9 @@ export const ACTIONS = {
   join: 'Join the party',
   teleport: 'Teleport party',
   fight: 'Attack the party',
+  start_quest: 'Start a quest',
+  advance_quest: 'Complete the current step of a quest',
+  complete_quest: 'Complete a quest',
   victory: 'Win the game!',
 };
 
@@ -23,6 +26,9 @@ export const CONDITIONS = {
   item: 'Party has item',
   gold: 'Party has gold ≥',
   level: 'Party level ≥',
+  quest: 'Quest is under way',
+  questdone: 'Quest is finished',
+  noquest: 'Quest not yet begun',
 };
 
 const norm = (s) => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9 ]/g, '');
@@ -46,6 +52,9 @@ export function checkCond(cond, ctx) {
     case 'item': return (state.party.inventory[cond.value] || 0) > 0 || state.party.members.some((m) => Object.values(m.equip || {}).includes(cond.value));
     case 'gold': return state.party.gold >= (parseInt(cond.value, 10) || 0);
     case 'level': return ctx.partyLevel >= (parseInt(cond.value, 10) || 0);
+    case 'quest': return state.quests?.[cond.value]?.status === 'active';
+    case 'questdone': return state.quests?.[cond.value]?.status === 'done';
+    case 'noquest': return !state.quests?.[cond.value];
     default: return true;
   }
 }
@@ -54,16 +63,42 @@ export function checkCond(cond, ctx) {
 function roleReply(npc, word, ctx) {
   const role = npc.role;
   const k = (w) => keywordMatches(word, w);
+  // a shipwright sells a ship: SHIP tells of her, BUY pays (the purchase writes the reply)
+  if (role === 'shipwright') {
+    const deal = shipDeal(npc);
+    const sold = !!ctx.state?.party.flags[`_ship_${npc.id}`];
+    if (k('SHIP') || k('BOAT') || k('VESSEL')) {
+      return { text: sold ? deal.soldText : `${deal.pitch} ${deal.price} gold, and the ${deal.name} is thine — say BUY.` };
+    }
+    if (k('BUY') || k('PURCHASE')) return { text: '', action: { type: 'buy_ship' } };
+  }
   if (npc.shop && (k('BUY') || k('SELL') || k('TRADE') || k('WARES') || k('FOOD'))) return { text: 'Let us see what thou needest.', action: { type: 'shop' } };
-  if (role === 'inn' && (k('ROOM') || k('REST') || k('INN') || k('SLEEP') || k('BED'))) return { text: '', action: { type: 'inn' } };
-  if (role === 'healer' && (k('HEAL') || k('CURE') || k('RAISE') || k('HELP'))) return { text: '', action: { type: 'healer' } };
+  // (the window opens, but the person still answers)
+  if (role === 'inn' && (k('ROOM') || k('REST') || k('INN') || k('SLEEP') || k('BED'))) return { text: 'A room? Aye, warm beds and a hot supper. Here is what it costs for all of ye.', action: { type: 'inn' } };
+  if (role === 'healer' && (k('HEAL') || k('CURE') || k('RAISE') || k('HELP'))) return { text: 'Let me see thy hurts. Here is what I can do, and what it costs.', action: { type: 'healer' } };
   if (role === 'tavern' && (k('RUMOURS') || k('RUMORS') || k('NEWS') || k('ALE'))) {
     const r = ctx.rumour();
     return { text: r || 'Quiet times, friend. Quiet times.' };
   }
   if (role === 'lord' && (k('HEAL'))) return { text: 'Rest, and be whole.', action: { type: 'heal' } };
-  if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) return { text: npc.recruit.joinText || 'I will gladly join thee!', action: { type: 'join' } };
+  if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) {
+    const after = npc.recruit.after;
+    if (after && ctx.state?.quests?.[after]?.status !== 'done') return { text: npc.recruit.notYet || 'Join thee? Perhaps one day, when there is less to keep me here.' };
+    return { text: npc.recruit.joinText || 'I will gladly join thee!', action: { type: 'join' } };
+  }
   return null;
+}
+
+// What a shipwright has for sale (npc.ship: { name, price, pitch, soldText, x, y })
+export function shipDeal(npc) {
+  const d = npc.ship || {};
+  const name = d.name || 'Seahorse';
+  return {
+    name, price: Math.max(0, parseInt(d.price, 10) || 450),
+    pitch: d.pitch || `Aye, I've a ship on the stocks just finished: the ${name}, oak-built and tarred, sound as a bell.`,
+    soldText: d.soldText || `The ${name}'s thine already, moored at the quay. Treat her kindly.`,
+    x: d.x, y: d.y,
+  };
 }
 
 export function respond(npc, input, ctx) {
@@ -98,10 +133,11 @@ export function knownKeywords(npc) {
     const first = String(kw.key || '').split(/[,|]/)[0].trim();
     if (first) words.push(first.toUpperCase());
   }
-  if (npc.shop) words.push('BUY');
+  if (npc.shop && npc.role !== 'shipwright') words.push('BUY');
   if (npc.role === 'inn') words.push('ROOM');
   if (npc.role === 'healer') words.push('HEAL');
   if (npc.role === 'tavern') words.push('RUMOURS');
+  if (npc.role === 'shipwright') words.push('SHIP', 'BUY');
   if (npc.recruit) words.push('JOIN');
   return words;
 }
