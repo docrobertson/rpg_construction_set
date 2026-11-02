@@ -64,8 +64,12 @@ export class Battle {
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
+    // (the whole north half is open sea running off the edges, shallows at
+    // its rim and a strip of beach below, so it reads as a coast, not a pool)
     if (swimmers && !this.arena.tiles.some((t) => terrain(t).water && !terrain(t).deck)) {
-      for (let y = 0; y < 3; y++) for (let x = 1; x < ARENA_W - 1; x++) this.arena.tiles[y * ARENA_W + x] = y === 2 ? T.shallows : T.ocean;
+      const sea = Math.floor(ARENA_H / 2);
+      for (let y = 0; y <= sea; y++) for (let x = 0; x < ARENA_W; x++) this.arena.tiles[y * ARENA_W + x] = y < sea - 1 ? T.ocean : y === sea - 1 ? T.shallows : T.sand;
+      this.arena.seaNorth = sea;
     }
     const v = this.view;
     v.setMap(this.arena);
