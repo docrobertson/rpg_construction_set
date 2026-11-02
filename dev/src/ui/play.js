@@ -79,6 +79,15 @@ export class PlayUI {
     this.popEl = h('div.hero-pop', h('button.pop-close', { title: 'Close (Esc)', onclick: () => this.closeHero() }, '×'), this.heroEl);
     this.popEl.hidden = true;
     this.logEl = h('div.hud-log');
+    // The log follows new lines unless the player has scrolled back to read
+    // (decided by their own scrolling, not by where a line happens to land:
+    // a layout change or a burst of lines must not unpin it)
+    this.logPinned = true;
+    this.logEl.addEventListener('scroll', () => {
+      const el = this.logEl;
+      this.logPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    }, { passive: true });
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.logToEnd()).observe(this.logEl);
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
     this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M): the yellow dot is your company, the gold diamond your current goal. Click for the big map and its key.', onclick: () => this.openMap() });
@@ -126,18 +135,24 @@ export class PlayUI {
       last.n = (last.n || 1) + 1;
       if (!last.rep) last.el.appendChild(last.rep = h('span.log-rep'));
       last.rep.textContent = ` (×${last.n})`;
+      this.logToEnd();
       return;
     }
     const line = { text, cls };
     this.logLines.push(line);
     if (this.logLines.length > 400) this.logLines.shift();
     const el = this.logEl;
-    // keep following new lines unless the player has scrolled back to read
-    const follow = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     const ico = LOG_ICONS[cls];
     el.appendChild(line.el = h('div.log-line' + (cls ? '.' + cls : ''), ico ? h('i.log-ico', { html: iconSvg(ico) }) : null, text));
     while (el.childNodes.length > 400) el.removeChild(el.firstChild);
-    if (follow) el.scrollTop = el.scrollHeight;
+    this.logToEnd();
+  }
+
+  // show the newest line (unless the player is reading back)
+  logToEnd() {
+    const el = this.logEl;
+    if (!el || !this.logPinned || el.scrollHeight - el.scrollTop - el.clientHeight < 1) return;
+    el.scrollTop = el.scrollHeight;
   }
 
   refresh() {
