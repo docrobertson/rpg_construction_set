@@ -112,6 +112,7 @@ export class PlayUI {
   }
 
   destroy() {
+    this.s.rememberZoom?.();
     this.chud.stop();
     clearTimeout(this.chud.vicTimer);
     this.chud.victoryPending = false;

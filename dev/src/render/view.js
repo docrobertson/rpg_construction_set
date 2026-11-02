@@ -566,7 +566,7 @@ export class View {
       }
     }
     const e = {
-      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -867,6 +867,23 @@ export class View {
       }
       near.sort((a, b) => a[0] - b[0]);
       for (const [, e] of near.slice(0, 3)) ent(e, -10);
+    }
+    // in friendly places (towns, castles) a post, fountain or lamp never
+    // hides the townsfolk round the company: the nearest few are cut clear
+    if (party && (this.map?.type === 'town' || this.map?.type === 'castle')) {
+      const px = party.root.position.x, pz = party.root.position.z;
+      const folk = [];
+      // (not those indoors under a closed roof: the roof hides them rightly)
+      const home = this.buildings?.at?.(Math.floor(px), Math.floor(pz)) ?? -1;
+      for (const e of this.entities.values()) {
+        if (!e.person || !e.root.visible || this.cutFocus.has(e.id)) continue;
+        const b = this.buildings?.at?.(Math.floor(e.root.position.x), Math.floor(e.root.position.z)) ?? -1;
+        if (b >= 0 && b !== home) continue;
+        const d = Math.max(Math.abs(e.root.position.x - px), Math.abs(e.root.position.z - pz));
+        if (d <= 10) folk.push([d, e]);
+      }
+      folk.sort((a, b) => a[0] - b[0]);
+      for (const [, e] of folk) { if (n >= cuts.length) break; ent(e, -12); }
     }
     if (this.cursor.visible && this.map?.type === 'arena') {
       const c = this.cursor.position, s = this.cursor.scale.x;
