@@ -257,7 +257,7 @@ export class View {
   heightAt(x, y) {
     if (!this.map) return 0;
     const t = terrain(getTile(this.map, x, y));
-    if (t.key === 'bridge') return 0.05;
+    if (t.deck) return 0.05;
     if (t.water) return WATER_Y;
     if (t.key === 'lava') return LAVA_Y;
     const g = this.terrain.groundAt(x, y);
@@ -271,7 +271,7 @@ export class View {
     const tx = Math.floor(px), ty = Math.floor(pz);
     if (this.map && tx >= 0 && ty >= 0 && tx < this.map.w && ty < this.map.h) {
       const t = terrain(getTile(this.map, tx, ty));
-      if (t.water) return t.key === 'bridge' ? 0.05 : WATER_Y;
+      if (t.water) return t.deck ? 0.05 : WATER_Y;
       if (t.wall) return this.terrain.groundAt(tx, ty) + t.h;
     }
     return Math.max(this.terrain.heightAtPoint(px, pz), WATER_Y);

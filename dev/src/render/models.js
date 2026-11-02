@@ -296,6 +296,299 @@ function lodge(spec) {
   return { B, G, height: 1.1, noLean: true };
 }
 
+// Move a built figure into a diorama: scale it about its feet and set it down
+// at (x, z), turned by ry
+function setFigure(res, s, x, z, ry = 0) {
+  const c = Math.cos(ry), sn = Math.sin(ry);
+  for (const P of [res.B, res.B.detail, res.F, res.G].filter(Boolean)) {
+    const p = P.pos, n = P.nor;
+    for (let i = 0; i < p.length; i += 3) {
+      const px = p[i] * s, pz = p[i + 2] * s;
+      p[i] = x + px * c + pz * sn; p[i + 1] *= s; p[i + 2] = z - px * sn + pz * c;
+      if (ry) { const nx = n[i], nz = n[i + 2]; n[i] = nx * c + nz * sn; n[i + 2] = -nx * sn + nz * c; }
+    }
+  }
+  return res;
+}
+
+// a hen: plump body, comb and tail, pecking or looking about
+function hen(B, x, z, ry, col = 0xf2ece0) {
+  const m = mat(x, 0, z, 0, ry, 0);
+  ball(B, col, 0, 0.055, 0, 0.04, 0.035, 0.05, { matrix: m });
+  ball(B, col, 0, 0.09, 0.04, 0.022, 0.024, 0.022, { matrix: m });
+  ball(B, 0xd02a1a, 0, 0.115, 0.04, 0.008, 0.012, 0.014, { matrix: m });
+  B.shape(TPL.cone4, 0xe8a830, { matrix: m, y: 0.09, z: 0.065, sx: 0.012, sy: 0.02, sz: 0.012, rx: Math.PI / 2 });
+  B.shape(TPL.cone4, deep(col, 0.8), { matrix: m, y: 0.07, z: -0.05, sx: 0.04, sy: 0.05, sz: 0.02, rx: -0.6 });
+  for (const s of [-1, 1]) B.box(0xe8a830, { matrix: m, x: s * 0.014, y: 0, sx: 0.006, sy: 0.03, sz: 0.006 });
+}
+
+// a dairy cow: piebald, horned, a bell at her neck
+function cow(B, x, z, ry) {
+  const m = mat(x, 0, z, 0, ry, 0);
+  const hide = 0xf2ece2, patch = 0x2a2422;
+  ball(B, hide, 0, 0.17, 0, 0.075, 0.07, 0.15, { matrix: m });
+  for (const [px, py, pz, r] of [[0.06, 0.19, 0.03, 0.04], [-0.05, 0.2, -0.07, 0.05], [0.02, 0.23, -0.02, 0.035]]) ball(B, patch, px, py, pz, r * 0.9, r * 0.8, r, { matrix: m });
+  for (const [lx, lz] of [[-0.045, 0.1], [0.045, 0.1], [-0.045, -0.1], [0.045, -0.1]]) tube(B, [[0, 0, 0], [0, 0.14, 0]].map(([a, b, c2]) => { const v = new THREE.Vector3(lx + a, b, lz + c2).applyMatrix4(m); return [v.x, v.y, v.z]; }), [0.018, 0.022], [0x3a302a, hide], { segs: 5 });
+  ball(B, hide, 0, 0.22, 0.17, 0.045, 0.045, 0.055, { matrix: m });
+  ball(B, 0xe8b0a0, 0, 0.2, 0.22, 0.03, 0.025, 0.02, { matrix: m });
+  ball(B, patch, 0, 0.255, 0.16, 0.035, 0.015, 0.03, { matrix: m });
+  for (const s of [-1, 1]) {
+    B.shape(TPL.cone4, 0xf0e4c0, { matrix: m, x: s * 0.04, y: 0.26, z: 0.15, sx: 0.012, sy: 0.05, sz: 0.012, rz: -s * 0.9 });
+    ball(B, 0x2a2422, s * 0.05, 0.235, 0.15, 0.02, 0.01, 0.012, { matrix: m });
+  }
+  MT(B, () => ball(B, GOLDC, 0, 0.16, 0.16, 0.014, 0.014, 0.014, { matrix: m }));
+  tube(B, [[0, 0.19, -0.15], [0, 0.12, -0.18], [0, 0.06, -0.17]].map(([a, b, c2]) => { const v = new THREE.Vector3(a, b, c2).applyMatrix4(m); return [v.x, v.y, v.z]; }), [0.008, 0.006], hide, { segs: 4, outline: true });
+}
+
+// A homestead: a whitewashed, half-timbered cottage under a deep thatch with
+// smoke from its chimney, a fenced kitchen-garden of cabbages and beans, a
+// haystack, a well, a cow and hens in the yard, and the farmer (spec.keeper)
+// standing at his gate.
+function farmstead(spec) {
+  const keeper = spec.keeper || { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, hair: 0x8a5a2a };
+  const res = setFigure(figure({ ...keeper, kind: 'humanoid' }, TPL), (RACE_LOOKS[keeper.race] || RACE_LOOKS.human).scale, -0.1, 0.28, 0.15);
+  const B = res.B, G = res.G;
+  const wall = 0xeee4cc, beam = 0x5a3a22, thatch = spec.roof ?? 0xcfa24c, stone = 0xa29c90;
+  // the yard: trodden earth and a few flagstones to the door
+  // (flat ground goes in the detail layer, which carries no ink outline)
+  lathe(B.detail, [[0.002, 0.004], [0.66, 0.006], [0.7, 0.0]], [0xb8a470, 0xa8946a], { segs: 20, sq: 0.66 });
+  for (let k = 0; k < 3; k++) B.detail.shape(TPL.cyl6, 0xb0a890, { x: -0.22 + k * 0.03, y: 0.004, z: -0.08 + k * 0.1, sx: 0.08, sy: 0.012, sz: 0.06, ry: k });
+  // the cottage, long side to the yard
+  const cx = -0.28, cz = -0.4, W = 0.34, D = 0.17, eave = 0.42, ridge = 0.78;
+  B.box(deep(stone, 0.8), { x: cx, y: 0, z: cz, sx: W * 2 + 0.04, sy: 0.05, sz: D * 2 + 0.04 });
+  B.box(wall, { x: cx, y: 0.04, z: cz, sx: W * 2, sy: eave - 0.04, sz: D * 2, grad: 0.15 });
+  // half-timbering: posts, a rail and braces on the front
+  const F = cz + D + 0.005;
+  for (const x of [-W, -W * 0.36, W * 0.36, W]) B.detail.box(beam, { x: cx + x, y: 0.05, z: F, sx: 0.028, sy: eave - 0.05, sz: 0.01 });
+  B.detail.box(beam, { x: cx, y: eave * 0.58, z: F, sx: W * 2, sy: 0.024, sz: 0.01 });
+  B.detail.box(beam, { x: cx, y: eave - 0.03, z: F, sx: W * 2, sy: 0.026, sz: 0.01 });
+  // a deep thatch with a rounded ridge, overhanging all round
+  // (the thatch bellies out a little, and is combed into darker courses)
+  const run = ridge - eave + 0.05, out = D + 0.07;
+  for (const s of [-1, 1]) {
+    sheet(B, (u, v) => [cx + (u - 0.5) * (W * 2 + 0.12), ridge - v * run + Math.sin(v * Math.PI) * 0.025, cz + s * (0.01 + v * out + Math.sin(v * Math.PI) * 0.02)], [tint(thatch, 1.15), thatch, deep(thatch, 0.7)], { nu: 4, nv: 4, thick: 0.06, flipN: s > 0, back: deep(thatch, 0.5) });
+    for (const v of [0.22, 0.44, 0.66, 0.88]) B.detail.box(deep(thatch, 0.6), { x: cx, y: ridge - v * run + Math.sin(v * Math.PI) * 0.025 + 0.035, z: cz + s * (0.01 + v * out + Math.sin(v * Math.PI) * 0.02 + 0.012), sx: W * 2 + 0.1, sy: 0.012, sz: 0.012 });
+  }
+  for (const x of [-W, W]) {
+    const a = [cx + x, eave - 0.01, cz - D], b = [cx + x, eave - 0.01, cz + D], m = [cx + x, ridge - 0.04, cz];
+    B.tri(a, b, m, wall); B.tri(a, m, b, wall);
+  }
+  tube(B, [[cx - W - 0.08, ridge + 0.02, cz], [cx + W + 0.08, ridge + 0.02, cz]], 0.05, [deep(thatch, 0.85), tint(thatch, 1.05), deep(thatch, 0.85)], { segs: 7 });
+  // the chimney through the thatch at the gable end, and its smoke
+  const chx = cx - W + 0.09, chz = cz - 0.06;
+  B.box(stone, { x: chx, y: 0.4, z: chz, sx: 0.11, sy: 0.56, sz: 0.11, grad: 0.3 });
+  B.box(deep(stone, 0.7), { x: chx, y: 0.96, z: chz, sx: 0.13, sy: 0.035, sz: 0.13 });
+  for (const [x, y, r] of [[0, 1.05, 0.05], [0.05, 1.14, 0.065], [0.12, 1.23, 0.075], [0.21, 1.3, 0.065]]) ball(B, 0xe6e4de, chx + x, y, chz, r, r * 0.8, r);
+  // a round green door, lit windows with flower boxes
+  B.box(0x3a6a3a, { x: cx + 0.04, y: 0.05, z: F, sx: 0.11, sy: 0.2, sz: 0.012 });
+  ball(B, 0x3a6a3a, cx + 0.04, 0.25, F, 0.055, 0.035, 0.006);
+  ball(B, 0xe0b040, cx + 0.075, 0.14, F + 0.006, 0.009);
+  for (const x of [-0.19, 0.22]) {
+    G.box(0xffd070, { x: cx + x, y: 0.16, z: F, sx: 0.09, sy: 0.08, sz: 0.008 });
+    B.detail.box(beam, { x: cx + x, y: 0.2, z: F + 0.004, sx: 0.009, sy: 0.08, sz: 0.004 });
+    B.box(0x7a4a26, { x: cx + x, y: 0.12, z: F + 0.016, sx: 0.11, sy: 0.028, sz: 0.032 });
+    for (let k = 0; k < 3; k++) ball(B, [0xe86a8a, 0xf0d040, 0xf4f0ff][k], cx + x - 0.03 + k * 0.03, 0.155, F + 0.022, 0.016);
+  }
+  // the kitchen-garden: rows of cabbages and beans behind a picket fence
+  const gx = 0.4, gz = -0.38, GW = 0.2, GD = 0.16;
+  for (let row = 0; row < 3; row++) {
+    const z = gz - GD + 0.05 + row * 0.11;
+    B.detail.box(0x5e4426, { x: gx, y: 0, z, sx: GW * 2 - 0.04, sy: 0.02, sz: 0.06 });
+    for (let i = 0; i < 4; i++) {
+      const x = gx - GW + 0.05 + i * 0.1;
+      if (row === 1) { tube(B, [[x, 0, z], [x, 0.16, z]], 0.006, 0x6a5a3a, { segs: 3 }); ball(B, 0x4a8a2a, x, 0.1, z, 0.03, 0.055, 0.03); }
+      else ball(B, i % 2 ? 0x6aaa44 : 0x5a9a3a, x, 0.03, z, 0.036, 0.032, 0.036);
+    }
+  }
+  const picket = (x, z) => B.box(0xd8ccb0, { x, y: 0, z, sx: 0.016, sy: 0.12, sz: 0.016 });
+  for (let i = 0; i <= 8; i++) { picket(gx - GW + i * (GW / 4), gz + GD); picket(gx - GW + i * (GW / 4), gz - GD); }
+  for (let i = 1; i < 6; i++) { picket(gx + GW, gz - GD + i * (GD / 3)); picket(gx - GW, gz - GD + i * (GD / 3)); }
+  for (const z of [gz + GD, gz - GD]) B.box(0xc8bca0, { x: gx, y: 0.07, z, sx: GW * 2, sy: 0.016, sz: 0.012 });
+  for (const x of [gx + GW, gx - GW]) B.box(0xc8bca0, { x, y: 0.07, z: gz, sx: 0.012, sy: 0.016, sz: GD * 2 });
+  // a haystack at the yard's edge, a pitchfork stuck in it
+  const hx = 0.56, hz = 0.14;
+  const hay = (prof) => prof.map(([r, y]) => [r, y, r * 0.9, hz]);
+  lathe(B, hay([[0.002, 0], [0.14, 0.01], [0.15, 0.09], [0.12, 0.18], [0.07, 0.25], [0.02, 0.28]]), [deep(0xd8b050, 0.75), 0xd8b050, tint(0xd8b050, 1.1)], { segs: 12, dx: () => hx });
+  for (const y of [0.07, 0.16]) lathe(B.detail, hay([[0.152 - y * 0.2, y], [0.155 - y * 0.2, y + 0.01]]), deep(0xd8b050, 0.65), { segs: 12, dx: () => hx });
+  tube(B, [[hx + 0.07, 0.08, hz + 0.03], [hx + 0.13, 0.34, hz + 0.05]], 0.008, WOODC, { segs: 4, outline: true });
+  // the well
+  const wx = -0.62, wz = 0.12;
+  lathe(B, [[0.08, 0], [0.085, 0.1], [0.07, 0.11], [0.06, 0.06]].map(([r, y]) => [r, y, r, wz]), [deep(STONE, 0.7), STONE], { segs: 10, dx: () => wx });
+  lathe(B, [[0.002, 0.06, 0.002, wz], [0.062, 0.06, 0.062, wz]], 0x24506e, { segs: 10, dx: () => wx });
+  for (const s of [-1, 1]) tube(B, [[wx + s * 0.075, 0.1, wz], [wx + s * 0.075, 0.28, wz]], 0.011, WOODC, { segs: 4, outline: true });
+  B.shape(TPL.prism, 0x8a4a2a, { x: wx, y: 0.28, z: wz, sx: 0.22, sy: 0.08, sz: 0.15 });
+  // a trough and the cow drinking at it, hens about the farmer's feet
+  B.box(0x6a4a2a, { x: 0.1, y: 0, z: 0.02, sx: 0.06, sy: 0.05, sz: 0.2 });
+  B.box(0x3a7ab0, { x: 0.1, y: 0.045, z: 0.02, sx: 0.045, sy: 0.006, sz: 0.18 });
+  cow(B, 0.32, 0.0, -Math.PI / 2);
+  hen(B, 0.06, 0.38, 0.6);
+  hen(B, -0.36, 0.3, -0.9, 0xb8642a);
+  hen(B, 0.24, 0.3, 2.2);
+  pebbles(B, 4, 0.7, 0x8a8478, 0.4);
+  return { B, G, F: res.F, height: 1.1, noLean: true };
+}
+
+// A fighting pit: a sunken ring of red sand inside a timber wall, the crowd
+// packed on the benches behind, banners and torches, a gate with its spikes.
+function arena(spec) {
+  const { B, G } = builders();
+  const wood = 0x7a5232, sand = spec.color ?? 0xc8925a, flag = spec.flag ?? 0xb02a2a;
+  const R = 0.46, S = 0.72;
+  lathe(B.detail, [[0.002, 0.05], [R - 0.02, 0.05], [R, 0.03]], [deep(sand, 0.85), sand], { segs: 20, sq: S });
+  // bloodstains and a rake left in the sand
+  for (const [x, z, r] of [[0.08, 0.02, 0.05], [-0.12, -0.08, 0.035]]) B.detail.shape(TPL.cyl12, 0x8a3a24, { x, y: 0.048, z, sx: r * 2, sy: 0.01, sz: r * 1.4 });
+  // the wall: a ring of stout posts with planking between, low at the front
+  const N = 22;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2, x = Math.sin(a) * R, z = Math.cos(a) * R * S;
+    const front = Math.cos(a) > 0.35;
+    const hgt = front ? 0.1 : 0.2;
+    tube(B, [[x, -0.02, z], [x, hgt + 0.04, z]], 0.026, [deep(wood, 0.7), wood], { segs: 5 });
+    const a2 = ((i + 1) / N) * Math.PI * 2, x2 = Math.sin(a2) * R, z2 = Math.cos(a2) * R * S;
+    if (!(front && Math.abs(Math.sin(a)) < 0.18)) B.box(i % 2 ? wood : tint(wood, 1.1), { x: (x + x2) / 2, y: 0, z: (z + z2) / 2, sx: Math.hypot(x2 - x, z2 - z) + 0.01, sy: hgt, sz: 0.03, ry: Math.atan2(-(z2 - z), x2 - x) });
+  }
+  // the benches: tiers stepping up behind the back half, crowded with folk
+  const crowd = [0x8a2a2a, 0x2a4a7a, 0x6a7a3a, 0x7a5a2a, 0x5a3a6a, 0xd8c8a0, 0x3a6a6a];
+  for (let tier = 0; tier < 3; tier++) {
+    const rr = R + 0.07 + tier * 0.08, y = 0.06 + tier * 0.08;
+    for (let i = 0; i < 14; i++) {
+      const a = Math.PI * 0.62 + (i / 13) * Math.PI * 0.76, x = Math.sin(a) * rr, z = Math.cos(a) * rr * S;
+      const ry = Math.atan2(-Math.cos(a) * S, Math.sin(a)) + Math.PI / 2;
+      B.box(tier % 2 ? 0x8a6a42 : 0x9a7a4a, { x, y: 0, z, sx: 0.11, sy: y, sz: 0.07, ry });
+      if ((i + tier) % 3 !== 2) {
+        const c = crowd[(i * 3 + tier * 5) % crowd.length];
+        ball(B, c, x, y + 0.04, z, 0.025, 0.035, 0.022);
+        ball(B, 0xe8c09a, x, y + 0.085, z, 0.018);
+      }
+    }
+  }
+  // the gate at the front: two posts with a lintel and a skull
+  for (const s of [-1, 1]) tube(B, [[s * 0.08, -0.02, R * S], [s * 0.08, 0.3, R * S]], 0.03, [deep(wood, 0.7), wood], { segs: 5 });
+  B.box(deep(wood, 0.8), { x: 0, y: 0.28, z: R * S, sx: 0.24, sy: 0.04, sz: 0.04 });
+  ball(B, 0xf2e8d0, 0, 0.34, R * S + 0.01, 0.03, 0.032, 0.026);
+  for (const s of [-1, 1]) ball(B, 0x1a1410, s * 0.011, 0.343, R * S + 0.035, 0.008);
+  // banner poles and torches round the back
+  for (const [a, c] of [[Math.PI * 0.7, flag], [Math.PI, 0xe0b040], [Math.PI * 1.3, flag]]) {
+    const x = Math.sin(a) * (R + 0.3), z = Math.cos(a) * (R + 0.3) * S;
+    tube(B, [[x, 0, z], [x, 0.62, z]], 0.012, 0x3a2a1a, { segs: 4, outline: true });
+    sheet(B, (u, v) => [x + 0.01 + u * 0.13, 0.6 - v * 0.17, z + Math.sin(u * 3) * 0.012], [c, deep(c, 0.7)], { nu: 3, nv: 2, thick: 0.008 });
+  }
+  for (const a of [Math.PI * 0.55, Math.PI * 1.45]) {
+    const x = Math.sin(a) * (R + 0.05), z = Math.cos(a) * (R + 0.05) * S;
+    tube(B, [[x, 0, z], [x, 0.32, z]], 0.012, 0x3a2a1a, { segs: 4, outline: true });
+    G.shape(TPL.cone5, 0xff8a20, { x, y: 0.32, z, sx: 0.05, sy: 0.1, sz: 0.05 });
+    G.shape(TPL.ico0, 0xffd060, { x, y: 0.35, z, s: 0.03 });
+  }
+  // the champion's weapons racked by the gate
+  tube(B, [[0.24, 0, 0.3], [0.27, 0.3, 0.32]], 0.008, 0x6a4a2a, { segs: 3, outline: true });
+  B.shape(TPL.cone4, 0xc8ccd4, { x: 0.275, y: 0.3, z: 0.32, sx: 0.03, sy: 0.08, sz: 0.012 });
+  return { B, G, height: 0.7, noLean: true };
+}
+
+// A fortune-teller's caravan: a painted wagon under a barrel roof, a striped
+// awning over a little table and her crystal ball, a lantern and a pony.
+function caravan(spec) {
+  const { B, G } = builders();
+  const body = spec.color ?? 0x2a6a5a, trim = 0xe0b040, roof = spec.roof ?? 0x7a2a4a;
+  const L = 0.5, Wd = 0.17, y0 = 0.14, h = 0.24;
+  // the wagon body, its ends painted with stars
+  B.box(deep(body, 0.85), { x: -0.08, y: y0, z: -0.12, sx: L, sy: h, sz: Wd * 2, grad: 0.2 });
+  for (const z of [-0.12 + Wd + 0.003, -0.12 - Wd - 0.003]) {
+    B.detail.box(trim, { x: -0.08, y: y0 + h - 0.02, z, sx: L, sy: 0.015, sz: 0.004 });
+    B.detail.box(trim, { x: -0.08, y: y0 + 0.01, z, sx: L, sy: 0.015, sz: 0.004 });
+  }
+  G.box(0xfff0a0, { x: -0.2, y: y0 + 0.13, z: -0.12 + Wd + 0.005, sx: 0.07, sy: 0.07, sz: 0.004 });
+  for (const [x, y] of [[0.02, 0.2], [0.1, 0.12], [-0.04, 0.08]]) G.shape(TPL.ico0, 0xffe080, { x: x - 0.08, y: y0 + y, z: -0.12 + Wd + 0.006, s: 0.02 });
+  // the barrel roof, overhanging
+  sheet(B, (u, v) => [-0.08 + (u - 0.5) * (L + 0.08), y0 + h + Math.sin(v * Math.PI) * 0.12, -0.12 + (v - 0.5) * (Wd * 2 + 0.06)], [tint(roof, 1.1), deep(roof, 0.75), tint(roof, 1.1)], { nu: 2, nv: 6, thick: 0.02, back: deep(roof, 0.5) });
+  // a stove-pipe and its smoke
+  tube(B, [[-0.24, y0 + h + 0.1, -0.12], [-0.24, y0 + h + 0.22, -0.12]], 0.012, 0x2a2a2a, { segs: 5 });
+  for (const [dy, r] of [[0.27, 0.025], [0.33, 0.035]]) ball(B, 0xe6e4de, -0.24 + dy * 0.2, y0 + h + dy, -0.12, r);
+  // wheels with spokes, the shafts resting on the ground
+  for (const [x, rad] of [[-0.24, 0.1], [0.08, 0.08]]) for (const s of [-1, 1]) {
+    const z = -0.12 + s * (Wd + 0.02);
+    B.shape(TPL.torus, trim, { x, y: rad, z, sx: rad * 2.3, sy: rad * 2.3, sz: 0.25 });
+    for (let k = 0; k < 4; k++) B.box(deep(trim, 0.8), { x, y: rad, z, sx: 0.008, sy: rad * 1.9, sz: 0.008, rz: (k / 4) * Math.PI });
+    ball(B, 0x3a2a1a, x, rad, z, 0.016);
+  }
+  for (const s of [-1, 1]) tube(B, [[0.17, y0, -0.12 + s * 0.1], [0.42, 0.02, -0.12 + s * 0.12]], 0.01, WOODC, { segs: 4, outline: true });
+  // steps up to the door at the back
+  for (let k = 0; k < 2; k++) B.box(WOODC, { x: -0.36 - k * 0.04, y: k === 0 ? 0.09 : 0.03, z: -0.12, sx: 0.06, sy: 0.02, sz: 0.12 });
+  // the striped awning, the table and her crystal ball
+  for (let k = 0; k < 5; k++) sheet(B, (u, v) => [-0.28 + (k + u) * 0.09, y0 + h - 0.02 - v * 0.1, -0.12 + Wd + v * 0.24], k % 2 ? [0xf0e6d0, 0xd8ccb0] : [0x7a2a5a, 0x5a1a40], { nu: 1, nv: 2, thick: 0.008 });
+  for (const x of [-0.28, 0.17]) tube(B, [[x, 0, -0.12 + Wd + 0.24], [x, y0 + h - 0.12, -0.12 + Wd + 0.24]], 0.007, WOODC, { segs: 3, outline: true });
+  lathe(B, [[0.012, 0], [0.012, 0.1], [0.07, 0.11], [0.07, 0.125]], [WOODC, 0x5a1a40], { segs: 10, dx: () => -0.05, sq: 1 });
+  G.shape(TPL.ico1, 0xa0c8ff, { x: -0.05, y: 0.17, z: 0.0, s: 0.09 });
+  // gold stars painted on the roof, catching the eye from far off
+  for (const [u, v] of [[0.2, 0.3], [0.45, 0.6], [0.7, 0.35], [0.85, 0.7], [0.3, 0.8]]) G.shape(TPL.ico0, 0xffe080, { x: -0.08 + (u - 0.5) * (L + 0.04), y: y0 + h + Math.sin(v * Math.PI) * 0.12 + 0.012, z: -0.12 + (v - 0.5) * (Wd * 2 + 0.04), s: 0.025 });
+  G.shape(TPL.ico0, 0xffffff, { x: -0.06, y: 0.18, z: 0.03, s: 0.02 });
+  // a hanging lantern
+  tube(B, [[0.15, y0 + h - 0.1, 0.1], [0.15, y0 + h - 0.16, 0.1]], 0.003, 0x2a2a2a, { segs: 3, cap: false });
+  G.shape(TPL.ico0, 0xffb050, { x: 0.15, y: y0 + h - 0.19, z: 0.1, s: 0.04 });
+  // her pony, grazing
+  const pc = 0x8a6a4a;
+  ball(B, pc, 0.42, 0.17, -0.38, 0.12, 0.06, 0.055);
+  for (const [lx, lz] of [[0.34, -0.36], [0.34, -0.41], [0.5, -0.36], [0.5, -0.41]]) tube(B, [[lx, 0, lz], [lx, 0.14, lz]], [0.012, 0.016], [0x3a2a1a, pc], { segs: 4 });
+  tube(B, [[0.52, 0.19, -0.38], [0.58, 0.12, -0.38], [0.6, 0.04, -0.37]], [0.03, 0.026, 0.022], pc, { segs: 5 });
+  tube(B, [[0.5, 0.22, -0.38], [0.56, 0.16, -0.38]], 0.012, 0x3a2a1a, { segs: 4 });
+  tube(B, [[0.3, 0.18, -0.38], [0.27, 0.08, -0.38]], [0.014, 0.006], 0x3a2a1a, { segs: 4 });
+  pebbles(B, 4, 0.5, 0x8a8478, 1.1);
+  return { B, G, height: 0.7, noLean: true };
+}
+
+// A fairy ring: red-capped toadstools in a circle of greener grass, and
+// motes of light dancing above it
+function fairyring(spec) {
+  const { B, G } = builders();
+  const glow = spec.glow ?? 0xc0ffd8;
+  lathe(B.detail, [[0.002, 0.004], [0.4, 0.006], [0.44, 0.0]], [0x4a8a34, 0x3a7a2a], { segs: 20 });
+  lathe(B.detail, [[0.002, 0.008], [0.24, 0.008]], 0x5a9a3a, { segs: 16 });
+  const N = 11;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2 + 0.2, d = 0.34 + 0.03 * Math.sin(i * 5);
+    const x = Math.cos(a) * d, z = Math.sin(a) * d;
+    const s = 0.7 + 0.5 * ((i * 7) % 5) / 5;
+    tube(B, [[x, 0, z], [x, 0.07 * s, z]], [0.016 * s, 0.012 * s], [0xd8ccb0, 0xf4ecdc], { segs: 5 });
+    lathe(B, [[0.002, 0.07 * s], [0.045 * s, 0.072 * s], [0.04 * s, 0.09 * s], [0.002, 0.11 * s]].map(([r, y]) => [r, y, r, z]), [0xc02a1a, 0xe03a24], { segs: 9, dx: () => x });
+    for (let k = 0; k < 3; k++) ball(B.detail, 0xfff4e0, x + Math.cos(k * 2.1 + i) * 0.022 * s, 0.098 * s, z + Math.sin(k * 2.1 + i) * 0.022 * s, 0.007 * s, 0.004, 0.007 * s);
+  }
+  // a mossy stone at the back of the ring
+  ball(B, 0x8a8a7a, -0.05, 0.05, -0.18, 0.07, 0.06, 0.05, { grad: 0.3 });
+  ball(B, MOSS, -0.05, 0.1, -0.18, 0.06, 0.02, 0.045);
+  // the dancing lights
+  const motes = [[0, 0.3, 0], [0.12, 0.42, 0.08], [-0.14, 0.36, 0.06], [0.06, 0.55, -0.1], [-0.08, 0.5, -0.04], [0.2, 0.26, -0.14], [-0.22, 0.22, 0.12]];
+  motes.forEach(([x, y, z], i) => G.shape(TPL.ico1, [glow, 0xffc0f0, 0xa0d0ff][i % 3], { x, y, z, s: 0.05 + (i % 3) * 0.015 }));
+  G.shape(TPL.ico1, glow, { y: 0.02, sx: 0.2, sy: 0.01, sz: 0.2 });
+  return { B, G, height: 0.6, noLean: true };
+}
+
+// A lighthouse on its rocks: a white tower banded red, the lamp room glowing
+// under a red cap, and the keeper's cottage at its foot
+function lighthouse(spec) {
+  const { B, G } = builders();
+  const band = spec.color ?? 0xb83a2a, white = 0xf2eee4;
+  for (const [x, z, s] of [[-0.2, 0.14, 0.16], [0.24, 0.16, 0.13], [0.1, -0.22, 0.14], [-0.26, -0.12, 0.12]]) ball(B, 0x8a8478, x, 0.04, z, s, s * 0.6, s * 0.8, { grad: 0.4 });
+  // the tower: a lathe banded white and red
+  const prof = [[0.2, 0], [0.19, 0.12], [0.17, 0.32], [0.15, 0.52], [0.13, 0.72], [0.12, 0.86]];
+  for (let k = 0; k < prof.length - 1; k++) lathe(B, [prof[k], prof[k + 1]], k % 2 ? band : white, { segs: 14 });
+  // gallery, lamp room, cap and vane
+  lathe(B, [[0.17, 0.86], [0.18, 0.88], [0.16, 0.9]], 0x3a3a3a, { segs: 14 });
+  for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2; tube(B, [[Math.cos(a) * 0.17, 0.89, Math.sin(a) * 0.17], [Math.cos(a) * 0.17, 0.95, Math.sin(a) * 0.17]], 0.005, 0x2a2a2a, { segs: 3, outline: true }); }
+  lathe(B, [[0.17, 0.95], [0.172, 0.955]], 0x2a2a2a, { segs: 14 });
+  G.shape(TPL.cyl12, 0xfff0b0, { y: 0.9, sx: 0.17, sy: 0.12, sz: 0.17 });
+  G.shape(TPL.ico1, 0xffffff, { y: 0.96, s: 0.09 });
+  for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; tube(B, [[Math.cos(a) * 0.09, 0.9, Math.sin(a) * 0.09], [Math.cos(a) * 0.09, 1.02, Math.sin(a) * 0.09]], 0.006, 0x2a2a2a, { segs: 3 }); }
+  lathe(B, [[0.13, 1.02], [0.12, 1.04], [0.002, 1.16]], [deep(band, 0.8), band], { segs: 14 });
+  ball(B, GOLDC, 0, 1.18, 0, 0.02);
+  // a door and slit windows, the keeper's cottage leaning on the tower
+  B.box(0x3a2a1a, { y: 0.02, z: 0.19, sx: 0.07, sy: 0.12, sz: 0.01 });
+  for (const y of [0.4, 0.62]) G.box(0xffd070, { y, z: 0.15 - (y - 0.4) * 0.1, sx: 0.025, sy: 0.05, sz: 0.01 });
+  B.box(white, { x: 0.27, y: 0, z: 0.0, sx: 0.22, sy: 0.16, sz: 0.2, grad: 0.15 });
+  B.shape(TPL.prism, 0x56606e, { x: 0.27, y: 0.16, z: 0.0, sx: 0.26, sy: 0.12, sz: 0.24, ry: Math.PI / 2 });
+  G.box(0xffd070, { x: 0.27, y: 0.07, z: 0.105, sx: 0.05, sy: 0.04, sz: 0.008 });
+  return { B, G, height: 1.2, noLean: true };
+}
+
 // A giant crab: a broad knobbly shell, eyes on stalks, six jointed legs and
 // two great pincers raised towards the viewer.
 function crab(spec) {
@@ -357,7 +650,7 @@ function marker(spec) {
 
 const humanoid = (spec) => figure(spec, TPL);
 
-const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker, shrine, lorestone, well, lodge, crab };
+const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker, shrine, lorestone, well, lodge, crab, farmstead, arena, caravan, fairyring, lighthouse };
 
 // The outline shell needs one normal per corner, or blocky parts split open
 // at their edges: average the normals of every vertex sharing a position.

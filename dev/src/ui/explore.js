@@ -147,7 +147,7 @@ export class Explorer {
     return (x, y) => {
       if (!inBounds(map, x, y)) return false;
       const t = terrain(getTile(map, x, y));
-      if (ship ? !(t.water && t.key !== 'bridge') : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
       if (s.visible && map.lighting === 'dark' && !map.explored[y * map.w + x] && !known?.has(x + ',' + y)) return false;
       if (s.blockingAt(x, y)) return false;
       const goal = x === goalX && y === goalY;
@@ -229,7 +229,7 @@ export class Explorer {
           const out = x === 0 ? [-1, 0] : x === map.w - 1 ? [1, 0] : y === 0 ? [0, -1] : [0, 1];
           return { goal: (gx, gy) => gx === x && gy === y, gx: x, gy: y, arrive: () => s.move(out[0], out[1]), tone: 'enter', leave: true };
         }
-        const ok = s.state.vehicle ? t.water && t.key !== 'bridge' : t.walk;
+        const ok = s.state.vehicle ? t.water && !t.deck : t.walk;
         if (!ok && s.state.vehicle && t.walk) return { goal: this.besideGoal({ x, y }, false), arrive: bump({ x, y }), tone: 'walk', ashore: true };
         if (!ok) return null;
         const stairs = (t.key === 'stairs_up' || t.key === 'stairs_down') && (map.exit || map.entities.some((e) => e.type === 'portal' && e.x === x && e.y === y));
@@ -373,7 +373,10 @@ export class Explorer {
       }
       case 'sign': return { title: 'A signpost', sub: tg.e.text ? `“${String(tg.e.text).slice(0, 48)}${String(tg.e.text).length > 48 ? '…' : ''}”` : '', act: reach ? `Click to read${far}` : noWay, tone };
       case 'chest': return { title: 'A chest', sub: tg.e.locked ? 'locked' : '', act: reach ? `Click to open${far}` : noWay, tone };
-      case 'ship': return s.state.vehicle ? { title: 'A ship', tone: 'none' } : { title: 'A ship', sub: 'sail the seas', act: reach ? `Click to board${far}` : noWay, tone };
+      case 'ship': {
+        const title = tg.e.name ? `The ${tg.e.name}` : 'A ship';
+        return s.state.vehicle ? { title, tone: 'none' } : { title, sub: 'sail the seas', act: reach ? `Click to board${far}` : noWay, tone };
+      }
       case 'portal': {
         const e = tg.e;
         const dest = getMap(g, e.target?.map);

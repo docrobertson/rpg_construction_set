@@ -14,6 +14,8 @@ import { GeoBuilder, TPL, shade } from './builder.js';
 import { T, TERRAIN } from '../data/terrain.js';
 import { hash2 } from '../core/rng.js';
 import { TOWN_DECOR } from './townDecor.js';
+import { HARBOUR_DECOR, gull, hullFrame, framed, seaward, facing } from './harbourDecor.js';
+import { tube } from './sculpt.js';
 
 // GeoBuilder with one extra float per vertex ('aux'): how far a vertex sways
 // in the wind for props, closeness to the shore for water.
@@ -677,6 +679,126 @@ export const DECOR = {
     }
     c.light(cx, cz + 0.8, 2.2, 0xffa050, 0.7);
   },
+  // a fishing harbour and shipyard: a quay with its pier out over the water,
+  // a hull on the slipway, a crane, sheds and a lamp at the pier's end
+  harbour(c) {
+    const { B, G, cx, cz, r, nb } = c;
+    const y = c.g;
+    const sea = seaward(nb) || [0, 1];
+    const a = facing(sea);
+    const put = framed(B, cx, y, cz, a);
+    // the quay: a paved apron, its stone edge to the sea
+    put(TPL.cyl12, 0x9a948a, { y: -0.02, z: -0.04, sx: 0.96, sy: 0.04, sz: 0.88 });
+    put(TPL.box, 0x8a8478, { y: -0.12, z: 0.36, sx: 0.96, sy: 0.14, sz: 0.1 });
+    // the pier: planks on posts running out over the water
+    for (let i = 0; i < 6; i++) put(TPL.box, i % 2 ? 0x9a7448 : 0x8a663e, { x: 0.2, y: -0.01, z: 0.4 + i * 0.09, sx: 0.2, sy: 0.03, sz: 0.08 });
+    for (const sx of [0.11, 0.29]) for (const z of [0.6, 0.86]) put(TPL.cyl6, 0x5a3418, { x: sx, y: -0.3, z, sx: 0.035, sy: 0.32, sz: 0.035 });
+    put(TPL.cyl6, 0x3a3028, { x: 0.27, y: 0, z: 0.88, sx: 0.02, sy: 0.24, sz: 0.02 });
+    G.shape(TPL.ico0, 0xffd070, { matrix: new THREE.Matrix4().makeRotationY(a).setPosition(...put.p(0.27, 0.27, 0.88)), s: 0.04 });
+    // a little boat tied up beside it
+    put(TPL.hemi, 0x7a4a26, { x: -0.05, y: -0.1, z: 0.66, sx: 0.12, sy: 0.08, sz: 0.3, rx: Math.PI });
+    put(TPL.cyl12, 0xa8784a, { x: -0.05, y: -0.11, z: 0.66, sx: 0.11, sy: 0.02, sz: 0.28 });
+    // a hull on the slipway, bow to the sea
+    const hp = framed(B, ...put.p(-0.26, 0.06, 0.08), a);
+    hullFrame(B, hp, 0.5, 0.13, 0.17, 0.5);
+    for (const z of [-0.12, 0.08]) hp(TPL.box, 0x5a3418, { y: -0.05, z, sx: 0.2, sy: 0.05, sz: 0.03 });
+    // a crane leaning out over the water
+    put(TPL.cyl8, 0x7a4a26, { x: 0.36, y: 0, z: 0.22, sx: 0.04, sy: 0.6, sz: 0.04 });
+    put(TPL.box, 0xa8784a, { x: 0.36, y: 0.5, z: 0.36, sx: 0.025, sy: 0.025, sz: 0.36, rx: 0.3 });
+    put(TPL.box, 0xc8b088, { x: 0.36, y: 0.38, z: 0.52, sx: 0.006, sy: 0.18, sz: 0.006 });
+    put(TPL.box, 0xa87a48, { x: 0.36, y: 0.3, z: 0.52, sx: 0.07, sy: 0.07, sz: 0.07 });
+    // sheds and the shipwright's house behind, slate roofs
+    cottage(B, G, ...put.p(-0.2, 0, -0.32), 0.3, 0.2, 0.2, 0xe8dcc0, 0x56606e, a);
+    cottage(B, G, ...put.p(0.18, 0, -0.3), 0.24, 0.2, 0.17, 0xd8cab0, 0x7a4a3a, a + 0.1);
+    // crates and barrels on the quay
+    for (const [dx, dz, s] of [[0.05, 0.1, 0.07], [0.12, 0.12, 0.06], [0.08, 0.04, 0.05]]) put(TPL.box, 0xa87a48, { x: dx, y: dz === 0.04 ? 0.07 : 0, z: dz, sx: s, sy: s, sz: s, ry: dx * 9 });
+    put(TPL.cyl8, 0x8a5a2a, { x: -0.02, y: 0, z: 0.22, sx: 0.06, sy: 0.08, sz: 0.06 });
+    gull(B, ...put.p(0.36, 0.62, 0.22), 0.6, r(1) * 6);
+    gull(B, ...put.p(0.05, 0.85, 0.5), 0.32, a + 0.6, true);
+    c.light(...put.p(0.27, 0, 0.88).filter((_, i) => i !== 1), 1.6, 0xffc060, 0.6);
+  },
+  // a sea cave: a black arch in a cliff at the water's edge, a smugglers'
+  // jetty before it and a lantern left burning
+  seacave(c) {
+    const { B, G, cx, cz, r, nb } = c;
+    const y = c.g;
+    const sea = seaward(nb) || [0, 1];
+    const a = facing(sea);
+    const put = framed(B, cx, y, cz, a);
+    const at = (lx, lz) => { const p = put.p(lx, 0, lz); return [p[0], p[2]]; };
+    // the cliff: great dark crags behind and to either side
+    for (const [lx, lz, rad, hgt, k] of [[0, -0.32, 0.52, 0.85, 1], [-0.38, -0.12, 0.3, 0.5, 2], [0.4, -0.1, 0.28, 0.45, 3]]) {
+      const [px, pz] = at(lx, lz);
+      crag(B, px, y, pz, rad, hgt, r(k), 2, c.gy, 0x4a4640, 0x8a8478);
+    }
+    // the mouth: a black arch framed in pale sea-worn stone, the water running in
+    put(TPL.box, 0x6a6458, { y: -0.04, z: 0.02, sx: 0.66, sy: 0.62, sz: 0.3, grad: 0.4 });
+    put(TPL.cyl16, 0x050404, { y: 0.0, z: 0.18, sx: 0.44, sy: 0.03, sz: 0.76, rx: Math.PI / 2 });
+    put(TPL.cyl16, 0x1a1612, { y: 0.0, z: 0.17, sx: 0.52, sy: 0.02, sz: 0.86, rx: Math.PI / 2 });
+    tube(B, [put.p(-0.25, -0.06, 0.19), put.p(-0.23, 0.26, 0.2), put.p(0, 0.42, 0.21), put.p(0.23, 0.26, 0.2), put.p(0.25, -0.06, 0.19)], 0.05, [0xa8a090, 0xc8c0ae, 0xa8a090], { segs: 6 });
+    put(TPL.box, 0x10202a, { y: -0.1, z: 0.32, sx: 0.3, sy: 0.02, sz: 0.2 });
+    // a rickety jetty, a rowing boat and contraband barrels
+    for (let i = 0; i < 4; i++) put(TPL.box, i % 2 ? 0x7a6040 : 0x6a5236, { x: 0.22, y: -0.06, z: 0.3 + i * 0.08, sx: 0.16, sy: 0.025, sz: 0.07, rz: (i - 1.5) * 0.04 });
+    for (const z of [0.36, 0.56]) put(TPL.cyl6, 0x3a2a1a, { x: 0.3, y: -0.3, z, sx: 0.03, sy: 0.36, sz: 0.03 });
+    put(TPL.hemi, 0x5a3a22, { x: -0.2, y: -0.12, z: 0.5, sx: 0.1, sy: 0.07, sz: 0.26, rx: Math.PI, ry: 0.3 });
+    for (const [lx, lz] of [[0.36, 0.18], [0.3, 0.1]]) put(TPL.cyl8, 0x6a4424, { x: lx, y: 0, z: lz, sx: 0.08, sy: 0.1, sz: 0.08 });
+    // the lantern on its pole, and a skull-and-bones daubed by the arch
+    put(TPL.cyl6, 0x2a2420, { x: -0.24, y: -0.02, z: 0.28, sx: 0.02, sy: 0.32, sz: 0.02 });
+    G.shape(TPL.ico0, 0xffb040, { matrix: new THREE.Matrix4().setPosition(...put.p(-0.24, 0.34, 0.28)), s: 0.06 });
+    G.box(0xf0ece0, { matrix: new THREE.Matrix4().makeRotationY(a).setPosition(...put.p(0.2, 0.36, 0.12)), sx: 0.05, sy: 0.05, sz: 0.01 });
+    const [lx, lz] = at(-0.24, 0.5);
+    c.light(lx, lz, 2.0, 0xffa040, 0.7);
+  },
+  // fields: furrowed strips of wheat, barley and cabbages, fenced where they
+  // meet other ground, a scarecrow keeping watch here and there
+  fields(c) {
+    const { B, cx, cz, r, nb } = c;
+    const y = c.g;
+    const crops = [[0xd8b84a, 0xe8cc60, true], [0xc8a840, 0xdcc060, true], [0x5a9a3a, 0x6aaa44, false]];
+    const [col, hi, tall] = crops[Math.floor(r(1) * 3)];
+    const alongX = r(2) < 0.5;
+    for (let row = 0; row < 4; row++) {
+      const off = -0.375 + row * 0.25;
+      const o = alongX ? { x: cx, z: cz + off, sx: 0.96, sz: 0.12 } : { x: cx + off, z: cz, sx: 0.12, sz: 0.96 };
+      B.box(0x5e4426, { ...o, y: y - 0.02, sy: 0.04 });
+      sway(B, y, tall ? 1.4 : 0.6);
+      for (let i = 0; i < 4; i++) {
+        const u = -0.36 + i * 0.24 + (r(10 + row * 4 + i) - 0.5) * 0.06;
+        const px = alongX ? cx + u : cx + off, pz = alongX ? cz + off : cz + u;
+        if (tall) {
+          // a clump of stalks, leaning a little apart, heavy ears at the top
+          const hgt = 0.2 + r(30 + row * 4 + i) * 0.06;
+          for (let k = 0; k < 3; k++) {
+            const a = k * 2.1 + i, lean = 0.18;
+            const ex = px + Math.sin(a) * lean * hgt, ez = pz + Math.cos(a) * lean * hgt;
+            B.shape(TPL.cone4, col, { x: px, y: y + 0.01, z: pz, sx: 0.035, sy: hgt, sz: 0.035, rx: Math.cos(a) * lean, rz: -Math.sin(a) * lean });
+            B.shape(TPL.capsule, hi, { x: ex, y: y + hgt * 0.78, z: ez, sx: 0.04, sy: 0.07, sz: 0.04, rx: Math.cos(a) * lean, rz: -Math.sin(a) * lean });
+          }
+        } else {
+          B.shape(TPL.ico1, shade(col, 0.9 + r(40 + i) * 0.25), { x: px, y: y + 0.06, z: pz, sx: 0.14, sy: 0.12, sz: 0.13 });
+        }
+      }
+      still(B);
+    }
+    // a post-and-rail fence along each side that meets other ground
+    const isField = (t) => t.key === 'fields' || t.key === 'harbour';
+    for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const n = nb(dx, dz);
+      if (isField(n) || n.water || n.feature) continue;
+      const ex = cx + dx * 0.47, ez = cz + dz * 0.47;
+      for (const s of [-0.45, 0, 0.45]) B.box(0x5a3e24, { x: dx ? ex : cx + s, y, z: dz ? ez : cz + s, sx: 0.05, sy: 0.24, sz: 0.05 });
+      for (const hy of [0.08, 0.18]) B.box(0x8a6a42, { x: ex, y: y + hy, z: ez, sx: dx ? 0.03 : 1.0, sy: 0.035, sz: dx ? 1.0 : 0.03 });
+    }
+    if (r(3) < 0.12) {
+      // a scarecrow in a battered hat
+      const px = cx + (r(4) - 0.5) * 0.3, pz = cz + (r(5) - 0.5) * 0.3;
+      B.shape(TPL.cyl6, 0x5a3e24, { x: px, y, z: pz, sx: 0.03, sy: 0.5, sz: 0.03 });
+      B.box(0x5a3e24, { x: px, y: y + 0.36, z: pz, sx: 0.32, sy: 0.025, sz: 0.025 });
+      B.shape(TPL.capsule, 0x8a5a3a, { x: px, y: y + 0.26, z: pz, sx: 0.14, sy: 0.2, sz: 0.1 });
+      B.shape(TPL.ball, 0xd8c08a, { x: px, y: y + 0.46, z: pz, s: 0.09 });
+      B.shape(TPL.cone8, 0x4a3a2a, { x: px, y: y + 0.49, z: pz, sx: 0.16, sy: 0.12, sz: 0.16 });
+    }
+  },
 
   // --- settlements (streets, walls, furniture: see townDecor.js) ---
   bigtree(c) {
@@ -798,7 +920,7 @@ export const DECOR = {
   },
 };
 
-Object.assign(DECOR, TOWN_DECOR);
+Object.assign(DECOR, TOWN_DECOR, HARBOUR_DECOR);
 
 // A mountain tile: one great faceted peak with lesser ones at its shoulders.
 // Ranges grow taller where mountains crowd together.

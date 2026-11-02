@@ -214,7 +214,7 @@ export function roomTool(key) {
 
 export function featureTool(kind) {
   const fk = FEATURE_KINDS[kind];
-  const icons = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏' };
+  const icons = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏', harbour: '⚓', seacave: '🌊' };
   return {
     label: fk.label, icon: icons[kind] || '⌂', hint: `Click to found a ${fk.label.toLowerCase()}. Its map is generated for you — double-click the site to edit it.`, cursor: 'tile',
     async down(ed, t) {
@@ -238,7 +238,8 @@ function defaultSiteName(kind) {
   const r = new RNG(Math.floor(Math.random() * 1e9));
   const a = ['Ash', 'Bright', 'Cold', 'Elder', 'Green', 'High', 'Long', 'Mist', 'Oak', 'Red', 'Silver', 'Stone', 'Thorn', 'West', 'Wolf', 'Raven'];
   const b = { town: ['ford', 'bury', 'wick', 'hold', 'by', 'ton'], castle: ['guard', 'watch', 'keep', 'hall'], village: ['stead', 'wood', 'brook', 'field'],
-    cave: ['delve', 'hollow', 'barrow', 'den'], tower: ['spire', 'tower', 'needle'], fortress: ['gloom', 'fang', 'doom'], elfhall: ['glade', 'bower', 'eaves'], dwarfgate: ['deep', 'forge', 'gate'] }[kind] || ['hold'];
+    cave: ['delve', 'hollow', 'barrow', 'den'], tower: ['spire', 'tower', 'needle'], fortress: ['gloom', 'fang', 'doom'], elfhall: ['glade', 'bower', 'eaves'], dwarfgate: ['deep', 'forge', 'gate'],
+    harbour: ['haven', 'mouth', 'quay', 'port'], seacave: ['cove', 'grotto', 'hole'] }[kind] || ['hold'];
   return r.pick(a) + r.pick(b);
 }
 

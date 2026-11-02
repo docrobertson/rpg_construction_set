@@ -63,6 +63,15 @@ export function checkCond(cond, ctx) {
 function roleReply(npc, word, ctx) {
   const role = npc.role;
   const k = (w) => keywordMatches(word, w);
+  // a shipwright sells a ship: SHIP tells of her, BUY pays (the purchase writes the reply)
+  if (role === 'shipwright') {
+    const deal = shipDeal(npc);
+    const sold = !!ctx.state?.party.flags[`_ship_${npc.id}`];
+    if (k('SHIP') || k('BOAT') || k('VESSEL')) {
+      return { text: sold ? deal.soldText : `${deal.pitch} ${deal.price} gold, and the ${deal.name} is thine — say BUY.` };
+    }
+    if (k('BUY') || k('PURCHASE')) return { text: '', action: { type: 'buy_ship' } };
+  }
   if (npc.shop && (k('BUY') || k('SELL') || k('TRADE') || k('WARES') || k('FOOD'))) return { text: 'Let us see what thou needest.', action: { type: 'shop' } };
   // (the window opens, but the person still answers)
   if (role === 'inn' && (k('ROOM') || k('REST') || k('INN') || k('SLEEP') || k('BED'))) return { text: 'A room? Aye, warm beds and a hot supper. Here is what it costs for all of ye.', action: { type: 'inn' } };
@@ -78,6 +87,18 @@ function roleReply(npc, word, ctx) {
     return { text: npc.recruit.joinText || 'I will gladly join thee!', action: { type: 'join' } };
   }
   return null;
+}
+
+// What a shipwright has for sale (npc.ship: { name, price, pitch, soldText, x, y })
+export function shipDeal(npc) {
+  const d = npc.ship || {};
+  const name = d.name || 'Seahorse';
+  return {
+    name, price: Math.max(0, parseInt(d.price, 10) || 450),
+    pitch: d.pitch || `Aye, I've a ship on the stocks just finished: the ${name}, oak-built and tarred, sound as a bell.`,
+    soldText: d.soldText || `The ${name}'s thine already, moored at the quay. Treat her kindly.`,
+    x: d.x, y: d.y,
+  };
 }
 
 export function respond(npc, input, ctx) {
@@ -112,10 +133,11 @@ export function knownKeywords(npc) {
     const first = String(kw.key || '').split(/[,|]/)[0].trim();
     if (first) words.push(first.toUpperCase());
   }
-  if (npc.shop) words.push('BUY');
+  if (npc.shop && npc.role !== 'shipwright') words.push('BUY');
   if (npc.role === 'inn') words.push('ROOM');
   if (npc.role === 'healer') words.push('HEAL');
   if (npc.role === 'tavern') words.push('RUMOURS');
+  if (npc.role === 'shipwright') words.push('SHIP', 'BUY');
   if (npc.recruit) words.push('JOIN');
   return words;
 }

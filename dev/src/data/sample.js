@@ -4,11 +4,11 @@
 // the original ones, so saves made before the quest update keep their places.
 import { newGame, findStart } from './schema.js';
 import { createMap, setTile, getTile, inBounds } from '../world/map.js';
-import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, defaultStock, npcLook, uniqueTownsfolk } from '../world/generate.js';
+import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, defaultStock, npcLook, uniqueTownsfolk, smugglersCave } from '../world/generate.js';
 import { T, terrain } from './terrain.js';
 import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
-import { eventFromTemplate } from '../game/events.js';
+import { eventFromTemplate, arenaBouts } from '../game/events.js';
 import { buryable, pacesText, addCrab } from '../game/treasure.js';
 
 export const SAMPLE_ID = 'sample_shadow_over_eldmark';
@@ -215,6 +215,7 @@ function buildSample() {
   game.quests = buildQuests(barrow.map.id, fortress.map.id);
   // (last of all, so every id made before keeps its place in old saves)
   hideTreasures(game, w, westhold);
+  addPlaces(game, w);
   return game;
 }
 
@@ -281,6 +282,160 @@ function hideTreasures(game, w, westhold) {
     rumour: 'That hooded fellow by the tavern sells treasure maps. Overpriced, if you ask me — but who knows?',
   });
   nim.look.face = 'bold';
+}
+
+// The places added for sailors and wanderers: Hob's farmstead made a proper
+// homestead, the shipyard at Gullhaven where a ship is bought, the
+// smugglers' sea cave on the western skerry (reached only by ship) and the
+// chart to their hoard on the far north-eastern isle, the lighthouse on Gull
+// Point, the Red Pit by Brookend, a fortune-teller's caravan and a fairy ring.
+// (Built last of all, so every id made before keeps its place in old saves.)
+function addPlaces(game, w) {
+  const tile = (x, y, k) => setTile(w, x, y, T[k]);
+  const open = (t) => t.walk && !t.water && !t.feature && t.key !== 'road' && t.key !== 'bridge';
+  const put = (id, tpl, x, y, extra = {}, pred = open) => {
+    const p = nearestWhere(w, x, y, pred);
+    const e = { ...eventFromTemplate(tpl), id, x: p.x, y: p.y, ...extra };
+    w.entities.push(e);
+    return e;
+  };
+  const monster = (id) => game.monsters.find((m) => m.id === id);
+  const named = (base, def) => { const m = { ...JSON.parse(JSON.stringify(monster(base))), ...def, boss: true, habitat: [] }; game.monsters.push(m); return m; };
+  game.items.push(
+    { id: 'brakkas_cleaver', name: 'Brakka\'s Cleaver', type: 'weapon', wkind: 'axe', dmg: '1d10+2', hit: 1, range: 1, price: 320, model: 'axe', glow: 0xff5a30, unique: true, desc: 'The pit champion\'s great notched axe. The crowd still chants its name.' },
+    { id: 'duellists_rapier', name: 'Black Maddoc\'s Rapier', type: 'weapon', wkind: 'blade', dmg: '1d8+1', hit: 3, range: 1, price: 280, model: 'sword', unique: true, desc: 'A smuggler-captain\'s slender blade, quick as a gull. The guard is wound with tarred cord.' },
+    { id: 'tidecaller', name: 'Tidecaller', type: 'weapon', wkind: 'spear', dmg: '1d10+2', hit: 2, range: 1, price: 380, model: 'spear', glow: 0x60c0ff, unique: true, desc: 'A spear of sea-green bronze from some drowned kingdom. Its point drips, though it is never wet.' },
+    { id: 'tmap_maddoc', name: 'Black Maddoc\'s Chart', type: 'map', treasure: 'tr_maddoc', price: 120, desc: 'A smuggler\'s sea-chart, the coast drawn in tar and the shoals in red. Far out in the north-east sea a lonely isle is marked with a skull, and a single word: MINE.' },
+  );
+  named('bandit', { id: 'black_maddoc', name: 'Black Maddoc', plural: 'Black Maddocs', level: 4, hp: '10d8+14', ac: 14, hit: 7, dmg: '1d8+4', xp: 120, gold: '6d10', group: [1, 1], fleeAt: 0, ai: 'brute',
+    escort: [{ id: 'bandit', min: 2, max: 2 }], abilities: ['war_cry'],
+    phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'bandit', min: 1, max: 2 }], phaseText: '"Lads! To me!" Maddoc whistles, and more smugglers come splashing out of the dark.',
+    look: { kind: 'humanoid', race: 'human', body: 0x2a2a34, hat: 'cap', hatColor: 0x1a1a22, cape: 0x8a1a1a, weapon: 'sword', beard: 0x1a1410, face: 'bold', scale: 1.15 }, desc: 'The smuggler-captain of the western skerry, all black beard and gold rings.' });
+  named('orc_captain', { id: 'brakka', name: 'Brakka the Unbroken', plural: 'Brakkas', level: 4, hp: '11d8+16', ac: 15, hit: 8, dmg: '1d10+5', xp: 120, gold: '0', group: [1, 1],
+    escort: [{ id: 'wolf', min: 2, max: 2 }], abilities: ['war_cry', 'brutal_smash'],
+    phaseAt: 0.4, phaseEnrage: true, phaseText: 'Brakka spits out a tooth, grins, and the crowd roars as he wades in again!',
+    look: { kind: 'humanoid', race: 'orc', body: 0x5a2a1a, armor: 'leather', hat: 'none', weapon: 'axe', weaponGlow: 0xff5a30, cape: 0x9a2a1a, scale: 1.25 }, desc: 'Champion of the Red Pit: forty fights, forty wins, and the scars of every one.' });
+
+  // --- Hob's farmstead: a yard, fields and a lane off the King's road
+  const farm = w.entities.find((e) => e.id === 'ev_farm');
+  if (farm) {
+    const { x, y } = farm;
+    tile(x, y, 'meadow');
+    for (const [dx, dy] of [[-1, -2], [0, -2], [1, -2], [-1, -1], [0, -1], [1, -1], [1, 1], [2, 1], [-1, 1]]) tile(x + dx, y + dy, 'fields');
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 2], [0, 2], [1, 2]]) tile(x + dx, y + dy, 'meadow');
+    if (getTile(w, x - 2, y) === T.road) tile(x - 1, y, 'road');
+    Object.assign(farm, {
+      kind: 'farm',
+      look: { kind: 'farmstead', scale: 1.4, keeper: { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, hair: 0x8a5a2a, legs: 0x6a5a3a } },
+      text: 'A whitewashed cottage under a deep thatch, smoke curling from its chimney. Cabbages and beans grow behind a picket fence, a cow drinks at the trough and hens scratch about the yard. Hob the farmer leans on his gate. "Travellers! Going far? Ye\'ll want feeding."',
+    });
+    farm.choices.splice(2, 0, { label: 'Ask about the Fair Folk', text: '"Ye\'ve heard the pipes too, have ye? There\'s a ring of toadstools in the meadows over the river, north-east of here, towards the elf-wood. Step in it on a good day and ye\'ll come out blessed. On a bad day... well. Leave \'em some cake first, that\'s my advice."' });
+  }
+
+  // --- Gullhaven: the harbour up the coast from Westhold, where ships are built and sold
+  const haven = placeFeature(game, w, 20, 45, 'harbour', 'Gullhaven', 106);
+  {
+    const pts = [[23, 51], [22, 47], [21, 45]], all = [];
+    for (let i = 1; i < pts.length; i++) all.push(...line4(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
+    PATHS.road.apply(w, all, 1, 7);
+  }
+  dressHaven(game, haven);
+
+  // --- the smugglers' skerry far out in the western sea: ship-only
+  const isle = { x: 4, y: 34 };
+  for (let y = isle.y - 3; y <= isle.y + 3; y++) for (let x = isle.x - 3; x <= isle.x + 3; x++) if (inBounds(w, x, y) && getTile(w, x, y) === T.ocean && Math.hypot(x - isle.x, y - isle.y) < 3.2) tile(x, y, 'shallows');
+  for (const [dx, dy, k] of [[-1, -1, 'hills'], [0, -1, 'mountains'], [1, -1, 'hills'], [1, 0, 'hills'], [-1, 0, 'sand'], [-1, 1, 'shallows'], [0, 1, 'shallows']]) tile(isle.x + dx, isle.y + dy, k);
+  const cove = placeFeature(game, w, isle.x, isle.y, 'seacave', 'Smugglers\' Cove', 207);
+  {
+    const idx = game.maps.indexOf(cove);
+    const { map, chest } = smugglersCave(game, 'Smugglers\' Cove', 207, {
+      boss: 'black_maddoc', monsters: ['bandit', 'giant_rat'], counts: { bandit: '2-3', giant_rat: '3-4' }, rooms: 6, gold: 220,
+      items: [{ id: 'duellists_rapier', n: 1 }, { id: 'tmap_maddoc', n: 1 }, { id: 'greater_draught', n: 2 }, { id: 'scroll_seeing', n: 1 }],
+    });
+    map.id = cove.id;
+    map.exit = cove.exit;
+    game.maps[idx] = map;
+    void chest;
+    const e0 = map.entry;
+    const sign = nearestWhere(map, e0.x + 1, e0.y - 1, (t) => t.walk && !t.water);
+    map.entities.push({ id: 'ev_cove_lore', ...eventFromTemplate('lore'), x: sign.x, y: sign.y, name: 'Smugglers\' Tally',
+      text: 'Chalked on the wet rock, a tally of kegs and bolts of silk, and beneath it: "NO LIGHTS ON THE WATER. THE LIGHTHOUSE MAN IS WATCHING. — M."',
+      choices: [{ label: 'Read it', text: 'So the keeper of the Gull Point light has seen their boats.', effects: { lore: true, xp: 15 } }, { label: 'Leave it', leave: true }] });
+  }
+  // and Maddoc's own hoard, on a lonely isle far out in the north-east sea
+  const hoard = { x: 88, y: 22 };
+  for (let y = hoard.y - 3; y <= hoard.y + 3; y++) for (let x = hoard.x - 3; x <= hoard.x + 3; x++) if (inBounds(w, x, y) && Math.hypot(x - hoard.x, y - hoard.y) < 3) tile(x, y, 'shallows');
+  for (const [dx, dy, k] of [[-1, 0, 'sand'], [0, 0, 'grass'], [1, 0, 'sand'], [0, -1, 'pines'], [0, 1, 'sand'], [1, -1, 'sand']]) tile(hoard.x + dx, hoard.y + dy, k);
+  w.entities.push({ id: 'tr_maddoc', type: 'treasure', x: hoard.x, y: hoard.y, name: 'Black Maddoc\'s Hoard', gold: '260+4d20', items: [{ id: 'tidecaller', n: 1 }, { id: 'greater_draught', n: 2 }],
+    clue: 'On the lonely isle at the far north-east of the sea, at the foot of its one pine tree. Dig where the gulls will not land.',
+    guardian: 'giant_crab', count: '2', guardText: 'The sand heaves — two giant crabs have nested on Maddoc\'s hoard, and they are hungry!' });
+
+  // --- Gull Point light, on the shore north of the harbour
+  put('ev_lighthouse', 'lighthouse', 16, 40, {
+    name: 'Gull Point Light',
+    text: 'A white tower banded with red stands at the end of the point, its great lamp turning slowly. The keeper, a whiskery old salt called Ambrose Fenn, waves you in. "Climb up, if you\'ve the legs. You can see half the western sea from the lamp-room."',
+    choices: [
+      { label: 'Climb to the lamp-room', text: 'Two hundred and twelve steps. At the top the whole coast lies spread out below you: Westhold, the harbour at Gullhaven, and far out to the west a black skerry where the surf breaks white.', effects: { reveal: 22, lore: true, xp: 20 } },
+      { label: 'Ask the keeper about the sea', text: '"Lights, I see. Out on the western skerry, where no honest boat goes. Smugglers, mark me — Black Maddoc\'s lot. There\'s a cave in that rock you can only reach by sea. Buy a ship at Gullhaven, if you\'ve the gold and the nerve."' },
+      { label: 'Share the keeper\'s supper (5 gold)', text: 'Fish stew and hard biscuit, and sea-stories until the lamp needs trimming.', effects: { heal: '2d6', food: 10 }, cost: { gold: 5 } },
+      { label: 'Back down to the shore', leave: true },
+    ],
+  }, (t) => t.key === 'sand');
+
+  // --- the Red Pit, in the meadows south-west of Brookend
+  put('ev_red_pit', 'arena', 57, 60, {
+    name: 'The Red Pit',
+    text: 'A pit of red sand ringed with timber, the benches above it packed with farmers, drovers and soldiers off duty, all roaring. A pit-master with a voice like a gong takes names. "Five bouts! Live through the lot and beat Brakka the Unbroken, and you are champions of the Red Pit!"',
+    choices: [...arenaBouts('brakka', 'brakkas_cleaver'), { label: 'Just watch', leave: true }],
+  });
+
+  // --- Old Mother Ysolde's caravan, on the meadows by the east road
+  put('ev_caravan', 'fortune', 57, 42, {
+    name: 'Mother Ysolde\'s Caravan',
+    text: 'A painted wagon covered in stars stands by the road, a pony cropping the grass beside it. Under the awning old Mother Ysolde sits over a crystal ball that glows with its own light. "Cross my palm, dearies, and I\'ll tell you what the road hides from you."',
+  });
+
+  // --- the Moonlit Ring, in the meadows between the Eldwater and Silverwood
+  put('ev_fairy_ring', 'fairy_ring', 56, 34, { name: 'The Moonlit Ring' }, (t) => t.key === 'meadow' || t.key === 'grass');
+
+  // the free ship is gone from Westhold's harbour: ships are bought now
+  w.entities = w.entities.filter((e) => e.id !== 'ship_westhold');
+}
+
+function dressHaven(game, map) {
+  map.name = 'Gullhaven';
+  const byR = (r) => map.entities.filter((e) => e.type === 'npc' && e.role === r);
+  const wright = byR('shipwright')[0];
+  Object.assign(wright, {
+    id: 'npc_halloran', name: 'Master Halloran', desc: 'a broad, tar-stained shipwright with a mallet in his belt',
+    greeting: 'Mind the tar, friend. Come about a SHIP?',
+    job: 'I build ships, as my father did and his before him. Finest keels on the coast. Ask about the SHIP on the slipway.',
+    ship: {
+      name: 'Gull', price: 450, x: 19, y: 45,
+      pitch: 'Aye, the Gull: forty feet of seasoned oak, a square sail and a hold for a fortnight\'s stores. She\'ll take thee to any shore in Eldmark — the Hermit\'s isle, the western skerry, the lonely isles of the north-east.',
+      soldText: 'The Gull\'s thine already — she rides at the quay outside. Bring her back with all her planks, mind.',
+    },
+    keywords: [
+      kw('SKERRY', 'The black rock far out west? Smugglers use it, they say. No honest captain goes there. Thou\'ll need a SHIP, of course.'),
+      kw('SERPENT', 'Old Gulper\'s the reason I\'ve a ship to sell — no fisherman will buy one while he\'s out there.'),
+    ],
+    rumour: 'They build ships up at Gullhaven, north of Westhold. Dear, mind — four hundred and fifty gold for one!',
+  });
+  Object.assign(wright.look, { face: 'bold', hair: 0x8a6a4a, beard: 0x8a6a4a });
+  const names = [
+    ['villager', { name: 'Jonas', desc: 'Halloran\'s apprentice, sawdust in his hair', greeting: 'Master\'s out in the yard, by the slipway.', job: 'I hold things while the master hits them.' }],
+    ['tavern', { name: 'Old Peg', desc: 'the landlady of the Drowned Man, pipe in her teeth', greeting: 'Sit ye down, sit ye down. Mind the cat.', job: 'I keep the Drowned Man. Ale, fish pie, and all the RUMOURS a sailor can carry.' }],
+    ['provisions', { name: 'Saltby', desc: 'a ship\'s chandler in a canvas apron', greeting: 'Rope, rations, lamp-oil! Everything for the sea.', job: 'I fit out ships. Ask to BUY.' }],
+  ];
+  for (const [role, props] of names) { const e = byR(role)[0]; if (e) Object.assign(e, props); }
+  const folk = byR('villager').filter((e) => e.name !== 'Jonas');
+  const crew = [
+    { name: 'Bess', desc: 'a fisherwoman gutting herring', greeting: 'Mind your boots, it\'s slippy.', job: 'I fish. Or I would, if it weren\'t for the SERPENT.', keywords: [kw('SERPENT', 'Old Gulper. Took my brother\'s boat off the Hermit\'s isle. Kill him and every boat on this coast will drink to ye.')] },
+    { name: 'Marrow', desc: 'a dockhand coiling rope', greeting: 'Ho there.', job: 'Load, unload, load again. Gulls get the leftovers.', keywords: [kw('LIGHTHOUSE', 'Gull Point light, up the shore north of here. Old Fenn the keeper knows the sea better than anyone. Climb his tower, if you\'ve the legs.')] },
+    { name: 'Tam', desc: 'a ragged boy with a crab in a bucket', greeting: 'Want to see my crab? It\'s called Duke.', job: 'I find things on the beach. Once I found a whole BOTTLE.', keywords: [kw('BOTTLE', 'Had a letter in it, all smudged. Something about a hoard on an isle at the far end of the sea. Pa used it to light the fire.')] },
+    { name: 'Hew', desc: 'a weathered sailor waiting for a berth', greeting: 'Fair winds.', job: 'Sailor, between ships. Halloran\'s new one\'s a beauty, if you\'ve the coin.' },
+  ];
+  folk.forEach((e, i) => { if (crew[i]) Object.assign(e, crew[i]); });
 }
 
 // Points of interest and little events across Eldmark
@@ -455,11 +610,11 @@ function buildQuests(barrowId, fortressId) {
     },
     {
       id: 'q_serpent', name: 'What Lurks in the West Sea', giver: 'npc_osric',
-      offer: 'Thirty years I\'ve fished these waters, and now I daren\'t put out past the harbour wall. There\'s a serpent out there — Old Gulper, we call him — and he\'s had two boats and a good man. The town ship lies idle by the west wall. Take her out and put an end to him, and I\'ll make it worth thy while.',
+      offer: 'Thirty years I\'ve fished these waters, and now I daren\'t put out past the harbour wall. There\'s a serpent out there — Old Gulper, we call him — and he\'s had two boats and a good man. Get thee a ship — Master Halloran builds them at Gullhaven, up the coast north of the gate — and put an end to him, and I\'ll make it worth thy while.',
       accept: 'Aim for the eyes. And don\'t fall in.',
-      summary: 'Osric the fisherman wants Old Gulper, the serpent of the western sea, dead. The town ship rides at anchor by Westhold\'s west wall.',
+      summary: 'Osric the fisherman wants Old Gulper, the serpent of the western sea, dead. Ships are built and sold at Gullhaven, up the coast north of Westhold.',
       stages: [
-        { text: 'Take the ship from Westhold harbour and slay Old Gulper in the western sea', goal: { type: 'kill', monster: 'west_serpent' } },
+        { text: 'Buy a ship at Gullhaven, up the coast, and slay Old Gulper in the western sea', goal: { type: 'kill', monster: 'west_serpent' } },
         { text: 'Bring the good news to Osric in Westhold', goal: talk(''),
           say: 'Gulper\'s gone? Ha! Drinks are on me tonight — and take this. It came up in my nets years back, too fine for a fisherman.' },
       ],
@@ -494,7 +649,7 @@ function buildQuests(barrowId, fortressId) {
     },
     {
       id: 'q_chart', name: 'The Hermit\'s Star-Chart', giver: 'npc_merek',
-      offer: 'Visitors! Just the thing. My old master Fennick lives in a tower on the isle south-west of Westhold — mad as a hatter, brilliant as the sun. He has a chart of the stars I need for my studies. Wouldst thou carry a letter to him? Westhold\'s ship can take thee — or, so the elves say, a waygate east of Lindaleth.',
+      offer: 'Visitors! Just the thing. My old master Fennick lives in a tower on the isle south-west of Westhold — mad as a hatter, brilliant as the sun. He has a chart of the stars I need for my studies. Wouldst thou carry a letter to him? A ship from the yard at Gullhaven can take thee — or, so the elves say, a waygate east of Lindaleth.',
       accept: 'Splendid! Do mind the skeletons. They were his students.',
       startItems: [{ id: 'merek_letter', n: 1 }],
       summary: 'Merek the royal sage needs a star-chart from his old master Fennick, the hermit-wizard on the isle south-west of Westhold.',
@@ -642,8 +797,8 @@ function dressWesthold(game, map) {
     keywords: [
       kw('KING', 'King Aldric rules from CAER ALDON, north along the road past the crossroads. Go to him!'),
       kw('CAER ALDON', 'The king\'s castle, north of the crossroads. Thou canst not miss its towers.'),
-      kw('SHIP', 'The harbourmaster has a ship that no one uses. Ask HARBOUR.'),
-      kw('HARBOUR', 'Our little ship rides at anchor by the west wall. Take her if thou wilt — the Isle of the HERMIT lies south-west across the water.'),
+      kw('SHIP', 'Westhold\'s own boats are all fishing smacks. For a real ship go up the coast to the HARBOUR at Gullhaven, where Master Halloran builds them.'),
+      kw('HARBOUR', 'Gullhaven, a few leagues up the shore north of our gate. Halloran\'s ships are dear, but sound. With one thou couldst reach the Isle of the HERMIT, south-west across the water.'),
       kw('HERMIT', 'An old wizard lives in a tower on an island to the south-west. Mad as a hatter, but wise.'),
       kw('GOLD', 'Times are hard. Still... take this for the road.', { once: true, action: { type: 'give_gold', n: 50 }, afterText: 'I have given all I can spare.' }),
     ],

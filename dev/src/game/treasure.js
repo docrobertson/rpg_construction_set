@@ -225,7 +225,7 @@ export function clueFor(map, x, y) {
 export function buryable(map, x, y) {
   if (!inBounds(map, x, y)) return false;
   const t = terrain(getTile(map, x, y));
-  if (!t.walk || t.water || t.feature || t.door || t.dmg || t.key === 'bridge') return false;
+  if (!t.walk || t.water || t.feature || t.door || t.dmg || t.deck) return false;
   return !map.entities.some((e) => e.x === x && e.y === y);
 }
 

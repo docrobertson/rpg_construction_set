@@ -17,6 +17,7 @@ export const NPC_ROLES = [
   ['villager', 'Villager'], ['guard', 'Guard'], ['lord', 'Lord / King'], ['sage', 'Sage (sells spell scrolls)'],
   ['weapons', 'Weaponsmith (shop)'], ['armor', 'Armourer (shop)'], ['provisions', 'Provisioner (shop)'], ['reagents', 'Herbalist (shop)'], ['bowyer', 'Bowyer (shop)'],
   ['inn', 'Innkeeper'], ['tavern', 'Barkeep (rumours)'], ['healer', 'Healer'], ['merchant', 'Travelling merchant (shop)'],
+  ['shipwright', 'Shipwright (sells a ship)'],
 ];
 const SHOP_KINDS = { weapons: 'weapons', armor: 'armor', provisions: 'provisions', reagents: 'reagents', bowyer: 'weapons', merchant: 'mixed', sage: 'scrolls' };
 
@@ -99,6 +100,13 @@ export function npcFields(game) {
     { key: 'shop.stock', label: 'Sells', type: 'multicheck', options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]), show: (o) => !!SHOP_KINDS[o.role] },
     { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.1, min: 0.1, show: (o) => !!SHOP_KINDS[o.role], hint: '1 = normal prices' },
     { key: 'price', label: 'Room price per hero', type: 'number', min: 0, show: (o) => o.role === 'inn' },
+    { type: 'section', label: 'The ship for sale', show: (o) => o.role === 'shipwright' },
+    { type: 'info', label: 'Players ask about the SHIP and say BUY. Once paid for, she is moored on the world map in the nearest open water beside this person\'s site (or at the square below).', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.name', label: 'Ship\'s name', type: 'text', placeholder: 'Seahorse', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.price', label: 'Price (gold)', type: 'number', min: 0, placeholder: '450', show: (o) => o.role === 'shipwright' },
+    { key: 'ship.pitch', label: 'Says of her', type: 'textarea', rows: 2, show: (o) => o.role === 'shipwright', hint: 'The price is added after.' },
+    { key: 'ship.x', label: 'Moored at X (world map)', type: 'number', nullable: true, show: (o) => o.role === 'shipwright', hint: 'Blank: beside the site.' },
+    { key: 'ship.y', label: 'Moored at Y (world map)', type: 'number', nullable: true, show: (o) => o.role === 'shipwright' },
     { type: 'section', label: 'Appearance' },
     ...LOOK_FIELDS,
   ];
@@ -114,6 +122,7 @@ export function inspectEntity(ed, ent, container) {
     case 'npc': {
       container.appendChild(head('Person', `at ${ent.x}, ${ent.y}`));
       const onRole = () => {
+        if (ent.role === 'shipwright' && !ent.ship) ent.ship = { name: 'Seahorse', price: 450 };
         const kind = SHOP_KINDS[ent.role];
         if (kind) {
           if (!ent.shop || ent.shop.kind !== kind) ent.shop = { kind, stock: defaultStock(game, kind), priceMod: 1 };
@@ -207,7 +216,8 @@ export function inspectEntity(ed, ent, container) {
       break;
     case 'ship':
       container.appendChild(head('Ship'));
-      container.appendChild(h('p.hint', 'The party boards by walking onto the ship, sails across water, and goes ashore by stepping onto land. The ship stays where they leave it.'));
+      container.appendChild(buildForm(ent, [{ key: 'name', label: 'Name', type: 'text', placeholder: 'Seahorse' }], changed));
+      container.appendChild(h('p.hint', 'The party boards by walking onto the ship, sails across water, and goes ashore by stepping onto land. The ship stays where they leave it. (A shipwright sells ships: give a person the Shipwright role.)'));
       break;
     case 'portal': {
       container.appendChild(head(ent.style === 'waygate' ? 'Waygate' : ent.style === 'site' ? 'Site entrance' : 'Passage'));

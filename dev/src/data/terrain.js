@@ -13,6 +13,7 @@
 //   arena  - battle arena style        feature - world-map site icon
 //   light  - emits light (dungeon visibility)
 //   talkOver - NPCs can be talked to across it (shop counters)
+//   deck   - planks over water (bridges, piers): walked on, never sailed
 
 const defs = [
   // id, key, name, group, props
@@ -30,7 +31,7 @@ const defs = [
   [11, 'desert', 'Desert Dunes', 'world', { h: -0.01, top: 0xe2bf72, side: 0xb59a62, deco: 'dunes', cost: 2.5, arena: 'desert' }],
   [12, 'snow', 'Snowfield', 'world', { h: 0.02, top: 0xeaf0f4, side: 0x9aa3ab, deco: 'snowdrift', cost: 2, arena: 'snow' }],
   [13, 'road', 'Road', 'world', { h: 0.0, top: 0xb08f5c, side: 0x6b4f2e, deco: 'road', cost: 0.5, arena: 'grass' }],
-  [14, 'bridge', 'Bridge', 'world', { h: -0.2, water: true, top: 0x3c8fc0, deco: 'bridge', walk: true, cost: 0.5, arena: 'bridge' }],
+  [14, 'bridge', 'Bridge', 'world', { h: -0.2, water: true, top: 0x3c8fc0, deco: 'bridge', walk: true, deck: true, cost: 0.5, arena: 'bridge' }],
   [15, 'lava', 'Lava', 'world', { h: -0.06, top: 0xff5a14, side: 0x3a2a24, deco: 'lava', dmg: 6, light: 3, cost: 2, arena: 'ash' }],
   [16, 'ash', 'Ashen Waste', 'world', { h: 0, top: 0x4b4542, side: 0x302b29, deco: 'ashrocks', cost: 1.25, arena: 'ash' }],
   [17, 'town', 'Town', 'world', { h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'town', feature: true, arena: 'grass' }],
@@ -42,6 +43,9 @@ const defs = [
   [23, 'fortress', 'Dark Fortress', 'world', { h: 0.02, top: 0x4b4542, side: 0x302b29, deco: 'fortress', feature: true, arena: 'ash' }],
   [24, 'elfhall', 'Elven Hall', 'world', { h: 0, top: 0x3f7a30, side: 0x5a4127, deco: 'elfhall', feature: true, arena: 'forest' }],
   [25, 'dwarfgate', 'Dwarf Gate', 'world', { h: 0.14, top: 0x7d7468, side: 0x5f574d, deco: 'dwarfgate', feature: true, arena: 'hills' }],
+  [26, 'fields', 'Farmland', 'world', { h: 0, top: 0x8f8a46, side: 0x6b4f2e, deco: 'fields', cost: 1.25, arena: 'grass' }],
+  [27, 'harbour', 'Harbour', 'world', { h: 0, top: 0x8e8a7c, side: 0x6a645c, deco: 'harbour', feature: true, arena: 'grass' }],
+  [28, 'seacave', 'Sea Cave', 'world', { h: 0, top: 0x8a8474, side: 0x5f574d, deco: 'seacave', feature: true, arena: 'cave' }],
 
   // Settlements & interiors
   [40, 'cobble', 'Cobblestones', 'town', { h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cobble', cost: 0.5, arena: 'town' }],
@@ -78,6 +82,12 @@ const defs = [
   [102, 'lamppost', 'Lamp Post', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'lamppost', light: 2 }],
   [103, 'cart', 'Cart', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cart' }],
   [104, 'hay', 'Hay Bales', 'town', { walk: false, h: 0, top: 0x6aa84f, side: 0x6b4f2e, deco: 'hay' }],
+  // the waterfront
+  [105, 'pier', 'Pier', 'town', { h: -0.2, water: true, deck: true, walk: true, top: 0x3c8fc0, deco: 'pier', arena: 'bridge' }],
+  [106, 'slipway', 'Slipway', 'town', { walk: false, h: 0, top: 0x9b7a50, side: 0x6a4626, deco: 'slipway' }],
+  [107, 'crane', 'Crane', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'crane' }],
+  [108, 'cargo', 'Cargo', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'cargo' }],
+  [109, 'nets', 'Nets and Ropes', 'town', { walk: false, h: 0, top: 0x908a80, side: 0x6a645c, deco: 'nets' }],
 
   // Dungeon
   [80, 'cave_floor', 'Cave Floor', 'dungeon', { h: 0, top: 0x7a6e60, side: 0x403a34, deco: 'cavefloor', arena: 'cave' }],
@@ -118,6 +128,7 @@ for (const [id, key, name, group, p] of defs) {
     door: !!p.door,
     locked: !!p.locked,
     talkOver: !!p.talkOver,
+    deck: !!p.deck,
   };
   TERRAIN[id] = t;
   T[key] = id;
@@ -148,4 +159,6 @@ export const FEATURE_KINDS = {
   fortress: { terrain: 'fortress', mapType: 'dungeon', label: 'Dark Fortress' },
   elfhall: { terrain: 'elfhall', mapType: 'town', label: 'Elven Hall' },
   dwarfgate: { terrain: 'dwarfgate', mapType: 'town', label: 'Dwarf Hold' },
+  harbour: { terrain: 'harbour', mapType: 'town', label: 'Harbour' },
+  seacave: { terrain: 'seacave', mapType: 'dungeon', label: 'Sea Cave' },
 };

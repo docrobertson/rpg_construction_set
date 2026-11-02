@@ -9,7 +9,7 @@ import {
   activeQuests, doneQuests, trackedQuest, currentStage, questState, stageLine, stageLineHere, guidance, questPins, onTalk, offersFrom, startQuest, npcMarker,
   goalTarget, pinQuest, isPinned, greetingFor,
 } from '../game/quests.js';
-import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS } from '../game/events.js';
+import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS, visibleChoices, applyEffects } from '../game/events.js';
 import * as Quests from '../game/quests.js';
 import * as Events from '../game/events.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
@@ -343,8 +343,10 @@ export class QuestUI {
     sfx('click');
     const body = h('div.event');
     const look = eventLook(e);
-    const pic = look.kind === 'humanoid' ? portrait(s.view, look) : null;
-    let pendingFight = null;
+    // a farmstead's farmer stands in his yard: his face goes on the card
+    const who = look.kind === 'humanoid' ? look : look.kind === 'farmstead' ? { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, ...(look.keeper || {}) } : null;
+    const pic = who ? portrait(s.view, who) : null;
+    let pendingFight = null, whisk = null;
     const m = modal(body, {
       title: (EVENT_KINDS[e.kind]?.icon || '❔') + ' ' + (e.name || 'Something curious'),
       cls: 'event-modal',
@@ -357,9 +359,21 @@ export class QuestUI {
           setTimeout(async () => {
             s.log(`${e.name || 'The foe'} attacks!`, 'bad');
             const once = e.repeat === 'once' || !e.repeat;
-            const out = await s.engage({ id: '__ev_' + e.id, monster: f.monster, count: f.count, roaming: true, alsoRemove: once ? e.id : null });
+            const out = await s.engage({ id: '__ev_' + e.id, monster: f.monster, count: f.count, roaming: true, alsoRemove: once ? e.id : null, style: e.kind === 'arena' ? 'desert' : undefined });
             if (out && out.outcome === 'victory' && (e.repeat === 'once' || !e.repeat) && s.map.entities.includes(e)) s.removeEntity(e);
+            // a prize fight pays out only once it is won
+            if (out && out.outcome === 'victory' && f.win) {
+              const got = applyEffects(s, e, f.win).got;
+              s.log(`${f.win.text || 'Victory!'}${got.length ? ' (' + got.join(', ') + ')' : ''}`, 'loot');
+              sfx('gold');
+              s.autosave?.();
+              this.ui.refresh();
+            }
           }, 50);
+        } else if (whisk) {
+          const to = whisk;
+          whisk = null;
+          setTimeout(() => s.enterMap(s.map.id, to.x, to.y, { quiet: true }), 50);
         }
       },
     });
@@ -367,8 +381,8 @@ export class QuestUI {
       clear(body);
       body.appendChild(h('div.ev-top', pic ? h('img.ev-pic', { src: pic, alt: '' }) : null, h('p.ev-text', e.text || '')));
       const list = h('div.choose-list');
-      (e.choices || []).forEach((c, i) => {
-        const cs = choiceState(s, c);
+      visibleChoices(s, e).forEach((c, i) => {
+        const cs = choiceState(s, c, e);
         const tags = [];
         if (c.req && c.req.type && c.req.type !== 'none' && cs.tag) tags.push(cs.tag);
         if (+c.cost?.gold) tags.push(`◆ ${c.cost.gold}`);
@@ -393,6 +407,7 @@ export class QuestUI {
       if (res.success !== false) sfx('gold');
       if (res.fight) pendingFight = res.fight;
       else if (res.remove && s.map.entities.includes(e)) s.removeEntity(e);
+      if (res.whisk) whisk = res.whisk;
       if (!res.fight) s.autosave?.();
       body.appendChild(h('div.modal-buttons.ev-btns', h('button.primary', { onclick: () => m.close() }, res.fight ? 'To arms!' : 'Continue')));
       this.ui.refresh();

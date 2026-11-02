@@ -182,7 +182,8 @@ const hud = await ev(() => {
   };
 });
 check('initiative strip shows who acts now and next', hud.chips >= hud.units && hud.now === 1 && hud.ordered, hud);
-check('action bar lists moves, attack, skills, special, cast, item, guard and end turn', hud.buttons.length >= 8 && hud.buttons.includes('Guard') && hud.buttons.includes('End turn'), hud.buttons);
+// (a level-1 hero has one skill and no special yet: those come at levels 2 and 3)
+check('action bar lists moves, attack, skills, cast, item, guard and end turn', hud.buttons.length >= 7 && hud.buttons.includes('Guard') && hud.buttons.includes('End turn'), hud.buttons);
 check('health plates float over every figure', hud.plates === hud.units, hud.plates);
 // the HUD keeps out of the way: every label fits, the prompt leaves the log
 // alone, nobody stands under the turn strip, and floating words never overlap

@@ -21,6 +21,7 @@ import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './tr
 import { findBuildings } from '../world/buildings.js';
 import { treasureState, digTreasure } from './treasure.js';
 import { forageFind, lootTag } from './magic.js';
+import { buyShip } from './ships.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -36,7 +37,7 @@ function edgeGates(map) {
   if (map._gates) return map._gates;
   const out = {};
   const { w, h } = map;
-  const open = (x, y) => { const t = terrain(getTile(map, x, y)); return t.walk && !t.dmg && !t.wall && (!t.water || t.key === 'bridge'); };
+  const open = (x, y) => { const t = terrain(getTile(map, x, y)); return t.walk && !t.dmg && !t.wall && (!t.water || t.deck); };
   const paved = (x, y) => ['road', 'cobble', 'bridge'].includes(terrain(getTile(map, x, y)).key);
   // how far every square is from the middle of the town, on foot
   const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
@@ -181,12 +182,21 @@ export class PlaySession {
     const map = { ...src, tiles: src.tiles.slice(), entities: deepClone(src.entities) };
     for (const [i, t] of Object.entries(ms.tiles)) map.tiles[+i] = t;
     const removed = new Set(ms.removed);
+    // things that arrived in play (a dug-up chest, a ship bought at the yard)
+    // go where they were left, and stay gone once gone, like the rest
+    for (const e of ms.added || []) map.entities.push(deepClone(e));
     map.entities = map.entities.filter((e) => !removed.has(e.id));
     for (const e of map.entities) {
       if (ms.moved[e.id]) [e.x, e.y] = ms.moved[e.id];
       e.home = { x: e.x, y: e.y };
     }
-    for (const e of ms.added || []) map.entities.push({ ...deepClone(e), home: { x: e.x, y: e.y } });
+    // a ship the company has sailed is theirs to keep, even if the map no
+    // longer has it (saves from when Westhold lent its ship for nothing)
+    for (const [id, at] of Object.entries(ms.moved)) {
+      if (/^ship/.test(id) && !removed.has(id) && !map.entities.some((e) => e.id === id)) map.entities.push({ id, type: 'ship', x: at[0], y: at[1], home: { x: at[0], y: at[1] } });
+    }
+    const v = this.state.vehicle;
+    if (v && this.state.pos.map === id && !map.entities.some((e) => e.id === v.id)) map.entities.push({ id: v.id, type: 'ship', x: this.state.pos.x, y: this.state.pos.y, home: { ...this.state.pos } });
     for (const r of this.state.reserve || []) if (r.map === id) map.entities.push(this.restingNpc(map, r.member));
     map.explored = ms.explored ? rleDecode(ms.explored, map.w * map.h) : new Uint8Array(map.w * map.h);
     map.litMask = computeLitMask(map);
@@ -298,7 +308,7 @@ export class PlaySession {
   followerGround(x, y) {
     if (!this.map || !inBounds(this.map, x, y)) return false;
     const t = terrain(getTile(this.map, x, y));
-    if (!t.walk || t.door || t.dmg || t.feature || (t.water && t.key !== 'bridge')) return false;
+    if (!t.walk || t.door || t.dmg || t.feature || (t.water && !t.deck)) return false;
     // world-map towns and castles are drawn larger than their square: keep
     // the company off their edges (else they stand on the walls)
     if (this.map.type === 'world') {
@@ -517,7 +527,7 @@ export class PlaySession {
     }
     const ship = this.map.entities.find((e) => e.type === 'ship' && e.x === nx && e.y === ny);
     if (this.state.vehicle) {
-      if (t.ship || (t.water && t.key !== 'bridge')) {
+      if (t.ship || (t.water && !t.deck)) {
         await this.stepParty(nx, ny, 0.14);
         const ve = this.map.entities.find((e) => e.id === this.state.vehicle.id);
         if (ve) { ve.x = nx; ve.y = ny; this.mapState(map.id).moved[ve.id] = [nx, ny]; }
@@ -543,7 +553,7 @@ export class PlaySession {
       this.view.removeEntity(ship.id);
       await this.stepParty(nx, ny);
       this.refreshPartyVisual();
-      this.log('You board the ship. Sail the seas — step onto land to go ashore.', 'good');
+      this.log(`You board ${ship.name ? 'the ' + ship.name : 'the ship'}. Sail the seas — step onto land to go ashore.`, 'good');
       return this.afterStep();
     }
     if (t.locked) return this.tryUnlock(nx, ny);
@@ -578,7 +588,7 @@ export class PlaySession {
 
   // hover text on how hard the going is ('' for ordinary ground)
   terrainNote(t) {
-    if (!this.map || this.mapIsTown() || this.state.vehicle || (t.water && t.key !== 'bridge') || !t.walk) return '';
+    if (!this.map || this.mapIsTown() || this.state.vehicle || (t.water && !t.deck) || !t.walk) return '';
     return costNote(this.game, this.party.members, t);
   }
 
@@ -596,7 +606,7 @@ export class PlaySession {
 
   onRoad(x, y) {
     const k = terrain(getTile(this.map, x, y)).key;
-    return k === 'road' || k === 'bridge' || k === 'cobble';
+    return k === 'road' || k === 'bridge' || k === 'cobble' || k === 'pier';
   }
 
   // A hint shown once per game (kept in the save); returns true if shown now
@@ -900,7 +910,7 @@ export class PlaySession {
     const t = terrain(getTile(map, x, y));
     if (e.type === 'monster') {
       const def = byId(this.game.monsters, e.monster);
-      if (def?.swim) { if (!t.water || t.key === 'bridge') return false; }
+      if (def?.swim) { if (!t.water || t.deck) return false; }
       else if (!t.walk) return false;
       else if (def?.fly ? false : t.dmg) return false;
     } else if (!t.walk || t.door) {
@@ -1116,7 +1126,8 @@ export class PlaySession {
     if (!enemies.length) return;
     const p = this.state.pos;
     const t = terrain(getTile(this.map, p.x, p.y));
-    let style = this.state.vehicle ? 'water' : t.arena;
+    // (a fight may bring its own ground: the sand of a fighting pit)
+    let style = e.style || (this.state.vehicle ? 'water' : t.arena);
     if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
     if (this.mapIsTown() && style === 'grass') style = 'town';
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
@@ -1307,6 +1318,7 @@ export class PlaySession {
       case 'shop': res.shop = true; break;
       case 'inn': res.inn = true; break;
       case 'healer': res.healer = true; break;
+      case 'buy_ship': ok = buyShip(this, npc, res); break;
       default: break;
     }
     checkQuests(this);
@@ -1515,14 +1527,17 @@ export class PlaySession {
     await this.enterMap(s.map, s.x, s.y);
   }
 
-  reveal(radius = 14) {
-    const p = this.state.pos;
+  // lift the fog round the company (or round `at`: a fortune-teller's vision,
+  // which marks the place quietly, for the big map to show)
+  reveal(radius = 14, at = null, quiet = false) {
+    const p = at || this.state.pos;
     const map = this.map;
     for (let y = p.y - radius; y <= p.y + radius; y++) for (let x = p.x - radius; x <= p.x + radius; x++) {
       if (inBounds(map, x, y) && (x - p.x) ** 2 + (y - p.y) ** 2 <= radius * radius) map.explored[y * map.w + x] = 1;
     }
-    this.log('The land is revealed to your mind\'s eye.', 'magic');
     this.updateVisibility();
+    if (quiet) return;
+    this.log('The land is revealed to your mind\'s eye.', 'magic');
     this.ui.openMap();
   }
 
@@ -1667,7 +1682,7 @@ export class PlaySession {
       if (!inBounds(this.map, tx, ty)) return false;
       if (bumpable && tx === x && ty === y) return true;
       const t = terrain(getTile(this.map, tx, ty));
-      if (ship ? !(t.water && t.key !== 'bridge') : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
       if (this.map.lighting === 'dark' && !this.map.explored[ty * this.map.w + tx]) return false;
       return !this.blockingAt(tx, ty);
     }, 30);

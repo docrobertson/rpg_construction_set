@@ -43,7 +43,7 @@ function isBlendable(t) {
 const isPit = (t) => t.key === 'chasm' || t.key === 'void';
 
 // how much larger than its square each world-map site is drawn
-const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55 };
+const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55, harbour: 1.7, seacave: 1.5 };
 // small scenery cleared from the squares round a site, so nothing grows through its walls
 const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks']);
 // rock too tall to clear: in front of a point of interest it is drawn low
@@ -72,7 +72,7 @@ export function clearingsFor(map) {
 
 // height of the ground itself (walls stand on it; water fills above it)
 const GROUND = {
-  ocean: -0.72, shallows: -0.36, bridge: -0.38, pit_water: -0.44,
+  ocean: -0.72, shallows: -0.36, bridge: -0.38, pier: -0.42, pit_water: -0.44,
   hills: 0.3, mountains: 0.62, peaks: 0.8, cave: 0.24, dwarfgate: 0.5,
   swamp: -0.08, sand: -0.03, desert: 0.02, chasm: 0, void: 0, lava: -0.34,
 };

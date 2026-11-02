@@ -118,6 +118,8 @@ export function npcMarker(session, npc) {
   }
   if (offersFrom(session, npc).length) return 'quest';
   if ((session.game.quests || []).some((q) => q.giver === npc.id && isActive(st, q.id))) return 'progress';
+  // a shipwright with a ship still to sell shows his trade too
+  if (npc.role === 'shipwright' && !st.party.flags[`_ship_${npc.id}`]) return 'shop';
   if (npc.shop && npc.shop.kind) return npc.role === 'merchant' ? 'merchant' : 'shop';
   if (npc.role === 'inn') return 'inn';
   if (npc.role === 'healer') return 'healer';

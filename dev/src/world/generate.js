@@ -6,6 +6,7 @@ import { fbm } from '../core/noise.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { uid } from '../core/util.js';
 import { eventFromTemplate } from '../game/events.js';
+import { generateHarbour } from './harbour.js';
 
 const def = (id) => terrain(id);
 const isWaterT = (id) => def(id).water && def(id).key !== 'bridge';
@@ -347,6 +348,7 @@ export function scatterWonders(map, seed, opt = {}) {
     ...Array(Math.ceil(scale * 0.75)).fill('shrine'),
     ...Array(Math.ceil(scale * 0.6)).fill('lore'),
     'well', 'cache', 'traveller', 'toll_troll', 'bandits',
+    'farm', 'fortune', 'fairy_ring', 'arena', 'lighthouse',
   ];
   const shrines = ['shrine_might', 'shrine_ward', 'shrine_vigour', 'shrine_fortune'];
   const placed = [];
@@ -356,14 +358,20 @@ export function scatterWonders(map, seed, opt = {}) {
     if (map.entities.some((e) => e.x === x && e.y === y)) return false;
     return placed.every((p) => Math.abs(p.x - x) + Math.abs(p.y - y) > 7);
   };
+  // a lighthouse stands on the shore; farms and fairy rings on open grass
+  const sea = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => def(getTile(map, x + dx, y + dy)).key === 'ocean');
+  const grassy = (x, y) => ['grass', 'meadow'].includes(def(getTile(map, x, y)).key);
+  const fits = { lighthouse: sea, farm: grassy, fairy_ring: grassy };
   let n = 0;
   for (const kind of want) {
-    for (let a = 0; a < 60; a++) {
+    for (let a = 0; a < (fits[kind] ? 400 : 60); a++) {
       const x = rng.int(2, map.w - 3), y = rng.int(2, map.h - 3);
-      if (!free(x, y)) continue;
+      if (!free(x, y) || (fits[kind] && !fits[kind](x, y))) continue;
       const tpl = kind === 'shrine' ? rng.pick(shrines) : kind;
       const e = { ...eventFromTemplate(tpl), id: opt.ids ? `${opt.ids}_${n}` : uid('ev'), x, y };
       if (kind === 'lore') { const [name, text] = rng.pick(WORLD_LORE); Object.assign(e, { name, text }); }
+      // a farm has its fields about it
+      if (kind === 'farm') for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [2, -1], [2, 0]]) if (grassy(x + dx, y + dy) && !map.entities.some((o) => o.x === x + dx && o.y === y + dy)) setTile(map, x + dx, y + dy, T.fields);
       map.entities.push(e);
       placed.push(e);
       n++;
@@ -413,6 +421,8 @@ export const SETTLEMENT_STYLES = {
   castle: { ground: 'grass', street: 'cobble', wall: 'wall_stone', bwall: 'wall_stone', floor: 'floor_stone', shops: ['healer', 'weapons', 'armor'], houses: 2, race: 'human', w: 38, h: 38 },
   elfhall: { ground: 'meadow', street: 'road', wall: 'tree', bwall: 'wall_wood', floor: 'floor_wood', shops: ['inn', 'healer', 'bowyer', 'reagents'], houses: 4, race: 'elf', w: 34, h: 34 },
   dwarfgate: { ground: 'floor_stone', street: 'floor_stone', wall: 'cave_wall', bwall: 'wall_stone', floor: 'floor_stone', shops: ['tavern', 'healer', 'weapons', 'armor', 'provisions'], houses: 3, race: 'dwarf', w: 36, h: 36, underground: true },
+  // laid out by hand in harbour.js: piers, a shipyard and its shipwright
+  harbour: { ground: 'grass', street: 'cobble', race: 'human', w: 30, h: 24, shops: [], houses: 0 },
 };
 
 const OUTFITS = [0x7a2a2a, 0x2a4a7a, 0x3a6a3a, 0x7a6a2a, 0x5a3a6a, 0x6a4a2a, 0x2a6a6a, 0x8a5a3a];
@@ -437,9 +447,10 @@ const ROLE_LOOKS = {
   guard: { body: 0x2a4a8a, armor: 'chain', hat: 'helm', weapon: 'spear', shield: 0x2a4a8a },
   lord: { body: 0x6a1a8a, robe: true, trim: 0xe8c040, hat: 'crown', cape: 0xa01a2a },
   sage: { body: 0x3a3a7a, robe: true, hat: 'wizard', hatColor: 0x3a3a7a, weapon: 'staff', beard: 0xe0e0e0 },
+  shipwright: { body: 0x4a5a6a, armor: 'leather', hat: 'cap', hatColor: 0x2a3a4a, weapon: 'hammer', beard: 0x8a6a4a },
 };
 
-function makeNpc(role, race, x, y, rng, extra = {}) {
+export function makeNpc(role, race, x, y, rng, extra = {}) {
   const look = npcLook(race, rng, ROLE_LOOKS[role] || {});
   return {
     id: uid('npc'), type: 'npc', x, y,
@@ -452,6 +463,7 @@ function makeNpc(role, race, x, y, rng, extra = {}) {
     keywords: extra.keywords || [],
     // sages sell spell scrolls for wizards' books
     shop: SHOP_ROLES[role] ? { kind: SHOP_ROLES[role].kind, stock: [] } : role === 'sage' ? { kind: 'scrolls', stock: [] } : null,
+    ...(role === 'shipwright' ? { ship: { name: 'Seahorse', price: 450 } } : {}),
   };
 }
 
@@ -540,6 +552,7 @@ export function furnish(map, b, role, rng) {
 }
 
 export function generateSettlement(kind, opt = {}) {
+  if (kind === 'harbour') return { ...generateHarbour(opt), buildings: [] };
   const S = SETTLEMENT_STYLES[kind] || SETTLEMENT_STYLES.town;
   const rng = new RNG(opt.seed ?? Math.floor(Math.random() * 1e9));
   const w = opt.w || S.w, h = opt.h || S.h;
@@ -884,6 +897,30 @@ export function generateDungeon(opt = {}) {
   return { map, rooms, last };
 }
 
+// A smugglers' sea cave: a short cave whose black water reaches in from the
+// sea, bandits in its chambers and their hoard of brandy, silk and coin at
+// the back. (opt: boss, monsters, rooms, counts as for generateDungeon)
+export function smugglersCave(game, name, seed, opt = {}) {
+  const have = (id) => !game || game.monsters.some((m) => m.id === id);
+  const monsters = (opt.monsters || ['bandit', 'giant_rat', 'bat_swarm']).filter(have);
+  const res = generateDungeon({ name, seed, style: 'cave', monsters, rooms: opt.rooms || 6, w: opt.w || 28, h: opt.h || 28, boss: opt.boss && have(opt.boss) ? opt.boss : null, ...opt.dungeon });
+  const { map, rooms, last } = res;
+  const rng = new RNG(seed + 5);
+  // sea water lapping into the first chambers, and the smugglers' stores
+  for (const r of rooms.slice(0, 2)) for (let k = 0; k < 3; k++) {
+    const x = rng.int(r.x, r.x + r.w - 1), y = rng.int(r.y, r.y + r.h - 1);
+    if (getTile(map, x, y) === T.cave_floor && rectFree(map, x, y, 1, 1, (t) => t === T.cave_floor || def(t).wall) && !map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2)) setTile(map, x, y, T.pit_water);
+  }
+  for (const r of rooms.slice(1)) {
+    const x = r.x, y = r.y;
+    if (getTile(map, x, y) === T.cave_floor && !map.entities.some((e) => e.x === x && e.y === y)) setTile(map, x, y, rng.chance(0.5) ? T.barrel : T.cargo);
+  }
+  for (const e of map.entities) if (e.type === 'monster' && !e.boss && opt.counts?.[e.monster]) e.count = opt.counts[e.monster];
+  const chest = map.entities.find((e) => e.type === 'chest' && e.x === last.cx && e.y === last.cy);
+  if (chest) { chest.gold = opt.gold ?? 180; chest.items = opt.items || [{ id: 'healing_draught', n: 2 }, { id: 'mana_tonic', n: 1 }].filter((it) => !game || game.items.some((x) => x.id === it.id)); }
+  return { ...res, chest };
+}
+
 // ---------------------------------------------------------------- feature placement
 export function placeFeature(game, world, x, y, kind, name, seed) {
   const fk = FEATURE_KINDS[kind];
@@ -891,11 +928,13 @@ export function placeFeature(game, world, x, y, kind, name, seed) {
   setTile(world, x, y, T[fk.terrain]);
   let sub;
   const s = seed ?? Math.floor(Math.random() * 1e9);
-  if (fk.mapType === 'dungeon') {
+  if (kind === 'seacave') {
+    sub = smugglersCave(game, name, s).map;
+  } else if (fk.mapType === 'dungeon') {
     const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : 'cave';
     sub = generateDungeon({ name, seed: s, style, monsters: kind === 'fortress' ? ['orc', 'orc_archer', 'skeleton'] : ['goblin', 'giant_rat', 'skeleton', 'giant_spider'] }).map;
   } else {
-    const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : 'town';
+    const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : kind === 'harbour' ? 'harbour' : 'town';
     sub = generateSettlement(style, { name, seed: s }).map;
     nameNpcs(sub, game, s);
   }

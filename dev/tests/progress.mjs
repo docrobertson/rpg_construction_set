@@ -406,7 +406,8 @@ r = await ev(() => {
     dear: (g.items.find((i) => i.id === 'tmap_tithe')?.price || 0) >= 200,
   };
 });
-check('the sample hides four hoards with clues and different rewards', r.n === 4 && r.clues && r.rewards === 4, r);
+// (the fifth, Black Maddoc's, is charted in the smugglers' cove: see places.mjs)
+check('the sample hides five hoards with clues and different rewards', r.n === 5 && r.clues && r.rewards === 5, r);
 check('its maps are found in a chest, on bandits, as a quest reward and sold dear', r.chest && r.drop && r.quest && r.sold && r.dear, r);
 
 r = await ev(async () => {

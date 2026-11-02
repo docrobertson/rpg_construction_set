@@ -23,7 +23,7 @@ export function drawSketch(canvas, map, e) {
   const k = W / SPAN;
   const px = (x) => (x - ox) * k, py = (y) => (y - oy) * k;
   const tile = (x, y) => (inBounds(map, x, y) ? terrain(getTile(map, x, y)) : null);
-  const wet = (t) => !t || (t.water && t.key !== 'bridge');
+  const wet = (t) => !t || (t.water && !t.deck);
   ctx.clearRect(0, 0, W, H);
   ctx.save();
   // a torn edge all round
