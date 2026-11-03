@@ -25,7 +25,7 @@ import { eventLook } from '../../game/events.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
-import { attachGestures } from '../../render/gestures.js';
+import { attachGestures, attachWheel } from '../../render/gestures.js';
 
 const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
 const TOWN_STAMPS = ['forest', 'meadow', 'clear', 'lake'];
@@ -930,7 +930,6 @@ export class Editor {
       down: (e) => this.onDown(e),
       move: (e) => this.onMove(e),
       up: (e) => this.onUp(e),
-      wheel: (e) => { if (!MAP_TABS.has(this.tab) && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
       ctx: (e) => e.preventDefault(),
       key: (e) => this.onKey(e),
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),
@@ -941,7 +940,8 @@ export class Editor {
     window.addEventListener('pointerup', this.h.up);
     cv.style.touchAction = 'none';
     this.gestures = attachGestures(this.view, cv, { pan: true });
-    cv.addEventListener('wheel', this.h.wheel, { passive: false });
+    // a mouse wheel zooms; on a trackpad two fingers slide the map and a pinch zooms
+    this.wheel = attachWheel(this.view, cv, { enabled: () => MAP_TABS.has(this.tab) || this.previewing });
     cv.addEventListener('contextmenu', this.h.ctx);
     cv.addEventListener('mouseleave', this.h.leave);
     window.addEventListener('keydown', this.h.key);
@@ -957,7 +957,7 @@ export class Editor {
     window.removeEventListener('pointermove', this.h.move);
     window.removeEventListener('pointerup', this.h.up);
     if (this.gestures) { this.gestures.destroy(); this.gestures = null; }
-    cv.removeEventListener('wheel', this.h.wheel);
+    if (this.wheel) { this.wheel.destroy(); this.wheel = null; }
     cv.removeEventListener('contextmenu', this.h.ctx);
     cv.removeEventListener('mouseleave', this.h.leave);
     window.removeEventListener('keydown', this.h.key);
@@ -1076,7 +1076,7 @@ export class Editor {
     if (inBounds(map, t.x, t.y)) {
       const td = terrain(getTile(map, t.x, t.y));
       const ents = map.entities.filter((e) => e.x === t.x && e.y === t.y).map((e) => (e.type === 'npc' ? e.name || 'person' : e.type === 'monster' ? byId(this.game.monsters, e.monster)?.name || 'monster' : e.label || e.type));
-      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Right-drag / WASD to pan · wheel to zoom · Ctrl+Z undo`;
+      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch or wheel to zoom · Ctrl+Z undo`;
     } else this.statusText.textContent = `${map.name} · outside the map`;
   }
 

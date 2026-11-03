@@ -76,6 +76,33 @@ await ev(() => window.__app.editor.setTab('land'));
 await wait(400);
 check('the Land step shows the world map', await ev(() => window.__app.editor.map.type === 'world'));
 
+// a trackpad in Details: two fingers slide the map, a pinch zooms (Chrome's
+// ctrl+wheel and Safari's gesture events), a mouse notch zooms
+r = await ev(async () => {
+  const ed = window.__app.editor, v = window.__app.view;
+  ed.setTab('map');
+  await new Promise((res) => setTimeout(res, 300));
+  const c = document.querySelector('#viewport canvas');
+  const fire = (o) => c.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...o }));
+  const pause = () => new Promise((res) => setTimeout(res, 300));
+  const a = { x: v.rig.tx, z: v.rig.tz, d: v.rig.tdist };
+  for (let i = 0; i < 20; i++) fire({ deltaX: 3, deltaY: 2 });
+  const slid = v.rig.tx > a.x + 0.5 && v.rig.tz > a.z + 0.5 && Math.abs(v.rig.tdist - a.d) < 1e-6;
+  await pause();
+  for (let i = 0; i < 6; i++) fire({ deltaY: -3, ctrlKey: true });
+  const pinch = v.rig.tdist < a.d;
+  await pause();
+  const d1 = v.rig.tdist;
+  const g = (t, sc) => { const e = new Event(t, { bubbles: true, cancelable: true }); e.scale = sc; c.dispatchEvent(e); };
+  g('gesturestart', 1); g('gesturechange', 2); g('gestureend', 2);
+  const safari = v.rig.tdist < d1 * 0.6;
+  await pause();
+  const d2 = v.rig.tdist;
+  fire({ deltaY: 100 });
+  return { slid, pinch, safari, notch: v.rig.tdist > d2 };
+});
+check('a trackpad slides the map in Details, and pinches and wheels zoom', r.slid && r.pinch && r.safari && r.notch, r);
+
 // the next-step button walks the steps
 r = await ev(() => {
   const ed = window.__app.editor;

@@ -37,6 +37,25 @@ let r = await ev(async () => {
 });
 check('the company walks', r.moved && r.party > 0, r);
 
+// a trackpad: two fingers look around (not far), a pinch zooms, a step comes back
+r = await ev(async () => {
+  const s = window.__app.session, v = window.__app.view, c = document.querySelector('#viewport canvas');
+  const fire = (o) => c.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...o }));
+  const pause = () => new Promise((res) => setTimeout(res, 300));
+  const d0 = v.rig.tdist, z0 = v.rig.tz;
+  for (let i = 0; i < 200; i++) fire({ deltaY: 3 });
+  const slid = v.rig.tz - z0, kept = Math.abs(v.rig.tdist - d0) < 1e-6;
+  await pause();
+  for (let i = 0; i < 6; i++) fire({ deltaY: -3, ctrlKey: true });
+  const pinched = v.rig.tdist < d0;
+  await pause();
+  const d1 = v.rig.tdist;
+  fire({ deltaY: 100 }); // (a mouse notch)
+  const notch = v.rig.tdist > d1;
+  return { slid, kept, pinched, notch, reach: v.reach };
+});
+check('a trackpad looks around, not far, and a pinch or a wheel zooms', r.slid > 2 && r.slid <= (r.reach || 8) + 0.01 && r.kept && r.pinched && r.notch, r);
+
 r = await ev(async () => {
   const s = window.__app.session;
   const town = s.game.maps.find((m) => m.name === 'Westhold') || s.game.maps.find((m) => m.type === 'town');

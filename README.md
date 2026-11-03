@@ -51,7 +51,7 @@ Beside the steps: **World Data** (races, classes, items, spells, monsters and th
 
 Click a hero in the Company panel to pop out their sheet and change their gear; the first hero leads the company.
 
-In the construction set: right-drag or WASD to pan, mouse wheel (or pinch) to zoom, Ctrl+Z / Ctrl+Y to undo/redo, Ctrl+K to find anything. Press **?** in the editor for help with the step you are on.
+On a trackpad, pinch to zoom and slide two fingers to look around (in play, a little way from the company). In the construction set: two-finger slide, right-drag or WASD to pan, pinch or mouse wheel to zoom, Ctrl+Z / Ctrl+Y to undo/redo, Ctrl+K to find anything. Press **?** in the editor for help with the step you are on.
 
 ## Developing
 
