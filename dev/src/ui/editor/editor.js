@@ -17,6 +17,8 @@ import { PlacesEditor } from './places.js';
 import { StoryEditor } from './story.js';
 import { renderTest } from './checklist.js';
 import { analyzeCampaign } from '../../game/checklist.js';
+import { editorHelp } from './help.js';
+import { findAnything } from './find.js';
 import { eventLook } from '../../game/events.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
@@ -88,9 +90,7 @@ export class Editor {
     if (!getPref('seenEditorHelp', false)) { setPref('seenEditorHelp', true); setTimeout(() => this.help(), 400); }
   }
 
-  help() {
-    modal(h('div.help', { html: EDITOR_HELP }), { title: 'Building your realm', cls: 'wide' });
-  }
+  help() { editorHelp(this); }
 
   // ------------------------------------------------------------ layout
   build() {
@@ -126,6 +126,7 @@ export class Editor {
       h('div.grow'),
       this.undoBtn, this.redoBtn,
       this.saveState,
+      h('button.icon', { onclick: () => findAnything(this), title: 'Find anything — a person, a place, a quest (Ctrl+K)', 'aria-label': 'Find' }, '🔍'),
       h('button', { onclick: () => this.fileMenu(), title: 'Save, export, import (Ctrl+S saves)' }, 'File ▾'),
       h('button.icon', { onclick: () => this.help(), title: 'How to build a game' }, '?'),
       h('button.primary', { onclick: () => this.playtestMenu(), title: 'Try your game' }, '▶ Playtest'),
@@ -169,6 +170,12 @@ export class Editor {
       this.setTab('story');
       const q = go.quest && (this.game.quests || []).find((x) => x.id === go.quest);
       if (q) this.story.selectQuest(q); else this.story.selectChapter(go.chapter);
+      return;
+    }
+    if (tab === 'data' && go.cat) {
+      this.db.cat = go.cat;
+      this.db.sel = (this.game[go.cat] || []).find((x) => x.id === go.id) || null;
+      this.setTab('data');
       return;
     }
     if (tab === 'places' && (go.place || go.map)) {
@@ -976,12 +983,14 @@ export class Editor {
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       if (e.key === 'Escape') e.target.blur();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !anyModal()) { e.preventDefault(); findAnything(this); }
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(false); return; }
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); return; }
+    if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!anyModal()) findAnything(this); return; }
     if (mod) return;
     if (e.key === 'Escape') {
       if (closeTopModal()) return;
@@ -1023,35 +1032,3 @@ function nearestWalkable(map, x, y) {
 }
 
 void uid; void promptDialog; void confirmDialog; void closeAllModals; void sfx; void cloneGame;
-
-const EDITOR_HELP = `
-<p>Everything you build is saved in this browser as you go. Here is the usual way to make an adventure:</p>
-<h3>1 · Shape the world</h3>
-<p>On the <b>Map</b> tab, use <b>Shape the land</b>: click to drop an island, a lake, a forest or a mountain range — or drag to keep stamping.
-Change the <b>stamp size</b> for continents or copses. <b>Draw paths</b> lets you drag out roads (they bridge rivers on their own), rivers and mountain ridges.</p>
-<h3>2 · Found towns, castles and dungeons</h3>
-<p>Under <b>Found a site</b>, click the map to create a town, castle, village, dungeon, tower, dark fortress, elven hall or dwarf hold.
-Each one gets its own generated map — streets, shops, an inn, a healer and townsfolk. <b>Double-click</b> a site (or select it and press <i>Open</i>) to go inside and change anything.</p>
-<h3>3 · Paint the details</h3>
-<p><b>Paint tiles</b> gives you a brush, scatter, line, rectangle, flood fill and picker, with every tile type — walls, doors, counters, beds, braziers, lava…</p>
-<h3>4 · People, monsters and treasure</h3>
-<p>Place <b>people</b> and give them a role (shopkeeper, innkeeper, healer, king…), a look, and <b>keywords</b> they answer to.
-A keyword can require a flag, item or gold, and can give items or gold, set story flags, heal the party, make the speaker <b>join</b> your company, start a fight, teleport the party — or win the game.
-Place <b>monster groups</b>, <b>chests</b>, <b>signs</b>, <b>ships</b>, <b>waygates</b> and <b>passages</b> (links between maps — use <i>Pick arrival point</i> to choose where they lead).</p>
-<h3>5 · Rules of the realm</h3>
-<p><b>World Data</b> holds the races, classes, items, spells, monsters and the magic systems themselves. <b>Settings</b> holds your story, the starting point and kit,
-the victory condition, and switches for the four kinds of magic — Sorcery, Prayer, Rune-craft and Elven Song.</p>
-<p><b>Quests</b> give the player goals: who offers each one, its steps (talk to someone, bring an item, reach a place, defeat a foe, find
-something, clear a dungeon) and its rewards. The player always sees the current step and which way to go. Select a person to see the
-quests they are part of. Under <b>Points of interest</b> on the map, place shrines, campfires, lore stones and little events with choices.</p>
-<h3>6 · Playtest and share</h3>
-<p>Press <b>▶ Playtest</b> at any time — from the start, or from wherever you are looking. Use <b>File → Export</b> to save a <i>.json</i> game file,
-or a single <i>.html</i> page your friends can simply open and play.</p>
-<h3>Keys</h3>
-<table class="keys">
-<tr><td>B</td><td>Brush</td><td>F</td><td>Fill</td><td>R</td><td>Rectangle</td></tr>
-<tr><td>L</td><td>Line</td><td>I</td><td>Pick tile</td><td>V</td><td>Select</td></tr>
-<tr><td>X</td><td>Remove</td><td>[ ]</td><td>Brush/stamp size</td><td>Del</td><td>Delete selected</td></tr>
-<tr><td>WASD</td><td>Pan</td><td>Wheel</td><td>Zoom</td><td>Right-drag</td><td>Pan</td></tr>
-<tr><td>Ctrl+Z</td><td>Undo</td><td>Ctrl+Y</td><td>Redo</td><td>Ctrl+S</td><td>Save</td></tr>
-</table>`;

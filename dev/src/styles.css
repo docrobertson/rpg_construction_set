@@ -1594,3 +1594,15 @@ button.wide { flex: 1; }
 .qs-wizard { min-width: min(560px, 86vw); }
 .qs-extras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 10px; }
 .qs-extras .field.check { margin: 0; }
+.find-modal .modal-body { padding-top: 6px; }
+.find { width: min(560px, 86vw); display: flex; flex-direction: column; gap: 8px; }
+.find-input { font-size: 15px; padding: 8px 10px; }
+.find-list { display: flex; flex-direction: column; gap: 2px; max-height: 52vh; overflow-y: auto; }
+.find-hit { display: flex; align-items: center; gap: 10px; text-align: left; padding: 6px 10px; border-radius: 6px; background: transparent; box-shadow: none; }
+.find-hit.on, .find-hit:hover { background: rgba(232,190,100,.16); box-shadow: inset 0 0 0 1px rgba(232,190,100,.5); }
+.find-hit .fi { width: 22px; text-align: center; }
+.find-hit .fn { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.find-hit .fs { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ed-help-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+.ed-help-tabs button.on { color: #fff; box-shadow: inset 0 0 0 1px var(--gold); }
+.help-road li { margin: 6px 0; line-height: 1.45; }
