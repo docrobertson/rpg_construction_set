@@ -245,7 +245,17 @@ export class View {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    return this.buildings.pick(this.raycaster.ray);
+    // roof cut away round the party (see _updateCutaway) is not there to point at
+    const cuts = shared.uCut.value, ys = shared.uCutY.value, n = shared.uCutN.value;
+    const pr = this.renderer.getPixelRatio(), H = this._h || rect.height;
+    const sx = clientX - rect.left, sy = clientY - rect.top;
+    const holes = [];
+    for (let i = 0; i < n; i++) {
+      const c = cuts[i];
+      if (Math.hypot(sx - c.x / pr, sy - (H - c.y / pr)) < (c.z / pr) * 0.9) holes.push(i);
+    }
+    const hole = holes.length ? (p) => holes.some((i) => p.z >= cuts[i].w + 0.12 && p.y >= ys[i] + 0.1) : null;
+    return this.buildings.pick(this.raycaster.ray, hole);
   }
 
   _updateBuildings(dt) {
