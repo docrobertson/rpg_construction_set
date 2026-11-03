@@ -12,14 +12,20 @@ import {
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
-import { saveState } from '../core/storage.js';
+import { saveState, getPref, setPref } from '../core/storage.js';
+
+// How near the camera sits by default, and how far out the player may pull
+// it (in squares either side of the company: more is what the map is for)
+const ZOOM_KIND = (m) => (m.type === 'world' ? 'world' : m.lighting === 'dark' || m.type === 'dungeon' ? 'dungeon' : 'site');
+const ZOOM_DEFAULT = { world: 13, site: 12.5, dungeon: 11.5 };
+const ZOOM_REACH = { world: 7.5, site: 9, dungeon: 8 };
 import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
-import { treasureState, digTreasure } from './treasure.js';
+import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
 import { forageFind, lootTag } from './magic.js';
 import { buyShip } from './ships.js';
 
@@ -161,6 +167,7 @@ export class PlaySession {
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
     ensureQuestState(state); // older saves have no quest log
+    dropSpentMaps(this); // (maps for hoards dug before they were tidied away)
     treasureState(state); // nor treasure maps
   }
 
@@ -217,8 +224,24 @@ export class PlaySession {
     }
   }
 
+  // the zoom the player last chose for this kind of place (remembered across
+  // games), else a comfortable default
+  zoomFor(m) {
+    const k = ZOOM_KIND(m);
+    const z = +getPref('zoom.' + k, 0);
+    return z > 0 ? z : ZOOM_DEFAULT[k];
+  }
+
+  // remember the zoom in use before the view moves to another kind of place
+  rememberZoom() {
+    if (!this.map || this.battle || this.map.type === 'arena') return;
+    const z = this.view.rig?.tdist;
+    if (z > 0) setPref('zoom.' + ZOOM_KIND(this.map), Math.round(z * 100) / 100);
+  }
+
   async _enterMap(map, id, x, y, opts) {
-    const zoomFor = (m) => (m.type === 'world' ? 9.5 : 10.5);
+    const zoomFor = (m) => this.zoomFor(m);
+    this.rememberZoom();
     // swoop the camera in (entering a site) or out (returning to the wide world)
     const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
     if (dir && !opts.instant) this.view.setZoom(this.view.rig.tdist * (dir === 'in' ? 0.45 : 1.8));
@@ -230,7 +253,7 @@ export class PlaySession {
     this.applyDaylight();
     playMusic(moodFor(map));
     this.view.setPitch(this.game.settings.pitch || 52);
-    this.view.reach = 10; // zoom out no further than about ten squares round the party
+    this.view.reach = ZOOM_REACH[ZOOM_KIND(map)];
     if (map.type !== 'world' && map.entities.some((e) => e.type === 'npc' && e.role === 'inn')) this.state.lodging = { map: id, name: map.name };
     this.view.setZoom(zoomFor(map) * (dir === 'in' ? 1.9 : dir === 'out' ? 0.5 : 1), true);
     this.view.setZoom(zoomFor(map));
@@ -276,7 +299,8 @@ export class PlaySession {
     if (this.state.vehicle && this.state.vehicle.id === e.id) return;
     const scale = e.type === 'monster' && e.boss ? 1.2 : 1;
     const poi = e.type === 'event' || e.type === 'chest' || e.type === 'sign';
-    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale, poi });
+    const person = e.type === 'npc' && !e.hostile;
+    this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : null, scale, poi, person });
   }
 
   // The company: the leader stands on the party's square and everyone else
@@ -409,9 +433,13 @@ export class PlaySession {
     this.view.setVellum?.(vellum);
     this.view.setVisibility(levels, instant, vellum ? map.explored : null);
     this.view.setVisibilityEnabled(true);
+    // in a friendly lit place (a town or castle) the townsfolk stay shown
+    // wherever the street is known, not only in the line of sight
+    const friendly = (map.type === 'town' || map.type === 'castle') && !dark;
     for (const e of map.entities) {
       const i = e.y * map.w + e.x;
-      const show = e.type === 'npc' || e.type === 'monster' ? !!vis[i] : !!map.explored[i];
+      const folk = e.type === 'npc' && !e.hostile;
+      const show = folk && friendly ? !!(vis[i] || map.explored[i]) : e.type === 'npc' || e.type === 'monster' ? !!vis[i] : !!map.explored[i];
       this.view.setEntityVisible(e.id, show);
     }
     // what is in view on arrival is simply known; after that, news is news
@@ -1145,6 +1173,7 @@ export class PlaySession {
   }
 
   async fight(enemies, style, opts = {}) {
+    this.rememberZoom(); // (put back as it was once the battle is over)
     // who stands in this fight: if it is lost, only they rise again (see resurrect)
     this.lastStand = partyAlive(this.party);
     this.mode = 'combat';
@@ -1184,7 +1213,8 @@ export class PlaySession {
     this.view.setMap(this.map);
     this.applyDaylight();
     playMusic(res.outcome === 'defeat' ? null : moodFor(this.map));
-    this.view.setZoom(this.map.type === 'world' ? 9.5 : 10.5, true);
+    this.view.reach = ZOOM_REACH[ZOOM_KIND(this.map)];
+    this.view.setZoom(this.zoomFor(this.map), true);
     this.camFocus(this.state.pos.x, this.state.pos.y, true);
     this.spawnVisuals();
     this.updateVisibility(true);
@@ -1617,11 +1647,15 @@ export class PlaySession {
       }
     }
     // a fed camp mends half of everyone's health; a hungry one a quarter
-    const rest = hungry ? 0.25 : 0.5;
+    let rest = hungry ? 0.25 : 0.5;
+    // a hobbit's cooking: the camp mends a quarter more
+    const cook = partyAlive(this.party).find((m) => hasTrait(this.game, m, 'homely'));
+    if (cook) rest *= 1.25;
     for (const m of partyAlive(this.party)) {
       m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
       m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
     }
+    if (cook && !hungry) this.log(`${cook.name} cooks a supper fit for a feast-day; everyone sleeps the better for it.`);
     this.log(hungry ? 'You wake stiff and hungry; wounds mend only a little. (Rations make for a better rest.)' : 'The party wakes rested; wounds are half mended. (An inn heals fully.)', hungry ? 'warn' : 'good');
     sfx('heal');
     this.busy = false;

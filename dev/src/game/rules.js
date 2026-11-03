@@ -10,6 +10,19 @@ export function raceOf(game, c) { return byId(game.races, c.race) || game.races[
 export function classOf(game, c) { return byId(game.classes, c.cls) || game.classes[0]; }
 export function itemOf(game, id) { return id ? byId(game.items, id) : null; }
 
+// Is a piece of gear enchanted? Marked magical (or given a magic glow) in the
+// item's data. Returns { color: '#rrggbb', notes: ['+2 to hit', ...] } or null.
+const MAGIC_GOLD = 0xffd56a;
+export function magicalOf(it) {
+  if (!it || !['weapon', 'armor', 'shield'].includes(it.type)) return null;
+  if (it.magical === false || (it.magical !== true && it.glow == null)) return null;
+  const notes = [];
+  if (it.hit > 0) notes.push(`+${it.hit} to hit`);
+  const plus = /\+(\d+)\s*$/.exec(String(it.dmg || ''));
+  if (plus) notes.push(`+${plus[1]} damage`);
+  return { color: '#' + ((it.glow ?? MAGIC_GOLD) >>> 0).toString(16).padStart(6, '0'), notes };
+}
+
 export function systemEnabled(game, id) {
   const s = byId(game.magic, id);
   return !!(s && s.enabled);

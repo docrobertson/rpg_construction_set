@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -141,6 +141,18 @@ export function migrateGame(game) {
   ensure('races', RACES);
   // humans were once called "Man"
   for (const r of game.races) if (r.id === 'human' && r.name === 'Man') r.name = 'Human';
+  // magic gear came to be marked later: built-in pieces gain the mark once
+  if (!game.settings.magicGearV) {
+    game.settings.magicGearV = 1;
+    for (const it of game.items || []) if (MAGIC_GEAR[it.id] != null && it.magical === undefined) { it.magical = true; if (it.glow == null) it.glow = MAGIC_GEAR[it.id]; }
+  }
+  // hobbits came later: games still on the built-in races gain them once
+  // (a realm that has since removed them is left alone)
+  if (!game.settings.hobbitsV) {
+    game.settings.hobbitsV = 1;
+    const builtIn = ['human', 'dwarf', 'elf'].every((id) => game.races.some((r) => r.id === id));
+    if (builtIn && !game.races.some((r) => r.id === 'hobbit')) game.races.push(deepClone(RACES.find((r) => r.id === 'hobbit')));
+  }
   ensure('classes', CLASSES);
   ensure('items', ITEMS);
   ensure('spells', SPELLS);

@@ -19,7 +19,7 @@ const BASE = 8, MAXBASE = 17;
 // which races a random company favours for each calling
 const RACE_AFFINITY = {
   warrior: { dwarf: 2 }, runesmith: { dwarf: 4 }, cleric: { dwarf: 1.5, human: 1.5 }, paladin: { human: 2.5 },
-  ranger: { elf: 2.5 }, minstrel: { elf: 2.5 }, wizard: { elf: 1.5, human: 1.5 }, burglar: { human: 1.5 },
+  ranger: { elf: 2.5, hobbit: 1.2 }, minstrel: { elf: 2.5, hobbit: 1.5 }, wizard: { elf: 1.5, human: 1.5 }, burglar: { hobbit: 3, human: 1.5 },
 };
 
 export function partyCreation(app, game, { onDone, onBack }) {

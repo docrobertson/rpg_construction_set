@@ -311,6 +311,20 @@ export class TerrainView {
   // Made-up scenery beyond the map's edge
   _surround(x, y) {
     const m = this.map;
+    // a battle on the shore: the sea runs on past the field's north half
+    if (m.seaNorth) {
+      if (y < m.seaNorth - 1) return TERRAIN[T.ocean];
+      if (y === m.seaNorth - 1) return TERRAIN[T.shallows];
+      if (y === m.seaNorth) return TERRAIN[T.sand];
+    }
+    // where the map's own edge is sea (a harbour, a coastal town), the sea
+    // runs on beyond it instead of turning into woods and meadow
+    const ex = Math.min(m.w - 1, Math.max(0, x)), ey = Math.min(m.h - 1, Math.max(0, y));
+    const edge = TERRAIN[m.tiles[ey * m.w + ex]];
+    if (edge && (edge.key === 'ocean' || edge.key === 'shallows')) {
+      const far = Math.max(Math.abs(x - ex), Math.abs(y - ey));
+      return TERRAIN[edge.key === 'shallows' && far <= 1 ? T.shallows : T.ocean];
+    }
     const fill = TERRAIN[T[m.fill] ?? T.ocean];
     const dx = x < 0 ? -x : x >= m.w ? x - m.w + 1 : 0;
     const dy = y < 0 ? -y : y >= m.h ? y - m.h + 1 : 0;

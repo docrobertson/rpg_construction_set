@@ -42,6 +42,18 @@ export function carriedMaps(session) {
 
 export const isDug = (session, id) => !!session.state.treasure?.[id]?.dug;
 
+// Maps whose hoard is already dug up have served their purpose: they leave
+// the pack (quietly unless `say`, e.g. when the spade has just found it)
+export function dropSpentMaps(session, say = false) {
+  const inv = session.party?.inventory;
+  if (!inv) return;
+  for (const it of session.game.items) {
+    if (it.type !== 'map' || !(inv[it.id] > 0) || !it.treasure || !isDug(session, it.treasure)) continue;
+    delete inv[it.id];
+    if (say) session.log(`The ${it.name} has led you true; you let the old map go.`);
+  }
+}
+
 // The rough circle a read map marks on the big map: the spot lies somewhere
 // inside it, never at its centre (the same circle every time for a spot)
 export function roughArea(e) {
@@ -125,6 +137,7 @@ export async function digTreasure(session, e) {
     s.passTime(DIG_TURNS);
     const rec = (treasureState(s.state)[e.id] ||= {});
     rec.dug = s.state.turn || 0;
+    dropSpentMaps(s, true);
     s.removeEntity(e);
     const loot = treasureLoot(s, e);
     const chest = { id: `${e.id}_chest`, type: 'chest', x: e.x, y: e.y, gold: String(loot.gold), items: loot.items };

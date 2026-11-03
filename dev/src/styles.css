@@ -1539,3 +1539,15 @@ button.cmp.copy.disabled { opacity: .6; cursor: default; }
 .sb-herbs .sb-list .sb-rg.short { border-color: rgba(170,40,20,.7); color: #8a1a10; }
 .sb-herbs .sb-list .sb-rg.short .sb-rg-n { color: #b02010; }
 .sb-herbs .sb-rg-ico { filter: drop-shadow(0 0 1px rgba(0,0,0,.8)); }
+
+/* ---------- selling the clutter in one go ---------- */
+.sell-junk { display: flex; align-items: center; gap: 12px; padding: 9px 12px; margin-bottom: 8px; border-radius: 8px; background: rgba(232,192,105,.08); border: 1px dashed var(--gold-dim); }
+.sell-junk > div { flex: 1; min-width: 0; font: 13.5px var(--font-ui); }
+.sell-junk b { color: var(--text); }
+.sj-names { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.sell-junk button { flex: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+
+/* ---------- magic gear: its glow colour, a star, a halo round the icon ---------- */
+.magic-name, .inv-name b.magic-name, .sr-name b.magic-name { color: var(--magic, #ffd56a); text-shadow: 0 0 8px color-mix(in srgb, var(--magic, #ffd56a) 55%, transparent); }
+.magic-name .mg-star { font-size: .85em; }
+.item-ico.magic { box-shadow: 0 0 0 1px var(--magic, #ffd56a), 0 0 10px color-mix(in srgb, var(--magic, #ffd56a) 60%, transparent); }

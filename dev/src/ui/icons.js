@@ -1,6 +1,8 @@
 // A small set of inline SVG glyphs for battle actions, abilities and
 // conditions. Drawn on a 24×24 grid in currentColor so CSS can tint them;
 // chunky shapes that still read at 14 px.
+import { magicalOf } from '../game/rules.js';
+
 const S = (d, w = 2) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
 const F = (d) => `<path d="${d}"/>`;
 
@@ -129,7 +131,7 @@ export function icon(name, cls = '') {
 // ---- what to draw for things in the game
 
 const CLASS_ICONS = { warrior: 'sword', ranger: 'bow', wizard: 'wizhat', cleric: 'sun', burglar: 'dagger', paladin: 'paladin', minstrel: 'note', runesmith: 'rune' };
-const RACE_ICONS = { human: 'tower', dwarf: 'mountain', elf: 'leaf' };
+const RACE_ICONS = { human: 'tower', dwarf: 'mountain', elf: 'leaf', hobbit: 'food' };
 
 export function classIcon(cls) { return CLASS_ICONS[cls?.id] || 'star'; }
 export function raceIcon(race) { return RACE_ICONS[race?.id] || RACE_ICONS[race?.look?.race] || 'party'; }
@@ -162,5 +164,8 @@ export function itemTile(it, cls = '') {
   s.className = `item-ico tone-${tone}${cls ? ' ' + cls : ''}`;
   s.innerHTML = iconSvg(name);
   if (it?.tint != null) s.style.color = '#' + (it.tint >>> 0).toString(16).padStart(6, '0');
+  // enchanted gear: a ring of its glow round the icon
+  const mg = magicalOf(it);
+  if (mg) { s.classList.add('magic'); s.style.setProperty('--magic', mg.color); }
   return s;
 }

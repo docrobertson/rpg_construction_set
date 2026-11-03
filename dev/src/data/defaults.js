@@ -14,6 +14,7 @@ export const RACE_TRAITS = {
   keenSight: 'Keen eyes: +1 to hit with bows, sees further outdoors',
   stout: 'Stout-hearted: resists fear and sleep',
   lucky: 'Lucky: monsters miss more often',
+  homely: 'Home cooking: a camp mends the company a quarter more',
 };
 
 export const CLASS_ABILITIES = {
@@ -173,6 +174,10 @@ export const PERKS = [
   { id: 'thrifty', name: 'Thrifty Hands', icon: 'rune', needs: 'reagents', trees: ['caster', 'fighter', 'archer'], desc: 'One time in three, a rune or remedy burns none of its reagents.' },
 ];
 
+// built-in pieces that are enchanted (older games gain the mark once)
+export const MAGIC_GEAR = { elven_bow: 0xb8ffb0, ember_bow: 0xff8030, shadow_fang: 0x9a70ff, runeblade: 0x60e0ff, dwarf_axe: 0xffb060, staff_of_power: 0xff80ff,
+  truesilver_mail: 0xd8ecff, elven_cloak: 0xa8f0c0, dragonscale: 0xff7050, serpent_shield: 0x60d0c8, whisperwind: 0xc0f0ff, fallen_hauberk: 0xa8b0ff, gilded_buckler: 0xffd060 };
+
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
 export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'scroll', 'key', 'quest', 'map'];
@@ -210,6 +215,9 @@ export const RACES = [
   { id: 'elf', name: 'Elf', desc: 'The Fair Folk of the woods: keen-eyed, graceful and wise beyond mortal years.',
     mods: { str: -1, dex: 2, int: 1, wis: 0 }, hp: -1, traits: ['keenSight'],
     look: { race: 'elf', skin: 0xf0d0b0 } },
+  { id: 'hobbit', name: 'Hobbit', desc: 'Small folk of the green hills: quiet of foot, hard to frighten, lucky beyond reason and fond of six meals a day.',
+    mods: { str: -2, dex: 2, int: 0, wis: 1 }, hp: 0, traits: ['lucky', 'homely'],
+    look: { race: 'hobbit', skin: 0xf0c4a0 } },
 ];
 
 export const CLASSES = [
@@ -264,11 +272,11 @@ export const ITEMS = [
   { id: 'short_bow', name: 'Short Bow', type: 'weapon', wkind: 'bow', dmg: '1d6', hit: 0, range: 5, price: 30, model: 'bow', desc: 'A hunter\'s bow.' },
   { id: 'long_bow', name: 'Long Bow', type: 'weapon', wkind: 'bow', dmg: '1d8', hit: 1, range: 7, price: 75, model: 'bow', desc: 'A tall bow of yew with a long reach.' },
   { id: 'crossbow', name: 'Crossbow', type: 'weapon', wkind: 'crossbow', dmg: '1d10', hit: 1, range: 6, price: 80, model: 'crossbow', desc: 'Slow to wind, deadly to receive.' },
-  { id: 'elven_bow', unique: true, name: 'Elven Bow', type: 'weapon', wkind: 'bow', dmg: '1d8+2', hit: 3, range: 8, price: 300, model: 'bow', desc: 'Strung with elven hair; its arrows sing.' },
+  { id: 'elven_bow', magical: true, glow: 0xb8ffb0, unique: true, name: 'Elven Bow', type: 'weapon', wkind: 'bow', dmg: '1d8+2', hit: 3, range: 8, price: 300, model: 'bow', desc: 'Strung with elven hair; its arrows sing.' },
   { id: 'ember_bow', unique: true, name: 'Ember Bow', type: 'weapon', wkind: 'bow', dmg: '1d8+2', hit: 1, range: 7, price: 360, model: 'bow', glow: 0xff8030, desc: 'Red-lacquered horn; its arrows kindle in flight.' },
   { id: 'shadow_fang', name: 'Shadow Fang', type: 'weapon', wkind: 'dagger', dmg: '1d6+2', hit: 3, range: 1, price: 280, model: 'dagger', glow: 0x9a70ff, desc: 'A black blade that drinks the light. Finds the gaps in any armour.' },
   { id: 'runeblade', unique: true, name: 'Runeblade', type: 'weapon', wkind: 'blade', dmg: '1d10+2', hit: 2, range: 1, price: 450, model: 'sword', glow: 0x60e0ff, desc: 'A dwarf-forged sword etched with glowing runes. Bane of evil things.' },
-  { id: 'dwarf_axe', name: 'Dwarven Axe', type: 'weapon', wkind: 'axe', dmg: '1d12+1', hit: 1, range: 1, twoHanded: true, price: 380, model: 'axe', desc: 'Forged deep beneath the mountains.' },
+  { id: 'dwarf_axe', magical: true, glow: 0xffb060, name: 'Dwarven Axe', type: 'weapon', wkind: 'axe', dmg: '1d12+1', hit: 1, range: 1, twoHanded: true, price: 380, model: 'axe', desc: 'Forged deep beneath the mountains.' },
   { id: 'staff_of_power', unique: true, name: 'Staff of Power', type: 'weapon', wkind: 'staff', dmg: '1d8+2', hit: 2, range: 1, price: 420, model: 'staff', glow: 0xff80ff, desc: 'A wizard\'s staff crowned with a star-stone.' },
   // armour
   { id: 'robe', name: 'Robe', type: 'armor', weight: 'cloth', ac: 1, price: 8, desc: 'Woven wool, warm but thin.' },
@@ -277,9 +285,9 @@ export const ITEMS = [
   { id: 'chain_mail', name: 'Chain Mail', type: 'armor', weight: 'chain', ac: 4, price: 120, desc: 'A shirt of interlocking rings.' },
   { id: 'scale_mail', name: 'Scale Mail', type: 'armor', weight: 'chain', ac: 5, price: 200, desc: 'Overlapping steel scales.' },
   { id: 'plate_armor', name: 'Plate Armour', type: 'armor', weight: 'plate', ac: 7, price: 450, desc: 'Full harness of steel.' },
-  { id: 'truesilver_mail', unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 7, price: 900, desc: 'Light as silk, hard as dragon-scale.' },
-  { id: 'elven_cloak', name: 'Elven Cloak', type: 'armor', weight: 'cloth', ac: 3, price: 240, desc: 'Grey-green and shimmering; the eye slides off it.' },
-  { id: 'dragonscale', name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 6, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
+  { id: 'truesilver_mail', magical: true, glow: 0xd8ecff, unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 7, price: 900, desc: 'Light as silk, hard as dragon-scale.' },
+  { id: 'elven_cloak', magical: true, glow: 0xa8f0c0, name: 'Elven Cloak', type: 'armor', weight: 'cloth', ac: 3, price: 240, desc: 'Grey-green and shimmering; the eye slides off it.' },
+  { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 6, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
   { id: 'buckler', name: 'Buckler', type: 'shield', ac: 1, price: 15, desc: 'A small round shield.' },
   { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 55, desc: 'A tall knight\'s shield.' },
   // consumables

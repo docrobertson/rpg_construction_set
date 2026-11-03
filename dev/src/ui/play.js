@@ -7,6 +7,7 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
+ magicalOf,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
@@ -112,6 +113,7 @@ export class PlayUI {
   }
 
   destroy() {
+    this.s.rememberZoom?.();
     this.chud.stop();
     clearTimeout(this.chud.vicTimer);
     this.chud.victoryPending = false;
@@ -315,11 +317,11 @@ export class PlayUI {
       const cur = itemOf(g, m.equip[slot]);
       const sel = h('select', { disabled: inBattle || m.status === 'dead', title: inBattle ? 'You cannot change gear mid-battle' : `Choose ${SLOT_NAMES[slot].toLowerCase()}` });
       sel.appendChild(h('option', { value: '' }, '— none —'));
-      if (cur) sel.appendChild(h('option', { value: cur.id, selected: true }, `${cur.name} (${itemStats(cur)})`));
+      if (cur) sel.appendChild(h('option', { value: cur.id, selected: true }, `${magicalOf(cur) ? '✦ ' : ''}${cur.name} (${itemStats(cur)})`));
       for (const it of g.items) {
         if (!(inv[it.id] > 0) || slotFor(it) !== slot || (cur && it.id === cur.id)) continue;
         const ok = canEquip(g, m, it);
-        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
+        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${magicalOf(it) ? '✦ ' : ''}${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
       }
       sel.value = cur ? cur.id : '';
       sel.addEventListener('change', () => {
@@ -961,7 +963,7 @@ export class PlayUI {
           list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
             h('div.sr-main',
-              h('div.sr-name', h('b', it.name), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
+              h('div.sr-name', itemName(it), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
               h('span.sr-stats', itemStats(it)),
               it.desc ? h('div.sr-desc', it.desc) : null,
               shownUse(g, it, magic) ? h('span.sr-use', shownUse(g, it, magic)) : null,
@@ -985,12 +987,32 @@ export class PlayUI {
         const inv = s.party.inventory;
         const owned = g.items.filter((it) => inv[it.id] > 0 && it.type !== 'quest');
         if (!owned.length) list.appendChild(h('p', 'You have nothing to sell.'));
+        // one click for the clutter: gear no one would gain from, and reagents,
+        // herbs and scrolls no one in the company can use (never potions, food,
+        // keys, maps or named treasures)
+        const junk = owned.filter((it) => !it.unique && uselessToCompany(g, s.party.members, it));
+        if (junk.length) {
+          const total = junk.reduce((t, it) => t + this.priceOf(it, npc, true) * inv[it.id], 0);
+          const count = junk.reduce((t, it) => t + inv[it.id], 0);
+          list.appendChild(h('div.sell-junk',
+            h('div', h('b', `${count} thing${count === 1 ? '' : 's'} no one in your company would gain from`),
+              h('div.sj-names', junk.map((it) => (inv[it.id] > 1 ? `${it.name} ×${inv[it.id]}` : it.name)).join(', '))),
+            h('button.primary', {
+              title: 'Sell them all at once',
+              onclick: () => {
+                for (const it of junk) { s.party.gold += this.priceOf(it, npc, true) * inv[it.id]; inv[it.id] = 0; }
+                sfx('gold');
+                s.log(`Sold ${count} unneeded thing${count === 1 ? '' : 's'} for ${total} gold.`, 'loot');
+                render(); this.refresh();
+              },
+            }, coin(), ` Sell all for ${total}`)));
+        }
         for (const it of owned) {
           const price = this.priceOf(it, npc, true);
           const magic = magicNote(g, s.party.members, it);
           list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
-            h('div.sr-main', h('div.sr-name', h('b', it.name), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
+            h('div.sr-main', h('div.sr-name', itemName(it), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
               magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),
             h('div.sr-side', h('span.price', coin(), String(price)), h('button', {
               onclick: () => { inv[it.id]--; s.party.gold += price; sfx('gold'); render(); this.refresh(); },
@@ -1112,8 +1134,8 @@ export class PlayUI {
         const chips = !slot ? [] : who.length ? who.map((x) => {
           const c = compareText(g, x, it);
           return h('button.cmp.' + c.cls, {
-            title: `${x.name}: ${c.text}. Click to put it on ${x.name} and open their sheet`,
-            onclick: () => { closeTopModal(); this.equipFromPack(x, it); },
+            title: `${x.name}: ${c.text}. Click to put it on ${x.name}`,
+            onclick: () => this.equipFromPack(x, it, { stay: true }),
           }, cmpArrow(c), `${x.name} ${c.text}`);
         }) : [h('span.cmp.none', 'No one in your company can use this')];
         // reagents and herbs say plainly who burns them; scrolls offer to be
@@ -1136,7 +1158,7 @@ export class PlayUI {
         }
         const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : ''), { title: it.desc || null },
           itemTile(it),
-          h('span.inv-name', h('b', it.name), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
+          h('span.inv-name', itemName(it), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
             use ? h('span.inv-use', use) : null,
             // a scroll's copy buttons already say who can copy it
@@ -1160,10 +1182,22 @@ export class PlayUI {
 
   // From the pack: put the piece on that hero, then show their sheet so the
   // change (and the way to undo it) is right there
-  equipFromPack(m, it) {
+  // stay: from the pack's own list, put it on and keep the pack open where
+  // it was (the hero's sheet is a click on their portrait away)
+  equipFromPack(m, it, { stay = false } = {}) {
     const s = this.s, g = s.game;
     const res = equipItem(g, m, it, s.party.inventory);
     if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); } else { sfx('click'); s.log(`${m.name} now wears the ${it.name}.`); s.refreshPartyVisual(); }
+    if (stay) {
+      const scroller = document.querySelector('.party-modal .modal-body');
+      const keep = scroller ? scroller.scrollTop : 0;
+      closeTopModal();
+      this.refresh();
+      this.openParty();
+      const again = document.querySelector('.party-modal .modal-body');
+      if (again) again.scrollTop = keep;
+      return;
+    }
     this.popHero = null;
     this.selectHero(m);
     this.refresh();
@@ -1442,6 +1476,31 @@ function compareText(g, m, it) {
   }
   const v = (it.ac || 0) - (cur?.ac || 0);
   return v > 0 ? { cls: 'up', text: `+${v} armour` } : v < 0 ? { cls: 'down', text: `${v} armour` } : { cls: 'same', text: 'same armour' };
+}
+
+// Would anyone in the company gain from this? Gear: only if it would be an
+// upgrade for someone who can use it. Reagents, herbs and scrolls: only if
+// someone can use them. Everything else (potions, food, keys) always counts.
+function uselessToCompany(g, members, it) {
+  const who = members.filter((m) => m.status !== 'dead');
+  if (slotFor(it)) {
+    return !who.some((m) => {
+      if (!canEquip(g, m, it).ok) return false;
+      const c = compareText(g, m, it);
+      return c && (c.cls === 'up' || c.text.startsWith('+'));
+    });
+  }
+  if (it.type === 'reagent' || it.type === 'scroll') return magicNote(g, members, it)?.cls === 'no';
+  return false;
+}
+
+// An item's name as lists show it: enchanted gear in its glow colour, with a
+// ✦ and what the magic does on hover
+function itemName(it) {
+  const mg = magicalOf(it);
+  if (!mg) return h('b', it.name);
+  return h('b.magic-name', { style: { '--magic': mg.color }, title: `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim() },
+    h('span.mg-star', '✦ '), it.name);
 }
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip

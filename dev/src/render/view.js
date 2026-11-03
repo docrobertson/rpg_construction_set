@@ -33,9 +33,14 @@ const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 export class View {
   constructor(container) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.shadowMap.enabled = true;
+    // the automated tests run in a browser without a graphics card: they set
+    // __RPG_FAST__ to draw at half resolution without shadows and to play
+    // animations faster (the page layout is unchanged)
+    this.fast = typeof window !== 'undefined' && !!window.__RPG_FAST__;
+    this.timeScale = this.fast ? 3 : 1;
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.fast, powerPreference: 'high-performance', preserveDrawingBuffer: false });
+    this.renderer.setPixelRatio(this.fast ? 0.5 : Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.shadowMap.enabled = !this.fast;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     container.appendChild(this.renderer.domElement);
@@ -477,7 +482,7 @@ export class View {
       sc.near = 5; sc.far = 90;
       sc.updateProjectionMatrix();
     }
-    this.sun.castShadow = r.dist < 60;
+    this.sun.castShadow = !this.fast && r.dist < 60;
   }
 
   // screen → tile: march the ray down to whatever surface it meets first
@@ -566,7 +571,7 @@ export class View {
       }
     }
     const e = {
-      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -867,6 +872,23 @@ export class View {
       }
       near.sort((a, b) => a[0] - b[0]);
       for (const [, e] of near.slice(0, 3)) ent(e, -10);
+    }
+    // in friendly places (towns, castles) a post, fountain or lamp never
+    // hides the townsfolk round the company: the nearest few are cut clear
+    if (party && (this.map?.type === 'town' || this.map?.type === 'castle')) {
+      const px = party.root.position.x, pz = party.root.position.z;
+      const folk = [];
+      // (not those indoors under a closed roof: the roof hides them rightly)
+      const home = this.buildings?.at?.(Math.floor(px), Math.floor(pz)) ?? -1;
+      for (const e of this.entities.values()) {
+        if (!e.person || !e.root.visible || this.cutFocus.has(e.id)) continue;
+        const b = this.buildings?.at?.(Math.floor(e.root.position.x), Math.floor(e.root.position.z)) ?? -1;
+        if (b >= 0 && b !== home) continue;
+        const d = Math.max(Math.abs(e.root.position.x - px), Math.abs(e.root.position.z - pz));
+        if (d <= 10) folk.push([d, e]);
+      }
+      folk.sort((a, b) => a[0] - b[0]);
+      for (const [, e] of folk) { if (n >= cuts.length) break; ent(e, -12); }
     }
     if (this.cursor.visible && this.map?.type === 'arena') {
       const c = this.cursor.position, s = this.cursor.scale.x;
@@ -1175,7 +1197,7 @@ export class View {
 
   _frame() {
     // a slow device still moves at a sensible pace
-    const dt = Math.min(0.1, this.clock.getDelta());
+    const dt = Math.min(0.1, this.clock.getDelta()) * this.timeScale;
     this.time += dt;
     shared.uTime.value = this.time;
     for (let i = this.tweens.length - 1; i >= 0; i--) {
