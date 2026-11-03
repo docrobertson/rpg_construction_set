@@ -33,9 +33,14 @@ const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 export class View {
   constructor(container) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.shadowMap.enabled = true;
+    // the automated tests run in a browser without a graphics card: they set
+    // __RPG_FAST__ to draw at half resolution without shadows and to play
+    // animations faster (the page layout is unchanged)
+    this.fast = typeof window !== 'undefined' && !!window.__RPG_FAST__;
+    this.timeScale = this.fast ? 3 : 1;
+    this.renderer = new THREE.WebGLRenderer({ antialias: !this.fast, powerPreference: 'high-performance', preserveDrawingBuffer: false });
+    this.renderer.setPixelRatio(this.fast ? 0.5 : Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.shadowMap.enabled = !this.fast;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     container.appendChild(this.renderer.domElement);
@@ -477,7 +482,7 @@ export class View {
       sc.near = 5; sc.far = 90;
       sc.updateProjectionMatrix();
     }
-    this.sun.castShadow = r.dist < 60;
+    this.sun.castShadow = !this.fast && r.dist < 60;
   }
 
   // screen → tile: march the ray down to whatever surface it meets first
@@ -1192,7 +1197,7 @@ export class View {
 
   _frame() {
     // a slow device still moves at a sensible pace
-    const dt = Math.min(0.1, this.clock.getDelta());
+    const dt = Math.min(0.1, this.clock.getDelta()) * this.timeScale;
     this.time += dt;
     shared.uTime.value = this.time;
     for (let i = this.tweens.length - 1; i >= 0; i--) {
