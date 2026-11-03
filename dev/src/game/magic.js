@@ -3,7 +3,7 @@
 // into a spellbook, and rangers foraging for herbs on the road.
 import { MAGIC_SYSTEMS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { casting, knownSpells, itemOf, createCharacter, maxMp } from './rules.js';
+import { casting, knownSpells, itemOf, createCharacter, maxMp, magicalOf } from './rules.js';
 
 const STYLE_ICONS = { book: 'book', prayer: 'sun', song: 'note', runes: 'rune', herbs: 'herb' };
 
@@ -107,6 +107,8 @@ export function scrollUse(game, members, item) {
 
 // A short note after a reagent, herb or scroll in a loot line: " (for Thrar)"
 export function lootTag(game, members, item) {
+  const mg = magicalOf(item);
+  if (mg) return ` (✦ magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''})`;
   if (item?.type === 'reagent') {
     const u = reagentUse(game, members, item);
     return u.cls === 'yes' ? ` (for ${u.users.map((x) => x.m.name).join(', ')})` : u.cls === 'no' ? ' (no use to your company)' : '';

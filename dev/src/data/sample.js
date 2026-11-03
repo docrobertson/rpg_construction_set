@@ -42,7 +42,7 @@ function buildSample() {
     { id: 'merek_letter', name: 'Letter to Fennick', type: 'quest', unique: true, price: 0, desc: 'A letter from Merek the sage, sealed with green wax and smelling faintly of ink and pipe smoke.' },
     { id: 'star_chart', name: 'Fennick\'s Star-Chart', type: 'quest', unique: true, price: 0, desc: 'A great roll of vellum crowded with stars, moons and furious annotations.' },
     { id: 'wolfhide_jerkin', name: 'Shepherd\'s Wolfhide', type: 'armor', weight: 'leather', ac: 4, price: 160, unique: true, desc: 'A jerkin of thick black wolfhide. It has turned many a fang.' },
-    { id: 'serpent_shield', name: 'Serpent-scale Shield', type: 'shield', ac: 3, price: 220, unique: true, desc: 'Green-black scales sewn over oak. Light as driftwood, hard as stone.' },
+    { id: 'serpent_shield', magical: true, glow: 0x60d0c8, name: 'Serpent-scale Shield', type: 'shield', ac: 3, price: 220, unique: true, desc: 'Green-black scales sewn over oak. Light as driftwood, hard as stone.' },
   );
   // named foes for the quests: each is a unique boss, never met at random
   const monster = (id) => game.monsters.find((m) => m.id === id);
@@ -228,10 +228,10 @@ function hideTreasures(game, w, westhold) {
     { id: 'tmap_downs', name: 'Bloodstained Map', type: 'map', treasure: 'tr_downs', price: 80, desc: 'A soldier\'s map of the Barrow Downs, brown with old blood. An X is inked among the hills, and beneath it: "the King\'s pay-chest — we buried it as they came".' },
     { id: 'tmap_sailor', name: 'Drowned Sailor\'s Chart', type: 'map', treasure: 'tr_strand', price: 100, desc: 'A sea-chart, salt-stained and wrinkled from the water. The coast below Westhold is drawn with care, and an X sits on the strand.' },
     { id: 'tmap_tithe', name: 'Map of the Laughing God\'s Tithe', type: 'map', treasure: 'tr_tithe', price: 260, desc: 'A fine vellum map in a thief\'s cramped hand. It shows where the stolen offerings of the Laughing God were buried, and the thief never came back for them.' },
-    { id: 'whisperwind', name: 'Whisperwind', type: 'weapon', wkind: 'bow', dmg: '1d8+1', hit: 2, range: 8, price: 220, model: 'bow', unique: true, desc: 'A poacher\'s longbow of black yew. Its arrows fly without a sound.' },
-    { id: 'fallen_hauberk', name: 'Hauberk of the Fallen Host', type: 'armor', weight: 'chain', ac: 6, price: 420, unique: true, desc: 'Bright mail of the old kings, untouched by rust after a hundred years in the earth.' },
+    { id: 'whisperwind', magical: true, glow: 0xc0f0ff, name: 'Whisperwind', type: 'weapon', wkind: 'bow', dmg: '1d8+1', hit: 2, range: 8, price: 220, model: 'bow', unique: true, desc: 'A poacher\'s longbow of black yew. Its arrows fly without a sound.' },
+    { id: 'fallen_hauberk', magical: true, glow: 0xa8b0ff, name: 'Hauberk of the Fallen Host', type: 'armor', weight: 'chain', ac: 6, price: 420, unique: true, desc: 'Bright mail of the old kings, untouched by rust after a hundred years in the earth.' },
     { id: 'coral_cutlass', name: 'Coral Cutlass', type: 'weapon', wkind: 'blade', dmg: '1d8+2', hit: 2, range: 1, price: 300, model: 'sword', glow: 0x60e0d0, unique: true, desc: 'A sea-captain\'s blade with a hilt of pink coral. It shines faintly, like light through water.' },
-    { id: 'gilded_buckler', name: 'Gilded Buckler', type: 'shield', ac: 3, price: 360, unique: true, desc: 'Gold leaf over oak, stamped with a fat grinning face. Blows seem to slide off it, laughing.' },
+    { id: 'gilded_buckler', magical: true, glow: 0xffd060, name: 'Gilded Buckler', type: 'shield', ac: 3, price: 360, unique: true, desc: 'Gold leaf over oak, stamped with a fat grinning face. Blows seem to slide off it, laughing.' },
   );
   addCrab(game);
   const ent = (id) => w.entities.find((e) => e.id === id);

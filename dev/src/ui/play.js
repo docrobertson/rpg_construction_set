@@ -7,6 +7,7 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
+ magicalOf,
 } from '../game/rules.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS } from '../data/defaults.js';
@@ -316,11 +317,11 @@ export class PlayUI {
       const cur = itemOf(g, m.equip[slot]);
       const sel = h('select', { disabled: inBattle || m.status === 'dead', title: inBattle ? 'You cannot change gear mid-battle' : `Choose ${SLOT_NAMES[slot].toLowerCase()}` });
       sel.appendChild(h('option', { value: '' }, '— none —'));
-      if (cur) sel.appendChild(h('option', { value: cur.id, selected: true }, `${cur.name} (${itemStats(cur)})`));
+      if (cur) sel.appendChild(h('option', { value: cur.id, selected: true }, `${magicalOf(cur) ? '✦ ' : ''}${cur.name} (${itemStats(cur)})`));
       for (const it of g.items) {
         if (!(inv[it.id] > 0) || slotFor(it) !== slot || (cur && it.id === cur.id)) continue;
         const ok = canEquip(g, m, it);
-        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
+        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${magicalOf(it) ? '✦ ' : ''}${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
       }
       sel.value = cur ? cur.id : '';
       sel.addEventListener('change', () => {
@@ -962,7 +963,7 @@ export class PlayUI {
           list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
             h('div.sr-main',
-              h('div.sr-name', h('b', it.name), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
+              h('div.sr-name', itemName(it), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
               h('span.sr-stats', itemStats(it)),
               it.desc ? h('div.sr-desc', it.desc) : null,
               shownUse(g, it, magic) ? h('span.sr-use', shownUse(g, it, magic)) : null,
@@ -1011,7 +1012,7 @@ export class PlayUI {
           const magic = magicNote(g, s.party.members, it);
           list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : ''),
             itemTile(it),
-            h('div.sr-main', h('div.sr-name', h('b', it.name), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
+            h('div.sr-main', h('div.sr-name', itemName(it), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
               magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),
             h('div.sr-side', h('span.price', coin(), String(price)), h('button', {
               onclick: () => { inv[it.id]--; s.party.gold += price; sfx('gold'); render(); this.refresh(); },
@@ -1157,7 +1158,7 @@ export class PlayUI {
         }
         const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : ''), { title: it.desc || null },
           itemTile(it),
-          h('span.inv-name', h('b', it.name), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
+          h('span.inv-name', itemName(it), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
             use ? h('span.inv-use', use) : null,
             // a scroll's copy buttons already say who can copy it
@@ -1491,6 +1492,15 @@ function uselessToCompany(g, members, it) {
   }
   if (it.type === 'reagent' || it.type === 'scroll') return magicNote(g, members, it)?.cls === 'no';
   return false;
+}
+
+// An item's name as lists show it: enchanted gear in its glow colour, with a
+// ✦ and what the magic does on hover
+function itemName(it) {
+  const mg = magicalOf(it);
+  if (!mg) return h('b', it.name);
+  return h('b.magic-name', { style: { '--magic': mg.color }, title: `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim() },
+    h('span.mg-star', '✦ '), it.name);
 }
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip

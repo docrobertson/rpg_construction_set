@@ -25,7 +25,7 @@ import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, adv
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
-import { treasureState, digTreasure } from './treasure.js';
+import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
 import { forageFind, lootTag } from './magic.js';
 import { buyShip } from './ships.js';
 
@@ -167,6 +167,7 @@ export class PlaySession {
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
     ensureQuestState(state); // older saves have no quest log
+    dropSpentMaps(this); // (maps for hoards dug before they were tidied away)
     treasureState(state); // nor treasure maps
   }
 

@@ -1,6 +1,8 @@
 // A small set of inline SVG glyphs for battle actions, abilities and
 // conditions. Drawn on a 24×24 grid in currentColor so CSS can tint them;
 // chunky shapes that still read at 14 px.
+import { magicalOf } from '../game/rules.js';
+
 const S = (d, w = 2) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
 const F = (d) => `<path d="${d}"/>`;
 
@@ -162,5 +164,8 @@ export function itemTile(it, cls = '') {
   s.className = `item-ico tone-${tone}${cls ? ' ' + cls : ''}`;
   s.innerHTML = iconSvg(name);
   if (it?.tint != null) s.style.color = '#' + (it.tint >>> 0).toString(16).padStart(6, '0');
+  // enchanted gear: a ring of its glow round the icon
+  const mg = magicalOf(it);
+  if (mg) { s.classList.add('magic'); s.style.setProperty('--magic', mg.color); }
   return s;
 }
