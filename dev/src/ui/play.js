@@ -986,6 +986,26 @@ export class PlayUI {
         const inv = s.party.inventory;
         const owned = g.items.filter((it) => inv[it.id] > 0 && it.type !== 'quest');
         if (!owned.length) list.appendChild(h('p', 'You have nothing to sell.'));
+        // one click for the clutter: gear no one would gain from, and reagents,
+        // herbs and scrolls no one in the company can use (never potions, food,
+        // keys, maps or named treasures)
+        const junk = owned.filter((it) => !it.unique && uselessToCompany(g, s.party.members, it));
+        if (junk.length) {
+          const total = junk.reduce((t, it) => t + this.priceOf(it, npc, true) * inv[it.id], 0);
+          const count = junk.reduce((t, it) => t + inv[it.id], 0);
+          list.appendChild(h('div.sell-junk',
+            h('div', h('b', `${count} thing${count === 1 ? '' : 's'} no one in your company would gain from`),
+              h('div.sj-names', junk.map((it) => (inv[it.id] > 1 ? `${it.name} ×${inv[it.id]}` : it.name)).join(', '))),
+            h('button.primary', {
+              title: 'Sell them all at once',
+              onclick: () => {
+                for (const it of junk) { s.party.gold += this.priceOf(it, npc, true) * inv[it.id]; inv[it.id] = 0; }
+                sfx('gold');
+                s.log(`Sold ${count} unneeded thing${count === 1 ? '' : 's'} for ${total} gold.`, 'loot');
+                render(); this.refresh();
+              },
+            }, coin(), ` Sell all for ${total}`)));
+        }
         for (const it of owned) {
           const price = this.priceOf(it, npc, true);
           const magic = magicNote(g, s.party.members, it);
@@ -1113,8 +1133,8 @@ export class PlayUI {
         const chips = !slot ? [] : who.length ? who.map((x) => {
           const c = compareText(g, x, it);
           return h('button.cmp.' + c.cls, {
-            title: `${x.name}: ${c.text}. Click to put it on ${x.name} and open their sheet`,
-            onclick: () => { closeTopModal(); this.equipFromPack(x, it); },
+            title: `${x.name}: ${c.text}. Click to put it on ${x.name}`,
+            onclick: () => this.equipFromPack(x, it, { stay: true }),
           }, cmpArrow(c), `${x.name} ${c.text}`);
         }) : [h('span.cmp.none', 'No one in your company can use this')];
         // reagents and herbs say plainly who burns them; scrolls offer to be
@@ -1161,10 +1181,22 @@ export class PlayUI {
 
   // From the pack: put the piece on that hero, then show their sheet so the
   // change (and the way to undo it) is right there
-  equipFromPack(m, it) {
+  // stay: from the pack's own list, put it on and keep the pack open where
+  // it was (the hero's sheet is a click on their portrait away)
+  equipFromPack(m, it, { stay = false } = {}) {
     const s = this.s, g = s.game;
     const res = equipItem(g, m, it, s.party.inventory);
     if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); } else { sfx('click'); s.log(`${m.name} now wears the ${it.name}.`); s.refreshPartyVisual(); }
+    if (stay) {
+      const scroller = document.querySelector('.party-modal .modal-body');
+      const keep = scroller ? scroller.scrollTop : 0;
+      closeTopModal();
+      this.refresh();
+      this.openParty();
+      const again = document.querySelector('.party-modal .modal-body');
+      if (again) again.scrollTop = keep;
+      return;
+    }
     this.popHero = null;
     this.selectHero(m);
     this.refresh();
@@ -1443,6 +1475,22 @@ function compareText(g, m, it) {
   }
   const v = (it.ac || 0) - (cur?.ac || 0);
   return v > 0 ? { cls: 'up', text: `+${v} armour` } : v < 0 ? { cls: 'down', text: `${v} armour` } : { cls: 'same', text: 'same armour' };
+}
+
+// Would anyone in the company gain from this? Gear: only if it would be an
+// upgrade for someone who can use it. Reagents, herbs and scrolls: only if
+// someone can use them. Everything else (potions, food, keys) always counts.
+function uselessToCompany(g, members, it) {
+  const who = members.filter((m) => m.status !== 'dead');
+  if (slotFor(it)) {
+    return !who.some((m) => {
+      if (!canEquip(g, m, it).ok) return false;
+      const c = compareText(g, m, it);
+      return c && (c.cls === 'up' || c.text.startsWith('+'));
+    });
+  }
+  if (it.type === 'reagent' || it.type === 'scroll') return magicNote(g, members, it)?.cls === 'no';
+  return false;
 }
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip
