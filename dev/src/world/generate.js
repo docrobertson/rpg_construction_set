@@ -1051,7 +1051,8 @@ export function uniqueTownsfolk(game, keep, seed = 1) {
   }
 }
 
-const ROLE_TEXT = {
+// the words a generated person starts with (the checklist knows them as unwritten)
+export const ROLE_TEXT = {
   weapons: { job: 'I forge blades and sell arms. Wouldst thou BUY or SELL?', greet: 'Steel for the road, traveller?' },
   armor: { job: 'I sell armour of every kind. Wouldst thou BUY or SELL?', greet: 'A good hauberk is a friend for life.' },
   provisions: { job: 'I sell FOOD, torches and potions. Wouldst thou BUY?', greet: 'Hungry? The road is long.' },

@@ -15,7 +15,8 @@ import { renderCampaign } from './campaign.js';
 import { renderLandPanel } from './land.js';
 import { PlacesEditor } from './places.js';
 import { StoryEditor } from './story.js';
-import { renderTest } from './checklist.js';
+import { renderTest, playtestModal, lastSpot } from './checklist.js';
+import { setupPlaytest } from '../testTools.js';
 import { analyzeCampaign } from '../../game/checklist.js';
 import { editorHelp } from './help.js';
 import { findAnything } from './find.js';
@@ -205,15 +206,20 @@ export class Editor {
   }
 
   // The little counts on the steps: what the checklist still finds there
+  // (the Test step counts everything open). findings: the open ones;
+  // allFindings: with the ok and the ignored too.
   refreshBadges() {
-    let found = [];
-    try { found = analyzeCampaign(this.game, { coverage: this.game.meta.playtest }); } catch (e) { console.error(e); }
+    let all = [];
+    try { all = analyzeCampaign(this.game, { coverage: this.game.meta.playtest, withIgnored: true }); } catch (e) { console.error(e); }
+    this.allFindings = all;
+    const found = all.filter((f) => !f.ignored);
     this.findings = found;
     for (const [k, el] of Object.entries(this.badges)) {
-      const mine = found.filter((f) => (k === 'test' ? f.level !== 'ok' : f.area === k && f.level !== 'ok'));
+      const mine = found.filter((f) => f.level !== 'ok' && (k === 'test' || f.area === k));
       const bad = mine.some((f) => f.level === 'error');
+      const warn = mine.some((f) => f.level === 'warn');
       el.textContent = mine.length ? String(mine.length) : '';
-      el.className = 'step-badge' + (mine.length ? (bad ? ' bad' : ' warn') : '');
+      el.className = 'step-badge' + (mine.length ? (bad ? ' bad' : warn ? ' warn' : ' todo') : '');
       el.title = mine.length ? `${mine.length} thing${mine.length === 1 ? '' : 's'} on the checklist` : '';
     }
   }
@@ -848,31 +854,24 @@ export class Editor {
     this.app.showTitle();
   }
 
-  playtestMenu() {
-    const quick = h('input', { type: 'checkbox' });
-    quick.checked = true;
-    const here = this.map;
-    const c = this.view.rig;
-    modal(h('div', h('label.field.check', quick, h('span.field-label', 'Skip party creation (use a ready-made company)')),
-      h('p.hint', 'Playtests never overwrite saved games. Press Esc → “Return to the Construction Set” when done.')), {
-      title: 'Playtest',
-      buttons: [
-        { label: 'Cancel' },
-        { label: `From here (${here.name})`, onClick: () => this.playtest(quick.checked, { map: here.id, x: Math.floor(c.tx), y: Math.floor(c.tz) }) },
-        { label: 'From the start', primary: true, onClick: () => this.playtest(quick.checked, null) },
-      ],
-    });
-  }
+  // The ▶ Playtest button: start from the beginning, a chapter or here
+  playtestMenu() { playtestModal(this); }
 
-  playtest(quick, start) {
+  // Play a copy of the realm. quick: a ready-made company (else the designer
+  // makes one); start: { map, x, y } or null for the realm's start;
+  // opt: { chapter (the chapters before it played through), level }
+  playtest(quick, start, opt = {}) {
     if (this.dirty) this.save(true);
+    lastSpot(this); // (remembered: once back, the view shows where play ended)
     const g = cloneGame(this.game);
     if (start) {
-      const m = getMap(g, start.map);
-      const p = nearestWalkable(m, start.x, start.y);
+      const m = getMap(g, start.map) || worldMap(g);
+      const p = nearestWalkable(m, start.x ?? m.entry?.x ?? 0, start.y ?? m.entry?.y ?? 0);
       start = { map: m.id, x: p.x, y: p.y };
     }
-    this.app.playGame(g, { fromEditor: true, noSave: true, start, quick });
+    const level = Math.max(1, parseInt(opt.level, 10) || 1);
+    const setup = opt.chapter || level > 1 ? (state) => setupPlaytest(g, state, { chapter: opt.chapter, level, placeParty: !start }) : null;
+    this.app.playGame(g, { fromEditor: true, noSave: true, start, quick, setup, chapter: opt.chapter || null });
   }
 
   // ------------------------------------------------------------ input

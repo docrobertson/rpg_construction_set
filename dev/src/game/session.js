@@ -977,6 +977,7 @@ export class PlaySession {
   // movement: a turn's worth, spent on the ground it crosses (its native
   // ground costs at most a turn a step, a road half a turn).
   async monstersAct() {
+    if (this.peaceful) return false; // (a designer's playtest: "monsters leave us alone")
     const p = this.state.pos;
     const map = this.map;
     for (const e of [...map.entities]) {
@@ -1075,6 +1076,7 @@ export class PlaySession {
   // sight, so a long walk has a fight or two in it rather than none; never two
   // in quick succession.
   maybeSpawnEncounter() {
+    if (this.peaceful) return;
     const map = this.map;
     const rate = (map.encounterRate ?? 0) * (this.game.settings.encounterRate ?? 1) * (1 + 0.5 * this.darkness());
     if (!rate) return;

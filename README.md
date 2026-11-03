@@ -18,14 +18,16 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 - **Sample adventure — *Shadow over Eldmark***: recover the stolen Rune-Key and break the Shadow Lord in Dol Garoth, with side quests, hidden places and treasure along the way.
 
 ### Construct
-- **Chunky placement**: click (or drag) to drop islands, lakes, forests, deep woods, hills, mountain ranges, swamps, deserts, snowfields and blighted lands. Drag out roads (auto-bridging), rivers, ridges, walls and fences.
-- **Found sites**: towns, castles, villages, dungeons, towers, dark fortresses, elven halls and dwarf holds — each generated with its own map, shops and people, ready to customise.
-- **Paint tools**: brush, scatter, line, rectangle, flood fill and picker, across ~70 tile types.
-- **Buildings and rooms** for towns and dungeons, furnished with their keepers.
-- **People, monsters, chests, signs, ships, waygates, passages** — with inspectors for everything, including a conversation editor (conditions, actions, story flags).
-- **World Data editors** for races, classes, items, spells, monsters and the magic systems themselves.
-- **Settings**: story text, rules (party size, food, line of sight, encounter rate, day and night, loot), victory condition, starting kit and position.
-- **Undo/redo, autosave** to browser storage, and **▶ Playtest** from the start or from wherever you're looking.
+The Construction Set walks you through building a realm in six steps. None of them waits on another — jump between them whenever you like — and the number on each step counts what the checklist still finds there.
+
+1. **Campaign** — the title, opening story and how the game is won; the road through the steps with where each stands; the world at a glance. **✦ Quick Start** lays down a core campaign in one go: a world of the size and shape you choose (one great land, many islands, two lands, a coast), its towns, villages, castles, dungeons and special places joined by roads, and chapters of a story from a premise. It can also add to a realm already under way.
+2. **Land** — broad strokes on the world map: paint regions of forest, hills, mountains, desert, swamp or snow; raise land or sink it into the sea; drag out rivers, roads (auto-bridging) and ridges; found places and join them with roads.
+3. **Places** — design each town, castle and dungeon from a plan: the key buildings and how many of each (“an inn, an armourer and two homes”), townsfolk, guards, walls and gates; a dungeon's rooms, monsters, boss and treasure. **Rebuild** makes it afresh, and the people you have written keep their words and move into the new buildings.
+4. **Story** — chapters, each with a goal, the quests that reach it and the people it needs. Quests are laid out step by step — who to see and where, what to find, which key opens which gate — with a warning wherever a player would be stuck. Story beats (a fetch, a slaying, a key and its gate, a companion who must come along) write the quests, people and items for you to adjust. In play, chapters open one after another with a banner, and the journal groups quests by chapter.
+5. **Details** — tile by tile: brush, scatter, line, rectangle, flood fill and picker across ~70 tile types; buildings and rooms; people (with a conversation editor: keywords, conditions, actions, story flags), monsters, chests, signs, ships, waygates, passages and points of interest.
+6. **Test** — the **checklist** looks the whole realm over: places no one can reach, keys nothing gives, foes never placed, quests nobody offers, towns without a healer, people who still say nothing of their own. **Go** jumps to each one; **Ignore** keeps what you mean to leave. **Playtest** from the beginning, from any chapter (the earlier ones counted as done) or from wherever you were looking; in play the 🛠 **Tools** jump anywhere, hand out gold, items and levels, and **Edit here** brings you back to that very square. The step also shows what your playtests have seen: places visited, quests finished, chapters reached.
+
+Beside the steps: **World Data** (races, classes, items, spells, monsters and the magic systems) and **Rules** (party size, food, line of sight, encounters, day and night, loot, magic schools, starting kit). **Ctrl+K** finds anything — a person, a place, a quest — and takes you there. Undo/redo covers everything from a brush stroke to a whole Quick Start, and the realm saves itself to browser storage as you work.
 
 ### Share
 - **File → Export game file (.json)** to back up or send a game; **Import** to load one.
@@ -49,7 +51,7 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 
 Click a hero in the Company panel to pop out their sheet and change their gear; the first hero leads the company.
 
-In the construction set: right-drag or WASD to pan, mouse wheel (or pinch) to zoom, Ctrl+Z / Ctrl+Y to undo/redo. Press **?** in the editor for a quick-start guide.
+In the construction set: right-drag or WASD to pan, mouse wheel (or pinch) to zoom, Ctrl+Z / Ctrl+Y to undo/redo, Ctrl+K to find anything. Press **?** in the editor for help with the step you are on.
 
 ## Developing
 

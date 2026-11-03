@@ -13,6 +13,7 @@ import { listProjects, loadProject, saveProject, deleteProject, loadState, delet
 import { pickFile, downloadText, slugify, uid } from './core/util.js';
 import { buildSampleGame, SAMPLE_ID } from './data/sample.js';
 import { Editor } from './ui/editor/editor.js';
+import { TestTools } from './ui/testTools.js';
 import { quickStart } from './ui/editor/campaign.js';
 import { sfx } from './core/sound.js';
 import { playMusic, stopMusic } from './core/music.js';
@@ -244,6 +245,7 @@ class App {
     if (opts.quick) {
       const state = newPlayState(game, quickParty(game));
       if (opts.start) state.pos = { ...opts.start };
+      opts.setup?.(state); // (a playtest from a chapter, or at a chosen level)
       return this.startSession(game, state, opts);
     }
     this.setLayout('full');
@@ -252,6 +254,7 @@ class App {
       onDone: (members) => {
         const state = newPlayState(game, members);
         if (opts.start) state.pos = { ...opts.start };
+        opts.setup?.(state);
         this.showIntro(game, () => this.startSession(game, state, opts));
       },
     });
@@ -268,6 +271,8 @@ class App {
     const session = new PlaySession(this, game, state, opts);
     this.session = session;
     this.playUI = new PlayUI(this, session);
+    // playtests from the Construction Set get the designer's tools
+    if (opts.fromEditor) this.testTools = new TestTools(this, session);
     const p = state.pos;
     if (!getMap(game, p.map)) {
       const s = game.settings.start;
@@ -292,6 +297,7 @@ class App {
 
   stopSession() {
     this.session?.battle?.abort();
+    if (this.testTools) { this.testTools.destroy(); this.testTools = null; }
     if (this.playUI) { this.playUI.destroy(); this.playUI = null; }
     this.session = null;
   }

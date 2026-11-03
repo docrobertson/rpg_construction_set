@@ -6,6 +6,7 @@ import { uniqueId, deepClone, uid, slugify } from '../../core/util.js';
 import { inBounds } from '../../world/map.js';
 import { GOAL_TYPES, describeGoal } from '../../game/quests.js';
 import { EVENT_TEMPLATES, EVENT_KINDS, BLESSINGS, REQS, eventFromTemplate } from '../../game/events.js';
+import { questProblems } from '../../game/checklist.js';
 
 const npcOptions = (game, emptyLabel) => () => {
   const out = emptyLabel ? [['', emptyLabel]] : [];
@@ -89,32 +90,8 @@ export function renameQuestId(game, from, to) {
   }
 }
 
-// Things that would leave the player stuck or guessing, in plain words
-export function questProblems(game, q) {
-  const out = [];
-  const npcs = new Map();
-  for (const m of game.maps) for (const e of m.entities || []) if (e.type === 'npc') npcs.set(e.id, e);
-  const startedBy = game.maps.some((m) => (m.entities || []).some((e) => (e.choices || []).some((c) => c.effects?.quest === q.id)
-    || (e.keywords || []).some((k) => k.action?.type === 'start_quest' && k.action.value === q.id)));
-  if (!(q.stages || []).length) out.push('It has no steps: add at least one.');
-  if (!q.giver && !q.auto && !startedBy) out.push('Nobody gives it and it does not start by itself: choose “Given by”, tick “Starts by itself”, or start it from a conversation or an event.');
-  if (q.giver && !npcs.has(q.giver)) out.push('The person who gives it is no longer in the game.');
-  if (q.requires && !(game.quests || []).some((x) => x.id === q.requires)) out.push('It waits for a quest that no longer exists.');
-  (q.stages || []).forEach((st, i) => {
-    const g = st.goal || {};
-    const n = `Step ${i + 1}`;
-    if (g.type === 'talk' || g.type === 'deliver') {
-      const who = g.npc || q.giver;
-      if (!who) out.push(`${n}: “${GOAL_TYPES[g.type]}” needs a person — the quest has no giver to stand in for “the quest giver”.`);
-      else if (!npcs.has(who)) out.push(`${n}: that person is no longer in the game.`);
-    }
-    if ((g.type === 'deliver' || g.type === 'collect') && !(game.items || []).some((it) => it.id === g.item)) out.push(`${n}: choose the item.`);
-    if (g.type === 'kill' && !(game.monsters || []).some((mo) => mo.id === g.monster)) out.push(`${n}: choose the monster to defeat.`);
-    if ((g.type === 'reach' || g.type === 'clear') && !game.maps.some((m) => m.id === g.map)) out.push(`${n}: choose the map.`);
-    if (g.type === 'flag' && !String(g.flags || g.flag || '').trim()) out.push(`${n}: name the story flag(s) to wait for.`);
-  });
-  return out;
-}
+// (questProblems lives with the checklist, which looks the whole realm over)
+export { questProblems };
 
 function warnBox(game, q) {
   const list = questProblems(game, q);
