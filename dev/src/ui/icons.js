@@ -129,7 +129,7 @@ export function icon(name, cls = '') {
 // ---- what to draw for things in the game
 
 const CLASS_ICONS = { warrior: 'sword', ranger: 'bow', wizard: 'wizhat', cleric: 'sun', burglar: 'dagger', paladin: 'paladin', minstrel: 'note', runesmith: 'rune' };
-const RACE_ICONS = { human: 'tower', dwarf: 'mountain', elf: 'leaf' };
+const RACE_ICONS = { human: 'tower', dwarf: 'mountain', elf: 'leaf', hobbit: 'food' };
 
 export function classIcon(cls) { return CLASS_ICONS[cls?.id] || 'star'; }
 export function raceIcon(race) { return RACE_ICONS[race?.id] || RACE_ICONS[race?.look?.race] || 'party'; }

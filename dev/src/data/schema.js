@@ -141,6 +141,13 @@ export function migrateGame(game) {
   ensure('races', RACES);
   // humans were once called "Man"
   for (const r of game.races) if (r.id === 'human' && r.name === 'Man') r.name = 'Human';
+  // hobbits came later: games still on the built-in races gain them once
+  // (a realm that has since removed them is left alone)
+  if (!game.settings.hobbitsV) {
+    game.settings.hobbitsV = 1;
+    const builtIn = ['human', 'dwarf', 'elf'].every((id) => game.races.some((r) => r.id === id));
+    if (builtIn && !game.races.some((r) => r.id === 'hobbit')) game.races.push(deepClone(RACES.find((r) => r.id === 'hobbit')));
+  }
   ensure('classes', CLASSES);
   ensure('items', ITEMS);
   ensure('spells', SPELLS);

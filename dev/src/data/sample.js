@@ -996,6 +996,21 @@ function dressVillage(game, map) {
       kw('PASS', 'The only way through the Ashen Peaks. Follow the road east. Beyond lies Dol Garoth.'),
     ],
   });
+  // a hobbit of Brookend who has had enough of hiding from orcs
+  addNpc(map, 17, 14, {
+    id: 'npc_milo', name: 'Milo Brambleby', race: 'hobbit', wander: 2, desc: 'a curly-headed hobbit with very clean boots, and very quick hands',
+    lookExtra: { face: 'bold', hair: 0x8a5a2a, hairStyle: 'short', body: 0x6a8a3a, legs: 0x8a6a3a },
+    greeting: 'Oh! Fighters! Real ones, with swords and everything.',
+    job: 'I keep bees, mostly. And I am very good at not being seen — ask the ORCS.',
+    keywords: [
+      kw('ORCS', 'Grishak\'s lot are gone, thanks to you. Brookend can breathe again — and so can I.', { cond: { type: 'questdone', value: 'q_brookend' }, elseText: 'Walked right past me in the hedge, they did. Twice. I could have had the boots off them.' }),
+      kw('BEES', 'Honey from my hives, and the best in the Eastfold. Remind me to give you a pot.'),
+    ],
+    recruit: { race: 'hobbit', cls: 'burglar', level: 2, after: 'q_brookend', equip: ['dagger', 'sling', 'leather_armor'],
+      notYet: 'Leave Brookend? With Grishak burning barns? Somebody has to keep an eye on things. A very quiet eye.',
+      offerText: 'You beat Grishak! Well. I have been thinking — a company like yours could do with someone who can open a lock and not be seen doing it. And who cooks. Take me along?',
+      joinText: 'Splendid! Let me just fetch my pans.' },
+  });
   nameNpcs(map, game, 5);
 }
 

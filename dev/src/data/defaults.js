@@ -14,6 +14,7 @@ export const RACE_TRAITS = {
   keenSight: 'Keen eyes: +1 to hit with bows, sees further outdoors',
   stout: 'Stout-hearted: resists fear and sleep',
   lucky: 'Lucky: monsters miss more often',
+  homely: 'Home cooking: a camp mends the company a quarter more',
 };
 
 export const CLASS_ABILITIES = {
@@ -210,6 +211,9 @@ export const RACES = [
   { id: 'elf', name: 'Elf', desc: 'The Fair Folk of the woods: keen-eyed, graceful and wise beyond mortal years.',
     mods: { str: -1, dex: 2, int: 1, wis: 0 }, hp: -1, traits: ['keenSight'],
     look: { race: 'elf', skin: 0xf0d0b0 } },
+  { id: 'hobbit', name: 'Hobbit', desc: 'Small folk of the green hills: quiet of foot, hard to frighten, lucky beyond reason and fond of six meals a day.',
+    mods: { str: -2, dex: 2, int: 0, wis: 1 }, hp: 0, traits: ['lucky', 'homely'],
+    look: { race: 'hobbit', skin: 0xf0c4a0 } },
 ];
 
 export const CLASSES = [

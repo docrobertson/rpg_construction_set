@@ -949,6 +949,8 @@ export function placeFeature(game, world, x, y, kind, name, seed) {
 // Plenty of names, so that every townsperson in a large realm (and every
 // random hero) can have one of their own
 const NAMES = {
+  hobbit: { m: ['Bilbo', 'Drogo', 'Fosco', 'Hamfast', 'Largo', 'Milo', 'Odo', 'Posco', 'Rufus', 'Tolman', 'Bingo', 'Dudo', 'Griffo', 'Hob', 'Mungo', 'Otho', 'Ponto', 'Sancho', 'Tobold', 'Wilcome', 'Bungo', 'Fastred', 'Ferdi', 'Gorbadoc'],
+    f: ['Bell', 'Daisy', 'Elanor', 'Hilly', 'Lily', 'Marigold', 'Myrtle', 'Pansy', 'Pervinca', 'Poppy', 'Primrose', 'Rosie', 'Tansy', 'Belba', 'Camellia', 'Dora', 'Esmeralda', 'Gilly', 'Lavender', 'Melilot', 'Peony', 'Prisca', 'Ruby', 'Salvia'] },
   human: { m: ['Aldric', 'Bram', 'Cedric', 'Doran', 'Edwin', 'Garret', 'Hal', 'Osric', 'Rowan', 'Tobin', 'Wilf', 'Merek', 'Alder', 'Bertram', 'Corwin', 'Duncan', 'Emeric', 'Godwin', 'Hugh', 'Jory', 'Leofric', 'Piers', 'Roland', 'Simon', 'Walter',
     'Ambrose', 'Baldwin', 'Conrad', 'Denholm', 'Edric', 'Fulk', 'Gareth', 'Harold', 'Ivo', 'Jasper', 'Kenric', 'Lambert', 'Matthias', 'Ned', 'Odo', 'Percival', 'Quentin', 'Ralf', 'Stephen', 'Thurstan',
     'Ulric', 'Warin', 'Aldous', 'Benedict', 'Cuthbert', 'Dunstan', 'Everard', 'Gilbert', 'Hamon', 'Lucan', 'Martin', 'Nigel', 'Oswin', 'Reginald', 'Silas', 'Tristram', 'Wystan', 'Yorick'],
@@ -1013,7 +1015,7 @@ export function uniqueTownsfolk(game, keep, seed = 1) {
     if (keep(e)) continue;
     const words = nameWords(e.name);
     if (words.length && words.every((w) => !used.has(w))) { for (const w of words) used.add(w); continue; }
-    e.name = randomName(e.look?.race === 'hobbit' ? 'human' : e.look?.race || 'human', rng, used);
+    e.name = randomName(e.look?.race || 'human', rng, used);
     for (const w of nameWords(e.name)) used.add(w);
   }
 }
@@ -1042,7 +1044,7 @@ export function nameNpcs(map, game, seed = 1) {
     if (e.type !== 'npc') continue;
     const race = e.look?.race || 'human';
     if (!e.name) {
-      e.name = randomName(race === 'hobbit' ? 'human' : race, rng, used);
+      e.name = randomName(race, rng, used);
       for (const w of nameWords(e.name)) used.add(w);
     }
     const rt = ROLE_TEXT[e.role] || ROLE_TEXT.villager;

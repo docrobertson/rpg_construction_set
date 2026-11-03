@@ -1646,11 +1646,15 @@ export class PlaySession {
       }
     }
     // a fed camp mends half of everyone's health; a hungry one a quarter
-    const rest = hungry ? 0.25 : 0.5;
+    let rest = hungry ? 0.25 : 0.5;
+    // a hobbit's cooking: the camp mends a quarter more
+    const cook = partyAlive(this.party).find((m) => hasTrait(this.game, m, 'homely'));
+    if (cook) rest *= 1.25;
     for (const m of partyAlive(this.party)) {
       m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
       m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
     }
+    if (cook && !hungry) this.log(`${cook.name} cooks a supper fit for a feast-day; everyone sleeps the better for it.`);
     this.log(hungry ? 'You wake stiff and hungry; wounds mend only a little. (Rations make for a better rest.)' : 'The party wakes rested; wounds are half mended. (An inn heals fully.)', hungry ? 'warn' : 'good');
     sfx('heal');
     this.busy = false;
