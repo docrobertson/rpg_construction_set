@@ -215,6 +215,8 @@ try {
   const chapters = await ev(() => {
     const ed = window.__app.editor, g = ed.game;
     g.story = g.story || { chapters: [] };
+    // (kept, to be put back after: the tools below play the sample's own story)
+    window.__savedStory = JSON.stringify({ story: g.story, chapter: g.quests.map((q) => [q.id, q.chapter]) });
     {
       for (const q of g.quests) delete q.chapter;
       g.story.chapters = [
@@ -264,6 +266,12 @@ try {
     await ev(() => window.__app.endPlay(true));
     await until(() => window.__app.editor && !window.__app.editor.hidden);
   }
+  await ev(() => {
+    const g = window.__app.editor.game, saved = JSON.parse(window.__savedStory || 'null');
+    if (!saved) return;
+    g.story = saved.story;
+    for (const [id, ch] of saved.chapter) { const q = g.quests.find((x) => x.id === id); if (q) { if (ch) q.chapter = ch; else delete q.chapter; } }
+  });
 
   // ------------------------------------------------------------ the designer's tools
   await ev(() => window.__app.editor.playtest(true, null));

@@ -6,10 +6,9 @@
 import { h, clear, modal, toast } from '../dom.js';
 import { buildForm } from './forms.js';
 import { FEATURE_KINDS, terrain } from '../../data/terrain.js';
-import { getTile, inBounds } from '../../world/map.js';
 import { generateWorld, WORLD_SHAPES } from '../../world/generate.js';
 import { worldMap } from '../../data/schema.js';
-import { placesOf, autoPlaceSites, connectPlaces } from '../../world/places.js';
+import { placesOf, autoPlaceSites, connectPlaces, besideSite } from '../../world/places.js';
 import { PREMISES, generateStory } from '../../world/storyGen.js';
 import { chapterList } from '../../game/story.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
@@ -299,9 +298,15 @@ function buildCampaign(ed, o) {
   if (placed.length < wants.length) notes.push(`There was room for only ${placed.length} of the ${wants.length} places.`);
   // the company starts beside the first town
   const home = placed.find((p) => p.map && (p.map.type === 'town' || p.map.type === 'castle'));
-  if (o.mode === 'fresh' && home?.portal) game.settings.start = besides(world, home.portal.x, home.portal.y);
+  if (o.mode === 'fresh' && home?.portal) {
+    const at = besideSite(world, home.portal.x, home.portal.y);
+    game.settings.start = { map: world.id, x: at?.x ?? home.portal.x, y: at?.y ?? home.portal.y };
+  }
   if (o.roads && placed.length) {
-    try { connectPlaces(game, world, { seed }); } catch (e) { console.error(e); }
+    try {
+      const r = connectPlaces(game, world, { seed });
+      if (r?.unreached?.length) notes.push(`No road could reach ${r.unreached.join(', ')}.`);
+    } catch (e) { console.error(e); }
   }
   if (o.premise !== 'blank') {
     try {
@@ -317,14 +322,4 @@ function buildCampaign(ed, o) {
   toast(`Laid down ${n} place${n === 1 ? '' : 's'}${o.premise !== 'blank' ? ` and ${chapterList(game).length} chapter${chapterList(game).length === 1 ? '' : 's'}` : ''}. ${notes.join(' ')}`.trim());
 }
 
-// A good square to stand on beside a site: open ground, south of it if possible
-function besides(world, x, y) {
-  for (let r = 1; r < 6; r++) for (const [dx, dy] of [[0, r], [-r, r], [r, r], [-r, 0], [r, 0], [0, -r]]) {
-    const nx = x + dx, ny = y + dy;
-    if (!inBounds(world, nx, ny)) continue;
-    const t = terrain(getTile(world, nx, ny));
-    if (t.walk && !t.water && !t.feature && !world.entities.some((e) => e.x === nx && e.y === ny)) return { map: world.id, x: nx, y: ny };
-  }
-  return { map: world.id, x, y };
-}
 

@@ -2,7 +2,8 @@
 import { h, clear, modal, toast, confirmDialog, promptDialog, anyModal, closeTopModal, closeAllModals } from '../dom.js';
 import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/terrain.js';
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
-import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
+import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES, WORLD_SHAPES } from '../../world/generate.js';
+import { autoPlaceSites, connectPlaces, besideSite } from '../../world/places.js';
 import { serializeGame, deserializeGame, cloneGame, getMap, worldMap } from '../../data/schema.js';
 import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
@@ -510,42 +511,88 @@ export class Editor {
     const map = this.map;
     const type = map.type;
     const gen = h('select');
-    const opts = type === 'world' ? [['world', 'Generated continent'], ['blank', 'Empty sea']]
+    const opts = type === 'world' ? [['world', 'Generated land'], ['blank', 'Empty sea']]
       : type === 'dungeon' ? [...Object.keys(DUNGEON_STYLES).map((k) => [k, `Generated ${k}`]), ['blank', 'Solid rock']]
         : [...Object.keys(SETTLEMENT_STYLES).map((k) => [k, `Generated ${k}`]), ['blank', 'Empty grass']];
     for (const [v, l] of opts) gen.appendChild(h('option', { value: v }, l));
+    // the shape of the land sets how much of it is sea, unless the slider says otherwise
+    const shape = h('select', { 'aria-label': 'Shape' }, ...Object.entries(WORLD_SHAPES).map(([k, s]) => h('option', { value: k }, s.label)));
     const water = slider('Sea level', 20, 75, 45, () => {});
     const mtn = slider('Mountains', 0, 100, 50, () => {});
     const forest = slider('Forests', 0, 100, 50, () => {});
-    const worldOpts = h('div', water, mtn, forest);
+    const rivers = slider('Rivers', 0, 8, 3, () => {});
+    shape.addEventListener('change', () => {
+      const v = Math.round((WORLD_SHAPES[shape.value]?.water ?? 0.45) * 100);
+      water.querySelector('input').value = v;
+      water.querySelector('b').textContent = String(v);
+    });
+    const sites = type === 'world' ? map.entities.filter((e) => e.type === 'portal' && e.style === 'site') : [];
+    const move = h('input', { type: 'checkbox' });
+    move.checked = true;
+    const roads = h('input', { type: 'checkbox' });
+    roads.checked = true;
+    const siteOpts = sites.length ? h('div',
+      h('label.field.check', move, h('span.field-label', `Find new spots for the ${sites.length} place${sites.length === 1 ? '' : 's'} on the new land`), h('span.field-hint', 'Otherwise each stays where it stood, even if that is now the sea.')),
+      h('label.field.check', roads, h('span.field-label', 'Join them with roads'))) : null;
+    const worldOpts = h('div', h('label.field', h('span.field-label', 'Shape'), shape), water, mtn, forest, rivers, siteOpts);
+    // a place's map is better rebuilt from its plan, which keeps its people
+    const isPlace = type !== 'world' && this.game.maps.some((m) => m.type === 'world' && m.entities.some((e) => e.type === 'portal' && e.style === 'site' && e.target?.map === map.id));
     const sync = () => { worldOpts.style.display = gen.value === 'world' ? '' : 'none'; };
     gen.addEventListener('change', sync);
     sync();
-    modal(h('div.form', h('label.field', h('span.field-label', 'Generate'), gen), worldOpts,
-      h('p.hint', 'This replaces the whole map. Characters and objects on it are removed (you can Undo).')), {
+    const m0 = modal(h('div.form', h('label.field', h('span.field-label', 'Generate'), gen), worldOpts,
+      isPlace ? h('div.regen-place', h('p.hint', `${map.name} is one of the realm's places: the Places step rebuilds it from a plan (what it holds) and keeps the people and things you have written.`),
+        h('button.small', { onclick: () => { m0.close(); this.goTo({ tab: 'places', place: map.id }); } }, `Design ${map.name} in Places →`)) : null,
+      h('p.hint', type === 'world' ? 'This makes the whole land afresh. Monsters, events and treasure on it are replaced; the places keep their maps (you can Undo).' : 'This replaces the whole map. Characters and objects on it are removed (you can Undo).')), {
       title: `Regenerate ${map.name}`,
       buttons: [{ label: 'Cancel' }, {
         label: 'Generate', primary: true, onClick: () => {
-          this.beginEdit();
+          if (this.checkpoint) this.checkpoint(`regenerating ${map.name}`); else this.beginEdit();
           const seed = Math.floor(Math.random() * 1e9);
           let m;
-          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { water: water.value / 100, mountains: mtn.value / 100, forest: forest.value / 100 });
+          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { shape: shape.value, water: water.value / 100, mountains: mtn.value / 100, forest: forest.value / 100, rivers: rivers.value });
           else m = this.makeMap(type, gen.value, map.name, seed);
           // keep identity and links
-          // sites keep their place (and their tile) on a regenerated world
+          // sites keep their place (and their tile) on a regenerated world, or find new ones
           const keepPortals = type === 'world' ? map.entities.filter((e) => e.type === 'portal' && e.style === 'site').map((p) => ({ p, t: getTile(map, p.x, p.y) })) : [];
+          const relocate = gen.value === 'world' && keepPortals.length && move.checked;
           map.tiles = m.tiles;
           map.w = m.w; map.h = m.h;
           map.entities = [...m.entities, ...keepPortals.map((k) => k.p)];
-          for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+          if (!relocate) for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
           // the old hoards went with the old land: new ones, with new maps
           forgetLostMaps(this.game);
-          if (gen.value === 'world') buryTreasures(this.game, map, seed);
           map.entry = m.entry;
           map.lighting = m.lighting;
           map.fill = m.fill;
+          let note = '';
+          if (relocate) {
+            const kindOf = (t) => Object.keys(FEATURE_KINDS).find((k) => T[FEATURE_KINDS[k].terrain] === t) || 'town';
+            // towns first, so the company has somewhere to start from
+            const order = keepPortals.slice().sort((a, b) => (['town', 'castle'].includes(kindOf(b.t)) ? 1 : 0) - (['town', 'castle'].includes(kindOf(a.t)) ? 1 : 0));
+            const moved = autoPlaceSites(this.game, map, order.map(({ p, t }) => ({ kind: kindOf(t), portal: p })), { seed, start: null });
+            const left = keepPortals.filter(({ p }) => !moved.some((x) => x.portal === p));
+            for (const { p, t } of left) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+            if (left.length) note = ` ${left.length} place${left.length === 1 ? '' : 's'} found no spot and stayed where ${left.length === 1 ? 'it was' : 'they were'}.`;
+          }
+          // the company starts on dry land, beside the first town if need be
+          const s = this.game.settings.start;
+          if (gen.value === 'world' && s?.map === map.id) {
+            const st = terrain(getTile(map, s.x, s.y));
+            if (relocate || !st.walk || st.water) {
+              const home = map.entities.find((e) => e.type === 'portal' && e.style === 'site' && ['town', 'castle'].includes(terrain(getTile(map, e.x, e.y)).key)) || map.entities.find((e) => e.type === 'portal' && e.style === 'site');
+              if (home) this.game.settings.start = besideSite(map, home.x, home.y);
+              else { const p = nearestWalkable(map, s.x, s.y); this.game.settings.start = { map: map.id, x: p.x, y: p.y }; }
+            }
+          }
+          if (gen.value === 'world') buryTreasures(this.game, map, seed);
+          if (relocate && roads.checked) {
+            const b = connectPlaces(this.game, map, { seed });
+            if (b?.unreached?.length) note += ` No road reaches ${b.unreached.join(', ')}.`;
+          }
           this.markDirty();
           this.loadMap(map, true);
+          if (note || relocate) toast(`${map.name} is made afresh${relocate ? ', its places moved to new spots' : ''}.${note}`);
         },
       }],
     });
