@@ -3,7 +3,7 @@ import { h, clear, modal, toast, confirmDialog, promptDialog, anyModal, closeTop
 import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/terrain.js';
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
 import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
-import { serializeGame, cloneGame, getMap, worldMap } from '../../data/schema.js';
+import { serializeGame, deserializeGame, cloneGame, getMap, worldMap } from '../../data/schema.js';
 import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
@@ -134,7 +134,9 @@ export class Editor {
     this.left = h('div.ed-left.panel');
     this.right = h('div.ed-right.panel');
     this.main = h('div.ed-main.panel');
-    this.status = h('div.ed-status');
+    this.statusText = h('span.st-text');
+    this.nextBtn = h('button.small.st-next', { onclick: () => this.nextStep() });
+    this.status = h('div.ed-status', this.statusText, this.nextBtn);
     root.append(top, this.left, this.main, this.right, this.status);
     this.app.ui.appendChild(root);
     this.db = new DatabaseEditor(this, this.left, this.main);
@@ -196,6 +198,12 @@ export class Editor {
     this.setTab(tab);
   }
 
+  nextStep() {
+    const i = STEPS.findIndex((st) => st[0] === this.tab);
+    if (i === STEPS.length - 1) this.playtestMenu();
+    else if (i >= 0) this.setTab(STEPS[i + 1][0]);
+  }
+
   // The little counts on the steps: what the checklist still finds there
   refreshBadges() {
     let found = [];
@@ -249,6 +257,11 @@ export class Editor {
     for (const k of [...STEPS.map((s) => s[0]), ...SIDE_TABS.map((s) => s[0])]) this.root.classList.toggle('tab-' + k, k === tab);
     this.root.classList.toggle('tab-onmap', onMap);
     this.root.classList.toggle('tab-data', !onMap);
+    // the status bar says what this step is for, and offers the next one
+    const i = STEPS.findIndex((st) => st[0] === tab);
+    this.statusText.textContent = i >= 0 ? `Step ${i + 1} · ${STEPS[i][1]} — ${STEPS[i][2]}` : (SIDE_TABS.find((st) => st[0] === tab)?.[3] || '');
+    this.nextBtn.style.display = i >= 0 ? '' : 'none';
+    this.nextBtn.textContent = i === STEPS.length - 1 ? '▶ Playtest…' : `Next: ${STEPS[i + 1]?.[1] || ''} →`;
     // (the quest form used to live on its own tab, styled as such)
     this.root.classList.toggle('tab-quests', tab === 'story');
     this.app.setLayout(onMap ? 'editor' : 'editor-data');
@@ -706,9 +719,40 @@ export class Editor {
     this.updateUndo();
   }
 
+  // Before a change to the realm as a whole (a Quick Start, a rebuilt place,
+  // a story beat written in): Undo puts everything back as it was
+  checkpoint(label) {
+    this.undoStack.push({ whole: serializeGame(this.game), label, mapId: this.map.id });
+    // whole-realm snapshots are big: keep the last few
+    let n = 0;
+    for (let i = this.undoStack.length - 1; i >= 0; i--) if (this.undoStack[i].whole && ++n > 6) this.undoStack.splice(i, 1);
+    if (this.undoStack.length > 60) this.undoStack.shift();
+    this.redoStack = [];
+    this.updateUndo();
+  }
+
+  restoreWhole(json, mapId) {
+    const g = deserializeGame(json);
+    // the same game object: everything holding it stays in step
+    for (const k of Object.keys(this.game)) if (!(k in g)) delete this.game[k];
+    Object.assign(this.game, g);
+    this.selected = null;
+    this.loadMap(getMap(this.game, mapId) || worldMap(this.game), true);
+    this.refreshTitle();
+    if (!MAP_TABS.has(this.tab)) this.setTab(this.tab);
+  }
+
   undo() {
     const u = this.undoStack.pop();
     if (!u) return;
+    if (u.whole) {
+      this.redoStack.push({ whole: serializeGame(this.game), label: u.label, mapId: this.map.id });
+      this.restoreWhole(u.whole, u.mapId);
+      toast(`Undone: ${u.label}.`);
+      this.markDirty();
+      this.updateUndo();
+      return;
+    }
     const map = getMap(this.game, u.mapId);
     if (!map) return this.undo();
     this.redoStack.push({ mapId: u.mapId, snap: snapshotMap(map) });
@@ -721,6 +765,14 @@ export class Editor {
   redo() {
     const r = this.redoStack.pop();
     if (!r) return;
+    if (r.whole) {
+      this.undoStack.push({ whole: serializeGame(this.game), label: r.label, mapId: this.map.id });
+      this.restoreWhole(r.whole, r.mapId);
+      toast(`Redone: ${r.label}.`);
+      this.markDirty();
+      this.updateUndo();
+      return;
+    }
     const map = getMap(this.game, r.mapId);
     if (!map) return;
     this.undoStack.push({ mapId: r.mapId, snap: snapshotMap(map) });
@@ -733,6 +785,9 @@ export class Editor {
   updateUndo() {
     this.undoBtn.disabled = !this.undoStack.length;
     this.redoBtn.disabled = !this.redoStack.length;
+    const u = this.undoStack[this.undoStack.length - 1], r = this.redoStack[this.redoStack.length - 1];
+    this.undoBtn.title = u?.label ? `Undo ${u.label} (Ctrl+Z)` : 'Undo (Ctrl+Z)';
+    this.redoBtn.title = r?.label ? `Redo ${r.label} (Ctrl+Y)` : 'Redo (Ctrl+Y)';
   }
 
   changed(b) {
@@ -975,8 +1030,8 @@ export class Editor {
     if (inBounds(map, t.x, t.y)) {
       const td = terrain(getTile(map, t.x, t.y));
       const ents = map.entities.filter((e) => e.x === t.x && e.y === t.y).map((e) => (e.type === 'npc' ? e.name || 'person' : e.type === 'monster' ? byId(this.game.monsters, e.monster)?.name || 'monster' : e.label || e.type));
-      this.status.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Right-drag / WASD to pan · wheel to zoom · Ctrl+Z undo`;
-    } else this.status.textContent = `${map.name} · outside the map`;
+      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Right-drag / WASD to pan · wheel to zoom · Ctrl+Z undo`;
+    } else this.statusText.textContent = `${map.name} · outside the map`;
   }
 
   onKey(e) {

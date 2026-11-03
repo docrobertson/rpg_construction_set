@@ -78,11 +78,69 @@ export function renderCampaign(ed, left, main) {
 
   const world = worldMap(game);
   main.appendChild(h('div.settings-section', h('h2', '🗺 The world'),
-    h('p', `${world.name} is ${world.w} × ${world.h} squares, with ${placesOf(game).filter((p) => p.world === world).length} places on it.`),
-    h('div.row',
-      h('button', { onclick: () => { ed.setTab('land'); ed.regenerateDialog(); } }, '🎲 Generate a new world…'),
-      h('button', { onclick: () => { ed.setTab('land'); ed.select(null); } }, 'Resize or edit the land →')),
-    fresh ? null : h('p.hint', 'The Quick Start can also add to a realm already under way: more places, or more chapters.', ' ', h('button.small', { onclick: () => quickStart(ed) }, '✦ Quick Start…'))));
+    h('div.world-glance', minimap(ed, world),
+      h('div.world-side',
+        h('p', `${world.name} is ${world.w} × ${world.h} squares, with ${placesOf(game).filter((p) => p.world === world).length} places on it. Click the map to go there.`),
+        h('div.col',
+          h('button', { onclick: () => { ed.setTab('land'); ed.regenerateDialog(); } }, '🎲 Generate a new world…'),
+          h('button', { onclick: () => { ed.setTab('land'); ed.select(null); } }, 'Resize or shape the land →')),
+        fresh ? null : h('p.hint', 'The Quick Start can also add to a realm already under way: more places, or more chapters.', ' ', h('button.small', { onclick: () => quickStart(ed) }, '✦ Quick Start…'))))));
+}
+
+// The world at a glance: its land and sea, its places and where the
+// adventure begins. Click to go there in the Land step.
+function minimap(ed, world) {
+  const scale = Math.max(2, Math.floor(340 / Math.max(world.w, world.h)));
+  const W = world.w * scale, H = world.h * scale;
+  const cv = h('canvas.minimap', { width: W, height: H });
+  const ctx = cv.getContext('2d');
+  const px = document.createElement('canvas');
+  px.width = world.w; px.height = world.h;
+  const pc = px.getContext('2d');
+  const img = pc.createImageData(world.w, world.h);
+  for (let i = 0; i < world.tiles.length; i++) {
+    const c = terrain(world.tiles[i]).top ?? 0x406040;
+    img.data[i * 4] = (c >> 16) & 255; img.data[i * 4 + 1] = (c >> 8) & 255; img.data[i * 4 + 2] = c & 255; img.data[i * 4 + 3] = 255;
+  }
+  pc.putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(px, 0, 0, W, H);
+  const places = placesOf(ed.game).filter((p) => p.world === world);
+  ctx.font = '600 11px sans-serif';
+  ctx.textAlign = 'center';
+  for (const p of places) {
+    const x = (p.portal.x + 0.5) * scale, y = (p.portal.y + 0.5) * scale;
+    const town = TOWNLIKE.has(p.kind);
+    ctx.fillStyle = town ? '#ffd86a' : '#e07050';
+    ctx.strokeStyle = '#1a0e04';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (town) ctx.arc(x, y, 4.5, 0, Math.PI * 2); else { ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath(); }
+    ctx.stroke(); ctx.fill();
+    // names stay inside the frame
+    const tw = ctx.measureText(p.map.name).width;
+    const lx = Math.min(W - tw / 2 - 2, Math.max(tw / 2 + 2, x)), ly = y < 16 ? y + 16 : y - 8;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(20,12,4,.85)';
+    ctx.strokeText(p.map.name, lx, ly);
+    ctx.fillStyle = '#fff4d8';
+    ctx.fillText(p.map.name, lx, ly);
+  }
+  const st = ed.game.settings.start;
+  if (st?.map === world.id) {
+    const x = (st.x + 0.5) * scale, y = (st.y + 0.5) * scale;
+    ctx.fillStyle = '#ff4030'; ctx.strokeStyle = '#1a0e04'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x - 1, y + 5); ctx.lineTo(x - 1, y - 7); ctx.lineTo(x + 7, y - 4); ctx.lineTo(x - 1, y - 1); ctx.stroke(); ctx.fill();
+  }
+  cv.title = 'Click to go there';
+  cv.addEventListener('click', (e) => {
+    const r = cv.getBoundingClientRect();
+    const tx = Math.floor(((e.clientX - r.left) / r.width) * world.w), ty = Math.floor(((e.clientY - r.top) / r.height) * world.h);
+    ed.setTab('land');
+    if (ed.map !== world) ed.loadMap(world);
+    ed.view.focus(tx, ty, true);
+  });
+  return cv;
 }
 
 function stepCount(ed, k) {
@@ -207,6 +265,7 @@ function buildCampaign(ed, o) {
   const seed = Math.floor(Math.random() * 1e9);
   let world = worldMap(game);
   const notes = [];
+  ed.checkpoint('the Quick Start');
   if (o.mode === 'fresh') {
     const n = parseInt(o.size, 10) || 64;
     const fresh = generateWorld(n, n, seed, { shape: o.shape, mountains: (+o.mountains || 0) / 100, forest: (+o.forest || 0) / 100 });
@@ -219,8 +278,7 @@ function buildCampaign(ed, o) {
     forgetLostMaps(game);
     buryTreasures(game, world, seed);
     if (o.title?.trim()) game.meta.title = o.title.trim();
-    ed.undoStack = []; ed.redoStack = []; ed.updateUndo();
-  } else ed.beginEdit();
+  }
   // the places: a town first (where the adventure begins), then the rest
   const wants = [];
   const add = (kind, n) => { for (let i = 0; i < n; i++) wants.push({ kind }); };

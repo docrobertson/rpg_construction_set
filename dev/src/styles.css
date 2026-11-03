@@ -1606,3 +1606,11 @@ button.wide { flex: 1; }
 .ed-help-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
 .ed-help-tabs button.on { color: #fff; box-shadow: inset 0 0 0 1px var(--gold); }
 .help-road li { margin: 6px 0; line-height: 1.45; }
+.ed-status { display: flex; align-items: center; gap: 10px; }
+.ed-status .st-text { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.ed-status .st-next { height: 20px; line-height: 18px; padding: 0 10px; font-size: 12px; flex: none; }
+.world-glance { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.world-glance .minimap { max-width: 100%; border-radius: 6px; box-shadow: 0 0 0 1px rgba(232,190,100,.55), 0 4px 14px rgba(0,0,0,.5); cursor: pointer; image-rendering: pixelated; }
+.world-side { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 8px; }
+.world-side p { margin: 0; line-height: 1.45; }
+.col { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
