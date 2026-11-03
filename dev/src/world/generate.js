@@ -271,18 +271,49 @@ export const ROOMS = {
 };
 
 // ---------------------------------------------------------------- world
+export const WORLD_SHAPES = {
+  continent: { label: 'One great land', water: 0.45 },
+  islands: { label: 'Many islands', water: 0.6 },
+  twin: { label: 'Two lands across the sea', water: 0.5 },
+  coast: { label: 'A coast (sea to the west)', water: 0.33 },
+};
+
 export function generateWorld(w, h, seed, opt = {}) {
   const map = createMap({ type: 'world', w, h, name: opt.name || 'The World' });
-  const water = opt.water ?? 0.45;
+  // the shape of the land: one continent, a scatter of islands, two lands
+  // across a strait, or a coast with the sea to the west
+  const shape = WORLD_SHAPES[opt.shape] ? opt.shape : 'continent';
+  const water = opt.water ?? WORLD_SHAPES[shape].water;
   const mtn = opt.mountains ?? 0.5;
   const forest = opt.forest ?? 0.5;
   const elev = new Float32Array(w * h);
+  const sr = new RNG(seed + 5);
+  const across = sr.chance(0.5);
+  const twins = across ? [[0.27, 0.4 + sr.float(-0.08, 0.08)], [0.73, 0.6 + sr.float(-0.08, 0.08)]] : [[0.4 + sr.float(-0.08, 0.08), 0.27], [0.6 + sr.float(-0.08, 0.08), 0.73]];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const nx = x / w, ny = y / h;
-    let e = fbm(nx * 4.2, ny * 4.2, seed, 5);
     const dx = (nx - 0.5) * 2, dy = (ny - 0.5) * 2;
-    const fall = Math.pow(Math.max(Math.abs(dx), Math.abs(dy)) * 0.6 + Math.hypot(dx, dy) * 0.4, 2.2);
-    e = e - fall * 0.55 + 0.12;
+    const edge = Math.max(Math.abs(dx), Math.abs(dy));
+    let e, fall;
+    if (shape === 'islands') {
+      e = fbm(nx * 7, ny * 7, seed, 5);
+      fall = Math.pow(edge, 4) * 0.6;
+      e = e - fall * 0.55 + 0.05;
+    } else if (shape === 'twin') {
+      e = fbm(nx * 4.6, ny * 4.6, seed, 5);
+      const d = Math.min(...twins.map(([cx, cy]) => Math.hypot((nx - cx) * 2.7, (ny - cy) * 2.7)));
+      fall = Math.pow(d * 0.75 + edge * 0.35, 2.2);
+      e = e - fall * 0.55 + 0.12;
+    } else if (shape === 'coast') {
+      e = fbm(nx * 4.2, ny * 4.2, seed, 5);
+      // the sea to the west; the land runs on past the other edges
+      fall = Math.pow(Math.max(0, 0.62 - nx) * 2.1, 2) + Math.pow(Math.max(0, edge - 0.85) * 3, 2) * 0.3;
+      e = e - fall * 0.7 + 0.1;
+    } else {
+      e = fbm(nx * 4.2, ny * 4.2, seed, 5);
+      fall = Math.pow(edge * 0.6 + Math.hypot(dx, dy) * 0.4, 2.2);
+      e = e - fall * 0.55 + 0.12;
+    }
     elev[y * w + x] = e;
   }
   // pick sea level so roughly `water` fraction is sea

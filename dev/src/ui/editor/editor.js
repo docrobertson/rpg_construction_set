@@ -3,14 +3,20 @@ import { h, clear, modal, toast, confirmDialog, promptDialog, anyModal, closeTop
 import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/terrain.js';
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
 import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
-import { serializeGame, cloneGame, getMap } from '../../data/schema.js';
+import { serializeGame, cloneGame, getMap, worldMap } from '../../data/schema.js';
 import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
 import { inspectEntity, inspectMap } from './inspector.js';
 import { DatabaseEditor } from './database.js';
 import { renderSettings } from './settings.js';
-import { QuestEditor, EVENT_TOOL, eventTemplatePicker } from './quests.js';
+import { EVENT_TOOL, eventTemplatePicker } from './quests.js';
+import { renderCampaign } from './campaign.js';
+import { renderLandPanel } from './land.js';
+import { PlacesEditor } from './places.js';
+import { StoryEditor } from './story.js';
+import { renderTest } from './checklist.js';
+import { analyzeCampaign } from '../../game/checklist.js';
 import { eventLook } from '../../game/events.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
@@ -25,6 +31,22 @@ const DUNGEON_PATHS = ['tunnel', 'wall', 'river'];
 const TOWN_ROOMS = ['house', 'shop', 'inn', 'tavern', 'temple', 'hall'];
 const DUNGEON_ROOMS = ['chamber', 'cavern', 'hall', 'temple'];
 const SHOP_KINDS = [['weapons', 'Weapons'], ['armor', 'Armour'], ['provisions', 'Provisions'], ['reagents', 'Reagents']];
+
+// The steps of building a realm, in the order they usually go. None waits on
+// another: the designer can jump between them at any time.
+export const STEPS = [
+  ['campaign', 'Campaign', 'The realm as a whole: its title and premise, its size — or a Quick Start that builds a core campaign for you'],
+  ['land', 'Land', 'Broad strokes on the world map: regions, coasts, rivers and roads, and where the places stand'],
+  ['places', 'Places', 'Each town, castle and dungeon, designed from a list of what it holds'],
+  ['story', 'Story', 'Chapters and quests: who asks what, the keys and the gates they open'],
+  ['map', 'Details', 'Tile by tile: paint, and place and script people, monsters and treasure'],
+  ['test', 'Test', 'The checklist of what still needs work, and playtesting'],
+];
+const SIDE_TABS = [['data', '📚', 'World Data', 'Races, classes, items, spells and monsters'], ['rules', '⚙', 'Rules', 'Party, food, magic schools, starting kit']];
+// tabs with the map in view (the others are forms with the map behind)
+const MAP_TABS = new Set(['land', 'map']);
+// old names of tabs, still used by links in the inspector and elsewhere
+const TAB_ALIAS = { quests: 'story', settings: 'rules', details: 'map' };
 
 export class Editor {
   constructor(app, game) {
@@ -57,6 +79,7 @@ export class Editor {
     this.tools.event = EVENT_TOOL;
     this.toolId = 'select';
     this.autosave = debounce(() => this.save(true), 2000);
+    this.badgeLater = debounce(() => { if (!this.hidden) this.refreshBadges(); }, 1200);
     this.build();
     this.bindInput();
     this.loadMap(this.map);
@@ -77,8 +100,18 @@ export class Editor {
     this.titleInput = h('input.ed-title', { type: 'text', value: this.game.meta.title, title: 'Game title' });
     this.titleInput.addEventListener('input', () => { this.game.meta.title = this.titleInput.value; this.markDirty(); });
     this.tabBtns = {};
-    const tabs = h('div.ed-tabs', ...[['map', '🗺 Map'], ['data', '📚 World Data'], ['quests', '📜 Quests'], ['settings', '⚙ Settings']].map(([k, label]) => {
-      const b = h('button', { onclick: () => this.setTab(k) }, label);
+    this.badges = {};
+    const steps = h('div.ed-steps', ...STEPS.map(([k, label, tip], i) => {
+      const badge = h('i.step-badge');
+      this.badges[k] = badge;
+      const b = h('button.ed-step', { title: tip, 'aria-label': label, onclick: () => this.setTab(k) }, h('span.step-n', String(i + 1)), h('span.step-l', label), badge);
+      b.dataset.tab = k;
+      this.tabBtns[k] = b;
+      return b;
+    }));
+    const side = h('div.ed-tabs', ...SIDE_TABS.map(([k, icon, label, tip]) => {
+      const b = h('button', { title: `${label}: ${tip}`, 'aria-label': label, onclick: () => this.setTab(k) }, h('span', icon), ' ', h('span.step-l', label));
+      b.dataset.tab = k;
       this.tabBtns[k] = b;
       return b;
     }));
@@ -88,12 +121,12 @@ export class Editor {
     const top = h('div.ed-top',
       h('button.ed-logo', { title: 'Back to the title screen', onclick: () => this.close() }, '⚒'),
       this.titleInput,
-      tabs,
+      steps,
+      side,
       h('div.grow'),
       this.undoBtn, this.redoBtn,
       this.saveState,
-      h('button', { onclick: () => this.save(false), title: 'Save to this browser (Ctrl+S)' }, 'Save'),
-      h('button', { onclick: () => this.fileMenu() }, 'File ▾'),
+      h('button', { onclick: () => this.fileMenu(), title: 'Save, export, import (Ctrl+S saves)' }, 'File ▾'),
       h('button.icon', { onclick: () => this.help(), title: 'How to build a game' }, '?'),
       h('button.primary', { onclick: () => this.playtestMenu(), title: 'Try your game' }, '▶ Playtest'),
     );
@@ -104,8 +137,70 @@ export class Editor {
     root.append(top, this.left, this.main, this.right, this.status);
     this.app.ui.appendChild(root);
     this.db = new DatabaseEditor(this, this.left, this.main);
-    this.questEd = new QuestEditor(this, this.left, this.main);
-    this.setTab('map');
+    this.story = new StoryEditor(this, this.left, this.main);
+    this.places = new PlacesEditor(this, this.left, this.main);
+    this.setTab(this.game.meta.editorTab && this.tabBtns[this.game.meta.editorTab] ? this.game.meta.editorTab : 'campaign');
+    this.refreshBadges();
+  }
+
+  // the old quest editor, now inside the Story step
+  get questEd() { return { select: (q) => { this.setTab('story'); this.story.selectQuest(q); } }; }
+
+  // Shared bits of the tool panels (used by the Land panel too)
+  get ui() {
+    return {
+      toolBtn: (id) => {
+        const t = this.tools[id];
+        const b = h('button.tool' + (this.toolId === id ? '.on' : ''), { title: t.hint || t.label, onclick: () => this.setTool(id) }, h('span.ic', t.icon || '•'), h('span.lb', t.label));
+        b.dataset.tool = id;
+        return b;
+      },
+      section: (title, help, ...children) => h('details.tool-section', { open: true }, h('summary', title, help ? h('span.help', { title: help }, '?') : null), ...children),
+      slider,
+    };
+  }
+
+  // Go to where a checklist finding (or anything else) points:
+  // { tab, map?, x?, y?, entity?, quest?, chapter?, place? }
+  goTo(go) {
+    if (!go) return;
+    const tab = TAB_ALIAS[go.tab] || go.tab || 'map';
+    if (tab === 'story' && (go.quest || go.chapter)) {
+      this.setTab('story');
+      const q = go.quest && (this.game.quests || []).find((x) => x.id === go.quest);
+      if (q) this.story.selectQuest(q); else this.story.selectChapter(go.chapter);
+      return;
+    }
+    if (tab === 'places' && (go.place || go.map)) {
+      this.setTab('places');
+      const m = getMap(this.game, go.place || go.map);
+      if (m) this.places.select(m);
+      return;
+    }
+    if (MAP_TABS.has(tab) && go.map) {
+      const m = getMap(this.game, go.map);
+      this.setTab(tab);
+      if (m && m !== this.map) this.loadMap(m);
+      if (go.x != null) this.view.focus(go.x, go.y);
+      const ent = go.entity && this.map.entities.find((e) => e.id === go.entity);
+      if (ent) { this.view.focus(ent.x, ent.y); this.select(ent); }
+      return;
+    }
+    this.setTab(tab);
+  }
+
+  // The little counts on the steps: what the checklist still finds there
+  refreshBadges() {
+    let found = [];
+    try { found = analyzeCampaign(this.game, { coverage: this.game.meta.playtest }); } catch (e) { console.error(e); }
+    this.findings = found;
+    for (const [k, el] of Object.entries(this.badges)) {
+      const mine = found.filter((f) => (k === 'test' ? f.level !== 'ok' : f.area === k && f.level !== 'ok'));
+      const bad = mine.some((f) => f.level === 'error');
+      el.textContent = mine.length ? String(mine.length) : '';
+      el.className = 'step-badge' + (mine.length ? (bad ? ' bad' : ' warn') : '');
+      el.title = mine.length ? `${mine.length} thing${mine.length === 1 ? '' : 's'} on the checklist` : '';
+    }
   }
 
   destroy() {
@@ -126,26 +221,44 @@ export class Editor {
 
   show() {
     this.hidden = false;
-    this.app.setLayout(this.tab === 'map' ? 'editor' : 'editor-data');
+    this.app.setLayout(MAP_TABS.has(this.tab) ? 'editor' : 'editor-data');
     this.root.style.display = '';
     this.bindInput();
     this.view.setPitch(this.game.settings.pitch || 52);
-    if (this.tab === 'map') this.loadMap(this.map, true); else this.setTab(this.tab);
+    if (MAP_TABS.has(this.tab)) this.loadMap(this.map, true); else this.setTab(this.tab);
+    this.refreshBadges();
   }
 
   refreshTitle() { this.titleInput.value = this.game.meta.title; }
 
   setTab(tab) {
+    tab = TAB_ALIAS[tab] || tab;
+    if (!this.tabBtns[tab]) tab = 'map';
+    const was = this.tab;
     this.tab = tab;
+    if (this.game.meta.editorTab !== tab) this.game.meta.editorTab = tab;
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('on', k === tab);
-    this.root.classList.toggle('tab-map', tab === 'map');
-    this.root.classList.toggle('tab-data', tab !== 'map');
-    this.root.classList.toggle('tab-quests', tab === 'quests');
-    this.app.setLayout(tab === 'map' ? 'editor' : 'editor-data');
-    if (tab === 'map') {
+    const onMap = MAP_TABS.has(tab);
+    for (const k of [...STEPS.map((s) => s[0]), ...SIDE_TABS.map((s) => s[0])]) this.root.classList.toggle('tab-' + k, k === tab);
+    this.root.classList.toggle('tab-onmap', onMap);
+    this.root.classList.toggle('tab-data', !onMap);
+    // (the quest form used to live on its own tab, styled as such)
+    this.root.classList.toggle('tab-quests', tab === 'story');
+    this.app.setLayout(onMap ? 'editor' : 'editor-data');
+    if (onMap) {
       this.main.style.display = 'none';
       this.right.style.display = '';
-      if (this.previewing) { this.previewing = false; this.loadMap(this.map, true); }
+      // the Land step works on a world map
+      if (tab === 'land' && this.map.type !== 'world') { this.previewing = false; this.loadMap(worldMap(this.game)); }
+      else if (this.previewing) {
+        // back from a model preview: the map, seen from where it was left
+        this.previewing = false;
+        this.loadMap(this.map, true);
+        const c = this.savedCam;
+        if (c && c.map === this.map.id) { this.view.focus(c.tx - 0.5, c.tz - 0.5, true); this.view.setZoom(c.dist, true); }
+        else { this.loadMap(this.map); }
+      }
+      if (was !== tab && !PAINT_TOOLS[this.toolId] && !this.toolId.startsWith('stamp_') && !this.toolId.startsWith('path_') && !this.toolId.startsWith('site_')) this.setTool('select');
       this.renderMapPanel();
       this.inspect();
     } else {
@@ -154,7 +267,10 @@ export class Editor {
       this.view.showCursor(null);
       this.view.showBrush(null);
       if (tab === 'data') this.db.render();
-      else if (tab === 'quests') { this.questEd.render(); this.showPreview(null); }
+      else if (tab === 'story') { this.story.render(); this.showPreview(null); }
+      else if (tab === 'places') this.places.render();
+      else if (tab === 'campaign') renderCampaign(this, this.left, this.main);
+      else if (tab === 'test') renderTest(this, this.left, this.main);
       else { renderSettings(this, this.left, this.main); this.showPreview(null); }
     }
   }
@@ -176,6 +292,11 @@ export class Editor {
     sel.value = map.id;
     sel.addEventListener('change', () => this.loadMapById(sel.value));
     this.mapSelect = sel;
+    if (this.tab === 'land') {
+      renderLandPanel(this, L);
+      if (!L.querySelector(`.tool[data-tool="${this.toolId}"]`)) this.setTool('select');
+      return;
+    }
     L.appendChild(h('div.panel-title', 'Map'));
     L.appendChild(h('div.row', sel, h('button.small', { title: 'New map', onclick: () => this.newMapDialog() }, '＋'),
       h('button.small', { title: 'Map properties', onclick: () => { this.select(null); } }, '⚙')));
@@ -186,13 +307,7 @@ export class Editor {
 
     const isWorld = map.type === 'world';
     const isDungeon = map.type === 'dungeon';
-    const toolBtn = (id) => {
-      const t = this.tools[id];
-      const b = h('button.tool' + (this.toolId === id ? '.on' : ''), { title: t.hint || t.label, onclick: () => this.setTool(id) }, h('span.ic', t.icon || '•'), h('span.lb', t.label));
-      b.dataset.tool = id;
-      return b;
-    };
-    const section = (title, help, ...children) => h('details.tool-section', { open: true }, h('summary', title, help ? h('span.help', { title: help }, '?') : null), ...children);
+    const { toolBtn, section } = this.ui;
 
     // chunky shaping
     const stamps = isWorld ? WORLD_STAMPS : isDungeon ? [] : TOWN_STAMPS;
@@ -251,7 +366,7 @@ export class Editor {
     if (!L.querySelector(`.tool[data-tool="${this.toolId}"]`)) this.setTool('select');
   }
 
-  refreshMapList() { if (this.tab === 'map') this.renderMapPanel(); }
+  refreshMapList() { if (MAP_TABS.has(this.tab)) this.renderMapPanel(); }
 
   setTool(id) {
     if (!this.tools[id]) return;
@@ -298,7 +413,7 @@ export class Editor {
       this.view.setZoom(map.type === 'world' ? 30 : 20, true);
     }
     this.refreshEntities();
-    if (this.tab === 'map') { this.renderMapPanel(); this.inspect(); }
+    if (MAP_TABS.has(this.tab)) { this.renderMapPanel(); this.inspect(); }
   }
 
   reloadMap() { this.loadMap(this.map, true); }
@@ -311,6 +426,8 @@ export class Editor {
       for (let x = 2; x < 7; x++) this.stage.tiles[3 * 9 + x] = T.road;
     }
     if (!this.previewing) {
+      const r = this.view.rig;
+      this.savedCam = { map: this.map.id, tx: r.tx, tz: r.tz, dist: r.dist };
       this.previewing = true;
       this.view.setMap(this.stage);
       this.view.setVisibilityEnabled(false);
@@ -563,7 +680,7 @@ export class Editor {
   }
 
   inspect() {
-    if (this.tab !== 'map') return;
+    if (!MAP_TABS.has(this.tab)) return;
     clear(this.right);
     this.toolHintEl = h('div.tool-hint');
     this.right.appendChild(this.toolHintEl);
@@ -625,6 +742,7 @@ export class Editor {
     this.dirty = true;
     this.updateSaveState();
     this.autosave();
+    this.badgeLater();
   }
 
   updateSaveState(err) {
@@ -654,7 +772,7 @@ export class Editor {
     const list = h('div.choose-list');
     const m = modal(list, { title: 'File', cls: 'small' });
     const item = (label, sub, fn) => list.appendChild(h('button.choose-item', { onclick: () => { m.close(); fn(); } }, h('span.ci-label', label), sub ? h('span.ci-sub', sub) : null));
-    item('Save to browser', 'Ctrl/⌘ + S — also saves automatically', () => this.save(false));
+    item('Save to browser', 'Ctrl/⌘ + S — your realm also saves itself as you work', () => this.save(false));
     item('Export game file (.json)', 'Back up your game or send it to a friend', () => {
       downloadText(slugify(this.game.meta.title) + '.json', serializeGame(this.game));
     });
@@ -704,7 +822,7 @@ export class Editor {
       down: (e) => this.onDown(e),
       move: (e) => this.onMove(e),
       up: (e) => this.onUp(e),
-      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
+      wheel: (e) => { if (!MAP_TABS.has(this.tab) && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
       ctx: (e) => e.preventDefault(),
       key: (e) => this.onKey(e),
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),
@@ -739,7 +857,7 @@ export class Editor {
   }
 
   tick(dt) {
-    if (this.tab !== 'map' || anyModal()) return;
+    if (!MAP_TABS.has(this.tab) || anyModal()) return;
     const k = this.keys;
     const sp = this.view.rig.dist * 0.9 * dt;
     let dx = 0, dz = 0;
@@ -757,7 +875,7 @@ export class Editor {
   }
 
   onDown(e) {
-    if (this.tab !== 'map') return;
+    if (!MAP_TABS.has(this.tab)) return;
     if (this.gestures?.active) { this.cancelStroke(); return; }
     if (e.button === 1 || e.button === 2 || (e.button === 0 && this.keys.has(' '))) {
       this.mouse.panning = { x: e.clientX, y: e.clientY };
@@ -789,7 +907,7 @@ export class Editor {
       this.mouse.panning = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (this.tab !== 'map' || e.target !== this.view.renderer.domElement) return;
+    if (!MAP_TABS.has(this.tab) || e.target !== this.view.renderer.domElement) return;
     const t = this.view.pick(e.clientX, e.clientY);
     if (!t) return;
     this.hover(t);
@@ -870,7 +988,7 @@ export class Editor {
       if (this.selected) this.select(null); else this.setTool('select');
       return;
     }
-    if (anyModal() || this.tab !== 'map') return;
+    if (anyModal() || !MAP_TABS.has(this.tab)) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) { e.preventDefault(); this.beginEdit(); this.removeEntity(this.selected); return; }
     const k = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' '].includes(k)) {

@@ -1551,3 +1551,46 @@ button.cmp.copy.disabled { opacity: .6; cursor: default; }
 .magic-name, .inv-name b.magic-name, .sr-name b.magic-name { color: var(--magic, #ffd56a); text-shadow: 0 0 8px color-mix(in srgb, var(--magic, #ffd56a) 55%, transparent); }
 .magic-name .mg-star { font-size: .85em; }
 .item-ico.magic { box-shadow: 0 0 0 1px var(--magic, #ffd56a), 0 0 10px color-mix(in srgb, var(--magic, #ffd56a) 60%, transparent); }
+
+/* ================================================================== */
+/* Construction Set: the steps of building a realm                    */
+.ed-steps { display: flex; gap: 2px; margin-left: 6px; counter-reset: step; }
+.ed-step { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 5px; border-radius: 16px; }
+.ed-step .step-n, .step-entry .step-n { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; border-radius: 50%;
+  font: 700 11px var(--font-ui); color: #2a1c0c; background: linear-gradient(#e8c878, #b08838); box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 2px rgba(0,0,0,.6); flex: none; }
+.ed-step.on { color: #fff; background: linear-gradient(#5c4428, #3a2a18); box-shadow: inset 0 0 0 1px var(--gold), inset 0 2px 0 rgba(255,230,160,.3); }
+.ed-step.on .step-n { background: linear-gradient(#fff2c0, #e8b850); }
+.step-badge { position: absolute; top: -3px; right: -3px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; font: 700 10px/15px var(--font-ui); font-style: normal; text-align: center; color: #fff; display: none; pointer-events: none; }
+.step-badge.warn { display: block; background: #a8781e; box-shadow: 0 0 0 1px #000; }
+.step-badge.bad { display: block; background: #b8382a; box-shadow: 0 0 0 1px #000; }
+.ed-tabs button { display: inline-flex; align-items: center; gap: 2px; }
+@media (max-width: 1400px) { .ed-tabs .step-l { display: none; } .ed-title { width: 150px; } .ed-step { padding-right: 7px; } }
+@media (max-width: 1180px) { .ed-step:not(.on) .step-l { display: none; } .ed-step:not(.on) { padding: 4px; } }
+.step-entry { display: flex; align-items: center; gap: 8px; }
+.step-entry .tag:empty { display: none; }
+button.wide { flex: 1; }
+
+/* the Campaign and Test steps are pages of their own: no strip of map beside them */
+.tab-campaign .ed-main, .tab-test .ed-main { width: auto; right: 0; }
+.tab-campaign .ed-main > *, .tab-test .ed-main > * { max-width: 920px; }
+
+/* the Campaign step */
+.qs-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; margin: 6px 0 16px; border-radius: 8px;
+  background: linear-gradient(135deg, rgba(232,190,100,.16), rgba(120,80,30,.12)); box-shadow: inset 0 0 0 1px rgba(232,190,100,.55); }
+.qs-card .qs-text { flex: 1; }
+.qs-card b { font: 600 17px var(--font-title); color: var(--gold); }
+.qs-card p { margin: 4px 0 0; line-height: 1.45; }
+.roadmap { display: flex; flex-direction: column; gap: 6px; }
+.road-step { display: flex; align-items: center; gap: 12px; text-align: left; padding: 9px 12px; border-radius: 8px; white-space: normal; }
+.road-n { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; flex: none;
+  font: 700 14px var(--font-title); color: #2a1c0c; background: linear-gradient(#e8c878, #b08838); box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 1px 3px rgba(0,0,0,.6); }
+.road-body { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.road-body b { font: 600 15px var(--font-title); color: var(--gold); }
+.road-tip { color: var(--muted); font-size: 12px; }
+.road-status { color: var(--text); font-size: 12px; margin-top: 2px; }
+.road-check { font-size: 12px; color: var(--green); white-space: nowrap; }
+.road-step.warn .road-check { color: #e8c060; }
+.road-step.bad .road-check { color: #ff8070; }
+.qs-wizard { min-width: min(560px, 86vw); }
+.qs-extras { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 10px; }
+.qs-extras .field.check { margin: 0; }

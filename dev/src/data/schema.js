@@ -55,6 +55,8 @@ export function newGame(opts = {}) {
     spells: deepClone(SPELLS),
     monsters: deepClone(MONSTERS),
     quests: [],
+    // the designer's outline: chapters that group quests (see game/story.js)
+    story: { chapters: [] },
     maps: [],
   };
   let world;
@@ -164,6 +166,9 @@ export function migrateGame(game) {
   // monsters from before travel costs: the ground they are at home on
   for (const m of game.monsters) if (!Array.isArray(m.native)) m.native = nativeOf({ ...m, native: undefined }).slice();
   migrateQuests(game); // quests arrived after the first files were saved
+  // chapters arrived later still
+  if (!game.story || typeof game.story !== 'object') game.story = { chapters: [] };
+  if (!Array.isArray(game.story.chapters)) game.story.chapters = [];
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;

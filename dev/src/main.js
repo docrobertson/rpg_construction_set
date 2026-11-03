@@ -13,6 +13,7 @@ import { listProjects, loadProject, saveProject, deleteProject, loadState, delet
 import { pickFile, downloadText, slugify, uid } from './core/util.js';
 import { buildSampleGame, SAMPLE_ID } from './data/sample.js';
 import { Editor } from './ui/editor/editor.js';
+import { quickStart } from './ui/editor/campaign.js';
 import { sfx } from './core/sound.js';
 import { playMusic, stopMusic } from './core/music.js';
 
@@ -310,8 +311,10 @@ class App {
     const row = (icon, title, desc, ...btns) => h('div.adv-row.compact', h('div.adv-pic.small', h('span.adv-crest', { html: iconSvg(icon) })), h('div.adv-info', h('b', title), desc ? h('p', desc) : null), ...btns);
     body.append(
       h('div.sub', 'Start something new'),
+      row('star', 'Quick Start', 'Choose a size, a shape, some places and a story: a core campaign is laid down for you to make your own.',
+        h('button.primary', { onclick: () => { m.close(); this.newProject(false, { quickStart: true }); } }, 'Begin')),
       row('map', 'New realm', 'A freshly generated continent, ready for towns and dungeons.',
-        h('button.primary', { onclick: () => { m.close(); this.newProject(false); } }, 'Create')),
+        h('button', { onclick: () => { m.close(); this.newProject(false); } }, 'Create')),
       row('compass', 'Empty realm', 'A lonely island in an endless sea. Build everything yourself.',
         h('button', { onclick: () => { m.close(); this.newProject(true); } }, 'Create')),
       row('quill', 'Remix the sample adventure', `“${this.sample.meta.title}” — see how it was made, then change anything.`,
@@ -335,9 +338,10 @@ class App {
     }
   }
 
-  newProject(blank) {
+  newProject(blank, opts = {}) {
     const g = newGame({ blank });
     this.openEditor(g);
+    if (opts.quickStart) quickStart(this.editor);
   }
 
   openEditor(game) {
