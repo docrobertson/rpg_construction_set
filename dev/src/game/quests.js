@@ -5,8 +5,11 @@
 //     stages: [{ text, goal: { type, ... }, say, log, reward }], reward, doneText, thanks }
 // (thanks: what the giver greets the party with once the quest is done)
 // Goal types: talk {npc}, deliver {npc, item, n}, reach {map, x?, y?, r?},
-// kill {monster, n}, collect {item, n}, clear {map}, flag {flags: 'a,b,c'}.
+// kill {monster, n}, collect {item, n}, clear {map}, flag {flags: 'a,b,c'},
+// companion {npc, map?} (someone who joined the party is with it, on that map
+// if one is given: heroes remember the person they came from in fromNpc).
 // An empty npc in a talk/deliver goal means "the quest giver".
+// Quests with a chapter (quest.chapter) wait for it to open: see game/story.js.
 // Progress lives in the play state: state.quests[id] = { status, stage, base, turn }.
 // The tracker follows state.pinned (the player's choice) if set, else
 // state.tracked (the quest that last moved on), else the main quest.
@@ -16,6 +19,7 @@ import { getTile, inBounds } from '../world/map.js';
 import { partyAlive, gainXp, itemOf, levelUpNote } from './rules.js';
 import { bfsPath } from './walk.js';
 import { lootTag } from './magic.js';
+import { chapterList, chapterById, chapterIndex, chapterTitle, openChapterIds, questOpen } from './story.js';
 
 export const GOAL_TYPES = {
   talk: 'Talk to someone',
@@ -25,6 +29,7 @@ export const GOAL_TYPES = {
   collect: 'Find an item',
   clear: 'Clear a map of monsters',
   flag: 'Story flag(s) set',
+  companion: 'Have someone in the company',
 };
 
 // ------------------------------------------------------------ state
@@ -83,6 +88,8 @@ export function canOffer(session, q) {
   if (questState(st, q.id)) return false;
   if (q.requires && !isDone(st, q.requires)) return false;
   if (q.requiresFlag && !st.party.flags[q.requiresFlag]) return false;
+  // a quest of a later chapter waits for its chapter to open
+  if (q.chapter && !questOpen(session.game, st, q)) return false;
   return true;
 }
 
@@ -190,8 +197,20 @@ export function goalProgress(session, q, goal, qs) {
       const fl = flagList(goal);
       return { have: fl.filter((f) => st.party.flags[f]).length, need: Math.max(1, fl.length) };
     }
+    case 'companion': {
+      const here = !goal.map || st.pos.map === goal.map;
+      return { have: here && hasCompanion(session, goal.npc) ? 1 : 0, need: 1 };
+    }
     default: return null;
   }
+}
+
+// Is the person (an npc id) with the company? Heroes remember whom they came
+// from; those who joined before that was kept are known by name.
+export function hasCompanion(session, npcId) {
+  if (!npcId) return false;
+  const name = findNpc(session.game, npcId)?.npc?.name;
+  return session.state.party.members.some((m) => m.fromNpc === npcId || (!m.fromNpc && !!name && m.name === name));
 }
 
 function passiveDone(session, q, stage, qs) {
@@ -281,6 +300,7 @@ function advance(session, id) {
   session.log(`Quest updated — ${q.name}: ${q.stages[qs.stage].text}`, 'quest');
   if (got.length) session.log(`You receive ${got.join(', ')}.`, 'loot');
   emit(session, 'stage', q, { got });
+  checkChapters(session); // a chapter may end at this step
   return { ok: true, got };
 }
 
@@ -305,6 +325,8 @@ function finish(session, id, extraGot = []) {
   for (const m of session.game.maps) for (const e of m.entities) {
     if (e.type === 'npc' && e.recruit?.after === id && !(st.joinOffers ||= []).includes(e.id)) st.joinOffers.push(e.id);
   }
+  // the next chapter may open now (and start its own quests)
+  checkChapters(session);
   // follow-up quests that start by themselves
   for (const nq of session.game.quests || []) if (nq.auto && nq.requires === id && canOffer(session, nq)) startQuest(session, nq.id);
   session.checkVictory?.();
@@ -323,11 +345,44 @@ export function checkQuests(session) {
     }
     if (!moved) break;
   }
+  checkChapters(session); // (a story flag set in passing can end a chapter too)
 }
 
-// Begin-of-game: start every auto quest without a prerequisite
+// Begin-of-game: open the first chapter, then start every auto quest without a prerequisite
 export function startAutoQuests(session) {
+  checkChapters(session, { begin: true });
   for (const q of session.game.quests || []) if (q.auto && !q.requires && canOffer(session, q)) startQuest(session, q.id);
+}
+
+// ------------------------------------------------------------ chapters
+// Open every chapter whose time has come: record it (state.chapters), tell
+// the player (a log line and session.ui.onChapter(chapter, n) for the banner)
+// and start the chapter's quests that begin by themselves. Called as the
+// game begins (opt.begin) and whenever quests move on. An older save with no
+// record of chapters gets one quietly: what lies behind the company is not
+// announced again. Returns the chapters opened.
+export function checkChapters(session, opt = {}) {
+  const g = session.game, st = session.state;
+  if (!st || !chapterList(g).length) return [];
+  if (!st.questsBegun && !opt.begin) return []; // not begun: startAutoQuests opens the first
+  const fresh = !st.chapters || typeof st.chapters !== 'object';
+  if (fresh) st.chapters = {};
+  const opened = [];
+  for (const id of openChapterIds(g, st)) {
+    if (st.chapters[id] != null) continue;
+    st.chapters[id] = st.turn || 0;
+    opened.push(chapterById(g, id));
+  }
+  if (fresh && !opt.begin) return [];
+  for (const ch of opened) {
+    session.log(`${chapterTitle(g, ch)}.`, 'quest'); // (its summary is on the title card and in the journal)
+    session.ui?.onChapter?.(ch, chapterIndex(g, ch.id) + 1);
+    for (const q of g.quests || []) {
+      if (q.auto && q.chapter === ch.id && (!q.requires || isDone(st, q.requires)) && canOffer(session, q)) startQuest(session, q.id);
+    }
+  }
+  if (opened.length && session.ui && st.questsBegun) session.autosave?.();
+  return opened;
 }
 
 export function onKill(session, monsterId) {
@@ -416,6 +471,12 @@ export function goalTarget(session, q) {
   const s = currentStage(session, q);
   const g = s?.goal;
   if (!g) return null;
+  // someone still to join: go and find them
+  if (g.type === 'companion' && !hasCompanion(session, g.npc)) {
+    const f = findNpc(session.game, g.npc, session.map);
+    const gone = f && f.map !== session.map && (session.state.maps?.[f.map.id]?.removed || []).includes(g.npc);
+    return f && !gone ? { mapId: f.map.id, x: f.npc.x, y: f.npc.y, who: f.npc.name || 'someone', person: true } : null;
+  }
   if (g.map && g.type !== 'kill' && g.type !== 'collect' && g.type !== 'flag') {
     const map = getMap(session.game, g.map);
     if (!map) return null;
@@ -614,6 +675,7 @@ export function describeGoal(game, q, g) {
     case 'collect': return `Find ${n > 1 ? n + ' × ' : 'the '}${item()}`;
     case 'clear': return `Clear ${mapName()} of monsters`;
     case 'flag': return 'Complete the task';
+    case 'companion': return g.map ? `Bring ${npcName()} with you to ${mapName()}` : `Have ${npcName()} join your company`;
     default: return '';
   }
 }

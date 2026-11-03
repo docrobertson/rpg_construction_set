@@ -17,7 +17,8 @@ import fs from 'node:fs';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEV = path.resolve(HERE, '..');
-const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places'];
+const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places',
+  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
 
 // what each part of the source can break (paths relative to dev/src)
 const RULES = [
@@ -31,11 +32,15 @@ const RULES = [
   [/^game\/(session|travel|walk|path|los)\.js$/, ['explore', 'progress', 'flows', 'regressions']],
   [/^ui\/(explore|hoverInfo)\.js$/, ['explore']],
   [/^ui\/(play|dom|icons|levelUp|vellum)\.js$|^styles\.css$/, ['features', 'quests', 'explore']],
-  [/^ui\/editor\//, ['editor']],
+  [/^ui\/editor\/(places|land)\.js$|^world\/places\.js$/, ['cs_places']],
+  [/^ui\/editor\/(story|quests)\.js$|^world\/storyGen\.js$/, ['cs_story']],
+  [/^game\/story\.js$/, ['cs_story', 'quests', 'progress', 'cs_checklist']],
+  [/^ui\/editor\/checklist\.js$|^game\/checklist\.js$|^ui\/testTools\.js$/, ['cs_checklist']],
+  [/^ui\/editor\//, ['editor', 'cs_shell']],
   [/^ui\/(partyCreate|help|fonts)\.js$|^main\.js$|^index\.template\.html$/, ['smoke', 'flows']],
   [/^game\/looks\.js$/, ['smoke']],
   [/^data\/sample\.js$/, ['quests', 'progress', 'places', 'deep']],
-  [/^world\/generate\.js$/, ['editor', 'places', 'progress']],
+  [/^world\/generate\.js$/, ['editor', 'places', 'progress', 'cs_places']],
   [/^world\//, ['explore', 'places']],
   [/^data\/(schema|terrain)\.js$|^core\//, ['flows', 'regressions', 'quests', 'explore']],
 ];

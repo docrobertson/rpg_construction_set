@@ -234,7 +234,7 @@ export function featureTool(kind) {
   };
 }
 
-function defaultSiteName(kind) {
+export function defaultSiteName(kind) {
   const r = new RNG(Math.floor(Math.random() * 1e9));
   const a = ['Ash', 'Bright', 'Cold', 'Elder', 'Green', 'High', 'Long', 'Mist', 'Oak', 'Red', 'Silver', 'Stone', 'Thorn', 'West', 'Wolf', 'Raven'];
   const b = { town: ['ford', 'bury', 'wick', 'hold', 'by', 'ton'], castle: ['guard', 'watch', 'keep', 'hall'], village: ['stead', 'wood', 'brook', 'field'],

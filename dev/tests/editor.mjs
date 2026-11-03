@@ -28,6 +28,9 @@ await page.getByRole('button', { name: /Construction Set/ }).click();
 await wait(300);
 await page.getByRole('button', { name: 'Create', exact: true }).first().click();
 await wait(1500);
+// a new realm opens on the Campaign step; the land is shaped in Details too
+await ev(() => window.__app.editor.setTab('map'));
+await wait(500);
 await shot('40-new-realm');
 const canvas = page.locator('#viewport canvas');
 const box = await canvas.boundingBox();
@@ -107,11 +110,11 @@ await page.getByRole('button', { name: '+ New' }).click();
 await wait(500);
 await shot('45-new-monster');
 // settings: disable song magic
-await page.getByRole('button', { name: /Settings/ }).click();
+await page.getByRole('button', { name: /Rules/ }).click();
 await wait(400);
 await ev(() => { const g = window.__app.editor.game; const song = g.magic.find((m) => m.id === 'song'); song.enabled = false; window.__app.editor.markDirty(); });
 await shot('46-settings');
-await page.getByRole('button', { name: /🗺 Map/ }).click();
+await page.getByRole('button', { name: /Details/ }).click();
 await wait(500);
 // playtest quick from start
 await ev(() => window.__app.editor.playtest(true, null));

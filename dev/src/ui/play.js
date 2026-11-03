@@ -15,7 +15,7 @@ import { sfx, isMuted, setMuted } from '../core/sound.js';
 import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
 import { escapeHtml } from '../core/util.js';
-import { attachGestures } from '../render/gestures.js';
+import { attachGestures, attachWheel } from '../render/gestures.js';
 import { portrait } from '../render/portrait.js';
 import { CombatHud, sheetAbilities } from './combatHud.js';
 import { iconSvg, itemIcon, itemTile } from './icons.js';
@@ -515,8 +515,9 @@ export class PlayUI {
     cv.addEventListener('mouseleave', this.onLeave);
     cv.addEventListener('click', this.onClick);
     cv.addEventListener('contextmenu', this.onCtx);
-    this.onWheel = (e) => { e.preventDefault(); this.view.wheelZoom(e); };
-    cv.addEventListener('wheel', this.onWheel, { passive: false });
+    // a mouse wheel or a pinch zooms; two fingers on a trackpad look around a
+    // little way from the company (it comes back into view as they move on)
+    this.wheel = attachWheel(this.view, cv, { pan: () => this.s.mode === 'explore' && !this.s.transitioning, onPan: () => this.keepLookNear() });
     cv.style.touchAction = 'none';
     this.gestures = attachGestures(this.view, cv, { pan: false });
     // a long press (finger or pen) looks instead of walking
@@ -539,6 +540,16 @@ export class PlayUI {
     cv.addEventListener('pointercancel', this.onPressEnd);
   }
 
+  // Looking around never strays far from the company: no further than the
+  // zoom lets them see (the view's reach)
+  keepLookNear() {
+    const p = this.s.state?.pos, r = this.view.rig;
+    if (!p) return;
+    const R = Math.max(4, this.view.reach || 8);
+    r.tx = Math.max(p.x + 0.5 - R, Math.min(p.x + 0.5 + R, r.tx));
+    r.tz = Math.max(p.y + 0.5 - R, Math.min(p.y + 0.5 + R, r.tz));
+  }
+
   unbindInput() {
     window.removeEventListener('keydown', this.onKey);
     const cv = this.view.renderer.domElement;
@@ -546,7 +557,7 @@ export class PlayUI {
     cv.removeEventListener('mouseleave', this.onLeave);
     cv.removeEventListener('click', this.onClick);
     cv.removeEventListener('contextmenu', this.onCtx);
-    cv.removeEventListener('wheel', this.onWheel);
+    if (this.wheel) { this.wheel.destroy(); this.wheel = null; }
     cv.removeEventListener('pointerdown', this.onPress);
     cv.removeEventListener('pointermove', this.onPressMove);
     cv.removeEventListener('pointerup', this.onPressEnd);
@@ -1409,7 +1420,7 @@ export class PlayUI {
     const v = this.view;
     const slider = h('input', { type: 'range', min: 50, max: 85, value: v.rig.pitch });
     slider.addEventListener('input', () => v.setPitch(+slider.value));
-    modal(h('div', h('p', 'Camera pitch (degrees above the horizon):'), slider, h('p.hint', 'Scroll the mouse wheel to zoom.')), { title: 'Camera', icon: 'camera', cls: 'small' });
+    modal(h('div', h('p', 'Camera pitch (degrees above the horizon):'), slider, h('p.hint', 'Pinch or scroll the mouse wheel to zoom. On a trackpad, slide two fingers to look around.')), { title: 'Camera', icon: 'camera', cls: 'small' });
   }
 
   // the controls reference (help.js), with the full rules folded in below it
@@ -1590,7 +1601,7 @@ const HELP_HTML = `
 <p><b>Point at anything</b> on the map to see what it is and what a click will do. <b>Click</b> to act: click the ground to walk
 there (the dotted line shows the way), a person to walk up and talk, a shop or house to visit whoever keeps it, a monster to attack,
 a chest, shrine, door or stairs to go and use it. <b>Right-click</b> (or press and hold on a tablet) to look without moving.
-Any key stops a walk. Two fingers pinch to zoom; the mouse wheel zooms too.</p>
+Any key stops a walk. Pinch (or scroll a mouse wheel) to zoom; on a trackpad, slide two fingers to look around — the view comes back to the company as it moves.</p>
 <p>The <b>Nearby</b> bar over the map lists what you can do where you stand — <b>T</b> talks, <b>E</b> does the first other thing,
 <b>1–4</b> the rest. Marks over heads: <b class="hk-q">!</b> has a task for you, <b class="hk-q">?</b> wants to hear about your quest,
 <b class="hk-p">?</b> is waiting on one; coins, a bed and a cross mark shops, inns and healers; a banner, someone who might join you.</p>

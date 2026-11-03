@@ -119,7 +119,9 @@ if (only === 'all' || only === 'edit') {
   await wait(1500);
   await shot('20-editor');
   // stamp an island in the ocean
-  await page.evaluate(() => { const ed = window.__app.editor; ed.setTool('stamp_island'); });
+  // (the editor opens on the Campaign step; stamping is done in Details)
+  await page.evaluate(() => { const ed = window.__app.editor; ed.setTab('map'); ed.setTool('stamp_island'); });
+  await wait(500);
   const box = await page.locator('#viewport canvas').boundingBox();
   await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.2);
   await wait(800);
@@ -130,10 +132,10 @@ if (only === 'all' || only === 'edit') {
   await page.getByRole('button', { name: /Monsters/ }).first().click();
   await wait(600);
   await shot('23-editor-monsters');
-  await click(/Settings/);
+  await click(/Rules/);
   await wait(500);
   await shot('24-editor-settings');
-  await click(/🗺 Map/);
+  await click(/Details/);
   await wait(500);
   // open a town
   await page.evaluate(() => { const ed = window.__app.editor; ed.loadMap(ed.game.maps.find((m) => m.name === 'Westhold')); });

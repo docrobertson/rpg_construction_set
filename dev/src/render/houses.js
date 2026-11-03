@@ -418,17 +418,31 @@ export class BuildingsView {
   }
 
   // the building under a camera ray (its walls and roof as a box)
-  pick(ray) {
+  // The building under a ray: its walls and the true slopes of its roof, not
+  // the box round it (that box reaches up to the ridge all the way to the
+  // eaves, and so swallowed the street seen just beyond a roof)
+  pick(ray, hole = null) {
     let best = -1, bt = Infinity;
-    const box = new THREE.Box3(), hit = new THREE.Vector3();
+    const box = new THREE.Box3(), hit = new THREE.Vector3(), p = new THREE.Vector3();
     this.list.forEach((b, i) => {
       const inf = this.info?.[i];
       const top = inf ? inf.top : 2;
-      box.min.set(b.box.x0 + 0.1, (inf?.base ?? 0) - 0.1, b.box.y0 + 0.1);
+      const base = (inf?.base ?? 0) - 0.1;
+      const roofs = inf?.surf?.roofs || [];
+      box.min.set(b.box.x0 + 0.1, base, b.box.y0 + 0.1);
       box.max.set(b.box.x1 + 0.9, top, b.box.y1 + 0.9);
-      if (ray.intersectBox(box, hit)) {
-        const t = hit.distanceTo(ray.origin);
-        if (t < bt) { bt = t; best = i; }
+      for (const r of roofs) { box.min.x = Math.min(box.min.x, r.e.x0); box.min.z = Math.min(box.min.z, r.e.z0); box.max.x = Math.max(box.max.x, r.e.x1); box.max.z = Math.max(box.max.z, r.e.z1); }
+      if (!ray.intersectBox(box, hit)) return;
+      const t0 = hit.distanceTo(ray.origin);
+      if (t0 >= bt) return;
+      if (!roofs.length) { bt = t0; best = i; return; }
+      // walk the ray through the box until it goes under a roof (the walls
+      // stand within the roofs' eaves, and the roofs come down over them)
+      for (let t = t0; t < t0 + 40 && t < bt; t += 0.04) {
+        ray.at(t, p);
+        if (!box.containsPoint(p)) { if (t > t0 + 0.1) break; continue; }
+        if (hole?.(p)) continue; // (cut away round the party: the eye sees through)
+        if (roofs.some((r) => p.x >= r.e.x0 && p.x <= r.e.x1 && p.z >= r.e.z0 && p.z <= r.e.z1 && p.y <= r.h(p.x, p.z))) { bt = t; best = i; break; }
       }
     });
     return best;
@@ -905,7 +919,9 @@ function buildOne(B, S, bi, b, map, tv, style, smoke, owned) {
   // ---- the strip of ground outside the walls: flowers, barrels, firewood
   B.tag = 0;
   dressStrip(B, b, map, tv, room, owned, bi, seed, L, base);
-  return { base, top: roofTop, H, rimStone, style: L.style, crosses, rects, eaves: roofs.map((r) => ({ ...r.eave, y: r.eaveY })) };
+  // (for pointing: each roof's true slopes)
+  const surf = { roofs: roofs.map((r) => ({ e: r.eave, h: r.heightAt })) };
+  return { base, top: roofTop, H, rimStone, style: L.style, crosses, rects, eaves: roofs.map((r) => ({ ...r.eave, y: r.eaveY })), surf };
 }
 
 // A castle building's top: parapet and merlons round a low hipped roof (its

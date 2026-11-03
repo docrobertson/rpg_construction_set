@@ -31,6 +31,7 @@ export class LevelUpCard {
 
   // called on every refresh of the play screen: cheap when nothing is due
   check() {
+    if (this.dead) return;
     if (this.entry || this.timer || !this.due().length || !this.ready()) return;
     // a short pause, so the card never jumps in while another window is opening
     this.timer = setTimeout(() => {
@@ -72,11 +73,14 @@ export class LevelUpCard {
     this.entry = modal(h('div.lvl', h('p.lvl-intro', heroes.length > 1 ? 'Your company grows stronger. Each hero may learn a new talent:' : `${heroes[0].name} grows stronger and may learn a new talent:`), rows), {
       title: 'Level up!', icon: 'up', cls: 'levelup-modal',
       buttons: [{ label: 'Done', primary: true }],
-      onClose: () => { this.entry = null; ui.refresh(); },
+      onClose: () => { this.entry = null; if (!this.dead) ui.refresh(); },
     });
   }
 
+  // (leaving play closes every window, this card's too: it must not bring
+  // itself back over whatever comes next)
   destroy() {
+    this.dead = true;
     clearTimeout(this.timer);
     this.timer = 0;
   }

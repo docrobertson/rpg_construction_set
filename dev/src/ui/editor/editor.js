@@ -2,20 +2,30 @@
 import { h, clear, modal, toast, confirmDialog, promptDialog, anyModal, closeTopModal, closeAllModals } from '../dom.js';
 import { T, TERRAIN_LIST, terrain, paletteFor, FEATURE_KINDS } from '../../data/terrain.js';
 import { getTile, inBounds, createMap, snapshotMap, restoreSnapshot, resizeMap, MAP_TYPES } from '../../world/map.js';
-import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES } from '../../world/generate.js';
-import { serializeGame, cloneGame, getMap } from '../../data/schema.js';
+import { STAMPS, PATHS, ROOMS, generateWorld, generateSettlement, generateDungeon, nameNpcs, SETTLEMENT_STYLES, DUNGEON_STYLES, WORLD_SHAPES } from '../../world/generate.js';
+import { autoPlaceSites, connectPlaces, besideSite } from '../../world/places.js';
+import { serializeGame, deserializeGame, cloneGame, getMap, worldMap } from '../../data/schema.js';
 import { saveProject, listProjects, getPref, setPref } from '../../core/storage.js';
 import { debounce, downloadText, slugify, uid } from '../../core/util.js';
 import { PAINT_TOOLS, stampTool, pathTool, roomTool, featureTool, ENTITY_TOOLS } from './tools.js';
 import { inspectEntity, inspectMap } from './inspector.js';
 import { DatabaseEditor } from './database.js';
 import { renderSettings } from './settings.js';
-import { QuestEditor, EVENT_TOOL, eventTemplatePicker } from './quests.js';
+import { EVENT_TOOL, eventTemplatePicker } from './quests.js';
+import { renderCampaign } from './campaign.js';
+import { renderLandPanel } from './land.js';
+import { PlacesEditor } from './places.js';
+import { StoryEditor } from './story.js';
+import { renderTest, playtestModal, lastSpot } from './checklist.js';
+import { setupPlaytest } from '../testTools.js';
+import { analyzeCampaign } from '../../game/checklist.js';
+import { editorHelp } from './help.js';
+import { findAnything } from './find.js';
 import { eventLook } from '../../game/events.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
-import { attachGestures } from '../../render/gestures.js';
+import { attachGestures, attachWheel } from '../../render/gestures.js';
 
 const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
 const TOWN_STAMPS = ['forest', 'meadow', 'clear', 'lake'];
@@ -25,6 +35,22 @@ const DUNGEON_PATHS = ['tunnel', 'wall', 'river'];
 const TOWN_ROOMS = ['house', 'shop', 'inn', 'tavern', 'temple', 'hall'];
 const DUNGEON_ROOMS = ['chamber', 'cavern', 'hall', 'temple'];
 const SHOP_KINDS = [['weapons', 'Weapons'], ['armor', 'Armour'], ['provisions', 'Provisions'], ['reagents', 'Reagents']];
+
+// The steps of building a realm, in the order they usually go. None waits on
+// another: the designer can jump between them at any time.
+export const STEPS = [
+  ['campaign', 'Campaign', 'The realm as a whole: its title and premise, its size — or a Quick Start that builds a core campaign for you'],
+  ['land', 'Land', 'Broad strokes on the world map: regions, coasts, rivers and roads, and where the places stand'],
+  ['places', 'Places', 'Each town, castle and dungeon, designed from a list of what it holds'],
+  ['story', 'Story', 'Chapters and quests: who asks what, the keys and the gates they open'],
+  ['map', 'Details', 'Tile by tile: paint, and place and script people, monsters and treasure'],
+  ['test', 'Test', 'The checklist of what still needs work, and playtesting'],
+];
+const SIDE_TABS = [['data', '📚', 'World Data', 'Races, classes, items, spells and monsters'], ['rules', '⚙', 'Rules', 'Party, food, magic schools, starting kit']];
+// tabs with the map in view (the others are forms with the map behind)
+const MAP_TABS = new Set(['land', 'map']);
+// old names of tabs, still used by links in the inspector and elsewhere
+const TAB_ALIAS = { quests: 'story', settings: 'rules', details: 'map' };
 
 export class Editor {
   constructor(app, game) {
@@ -57,6 +83,7 @@ export class Editor {
     this.tools.event = EVENT_TOOL;
     this.toolId = 'select';
     this.autosave = debounce(() => this.save(true), 2000);
+    this.badgeLater = debounce(() => { if (!this.hidden) this.refreshBadges(); }, 1200);
     this.build();
     this.bindInput();
     this.loadMap(this.map);
@@ -65,9 +92,7 @@ export class Editor {
     if (!getPref('seenEditorHelp', false)) { setPref('seenEditorHelp', true); setTimeout(() => this.help(), 400); }
   }
 
-  help() {
-    modal(h('div.help', { html: EDITOR_HELP }), { title: 'Building your realm', cls: 'wide' });
-  }
+  help() { editorHelp(this); }
 
   // ------------------------------------------------------------ layout
   build() {
@@ -77,8 +102,18 @@ export class Editor {
     this.titleInput = h('input.ed-title', { type: 'text', value: this.game.meta.title, title: 'Game title' });
     this.titleInput.addEventListener('input', () => { this.game.meta.title = this.titleInput.value; this.markDirty(); });
     this.tabBtns = {};
-    const tabs = h('div.ed-tabs', ...[['map', '🗺 Map'], ['data', '📚 World Data'], ['quests', '📜 Quests'], ['settings', '⚙ Settings']].map(([k, label]) => {
-      const b = h('button', { onclick: () => this.setTab(k) }, label);
+    this.badges = {};
+    const steps = h('div.ed-steps', ...STEPS.map(([k, label, tip], i) => {
+      const badge = h('i.step-badge');
+      this.badges[k] = badge;
+      const b = h('button.ed-step', { title: tip, 'aria-label': label, onclick: () => this.setTab(k) }, h('span.step-n', String(i + 1)), h('span.step-l', label), badge);
+      b.dataset.tab = k;
+      this.tabBtns[k] = b;
+      return b;
+    }));
+    const side = h('div.ed-tabs', ...SIDE_TABS.map(([k, icon, label, tip]) => {
+      const b = h('button', { title: `${label}: ${tip}`, 'aria-label': label, onclick: () => this.setTab(k) }, h('span', icon), ' ', h('span.step-l', label));
+      b.dataset.tab = k;
       this.tabBtns[k] = b;
       return b;
     }));
@@ -88,24 +123,106 @@ export class Editor {
     const top = h('div.ed-top',
       h('button.ed-logo', { title: 'Back to the title screen', onclick: () => this.close() }, '⚒'),
       this.titleInput,
-      tabs,
+      steps,
+      side,
       h('div.grow'),
       this.undoBtn, this.redoBtn,
       this.saveState,
-      h('button', { onclick: () => this.save(false), title: 'Save to this browser (Ctrl+S)' }, 'Save'),
-      h('button', { onclick: () => this.fileMenu() }, 'File ▾'),
+      h('button.icon', { onclick: () => findAnything(this), title: 'Find anything — a person, a place, a quest (Ctrl+K)', 'aria-label': 'Find' }, '🔍'),
+      h('button', { onclick: () => this.fileMenu(), title: 'Save, export, import (Ctrl+S saves)' }, 'File ▾'),
       h('button.icon', { onclick: () => this.help(), title: 'How to build a game' }, '?'),
       h('button.primary', { onclick: () => this.playtestMenu(), title: 'Try your game' }, '▶ Playtest'),
     );
     this.left = h('div.ed-left.panel');
     this.right = h('div.ed-right.panel');
     this.main = h('div.ed-main.panel');
-    this.status = h('div.ed-status');
+    this.statusText = h('span.st-text');
+    this.nextBtn = h('button.small.ed-next', { onclick: () => this.nextStep() });
+    this.status = h('div.ed-status', this.statusText, this.nextBtn);
     root.append(top, this.left, this.main, this.right, this.status);
     this.app.ui.appendChild(root);
     this.db = new DatabaseEditor(this, this.left, this.main);
-    this.questEd = new QuestEditor(this, this.left, this.main);
-    this.setTab('map');
+    this.story = new StoryEditor(this, this.left, this.main);
+    this.places = new PlacesEditor(this, this.left, this.main);
+    this.setTab(this.game.meta.editorTab && this.tabBtns[this.game.meta.editorTab] ? this.game.meta.editorTab : 'campaign');
+    this.refreshBadges();
+  }
+
+  // the old quest editor, now inside the Story step
+  get questEd() { return { select: (q) => { this.setTab('story'); this.story.selectQuest(q); } }; }
+
+  // Shared bits of the tool panels (used by the Land panel too)
+  get ui() {
+    return {
+      toolBtn: (id) => {
+        const t = this.tools[id];
+        const b = h('button.tool' + (this.toolId === id ? '.on' : ''), { title: t.hint || t.label, onclick: () => this.setTool(id) }, h('span.ic', t.icon || '•'), h('span.lb', t.label));
+        b.dataset.tool = id;
+        return b;
+      },
+      section: (title, help, ...children) => h('details.tool-section', { open: true }, h('summary', title, help ? h('span.help', { title: help }, '?') : null), ...children),
+      slider,
+    };
+  }
+
+  // Go to where a checklist finding (or anything else) points:
+  // { tab, map?, x?, y?, entity?, quest?, chapter?, place? }
+  goTo(go) {
+    if (!go) return;
+    const tab = TAB_ALIAS[go.tab] || go.tab || 'map';
+    if (tab === 'story' && (go.quest || go.chapter)) {
+      this.setTab('story');
+      const q = go.quest && (this.game.quests || []).find((x) => x.id === go.quest);
+      if (q) this.story.selectQuest(q); else this.story.selectChapter(go.chapter);
+      return;
+    }
+    if (tab === 'data' && go.cat) {
+      this.db.cat = go.cat;
+      this.db.sel = (this.game[go.cat] || []).find((x) => x.id === go.id) || null;
+      this.setTab('data');
+      return;
+    }
+    if (tab === 'places' && (go.place || go.map)) {
+      this.setTab('places');
+      const m = getMap(this.game, go.place || go.map);
+      if (m) this.places.select(m);
+      return;
+    }
+    if (MAP_TABS.has(tab) && go.map) {
+      const m = getMap(this.game, go.map);
+      this.setTab(tab);
+      if (m && m !== this.map) this.loadMap(m);
+      if (go.x != null) this.view.focus(go.x, go.y);
+      const ent = go.entity && this.map.entities.find((e) => e.id === go.entity);
+      if (ent) { this.view.focus(ent.x, ent.y); this.select(ent); }
+      return;
+    }
+    this.setTab(tab);
+  }
+
+  nextStep() {
+    const i = STEPS.findIndex((st) => st[0] === this.tab);
+    if (i === STEPS.length - 1) this.playtestMenu();
+    else if (i >= 0) this.setTab(STEPS[i + 1][0]);
+  }
+
+  // The little counts on the steps: what the checklist still finds there
+  // (the Test step counts everything open). findings: the open ones;
+  // allFindings: with the ok and the ignored too.
+  refreshBadges() {
+    let all = [];
+    try { all = analyzeCampaign(this.game, { coverage: this.game.meta.playtest, withIgnored: true }); } catch (e) { console.error(e); }
+    this.allFindings = all;
+    const found = all.filter((f) => !f.ignored);
+    this.findings = found;
+    for (const [k, el] of Object.entries(this.badges)) {
+      const mine = found.filter((f) => f.level !== 'ok' && (k === 'test' || f.area === k));
+      const bad = mine.some((f) => f.level === 'error');
+      const warn = mine.some((f) => f.level === 'warn');
+      el.textContent = mine.length ? String(mine.length) : '';
+      el.className = 'step-badge' + (mine.length ? (bad ? ' bad' : warn ? ' warn' : ' todo') : '');
+      el.title = mine.length ? `${mine.length} thing${mine.length === 1 ? '' : 's'} on the checklist` : '';
+    }
   }
 
   destroy() {
@@ -126,26 +243,49 @@ export class Editor {
 
   show() {
     this.hidden = false;
-    this.app.setLayout(this.tab === 'map' ? 'editor' : 'editor-data');
+    this.app.setLayout(MAP_TABS.has(this.tab) ? 'editor' : 'editor-data');
     this.root.style.display = '';
     this.bindInput();
     this.view.setPitch(this.game.settings.pitch || 52);
-    if (this.tab === 'map') this.loadMap(this.map, true); else this.setTab(this.tab);
+    if (MAP_TABS.has(this.tab)) this.loadMap(this.map, true); else this.setTab(this.tab);
+    this.refreshBadges();
   }
 
   refreshTitle() { this.titleInput.value = this.game.meta.title; }
 
   setTab(tab) {
+    tab = TAB_ALIAS[tab] || tab;
+    if (!this.tabBtns[tab]) tab = 'map';
+    const was = this.tab;
     this.tab = tab;
+    if (this.game.meta.editorTab !== tab) this.game.meta.editorTab = tab;
     for (const [k, b] of Object.entries(this.tabBtns)) b.classList.toggle('on', k === tab);
-    this.root.classList.toggle('tab-map', tab === 'map');
-    this.root.classList.toggle('tab-data', tab !== 'map');
-    this.root.classList.toggle('tab-quests', tab === 'quests');
-    this.app.setLayout(tab === 'map' ? 'editor' : 'editor-data');
-    if (tab === 'map') {
+    const onMap = MAP_TABS.has(tab);
+    for (const k of [...STEPS.map((s) => s[0]), ...SIDE_TABS.map((s) => s[0])]) this.root.classList.toggle('tab-' + k, k === tab);
+    this.root.classList.toggle('tab-onmap', onMap);
+    this.root.classList.toggle('tab-data', !onMap);
+    // the status bar says what this step is for, and offers the next one
+    const i = STEPS.findIndex((st) => st[0] === tab);
+    this.statusText.textContent = i >= 0 ? `Step ${i + 1} · ${STEPS[i][1]} — ${STEPS[i][2]}` : (SIDE_TABS.find((st) => st[0] === tab)?.[3] || '');
+    this.nextBtn.style.display = i >= 0 ? '' : 'none';
+    this.nextBtn.textContent = i === STEPS.length - 1 ? '▶ Playtest…' : `Next: ${STEPS[i + 1]?.[1] || ''} →`;
+    // (the quest form used to live on its own tab, styled as such)
+    this.root.classList.toggle('tab-quests', tab === 'story');
+    this.app.setLayout(onMap ? 'editor' : 'editor-data');
+    if (onMap) {
       this.main.style.display = 'none';
       this.right.style.display = '';
-      if (this.previewing) { this.previewing = false; this.loadMap(this.map, true); }
+      // the Land step works on a world map
+      if (tab === 'land' && this.map.type !== 'world') { this.previewing = false; this.loadMap(worldMap(this.game)); }
+      else if (this.previewing) {
+        // back from a model preview: the map, seen from where it was left
+        this.previewing = false;
+        this.loadMap(this.map, true);
+        const c = this.savedCam;
+        if (c && c.map === this.map.id) { this.view.focus(c.tx - 0.5, c.tz - 0.5, true); this.view.setZoom(c.dist, true); }
+        else { this.loadMap(this.map); }
+      }
+      if (was !== tab && !PAINT_TOOLS[this.toolId] && !this.toolId.startsWith('stamp_') && !this.toolId.startsWith('path_') && !this.toolId.startsWith('site_')) this.setTool('select');
       this.renderMapPanel();
       this.inspect();
     } else {
@@ -154,7 +294,10 @@ export class Editor {
       this.view.showCursor(null);
       this.view.showBrush(null);
       if (tab === 'data') this.db.render();
-      else if (tab === 'quests') { this.questEd.render(); this.showPreview(null); }
+      else if (tab === 'story') { this.story.render(); this.showPreview(null); }
+      else if (tab === 'places') this.places.render();
+      else if (tab === 'campaign') renderCampaign(this, this.left, this.main);
+      else if (tab === 'test') renderTest(this, this.left, this.main);
       else { renderSettings(this, this.left, this.main); this.showPreview(null); }
     }
   }
@@ -176,6 +319,11 @@ export class Editor {
     sel.value = map.id;
     sel.addEventListener('change', () => this.loadMapById(sel.value));
     this.mapSelect = sel;
+    if (this.tab === 'land') {
+      renderLandPanel(this, L);
+      if (!L.querySelector(`.tool[data-tool="${this.toolId}"]`)) this.setTool('select');
+      return;
+    }
     L.appendChild(h('div.panel-title', 'Map'));
     L.appendChild(h('div.row', sel, h('button.small', { title: 'New map', onclick: () => this.newMapDialog() }, '＋'),
       h('button.small', { title: 'Map properties', onclick: () => { this.select(null); } }, '⚙')));
@@ -186,13 +334,7 @@ export class Editor {
 
     const isWorld = map.type === 'world';
     const isDungeon = map.type === 'dungeon';
-    const toolBtn = (id) => {
-      const t = this.tools[id];
-      const b = h('button.tool' + (this.toolId === id ? '.on' : ''), { title: t.hint || t.label, onclick: () => this.setTool(id) }, h('span.ic', t.icon || '•'), h('span.lb', t.label));
-      b.dataset.tool = id;
-      return b;
-    };
-    const section = (title, help, ...children) => h('details.tool-section', { open: true }, h('summary', title, help ? h('span.help', { title: help }, '?') : null), ...children);
+    const { toolBtn, section } = this.ui;
 
     // chunky shaping
     const stamps = isWorld ? WORLD_STAMPS : isDungeon ? [] : TOWN_STAMPS;
@@ -251,7 +393,7 @@ export class Editor {
     if (!L.querySelector(`.tool[data-tool="${this.toolId}"]`)) this.setTool('select');
   }
 
-  refreshMapList() { if (this.tab === 'map') this.renderMapPanel(); }
+  refreshMapList() { if (MAP_TABS.has(this.tab)) this.renderMapPanel(); }
 
   setTool(id) {
     if (!this.tools[id]) return;
@@ -298,7 +440,7 @@ export class Editor {
       this.view.setZoom(map.type === 'world' ? 30 : 20, true);
     }
     this.refreshEntities();
-    if (this.tab === 'map') { this.renderMapPanel(); this.inspect(); }
+    if (MAP_TABS.has(this.tab)) { this.renderMapPanel(); this.inspect(); }
   }
 
   reloadMap() { this.loadMap(this.map, true); }
@@ -311,6 +453,8 @@ export class Editor {
       for (let x = 2; x < 7; x++) this.stage.tiles[3 * 9 + x] = T.road;
     }
     if (!this.previewing) {
+      const r = this.view.rig;
+      this.savedCam = { map: this.map.id, tx: r.tx, tz: r.tz, dist: r.dist };
       this.previewing = true;
       this.view.setMap(this.stage);
       this.view.setVisibilityEnabled(false);
@@ -367,42 +511,88 @@ export class Editor {
     const map = this.map;
     const type = map.type;
     const gen = h('select');
-    const opts = type === 'world' ? [['world', 'Generated continent'], ['blank', 'Empty sea']]
+    const opts = type === 'world' ? [['world', 'Generated land'], ['blank', 'Empty sea']]
       : type === 'dungeon' ? [...Object.keys(DUNGEON_STYLES).map((k) => [k, `Generated ${k}`]), ['blank', 'Solid rock']]
         : [...Object.keys(SETTLEMENT_STYLES).map((k) => [k, `Generated ${k}`]), ['blank', 'Empty grass']];
     for (const [v, l] of opts) gen.appendChild(h('option', { value: v }, l));
+    // the shape of the land sets how much of it is sea, unless the slider says otherwise
+    const shape = h('select', { 'aria-label': 'Shape' }, ...Object.entries(WORLD_SHAPES).map(([k, s]) => h('option', { value: k }, s.label)));
     const water = slider('Sea level', 20, 75, 45, () => {});
     const mtn = slider('Mountains', 0, 100, 50, () => {});
     const forest = slider('Forests', 0, 100, 50, () => {});
-    const worldOpts = h('div', water, mtn, forest);
+    const rivers = slider('Rivers', 0, 8, 3, () => {});
+    shape.addEventListener('change', () => {
+      const v = Math.round((WORLD_SHAPES[shape.value]?.water ?? 0.45) * 100);
+      water.querySelector('input').value = v;
+      water.querySelector('b').textContent = String(v);
+    });
+    const sites = type === 'world' ? map.entities.filter((e) => e.type === 'portal' && e.style === 'site') : [];
+    const move = h('input', { type: 'checkbox' });
+    move.checked = true;
+    const roads = h('input', { type: 'checkbox' });
+    roads.checked = true;
+    const siteOpts = sites.length ? h('div',
+      h('label.field.check', move, h('span.field-label', `Find new spots for the ${sites.length} place${sites.length === 1 ? '' : 's'} on the new land`), h('span.field-hint', 'Otherwise each stays where it stood, even if that is now the sea.')),
+      h('label.field.check', roads, h('span.field-label', 'Join them with roads'))) : null;
+    const worldOpts = h('div', h('label.field', h('span.field-label', 'Shape'), shape), water, mtn, forest, rivers, siteOpts);
+    // a place's map is better rebuilt from its plan, which keeps its people
+    const isPlace = type !== 'world' && this.game.maps.some((m) => m.type === 'world' && m.entities.some((e) => e.type === 'portal' && e.style === 'site' && e.target?.map === map.id));
     const sync = () => { worldOpts.style.display = gen.value === 'world' ? '' : 'none'; };
     gen.addEventListener('change', sync);
     sync();
-    modal(h('div.form', h('label.field', h('span.field-label', 'Generate'), gen), worldOpts,
-      h('p.hint', 'This replaces the whole map. Characters and objects on it are removed (you can Undo).')), {
+    const m0 = modal(h('div.form', h('label.field', h('span.field-label', 'Generate'), gen), worldOpts,
+      isPlace ? h('div.regen-place', h('p.hint', `${map.name} is one of the realm's places: the Places step rebuilds it from a plan (what it holds) and keeps the people and things you have written.`),
+        h('button.small', { onclick: () => { m0.close(); this.goTo({ tab: 'places', place: map.id }); } }, `Design ${map.name} in Places →`)) : null,
+      h('p.hint', type === 'world' ? 'This makes the whole land afresh. Monsters, events and treasure on it are replaced; the places keep their maps (you can Undo).' : 'This replaces the whole map. Characters and objects on it are removed (you can Undo).')), {
       title: `Regenerate ${map.name}`,
       buttons: [{ label: 'Cancel' }, {
         label: 'Generate', primary: true, onClick: () => {
-          this.beginEdit();
+          if (this.checkpoint) this.checkpoint(`regenerating ${map.name}`); else this.beginEdit();
           const seed = Math.floor(Math.random() * 1e9);
           let m;
-          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { water: water.value / 100, mountains: mtn.value / 100, forest: forest.value / 100 });
+          if (gen.value === 'world') m = generateWorld(map.w, map.h, seed, { shape: shape.value, water: water.value / 100, mountains: mtn.value / 100, forest: forest.value / 100, rivers: rivers.value });
           else m = this.makeMap(type, gen.value, map.name, seed);
           // keep identity and links
-          // sites keep their place (and their tile) on a regenerated world
+          // sites keep their place (and their tile) on a regenerated world, or find new ones
           const keepPortals = type === 'world' ? map.entities.filter((e) => e.type === 'portal' && e.style === 'site').map((p) => ({ p, t: getTile(map, p.x, p.y) })) : [];
+          const relocate = gen.value === 'world' && keepPortals.length && move.checked;
           map.tiles = m.tiles;
           map.w = m.w; map.h = m.h;
           map.entities = [...m.entities, ...keepPortals.map((k) => k.p)];
-          for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+          if (!relocate) for (const { p, t } of keepPortals) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
           // the old hoards went with the old land: new ones, with new maps
           forgetLostMaps(this.game);
-          if (gen.value === 'world') buryTreasures(this.game, map, seed);
           map.entry = m.entry;
           map.lighting = m.lighting;
           map.fill = m.fill;
+          let note = '';
+          if (relocate) {
+            const kindOf = (t) => Object.keys(FEATURE_KINDS).find((k) => T[FEATURE_KINDS[k].terrain] === t) || 'town';
+            // towns first, so the company has somewhere to start from
+            const order = keepPortals.slice().sort((a, b) => (['town', 'castle'].includes(kindOf(b.t)) ? 1 : 0) - (['town', 'castle'].includes(kindOf(a.t)) ? 1 : 0));
+            const moved = autoPlaceSites(this.game, map, order.map(({ p, t }) => ({ kind: kindOf(t), portal: p })), { seed, start: null });
+            const left = keepPortals.filter(({ p }) => !moved.some((x) => x.portal === p));
+            for (const { p, t } of left) if (inBounds(map, p.x, p.y)) map.tiles[p.y * map.w + p.x] = t;
+            if (left.length) note = ` ${left.length} place${left.length === 1 ? '' : 's'} found no spot and stayed where ${left.length === 1 ? 'it was' : 'they were'}.`;
+          }
+          // the company starts on dry land, beside the first town if need be
+          const s = this.game.settings.start;
+          if (gen.value === 'world' && s?.map === map.id) {
+            const st = terrain(getTile(map, s.x, s.y));
+            if (relocate || !st.walk || st.water) {
+              const home = map.entities.find((e) => e.type === 'portal' && e.style === 'site' && ['town', 'castle'].includes(terrain(getTile(map, e.x, e.y)).key)) || map.entities.find((e) => e.type === 'portal' && e.style === 'site');
+              if (home) this.game.settings.start = besideSite(map, home.x, home.y);
+              else { const p = nearestWalkable(map, s.x, s.y); this.game.settings.start = { map: map.id, x: p.x, y: p.y }; }
+            }
+          }
+          if (gen.value === 'world') buryTreasures(this.game, map, seed);
+          if (relocate && roads.checked) {
+            const b = connectPlaces(this.game, map, { seed });
+            if (b?.unreached?.length) note += ` No road reaches ${b.unreached.join(', ')}.`;
+          }
           this.markDirty();
           this.loadMap(map, true);
+          if (note || relocate) toast(`${map.name} is made afresh${relocate ? ', its places moved to new spots' : ''}.${note}`);
         },
       }],
     });
@@ -563,7 +753,7 @@ export class Editor {
   }
 
   inspect() {
-    if (this.tab !== 'map') return;
+    if (!MAP_TABS.has(this.tab)) return;
     clear(this.right);
     this.toolHintEl = h('div.tool-hint');
     this.right.appendChild(this.toolHintEl);
@@ -582,9 +772,40 @@ export class Editor {
     this.updateUndo();
   }
 
+  // Before a change to the realm as a whole (a Quick Start, a rebuilt place,
+  // a story beat written in): Undo puts everything back as it was
+  checkpoint(label) {
+    this.undoStack.push({ whole: serializeGame(this.game), label, mapId: this.map.id });
+    // whole-realm snapshots are big: keep the last few
+    let n = 0;
+    for (let i = this.undoStack.length - 1; i >= 0; i--) if (this.undoStack[i].whole && ++n > 6) this.undoStack.splice(i, 1);
+    if (this.undoStack.length > 60) this.undoStack.shift();
+    this.redoStack = [];
+    this.updateUndo();
+  }
+
+  restoreWhole(json, mapId) {
+    const g = deserializeGame(json);
+    // the same game object: everything holding it stays in step
+    for (const k of Object.keys(this.game)) if (!(k in g)) delete this.game[k];
+    Object.assign(this.game, g);
+    this.selected = null;
+    this.loadMap(getMap(this.game, mapId) || worldMap(this.game), true);
+    this.refreshTitle();
+    if (!MAP_TABS.has(this.tab)) this.setTab(this.tab);
+  }
+
   undo() {
     const u = this.undoStack.pop();
     if (!u) return;
+    if (u.whole) {
+      this.redoStack.push({ whole: serializeGame(this.game), label: u.label, mapId: this.map.id });
+      this.restoreWhole(u.whole, u.mapId);
+      toast(`Undone: ${u.label}.`);
+      this.markDirty();
+      this.updateUndo();
+      return;
+    }
     const map = getMap(this.game, u.mapId);
     if (!map) return this.undo();
     this.redoStack.push({ mapId: u.mapId, snap: snapshotMap(map) });
@@ -597,6 +818,14 @@ export class Editor {
   redo() {
     const r = this.redoStack.pop();
     if (!r) return;
+    if (r.whole) {
+      this.undoStack.push({ whole: serializeGame(this.game), label: r.label, mapId: this.map.id });
+      this.restoreWhole(r.whole, r.mapId);
+      toast(`Redone: ${r.label}.`);
+      this.markDirty();
+      this.updateUndo();
+      return;
+    }
     const map = getMap(this.game, r.mapId);
     if (!map) return;
     this.undoStack.push({ mapId: r.mapId, snap: snapshotMap(map) });
@@ -609,6 +838,9 @@ export class Editor {
   updateUndo() {
     this.undoBtn.disabled = !this.undoStack.length;
     this.redoBtn.disabled = !this.redoStack.length;
+    const u = this.undoStack[this.undoStack.length - 1], r = this.redoStack[this.redoStack.length - 1];
+    this.undoBtn.title = u?.label ? `Undo ${u.label} (Ctrl+Z)` : 'Undo (Ctrl+Z)';
+    this.redoBtn.title = r?.label ? `Redo ${r.label} (Ctrl+Y)` : 'Redo (Ctrl+Y)';
   }
 
   changed(b) {
@@ -625,6 +857,7 @@ export class Editor {
     this.dirty = true;
     this.updateSaveState();
     this.autosave();
+    this.badgeLater();
   }
 
   updateSaveState(err) {
@@ -654,7 +887,7 @@ export class Editor {
     const list = h('div.choose-list');
     const m = modal(list, { title: 'File', cls: 'small' });
     const item = (label, sub, fn) => list.appendChild(h('button.choose-item', { onclick: () => { m.close(); fn(); } }, h('span.ci-label', label), sub ? h('span.ci-sub', sub) : null));
-    item('Save to browser', 'Ctrl/⌘ + S — also saves automatically', () => this.save(false));
+    item('Save to browser', 'Ctrl/⌘ + S — your realm also saves itself as you work', () => this.save(false));
     item('Export game file (.json)', 'Back up your game or send it to a friend', () => {
       downloadText(slugify(this.game.meta.title) + '.json', serializeGame(this.game));
     });
@@ -668,31 +901,24 @@ export class Editor {
     this.app.showTitle();
   }
 
-  playtestMenu() {
-    const quick = h('input', { type: 'checkbox' });
-    quick.checked = true;
-    const here = this.map;
-    const c = this.view.rig;
-    modal(h('div', h('label.field.check', quick, h('span.field-label', 'Skip party creation (use a ready-made company)')),
-      h('p.hint', 'Playtests never overwrite saved games. Press Esc → “Return to the Construction Set” when done.')), {
-      title: 'Playtest',
-      buttons: [
-        { label: 'Cancel' },
-        { label: `From here (${here.name})`, onClick: () => this.playtest(quick.checked, { map: here.id, x: Math.floor(c.tx), y: Math.floor(c.tz) }) },
-        { label: 'From the start', primary: true, onClick: () => this.playtest(quick.checked, null) },
-      ],
-    });
-  }
+  // The ▶ Playtest button: start from the beginning, a chapter or here
+  playtestMenu() { playtestModal(this); }
 
-  playtest(quick, start) {
+  // Play a copy of the realm. quick: a ready-made company (else the designer
+  // makes one); start: { map, x, y } or null for the realm's start;
+  // opt: { chapter (the chapters before it played through), level }
+  playtest(quick, start, opt = {}) {
     if (this.dirty) this.save(true);
+    lastSpot(this); // (remembered: once back, the view shows where play ended)
     const g = cloneGame(this.game);
     if (start) {
-      const m = getMap(g, start.map);
-      const p = nearestWalkable(m, start.x, start.y);
+      const m = getMap(g, start.map) || worldMap(g);
+      const p = nearestWalkable(m, start.x ?? m.entry?.x ?? 0, start.y ?? m.entry?.y ?? 0);
       start = { map: m.id, x: p.x, y: p.y };
     }
-    this.app.playGame(g, { fromEditor: true, noSave: true, start, quick });
+    const level = Math.max(1, parseInt(opt.level, 10) || 1);
+    const setup = opt.chapter || level > 1 ? (state) => setupPlaytest(g, state, { chapter: opt.chapter, level, placeParty: !start }) : null;
+    this.app.playGame(g, { fromEditor: true, noSave: true, start, quick, setup, chapter: opt.chapter || null });
   }
 
   // ------------------------------------------------------------ input
@@ -704,7 +930,6 @@ export class Editor {
       down: (e) => this.onDown(e),
       move: (e) => this.onMove(e),
       up: (e) => this.onUp(e),
-      wheel: (e) => { if (this.tab !== 'map' && !this.previewing) return; e.preventDefault(); this.view.wheelZoom(e); },
       ctx: (e) => e.preventDefault(),
       key: (e) => this.onKey(e),
       keyup: (e) => this.keys.delete(e.key.toLowerCase()),
@@ -715,7 +940,8 @@ export class Editor {
     window.addEventListener('pointerup', this.h.up);
     cv.style.touchAction = 'none';
     this.gestures = attachGestures(this.view, cv, { pan: true });
-    cv.addEventListener('wheel', this.h.wheel, { passive: false });
+    // a mouse wheel zooms; on a trackpad two fingers slide the map and a pinch zooms
+    this.wheel = attachWheel(this.view, cv, { enabled: () => MAP_TABS.has(this.tab) || this.previewing });
     cv.addEventListener('contextmenu', this.h.ctx);
     cv.addEventListener('mouseleave', this.h.leave);
     window.addEventListener('keydown', this.h.key);
@@ -731,7 +957,7 @@ export class Editor {
     window.removeEventListener('pointermove', this.h.move);
     window.removeEventListener('pointerup', this.h.up);
     if (this.gestures) { this.gestures.destroy(); this.gestures = null; }
-    cv.removeEventListener('wheel', this.h.wheel);
+    if (this.wheel) { this.wheel.destroy(); this.wheel = null; }
     cv.removeEventListener('contextmenu', this.h.ctx);
     cv.removeEventListener('mouseleave', this.h.leave);
     window.removeEventListener('keydown', this.h.key);
@@ -739,7 +965,7 @@ export class Editor {
   }
 
   tick(dt) {
-    if (this.tab !== 'map' || anyModal()) return;
+    if (!MAP_TABS.has(this.tab) || anyModal()) return;
     const k = this.keys;
     const sp = this.view.rig.dist * 0.9 * dt;
     let dx = 0, dz = 0;
@@ -757,7 +983,7 @@ export class Editor {
   }
 
   onDown(e) {
-    if (this.tab !== 'map') return;
+    if (!MAP_TABS.has(this.tab)) return;
     if (this.gestures?.active) { this.cancelStroke(); return; }
     if (e.button === 1 || e.button === 2 || (e.button === 0 && this.keys.has(' '))) {
       this.mouse.panning = { x: e.clientX, y: e.clientY };
@@ -789,7 +1015,7 @@ export class Editor {
       this.mouse.panning = { x: e.clientX, y: e.clientY };
       return;
     }
-    if (this.tab !== 'map' || e.target !== this.view.renderer.domElement) return;
+    if (!MAP_TABS.has(this.tab) || e.target !== this.view.renderer.domElement) return;
     const t = this.view.pick(e.clientX, e.clientY);
     if (!t) return;
     this.hover(t);
@@ -850,27 +1076,29 @@ export class Editor {
     if (inBounds(map, t.x, t.y)) {
       const td = terrain(getTile(map, t.x, t.y));
       const ents = map.entities.filter((e) => e.x === t.x && e.y === t.y).map((e) => (e.type === 'npc' ? e.name || 'person' : e.type === 'monster' ? byId(this.game.monsters, e.monster)?.name || 'monster' : e.label || e.type));
-      this.status.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Right-drag / WASD to pan · wheel to zoom · Ctrl+Z undo`;
-    } else this.status.textContent = `${map.name} · outside the map`;
+      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch or wheel to zoom · Ctrl+Z undo`;
+    } else this.statusText.textContent = `${map.name} · outside the map`;
   }
 
   onKey(e) {
     const tag = (e.target && e.target.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       if (e.key === 'Escape') e.target.blur();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !anyModal()) { e.preventDefault(); findAnything(this); }
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); this.save(false); return; }
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); this.redo(); return; }
+    if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); if (!anyModal()) findAnything(this); return; }
     if (mod) return;
     if (e.key === 'Escape') {
       if (closeTopModal()) return;
       if (this.selected) this.select(null); else this.setTool('select');
       return;
     }
-    if (anyModal() || this.tab !== 'map') return;
+    if (anyModal() || !MAP_TABS.has(this.tab)) return;
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) { e.preventDefault(); this.beginEdit(); this.removeEntity(this.selected); return; }
     const k = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' '].includes(k)) {
@@ -905,35 +1133,3 @@ function nearestWalkable(map, x, y) {
 }
 
 void uid; void promptDialog; void confirmDialog; void closeAllModals; void sfx; void cloneGame;
-
-const EDITOR_HELP = `
-<p>Everything you build is saved in this browser as you go. Here is the usual way to make an adventure:</p>
-<h3>1 · Shape the world</h3>
-<p>On the <b>Map</b> tab, use <b>Shape the land</b>: click to drop an island, a lake, a forest or a mountain range — or drag to keep stamping.
-Change the <b>stamp size</b> for continents or copses. <b>Draw paths</b> lets you drag out roads (they bridge rivers on their own), rivers and mountain ridges.</p>
-<h3>2 · Found towns, castles and dungeons</h3>
-<p>Under <b>Found a site</b>, click the map to create a town, castle, village, dungeon, tower, dark fortress, elven hall or dwarf hold.
-Each one gets its own generated map — streets, shops, an inn, a healer and townsfolk. <b>Double-click</b> a site (or select it and press <i>Open</i>) to go inside and change anything.</p>
-<h3>3 · Paint the details</h3>
-<p><b>Paint tiles</b> gives you a brush, scatter, line, rectangle, flood fill and picker, with every tile type — walls, doors, counters, beds, braziers, lava…</p>
-<h3>4 · People, monsters and treasure</h3>
-<p>Place <b>people</b> and give them a role (shopkeeper, innkeeper, healer, king…), a look, and <b>keywords</b> they answer to.
-A keyword can require a flag, item or gold, and can give items or gold, set story flags, heal the party, make the speaker <b>join</b> your company, start a fight, teleport the party — or win the game.
-Place <b>monster groups</b>, <b>chests</b>, <b>signs</b>, <b>ships</b>, <b>waygates</b> and <b>passages</b> (links between maps — use <i>Pick arrival point</i> to choose where they lead).</p>
-<h3>5 · Rules of the realm</h3>
-<p><b>World Data</b> holds the races, classes, items, spells, monsters and the magic systems themselves. <b>Settings</b> holds your story, the starting point and kit,
-the victory condition, and switches for the four kinds of magic — Sorcery, Prayer, Rune-craft and Elven Song.</p>
-<p><b>Quests</b> give the player goals: who offers each one, its steps (talk to someone, bring an item, reach a place, defeat a foe, find
-something, clear a dungeon) and its rewards. The player always sees the current step and which way to go. Select a person to see the
-quests they are part of. Under <b>Points of interest</b> on the map, place shrines, campfires, lore stones and little events with choices.</p>
-<h3>6 · Playtest and share</h3>
-<p>Press <b>▶ Playtest</b> at any time — from the start, or from wherever you are looking. Use <b>File → Export</b> to save a <i>.json</i> game file,
-or a single <i>.html</i> page your friends can simply open and play.</p>
-<h3>Keys</h3>
-<table class="keys">
-<tr><td>B</td><td>Brush</td><td>F</td><td>Fill</td><td>R</td><td>Rectangle</td></tr>
-<tr><td>L</td><td>Line</td><td>I</td><td>Pick tile</td><td>V</td><td>Select</td></tr>
-<tr><td>X</td><td>Remove</td><td>[ ]</td><td>Brush/stamp size</td><td>Del</td><td>Delete selected</td></tr>
-<tr><td>WASD</td><td>Pan</td><td>Wheel</td><td>Zoom</td><td>Right-drag</td><td>Pan</td></tr>
-<tr><td>Ctrl+Z</td><td>Undo</td><td>Ctrl+Y</td><td>Redo</td><td>Ctrl+S</td><td>Save</td></tr>
-</table>`;

@@ -5,7 +5,9 @@ import { buildForm } from './forms.js';
 import { uniqueId, deepClone, uid, slugify } from '../../core/util.js';
 import { inBounds } from '../../world/map.js';
 import { GOAL_TYPES, describeGoal } from '../../game/quests.js';
+import { chapterList, roman } from '../../game/story.js';
 import { EVENT_TEMPLATES, EVENT_KINDS, BLESSINGS, REQS, eventFromTemplate } from '../../game/events.js';
+import { questProblems } from '../../game/checklist.js';
 
 const npcOptions = (game, emptyLabel) => () => {
   const out = emptyLabel ? [['', emptyLabel]] : [];
@@ -32,6 +34,8 @@ export function stageFields(game, q) {
   return [
     { key: 'goal.type', label: 'Goal', type: 'select', options: Object.entries(GOAL_TYPES), rerender: true },
     { key: 'goal.npc', label: 'Person', type: 'select', options: npcOptions(game, '— the quest giver —'), show: (s) => gt(s) === 'talk' || gt(s) === 'deliver' },
+    { key: 'goal.npc', label: 'Person', type: 'select', options: npcOptions(game), empty: '— choose someone —', show: (s) => gt(s) === 'companion', hint: 'Someone who can join the company (tick “Can JOIN the party” in their inspector, or use the Companion beat on the Story step). Done while they are with the company.' },
+    { key: 'goal.map', label: 'On the map', type: 'select', options: mapOpts(game), empty: '— anywhere —', nullable: true, show: (s) => gt(s) === 'companion', hint: 'Optional: they must be with the company here (“Bring Elwen to the Barrow”).' },
     { key: 'goal.item', label: 'Item', type: 'select', options: itemOpts(game), show: (s) => gt(s) === 'deliver' || gt(s) === 'collect' },
     { key: 'goal.monster', label: 'Monster', type: 'select', options: monsterOpts(game), show: (s) => gt(s) === 'kill', hint: 'A unique boss (★) is defeated once; for common monsters set how many.' },
     { key: 'goal.n', label: 'How many', type: 'number', min: 1, show: (s) => ['deliver', 'collect', 'kill'].includes(gt(s)) },
@@ -42,15 +46,18 @@ export function stageFields(game, q) {
     { key: 'goal.flags', label: 'Flags', type: 'text', placeholder: 'verse_1, verse_2', show: (s) => gt(s) === 'flag', hint: 'All must be set. Chests, monsters, events and conversations can set flags.' },
     { key: 'text', label: 'Shown to the player', type: 'text', placeholder: describeGoal(game, q, { type: 'talk' }), hint: 'Say where to go: “Speak to Captain Hale in Westhold”.' },
     { key: 'say', label: 'They say', type: 'textarea', rows: 3, show: (s) => gt(s) === 'talk' || gt(s) === 'deliver', hint: 'Spoken when the party arrives — tell the story and point to the next step.' },
-    { key: 'log', label: 'Message when done', type: 'text', show: (s) => !['talk', 'deliver'].includes(gt(s)) },
-    { type: 'section', label: 'Reward for this step' },
+    { key: 'log', label: 'Message when done', type: 'text', show: (s) => !['talk', 'deliver'].includes(gt(s)) },    { type: 'section', label: 'Reward for this step' },
     ...rewardFields(game, 'reward.').filter((f) => f.key !== 'reward.food'),
   ];
 }
 
+const chapterOpts = (game) => () => chapterList(game).map((c, i) => [c.id, `${roman(i + 1)} · ${c.name || 'Chapter'}`]);
+
 export function questFields(game, q) {
   return [
     { key: 'name', label: 'Name', type: 'text' },
+    { key: 'chapter', label: 'Chapter', type: 'select', options: chapterOpts(game), empty: '— none: open at any time —', nullable: true, rerender: true,
+      hint: 'It is not offered, and does not start by itself, until its chapter opens.' },
     { key: 'main', label: 'Main quest (shown first, marked ★)', type: 'check' },
     { key: 'giver', label: 'Given by', type: 'select', options: npcOptions(game, '— nobody —'), hint: 'People with a quest to offer are marked “!” and offer it when spoken to. With nobody, tick “Starts by itself” or start it from a conversation or event.' },
     { key: 'auto', label: 'Starts by itself', type: 'check', rerender: true, hint: 'At the start of the game, or as soon as the quest below is finished.' },
@@ -80,7 +87,9 @@ export function renameQuestId(game, from, to) {
   if (q) q.id = to;
   const fix = (o, key) => { if (o && o[key] === from) o[key] = to; };
   for (const x of game.quests || []) fix(x, 'requires');
+  for (const c of chapterList(game)) fix(c.ends, 'quest');
   for (const m of game.maps) for (const e of m.entities || []) {
+    fix(e.recruit, 'after');
     for (const c of e.choices || []) { fix(c.effects, 'quest'); fix(c.failEffects, 'quest'); if (['quest', 'questdone'].includes(c.req?.type)) fix(c.req, 'value'); }
     for (const k of e.keywords || []) {
       if (['start_quest', 'advance_quest', 'complete_quest'].includes(k.action?.type)) fix(k.action, 'value');
@@ -89,32 +98,8 @@ export function renameQuestId(game, from, to) {
   }
 }
 
-// Things that would leave the player stuck or guessing, in plain words
-export function questProblems(game, q) {
-  const out = [];
-  const npcs = new Map();
-  for (const m of game.maps) for (const e of m.entities || []) if (e.type === 'npc') npcs.set(e.id, e);
-  const startedBy = game.maps.some((m) => (m.entities || []).some((e) => (e.choices || []).some((c) => c.effects?.quest === q.id)
-    || (e.keywords || []).some((k) => k.action?.type === 'start_quest' && k.action.value === q.id)));
-  if (!(q.stages || []).length) out.push('It has no steps: add at least one.');
-  if (!q.giver && !q.auto && !startedBy) out.push('Nobody gives it and it does not start by itself: choose “Given by”, tick “Starts by itself”, or start it from a conversation or an event.');
-  if (q.giver && !npcs.has(q.giver)) out.push('The person who gives it is no longer in the game.');
-  if (q.requires && !(game.quests || []).some((x) => x.id === q.requires)) out.push('It waits for a quest that no longer exists.');
-  (q.stages || []).forEach((st, i) => {
-    const g = st.goal || {};
-    const n = `Step ${i + 1}`;
-    if (g.type === 'talk' || g.type === 'deliver') {
-      const who = g.npc || q.giver;
-      if (!who) out.push(`${n}: “${GOAL_TYPES[g.type]}” needs a person — the quest has no giver to stand in for “the quest giver”.`);
-      else if (!npcs.has(who)) out.push(`${n}: that person is no longer in the game.`);
-    }
-    if ((g.type === 'deliver' || g.type === 'collect') && !(game.items || []).some((it) => it.id === g.item)) out.push(`${n}: choose the item.`);
-    if (g.type === 'kill' && !(game.monsters || []).some((mo) => mo.id === g.monster)) out.push(`${n}: choose the monster to defeat.`);
-    if ((g.type === 'reach' || g.type === 'clear') && !game.maps.some((m) => m.id === g.map)) out.push(`${n}: choose the map.`);
-    if (g.type === 'flag' && !String(g.flags || g.flag || '').trim()) out.push(`${n}: name the story flag(s) to wait for.`);
-  });
-  return out;
-}
+// (questProblems lives with the checklist, which looks the whole realm over)
+export { questProblems };
 
 function warnBox(game, q) {
   const list = questProblems(game, q);
@@ -166,12 +151,23 @@ export class QuestEditor {
     clear(this.main);
     const q = this.sel;
     if (!q) { this.main.appendChild(h('p.hint', 'No quests yet. Click “+ New” to write one.')); return; }
+    this.renderForm(q, this.main, {
+      onName: () => { const btn = this.left.querySelector('.entry.on'); if (btn) btn.firstChild.textContent = (q.main ? '★ ' : '') + q.name; },
+    });
+  }
+
+  // The quest's form (head, warnings, fields) into a panel. hooks:
+  // { onName(q), onChange(key), before: element shown under the head }
+  renderForm(q, main, hooks = {}) {
+    const game = this.ed.game;
+    const list = game.quests;
     const code = h('code', { title: 'The quest\'s id: conversations and events refer to it. It follows the name until you rename it by hand elsewhere.' }, q.id);
-    this.main.appendChild(h('div.db-head', h('h2', `📜 ${q.name}`), code));
+    main.appendChild(h('div.db-head', h('h2', `📜 ${q.name}`), code, hooks.actions || null));
+    if (hooks.before) main.appendChild(hooks.before);
     let warns = warnBox(game, q);
-    this.main.appendChild(warns);
+    main.appendChild(warns);
     let prevName = q.name;
-    this.main.appendChild(buildForm(q, questFields(game, q), (k) => {
+    main.appendChild(buildForm(q, questFields(game, q), (k) => {
       this.ed.markDirty();
       for (const s of q.stages || []) if (!s.text && s.goal) s.text = describeGoal(game, q, s.goal);
       if (k === 'name') {
@@ -181,14 +177,14 @@ export class QuestEditor {
           code.textContent = q.id;
         }
         prevName = q.name;
-        const hd = this.main.querySelector('.db-head h2');
+        const hd = main.querySelector('.db-head h2');
         if (hd) hd.textContent = `📜 ${q.name}`;
-        const btn = this.left.querySelector('.entry.on');
-        if (btn) btn.firstChild.textContent = (q.main ? '★ ' : '') + q.name;
+        hooks.onName?.(q);
       }
       const nw = warnBox(game, q);
       warns.replaceWith(nw);
       warns = nw;
+      hooks.onChange?.(k);
     }));
   }
 }

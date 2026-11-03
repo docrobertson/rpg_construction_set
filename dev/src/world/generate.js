@@ -271,18 +271,49 @@ export const ROOMS = {
 };
 
 // ---------------------------------------------------------------- world
+export const WORLD_SHAPES = {
+  continent: { label: 'One great land', water: 0.45 },
+  islands: { label: 'Many islands', water: 0.6 },
+  twin: { label: 'Two lands across the sea', water: 0.5 },
+  coast: { label: 'A coast (sea to the west)', water: 0.33 },
+};
+
 export function generateWorld(w, h, seed, opt = {}) {
   const map = createMap({ type: 'world', w, h, name: opt.name || 'The World' });
-  const water = opt.water ?? 0.45;
+  // the shape of the land: one continent, a scatter of islands, two lands
+  // across a strait, or a coast with the sea to the west
+  const shape = WORLD_SHAPES[opt.shape] ? opt.shape : 'continent';
+  const water = opt.water ?? WORLD_SHAPES[shape].water;
   const mtn = opt.mountains ?? 0.5;
   const forest = opt.forest ?? 0.5;
   const elev = new Float32Array(w * h);
+  const sr = new RNG(seed + 5);
+  const across = sr.chance(0.5);
+  const twins = across ? [[0.27, 0.4 + sr.float(-0.08, 0.08)], [0.73, 0.6 + sr.float(-0.08, 0.08)]] : [[0.4 + sr.float(-0.08, 0.08), 0.27], [0.6 + sr.float(-0.08, 0.08), 0.73]];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const nx = x / w, ny = y / h;
-    let e = fbm(nx * 4.2, ny * 4.2, seed, 5);
     const dx = (nx - 0.5) * 2, dy = (ny - 0.5) * 2;
-    const fall = Math.pow(Math.max(Math.abs(dx), Math.abs(dy)) * 0.6 + Math.hypot(dx, dy) * 0.4, 2.2);
-    e = e - fall * 0.55 + 0.12;
+    const edge = Math.max(Math.abs(dx), Math.abs(dy));
+    let e, fall;
+    if (shape === 'islands') {
+      e = fbm(nx * 7, ny * 7, seed, 5);
+      fall = Math.pow(edge, 4) * 0.6;
+      e = e - fall * 0.55 + 0.05;
+    } else if (shape === 'twin') {
+      e = fbm(nx * 4.6, ny * 4.6, seed, 5);
+      const d = Math.min(...twins.map(([cx, cy]) => Math.hypot((nx - cx) * 2.7, (ny - cy) * 2.7)));
+      fall = Math.pow(d * 0.75 + edge * 0.35, 2.2);
+      e = e - fall * 0.55 + 0.12;
+    } else if (shape === 'coast') {
+      e = fbm(nx * 4.2, ny * 4.2, seed, 5);
+      // the sea to the west; the land runs on past the other edges
+      fall = Math.pow(Math.max(0, 0.62 - nx) * 2.1, 2) + Math.pow(Math.max(0, edge - 0.85) * 3, 2) * 0.3;
+      e = e - fall * 0.7 + 0.1;
+    } else {
+      e = fbm(nx * 4.2, ny * 4.2, seed, 5);
+      fall = Math.pow(edge * 0.6 + Math.hypot(dx, dy) * 0.4, 2.2);
+      e = e - fall * 0.55 + 0.12;
+    }
     elev[y * w + x] = e;
   }
   // pick sea level so roughly `water` fraction is sea
@@ -413,6 +444,8 @@ const SHOP_ROLES = {
   healer: { title: 'Healer', kind: 'healer' },
   tavern: { title: 'Barkeep', kind: 'tavern' },
   bowyer: { title: 'Bowyer', kind: 'weapons' },
+  // a trading post with a little of everything (only built from a plan)
+  merchant: { title: 'Merchant', kind: 'mixed' },
 };
 
 export const SETTLEMENT_STYLES = {
@@ -448,6 +481,7 @@ const ROLE_LOOKS = {
   lord: { body: 0x6a1a8a, robe: true, trim: 0xe8c040, hat: 'crown', cape: 0xa01a2a },
   sage: { body: 0x3a3a7a, robe: true, hat: 'wizard', hatColor: 0x3a3a7a, weapon: 'staff', beard: 0xe0e0e0 },
   shipwright: { body: 0x4a5a6a, armor: 'leather', hat: 'cap', hatColor: 0x2a3a4a, weapon: 'hammer', beard: 0x8a6a4a },
+  merchant: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x4a3218, cape: 0x6a2a2a },
 };
 
 export function makeNpc(role, race, x, y, rng, extra = {}) {
@@ -551,8 +585,200 @@ export function furnish(map, b, role, rng) {
   return spot;
 }
 
+// The buildings a plan can ask for that the old styles never made on their
+// own: a lord's hall with its throne, a sage's library, a shipwright's loft
+function furnishPlan(map, b, role, rng) {
+  if (role !== 'lord' && role !== 'sage' && role !== 'shipwright') {
+    // (a small house can set its table where its householder would stand)
+    const spot = furnish(map, b, role, rng);
+    if (def(getTile(map, spot.x, spot.y)).walk) return spot;
+    for (let y = b.iy; y < b.iy + b.ih; y++) for (let x = b.ix; x < b.ix + b.iw; x++) {
+      const t = def(getTile(map, x, y));
+      if (t.walk && !t.door && Math.abs(x - b.door.x) + Math.abs(y - b.door.y) > 1) return { x, y };
+    }
+    return spot;
+  }
+  const { ix, iy, iw, ih, door } = b;
+  const inside = (x, y) => x >= ix && y >= iy && x < ix + iw && y < iy + ih;
+  const set = (x, y, k) => { if (inside(x, y) && Math.abs(x - door.x) + Math.abs(y - door.y) > 1) setTile(map, x, y, T[k]); };
+  // the far wall from the door, and the step into the room from it
+  const [bx, by, sx, sy] = door.side === 's' ? [door.x, iy, 0, 1] : door.side === 'n' ? [door.x, iy + ih - 1, 0, -1]
+    : door.side === 'e' ? [ix, door.y, 1, 0] : [ix + iw - 1, door.y, -1, 0];
+  const along = (k, fn) => {
+    // every square of the back wall row (or column)
+    if (sy) for (let x = ix; x < ix + iw; x++) fn(x, by, k);
+    else for (let y = iy; y < iy + ih; y++) fn(bx, y, k);
+  };
+  if (role === 'lord') {
+    // a carpet from the door to the throne, braziers in the far corners
+    for (let x = bx, y = by; inside(x, y); x += sx, y += sy) setTile(map, x, y, T.carpet);
+    setTile(map, bx, by, T.throne);
+    if (sy) { set(ix, by, 'brazier'); set(ix + iw - 1, by, 'brazier'); } else { set(bx, iy, 'brazier'); set(bx, iy + ih - 1, 'brazier'); }
+    return { x: bx + sx, y: by + sy };
+  }
+  if (role === 'sage') {
+    along('shelf', (x, y) => { if (x !== bx || y !== by) set(x, y, rng.chance(0.85) ? 'shelf' : 'brazier'); });
+    set(bx + sx * 2 + (sy ? 1 : 0), by + sy * 2 + (sx ? 1 : 0), 'table');
+    return { x: bx + sx, y: by + sy };
+  }
+  // the shipwright's loft: timber, tools and tar
+  set(ix, iy, 'barrel'); set(ix + iw - 1, iy, 'anvil'); set(ix, iy + ih - 1, 'cargo');
+  return { x: ix + Math.floor(iw / 2), y: iy + Math.floor(ih / 2) };
+}
+
+// Plans: see world/places.js. These are the generator's side of one.
+const PLAN_ORDER = ['lord', 'inn', 'tavern', 'healer', 'weapons', 'armor', 'bowyer', 'provisions', 'reagents', 'merchant', 'sage', 'shipwright'];
+const WALL_TILES = { stone: 'wall_stone', palisade: 'palisade', hedge: 'fence', trees: 'tree', none: null };
+const BIG = new Set(['inn', 'tavern', 'healer']);
+export const SETTLEMENT_WALLS = { town: 'stone', village: 'palisade', castle: 'stone', elfhall: 'trees', dwarfgate: 'stone', harbour: 'none' };
+
+const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(+v || 0)));
+
+// What a plan asks of a settlement, in the generator's terms
+function settlementSpec(kind, plan) {
+  const S = SETTLEMENT_STYLES[kind] || SETTLEMENT_STYLES.town;
+  const b = plan.buildings || {};
+  const n = (k) => clampInt(b[k], 0, 12);
+  let lords = n('lord'), sages = n('sage');
+  // a castle's first lord sits in its keep (with a sage, if there is one); a
+  // dwarf king in the hall at the head of the hold
+  const keep = kind === 'castle' && lords > 0;
+  const hall = kind === 'dwarfgate' && lords > 0;
+  if (keep || hall) lords--;
+  const keepSage = keep && sages > 0;
+  if (keepSage) sages--;
+  const roles = [];
+  const push = (role, k) => { for (let i = 0; i < k; i++) roles.push(role); };
+  for (const r of PLAN_ORDER) push(r, r === 'lord' ? lords : r === 'sage' ? sages : n(r));
+  push('house', clampInt(plan.homes, 0, 40));
+  const guards = clampInt(plan.guards, 0, 16);
+  const walls = kind === 'dwarfgate' || kind === 'harbour' ? null : plan.walls in WALL_TILES ? plan.walls : SETTLEMENT_WALLS[kind] || 'stone';
+  let gates = ['s', 'n', 'w', 'e'].filter((g) => (plan.gates || []).includes(g));
+  if (!gates.length || kind === 'dwarfgate') gates = ['s'];
+  // room enough for it all, as near as can be guessed (the map grows if not)
+  const units = roles.reduce((a, r) => a + (r === 'house' ? 0.7 : r === 'lord' ? 1.7 : BIG.has(r) ? 1.3 : 1), 0) + (keep ? 3.2 : 0) + (hall ? 1 : 0);
+  const side = Math.ceil(Math.sqrt(units * 100 + 120));
+  const d = plan.size === 'small' ? -6 : plan.size === 'large' ? 8 : 0;
+  const w = Math.max(24, S.w + d, side), h = Math.max(24, S.h + d, side);
+  return { S, roles, keep, hall, keepSage, guards, keepGuards: keep && guards >= 4 ? 2 : 0, folk: clampInt(plan.folk, 0, 40), walls, gates, w: w + (w % 2), h: h + (h % 2) };
+}
+
+// Building sizes: the old styles' own (the same dice in the same order, so
+// old seeds make the same towns), and a lord's hall from a plan
+function buildingSize(rng, plan) {
+  return (role, shrink) => {
+    if (plan && role === 'lord') return [rng.int(9, 10) - shrink, rng.int(7, 8) - shrink];
+    const big = role === 'inn' || role === 'tavern' || role === 'healer';
+    const bw = (big ? rng.int(7, 8) : role === 'house' ? rng.int(5, 6) : rng.int(6, 7)) - shrink;
+    const bh = (big ? rng.int(6, 7) : role === 'house' ? rng.int(4, 5) : rng.int(5, 6)) - shrink;
+    return [bw, bh];
+  };
+}
+
+// Find a free plot for a building, put it up with its keeper, and lay a path
+// from its door to the street. Returns whether it found room.
+function placeBuilding(map, role, c) {
+  const { rng, S, kind, cx, cy, okTile, npcs, buildings } = c;
+  const { w, h } = map;
+  if (c.pack) return packBuilding(map, role, c);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const shrink = attempt > 250 ? 1 : 0;
+    const [bw, bh] = c.size(role, shrink);
+    const [x0, y0] = c.at || [rng.int(3, w - bw - 3), rng.int(3, h - bh - 3)];
+    if (!rectFree(map, x0, y0, bw, bh, (t) => okTile(t))) continue;
+    if (npcs.some((n) => n.x >= x0 - 1 && n.y >= y0 - 1 && n.x <= x0 + bw && n.y <= y0 + bh)) continue;
+    // door faces the nearest street
+    const mx = x0 + bw / 2, my = y0 + bh / 2;
+    let door;
+    if (c.doorTo) door = c.doorTo(mx, my);
+    else if (kind === 'castle' || S.underground) door = Math.abs(mx - cx) > Math.abs(my - cy) ? (mx < cx ? 'e' : 'w') : (my < cy ? 's' : 'n');
+    else door = Math.abs(mx - cx) < Math.abs(my - cy) ? (mx < cx ? 'e' : 'w') : (my < cy ? 's' : 'n');
+    const stone = role === 'healer' || role === 'lord';
+    const b = buildRoom(map, x0, y0, bw, bh, { wall: stone ? 'wall_stone' : S.bwall, floor: stone ? 'floor_stone' : S.floor, door });
+    const spot = c.furnish(map, b, role, rng);
+    // path from the door outwards
+    const [ddx, ddy] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[door];
+    let px = b.door.x + ddx, py = b.door.y + ddy;
+    for (let k = 0; k < 12 && inBounds(map, px, py); k++) {
+      const t = getTile(map, px, py);
+      if (t === T[S.street]) break;
+      if (!okTile(t) && t !== T.meadow) break;
+      setTile(map, px, py, T[S.street]);
+      px += ddx; py += ddy;
+    }
+    const npc = makeNpc(role === 'house' ? 'villager' : role, c.race, spot.x, spot.y, rng);
+    npcs.push(npc);
+    buildings.push({ ...b, role, npc: npc.id });
+    return true;
+  }
+  return false;
+}
+
+// From a plan: of every plot still free, one beside a street, its door
+// towards it — so a town packs along its streets and leaves room for the
+// rest — with a little chance in the choice
+function packBuilding(map, role, c) {
+  const { rng, okTile, npcs } = c;
+  const { w, h } = map;
+  const st = T[c.S.street];
+  // steps from each square to the nearest street (under the mountain, where
+  // all the hall is street, to the rock: the halls line its walls)
+  const under = !!c.S.underground;
+  const dist = new Int16Array(w * h).fill(999);
+  const q = [];
+  for (let i = 0; i < w * h; i++) if (under ? def(map.tiles[i]).wall : map.tiles[i] === st) { dist[i] = 0; q.push(i); }
+  for (let k = 0; k < q.length; k++) {
+    const i = q[k], x = i % w, y = (i - x) / w;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const j = ny * w + nx;
+      if (dist[j] > dist[i] + 1 && okTile(map.tiles[j])) { dist[j] = dist[i] + 1; q.push(j); }
+    }
+  }
+  // free ground, summed, so a plot is checked at a glance
+  const W1 = w + 1;
+  const sum = new Int32Array(W1 * (h + 1));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) sum[(y + 1) * W1 + x + 1] = (okTile(map.tiles[y * w + x]) ? 1 : 0) + sum[y * W1 + x + 1] + sum[(y + 1) * W1 + x] - sum[y * W1 + x];
+  const free = (x0, y0, x1, y1) => sum[(y1 + 1) * W1 + x1 + 1] - sum[y0 * W1 + x1 + 1] - sum[(y1 + 1) * W1 + x0] + sum[y0 * W1 + x0] === (x1 - x0 + 1) * (y1 - y0 + 1);
+  for (const shrink of [0, 1]) {
+    const [bw, bh] = c.size(role, shrink);
+    let best = null, bestScore = Infinity;
+    for (let y0 = 3; y0 <= h - bh - 3; y0++) for (let x0 = 3; x0 <= w - bw - 3; x0++) {
+      if (!free(x0 - 1, y0 - 1, x0 + bw, y0 + bh)) continue;
+      const mx = x0 + Math.floor(bw / 2), my = y0 + Math.floor(bh / 2);
+      const sides = [['n', dist[(y0 - 1) * w + mx]], ['s', dist[(y0 + bh) * w + mx]], ['w', dist[my * w + x0 - 1]], ['e', dist[my * w + x0 + bw]]];
+      let [side, d] = sides.reduce((a, b) => (b[1] < a[1] ? b : a));
+      if (d >= 999) continue;
+      if (under) side = Math.abs(mx - c.cx) > Math.abs(my - c.cy) ? (mx < c.cx ? 'e' : 'w') : (my < c.cy ? 's' : 'n');
+      const score = d + rng.float(0, 2.5);
+      if (score >= bestScore) continue;
+      if (npcs.some((n) => n.x >= x0 - 1 && n.y >= y0 - 1 && n.x <= x0 + bw && n.y <= y0 + bh)) continue;
+      best = { x0, y0, side };
+      bestScore = score;
+    }
+    if (best) return placeBuilding(map, role, { ...c, pack: false, size: () => [bw, bh], at: [best.x0, best.y0], doorTo: () => best.side });
+  }
+  return false;
+}
+
+// opt: { seed, name, w, h, plan } — with a plan (world/places.js) the town is
+// built to it, and grows until everything asked for has a place; then the
+// result also says what was `missing` (if anything still did not fit)
 export function generateSettlement(kind, opt = {}) {
-  if (kind === 'harbour') return { ...generateHarbour(opt), buildings: [] };
+  if (kind === 'harbour') return opt.plan ? harbourFromPlan(opt) : { ...generateHarbour(opt), buildings: [] };
+  if (!opt.plan) return layOutSettlement(kind, opt, null);
+  const P = settlementSpec(kind, opt.plan);
+  let w = opt.w || P.w, h = opt.h || P.h, res = null;
+  for (let i = 0; i < 12; i++) {
+    res = layOutSettlement(kind, { ...opt, w, h }, P);
+    if (!res.missing.length || w >= 84) break;
+    w += 4; h += 4;
+  }
+  return res;
+}
+
+function layOutSettlement(kind, opt, P) {
   const S = SETTLEMENT_STYLES[kind] || SETTLEMENT_STYLES.town;
   const rng = new RNG(opt.seed ?? Math.floor(Math.random() * 1e9));
   const w = opt.w || S.w, h = opt.h || S.h;
@@ -562,6 +788,12 @@ export function generateSettlement(kind, opt = {}) {
   const buildings = [];
   const npcs = [];
   const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+  // the old styles' walls and gates, or the plan's
+  const wallKey = P ? (P.walls ? WALL_TILES[P.walls] : null) : S.wall;
+  const sides = P ? P.gates : kind === 'castle' ? ['s'] : ['n', 's', 'w', 'e'];
+  const keep = P ? P.keep : kind === 'castle';
+  const inset = kind === 'castle' ? 3 : 2;
+  const scale = (n) => (P ? Math.round(n * (w * h) / (S.w * S.h)) : n);
 
   if (S.underground) {
     // carve the great hall and an entrance tunnel from the south
@@ -579,28 +811,38 @@ export function generateSettlement(kind, opt = {}) {
       if (n > 0.62) setTile(map, x, y, T.meadow);
     }
     // perimeter
-    const inset = kind === 'castle' ? 3 : 2;
-    if (kind === 'castle') {
+    if (kind === 'castle' && wallKey) {
       for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
         if (x <= 2 || y <= 2 || x >= w - 3 || y >= h - 3) setTile(map, x, y, T.shallows);
       }
-      fillRect(map, cx - 1, h - 3, 3, 2, 'bridge');
-      fillRect(map, cx - 1, h - 1, 3, 1, 'cobble');
+      if (!P) {
+        fillRect(map, cx - 1, h - 3, 3, 2, 'bridge');
+        fillRect(map, cx - 1, h - 1, 3, 1, 'cobble');
+      } else {
+        // a bridge over the moat at every gate
+        for (const g of sides) {
+          if (g === 's') { fillRect(map, cx - 1, h - 3, 3, 2, 'bridge'); fillRect(map, cx - 1, h - 1, 3, 1, 'cobble'); }
+          if (g === 'n') { fillRect(map, cx - 1, 1, 3, 2, 'bridge'); fillRect(map, cx - 1, 0, 3, 1, 'cobble'); }
+          if (g === 'w') { fillRect(map, 1, cy - 1, 2, 3, 'bridge'); fillRect(map, 0, cy - 1, 1, 3, 'cobble'); }
+          if (g === 'e') { fillRect(map, w - 3, cy - 1, 2, 3, 'bridge'); fillRect(map, w - 1, cy - 1, 1, 3, 'cobble'); }
+        }
+      }
     }
-    if (S.wall === 'tree') {
+    if (wallKey === 'tree') {
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const edge = Math.min(x, y, w - 1 - x, h - 1 - y);
         if (edge <= 2 && hash2(x, y, rng.seed) < 0.75 - edge * 0.2) setTile(map, x, y, T.tree);
       }
-    } else {
-      for (let x = inset; x < w - inset; x++) { setTile(map, x, inset, T[S.wall]); setTile(map, x, h - 1 - inset, T[S.wall]); }
-      for (let y = inset; y < h - inset; y++) { setTile(map, inset, y, T[S.wall]); setTile(map, w - 1 - inset, y, T[S.wall]); }
-      if (kind === 'castle') {
+    } else if (wallKey) {
+      for (let x = inset; x < w - inset; x++) { setTile(map, x, inset, T[wallKey]); setTile(map, x, h - 1 - inset, T[wallKey]); }
+      for (let y = inset; y < h - inset; y++) { setTile(map, inset, y, T[wallKey]); setTile(map, w - 1 - inset, y, T[wallKey]); }
+      if (kind === 'castle' && wallKey === 'wall_stone') {
         for (const [tx, ty] of [[inset, inset], [w - inset - 3, inset], [inset, h - inset - 3], [w - inset - 3, h - inset - 3]]) fillRect(map, tx, ty, 3, 3, 'wall_stone');
       }
     }
     // gates
-    const gates = kind === 'castle' ? [[cx, h - 1 - inset]] : [[cx, inset], [cx, h - 1 - inset], [inset, cy], [w - 1 - inset, cy]];
+    const at = { n: [cx, inset], s: [cx, h - 1 - inset], w: [inset, cy], e: [w - 1 - inset, cy] };
+    const gates = P ? sides.map((g) => at[g]) : kind === 'castle' ? [[cx, h - 1 - inset]] : [[cx, inset], [cx, h - 1 - inset], [inset, cy], [w - 1 - inset, cy]];
     for (const [gx, gy] of gates) {
       for (let d = -1; d <= 1; d++) {
         if (gy === inset || gy === h - 1 - inset) setTile(map, gx + d, gy, T[S.street]);
@@ -609,14 +851,23 @@ export function generateSettlement(kind, opt = {}) {
     }
     // streets
     const st = T[S.street];
+    const crossStreet = kind !== 'castle' || (P && (sides.includes('e') || sides.includes('w')));
     for (let y = inset + 1; y < h - inset - 1; y++) { setTile(map, cx, y, st); setTile(map, cx - 1, y, st); }
-    if (kind !== 'castle') for (let x = inset + 1; x < w - inset - 1; x++) { setTile(map, x, cy, st); setTile(map, x, cy - 1, st); }
+    if (crossStreet) for (let x = inset + 1; x < w - inset - 1; x++) { setTile(map, x, cy, st); setTile(map, x, cy - 1, st); }
     // edge paths so the gate connects to the map edge
-    for (let y = h - 1 - inset; y < h; y++) setTile(map, cx, y, st), setTile(map, cx - 1, y, st);
-    if (kind !== 'castle') {
-      for (let y = 0; y <= inset; y++) setTile(map, cx, y, st), setTile(map, cx - 1, y, st);
-      for (let x = 0; x <= inset; x++) setTile(map, x, cy, st), setTile(map, x, cy - 1, st);
-      for (let x = w - 1 - inset; x < w; x++) setTile(map, x, cy, st), setTile(map, x, cy - 1, st);
+    if (!P) {
+      for (let y = h - 1 - inset; y < h; y++) setTile(map, cx, y, st), setTile(map, cx - 1, y, st);
+      if (kind !== 'castle') {
+        for (let y = 0; y <= inset; y++) setTile(map, cx, y, st), setTile(map, cx - 1, y, st);
+        for (let x = 0; x <= inset; x++) setTile(map, x, cy, st), setTile(map, x, cy - 1, st);
+        for (let x = w - 1 - inset; x < w; x++) setTile(map, x, cy, st), setTile(map, x, cy - 1, st);
+      }
+    } else {
+      const road = (x, y) => { if (getTile(map, x, y) !== T.bridge) setTile(map, x, y, st); };
+      if (sides.includes('s')) for (let y = h - 1 - inset; y < h; y++) road(cx, y), road(cx - 1, y);
+      if (sides.includes('n')) for (let y = 0; y <= inset; y++) road(cx, y), road(cx - 1, y);
+      if (sides.includes('w')) for (let x = 0; x <= inset; x++) road(x, cy), road(x, cy - 1);
+      if (sides.includes('e')) for (let x = w - 1 - inset; x < w; x++) road(x, cy), road(x, cy - 1);
     }
     // plaza
     if (kind !== 'castle') {
@@ -626,7 +877,7 @@ export function generateSettlement(kind, opt = {}) {
   }
 
   // castle keep with throne room
-  if (kind === 'castle') {
+  if (keep) {
     const kw = 16, kh = 12, kx = cx - 8, ky = 5;
     const b = buildRoom(map, kx, ky, kw, kh, { wall: 'wall_stone', floor: 'floor_stone', door: 's' });
     for (let y = ky + 1; y < ky + kh - 1; y++) setTile(map, cx - 1, y, T.carpet), setTile(map, cx, y, T.carpet);
@@ -640,11 +891,13 @@ export function generateSettlement(kind, opt = {}) {
     const lord = makeNpc('lord', 'human', cx - 1, ky + 2, rng, { wander: 0 });
     npcs.push(lord);
     buildings.push({ ...b, role: 'keep', npc: lord.id });
-    npcs.push(makeNpc('guard', 'human', cx - 3, ky + 3, rng, { wander: 0 }));
-    npcs.push(makeNpc('guard', 'human', cx + 2, ky + 3, rng, { wander: 0 }));
-    npcs.push(makeNpc('sage', 'human', kx + 3, ky + kh - 3, rng, { wander: 2 }));
+    if (!P || P.keepGuards) {
+      npcs.push(makeNpc('guard', 'human', cx - 3, ky + 3, rng, { wander: 0 }));
+      npcs.push(makeNpc('guard', 'human', cx + 2, ky + 3, rng, { wander: 0 }));
+    }
+    if (!P || P.keepSage) npcs.push(makeNpc('sage', 'human', kx + 3, ky + kh - 3, rng, { wander: 2 }));
   }
-  if (kind === 'dwarfgate') {
+  if (kind === 'dwarfgate' && (!P || P.hall)) {
     // king's hall at the north end
     fillRect(map, cx - 3, 4, 6, 3, 'carpet');
     setTile(map, cx - 1, 4, T.throne);
@@ -655,49 +908,19 @@ export function generateSettlement(kind, opt = {}) {
   }
 
   // place shops and houses
-  const roles = [...S.shops];
-  for (let i = 0; i < S.houses; i++) roles.push('house');
+  const roles = P ? P.roles : [...S.shops];
+  if (!P) for (let i = 0; i < S.houses; i++) roles.push('house');
   const ground = new Set([T[S.ground], T.meadow, T.grass, T.floor_stone]);
   const okTile = (t) => ground.has(t) || (S.underground && t === T.floor_stone);
-  for (const role of roles) {
-    let placed = false;
-    for (let attempt = 0; attempt < 400 && !placed; attempt++) {
-      const big = role === 'inn' || role === 'tavern' || role === 'healer';
-      const shrink = attempt > 250 ? 1 : 0;
-      const bw = (big ? rng.int(7, 8) : role === 'house' ? rng.int(5, 6) : rng.int(6, 7)) - shrink;
-      const bh = (big ? rng.int(6, 7) : role === 'house' ? rng.int(4, 5) : rng.int(5, 6)) - shrink;
-      const x0 = rng.int(3, w - bw - 3), y0 = rng.int(3, h - bh - 3);
-      if (!rectFree(map, x0, y0, bw, bh, (t) => okTile(t))) continue;
-      if (npcs.some((n) => n.x >= x0 - 1 && n.y >= y0 - 1 && n.x <= x0 + bw && n.y <= y0 + bh)) continue;
-      // door faces the nearest street
-      const mx = x0 + bw / 2, my = y0 + bh / 2;
-      let door;
-      if (kind === 'castle' || S.underground) door = Math.abs(mx - cx) > Math.abs(my - cy) ? (mx < cx ? 'e' : 'w') : (my < cy ? 's' : 'n');
-      else door = Math.abs(mx - cx) < Math.abs(my - cy) ? (mx < cx ? 'e' : 'w') : (my < cy ? 's' : 'n');
-      const b = buildRoom(map, x0, y0, bw, bh, { wall: role === 'healer' ? 'wall_stone' : S.bwall, floor: role === 'healer' ? 'floor_stone' : S.floor, door });
-      const spot = furnish(map, b, role, rng);
-      // path from the door outwards
-      const [ddx, ddy] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[door];
-      let px = b.door.x + ddx, py = b.door.y + ddy;
-      for (let k = 0; k < 12 && inBounds(map, px, py); k++) {
-        const t = getTile(map, px, py);
-        if (t === T[S.street]) break;
-        if (!okTile(t) && t !== T.meadow) break;
-        setTile(map, px, py, T[S.street]);
-        px += ddx; py += ddy;
-      }
-      const npc = makeNpc(role === 'house' ? 'villager' : role, S.race, spot.x, spot.y, rng);
-      npcs.push(npc);
-      buildings.push({ ...b, role, npc: npc.id });
-      placed = true;
-    }
-  }
+  const ctx = { rng, S, kind, cx, cy, okTile, npcs, buildings, race: S.race, size: buildingSize(rng, P), furnish: P ? furnishPlan : furnish, pack: !!P };
+  const missing = [];
+  for (const role of roles) if (!placeBuilding(map, role, ctx)) missing.push(role);
 
   // greenery & clutter
   if (!S.underground) {
     const green = (tt) => tt === T.grass || tt === T.meadow || tt === T.garden || tt === T.tree;
     const elvish = kind === 'elfhall';
-    for (let i = 0; i < (elvish ? 260 : kind === 'town' ? 30 : 16); i++) {
+    for (let i = 0; i < scale(elvish ? 260 : kind === 'town' ? 30 : 16); i++) {
       const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
       const t = getTile(map, x, y);
       if (t !== T.grass && t !== T.meadow) continue;
@@ -709,29 +932,33 @@ export function generateSettlement(kind, opt = {}) {
       setTile(map, x, y, rng.chance(elvish ? 0.7 : 0.6) ? T.tree : T.garden);
     }
     if (kind === 'village') {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < scale(3); i++) {
         const x0 = rng.int(4, w - 9), y0 = rng.int(4, h - 8);
         if (rectFree(map, x0, y0, 4, 3, (t) => t === T.grass || t === T.meadow)) fillRect(map, x0, y0, 4, 3, 'crops');
       }
     }
   } else {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < scale(10); i++) {
       const x = rng.int(5, w - 6), y = rng.int(5, h - 8);
       if (getTile(map, x, y) === T.floor_stone && rectFree(map, x, y, 1, 1, (t) => t === T.floor_stone)) setTile(map, x, y, rng.chance(0.5) ? T.anvil : T.barrel);
     }
   }
 
   // guards and wanderers
-  if (!S.underground && kind !== 'elfhall') {
-    const gy = h - (kind === 'castle' ? 5 : 4);
-    npcs.push(makeNpc('guard', 'human', cx - 2, gy, rng, { wander: 0 }));
-    npcs.push(makeNpc('guard', 'human', cx + 1, gy, rng, { wander: 0 }));
-  }
-  const nWander = kind === 'castle' ? 3 : 4;
+  if (!P) {
+    if (!S.underground && kind !== 'elfhall') {
+      const gy = h - (kind === 'castle' ? 5 : 4);
+      npcs.push(makeNpc('guard', 'human', cx - 2, gy, rng, { wander: 0 }));
+      npcs.push(makeNpc('guard', 'human', cx + 1, gy, rng, { wander: 0 }));
+    }
+  } else placeGuards(map, P, { S, kind, cx, cy, inset, rng, npcs });
+  const nWander = P ? P.folk : kind === 'castle' ? 3 : 4;
   for (let i = 0; i < nWander; i++) {
     for (let a = 0; a < 40; a++) {
       const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
       const t = getTile(map, x, y);
+      // (from a plan: out in the streets, never indoors)
+      if (P && (npcs.some((n) => n.x === x && n.y === y) || buildings.some((b) => b.w && x >= b.x0 && y >= b.y0 && x < b.x0 + b.w && y < b.y0 + b.h))) continue;
       if (t === T[S.street] || t === T.grass || t === T.meadow) {
         npcs.push(makeNpc('villager', rng.chance(0.75) ? S.race : rng.pick(['human', 'elf', 'dwarf']), x, y, rng, { wander: 5 }));
         break;
@@ -742,7 +969,91 @@ export function generateSettlement(kind, opt = {}) {
   map.entities.push(...npcs);
   map.entry = { x: cx - 1, y: h - 2 };
   if (S.underground) map.entry = { x: cx, y: h - 2 };
-  return { map, buildings, npcs };
+  else if (P && !sides.includes('s')) map.entry = sides[0] === 'n' ? { x: cx - 1, y: 1 } : sides[0] === 'w' ? { x: 1, y: cy } : { x: w - 2, y: cy };
+  return P ? { map, buildings, npcs, missing } : { map, buildings, npcs };
+}
+
+// The watch: a pair inside each gate (or at the mouth of a dwarf hold's
+// tunnel), and any more on patrol about the streets
+function placeGuards(map, P, { S, kind, cx, cy, inset, rng, npcs }) {
+  const { w, h } = map;
+  const want = P.guards - P.keepGuards;
+  const spots = [];
+  if (S.underground) spots.push([cx - 2, h - 7], [cx + 2, h - 7]);
+  else if (P.walls) {
+    for (const g of P.gates) {
+      if (g === 's') spots.push([cx - 2, h - 2 - inset], [cx + 1, h - 2 - inset]);
+      if (g === 'n') spots.push([cx - 2, inset + 1], [cx + 1, inset + 1]);
+      if (g === 'w') spots.push([inset + 1, cy - 2], [inset + 1, cy + 1]);
+      if (g === 'e') spots.push([w - 2 - inset, cy - 2], [w - 2 - inset, cy + 1]);
+    }
+  }
+  const free = (x, y) => inBounds(map, x, y) && def(getTile(map, x, y)).walk && !def(getTile(map, x, y)).door && !def(getTile(map, x, y)).water && !npcs.some((n) => n.x === x && n.y === y);
+  for (let i = 0; i < want; i++) {
+    let at = spots[i] && free(...spots[i]) ? spots[i] : null;
+    for (let a = 0; !at && a < 200; a++) {
+      const x = rng.int(3, w - 4), y = rng.int(3, h - 4);
+      if (getTile(map, x, y) === T[S.street] && free(x, y)) at = [x, y];
+    }
+    if (!at) continue;
+    npcs.push(makeNpc('guard', S.race, at[0], at[1], rng, { wander: spots[i] ? 0 : 3 }));
+  }
+}
+
+// A harbour from a plan: the quay, piers, yard, tavern, chandler and cottages
+// stand where harbour.js lays them out; the plan adds more buildings on the
+// green behind the quay (the map grows east to fit them), and sets how many
+// folk work the quay and how many guards watch the road in
+const HARBOUR_FIXED = { tavern: 1, provisions: 1, shipwright: 1, house: 3 };
+function harbourFromPlan(opt) {
+  const P = settlementSpec('harbour', opt.plan);
+  const left = { ...HARBOUR_FIXED };
+  const extra = [];
+  for (const r of P.roles) { if (left[r] > 0) left[r]--; else extra.push(r); }
+  const large = opt.plan.size === 'large';
+  let w = Math.max(opt.w || (large ? 38 : 30), 30 + Math.ceil(extra.length * 2.4)), h = opt.h || (large ? 30 : 24);
+  let res = null;
+  for (let i = 0; i < 12; i++) {
+    res = harbourOnce(opt, P, extra, w, h);
+    if (!res.missing.length || w >= 84) break;
+    w += 6;
+  }
+  return res;
+}
+
+function harbourOnce(opt, P, extra, w, h) {
+  const { map, npcs } = generateHarbour({ ...opt, w, h });
+  const rng = new RNG((opt.seed ?? 1) * 13 + 5);
+  const S = { ...SETTLEMENT_STYLES.harbour, street: 'road', bwall: 'wall_wood', floor: 'floor_wood' };
+  const all = [...npcs];
+  const buildings = [];
+  const missing = [];
+  const ctx = {
+    rng, S, kind: 'harbour', cx: w, cy: 12, okTile: (t) => t === T.grass || t === T.meadow, npcs: all, buildings, race: 'human',
+    size: buildingSize(rng, P), furnish: furnishPlan, pack: true,
+    // doors face the road in along the middle
+    doorTo: (mx, my) => (my < 12.5 ? 's' : 'n'),
+  };
+  for (const r of extra) if (!placeBuilding(map, r, ctx)) missing.push(r);
+  // the dockhands harbour.js puts on the quay: fewer, or more of them
+  const dock = (e) => e.role === 'villager' && e.wander === 3 && !def(getTile(map, e.x, e.y)).key.startsWith('floor');
+  const hands = all.filter(dock);
+  for (const e of hands.slice(P.folk)) all.splice(all.indexOf(e), 1);
+  const open = (x, y) => inBounds(map, x, y) && def(getTile(map, x, y)).walk && !def(getTile(map, x, y)).door && !all.some((n) => n.x === x && n.y === y);
+  for (let i = hands.length, a = 0; i < P.folk && a < 600; a++) {
+    const x = rng.int(3, w - 3), y = rng.int(1, h - 2);
+    const k = def(getTile(map, x, y)).key;
+    if ((k === 'cobble' || k === 'pier' || k === 'road') && open(x, y)) { all.push(makeNpc('villager', 'human', x, y, rng, { wander: 4 })); i++; }
+  }
+  // guards on the road in from the east
+  for (let i = 0, a = 0; i < P.guards && a < 400; a++) {
+    const [x, y] = i < 2 ? [w - 3 - Math.floor(a / 2), i ? 14 : 11] : [rng.int(11, w - 3), rng.int(1, h - 2)];
+    const k = def(getTile(map, x, y)).key;
+    if (open(x, y) && (i < 2 || k === 'cobble' || k === 'road')) { all.push(makeNpc('guard', 'human', x, y, rng, { wander: i < 2 ? 0 : 3 })); i++; }
+  }
+  map.entities = map.entities.filter((e) => e.type !== 'npc');
+  map.entities.push(...all);
+  return { map, npcs: all, buildings, missing };
 }
 
 // Lamps along the streets, a market round the fountain, carts and hay by the
@@ -799,16 +1110,41 @@ export const DUNGEON_STYLES = {
   crypt: { wall: 'dungeon_wall', floor: 'dungeon_floor', deco: ['bones', 'rubble', 'brazier', 'web'] },
   fortress: { wall: 'dungeon_wall', floor: 'floor_stone', deco: ['brazier', 'bones', 'lava', 'rubble'] },
 };
+// a plan's sizes (squares a side)
+export const DUNGEON_SIZES = { small: 28, medium: 36, large: 44 };
+// the curiosities a plan's `wonders` count adds, in turn
+const DUNGEON_WONDERS = ['lore', 'cache', 'shrine_ward', 'lore', 'cache', 'shrine_might', 'lore', 'cache'];
+const PILLAR_TEXTS = ['Scratched into the stone: "The deep ones sleep below. Light thy torch and pray."', 'A warning, half worn away: "...TREASURE...DEATH...DO NOT..."', 'A tally of marks, hundreds of them, ending in a single word: OUT.'];
 
+// opt: { seed, name, style, w, h, rooms, monsters, boss, level, wonders } —
+// or { seed, name, level, plan } to build one to a plan (world/places.js):
+// its rooms, monsters (and how many in a band), boss, final treasure, extra
+// chests and curiosities; the map grows until every room fits
 export function generateDungeon(opt = {}) {
-  const style = DUNGEON_STYLES[opt.style] || DUNGEON_STYLES.cave;
+  const P = opt.plan || null;
+  if (P && !opt._fit) {
+    const want = clampInt(P.rooms, 2, 30);
+    let s = Math.max(opt.w || DUNGEON_SIZES[P.size] || 36, Math.ceil(Math.sqrt(want * 110)));
+    s += s % 2;
+    let res = null;
+    for (let i = 0; i < 10; i++) {
+      res = generateDungeon({ ...opt, w: s, h: s, _fit: true });
+      if (res.rooms.length >= want || s >= 84) break;
+      s += 6;
+    }
+    res.missing = res.rooms.length < want ? [`${want - res.rooms.length} room${want - res.rooms.length === 1 ? '' : 's'}`] : [];
+    return res;
+  }
+  const styleKey = P ? (P.style === 'seacave' ? 'cave' : P.style) : opt.style;
+  const style = DUNGEON_STYLES[styleKey] || DUNGEON_STYLES.cave;
   const rng = new RNG(opt.seed ?? Math.floor(Math.random() * 1e9));
   const w = opt.w || 36, h = opt.h || 36;
   const map = createMap({ type: 'dungeon', w, h, name: opt.name || 'Dungeon', fill: style.wall });
   map.lighting = 'dark';
   map.level = opt.level || 1;
   const rooms = [];
-  for (let i = 0; i < 80 && rooms.length < (opt.rooms || 9); i++) {
+  const wantRooms = P ? clampInt(P.rooms, 2, 30) : opt.rooms || 9;
+  for (let i = 0; i < (P ? 1500 : 80) && rooms.length < wantRooms; i++) {
     const rw = rng.int(4, 8), rh = rng.int(4, 7);
     const x0 = rng.int(2, w - rw - 2), y0 = rng.int(2, h - rh - 2);
     if (rooms.some((r) => x0 < r.x + r.w + 2 && x0 + rw + 2 > r.x && y0 < r.y + r.h + 2 && y0 + rh + 2 > r.y)) continue;
@@ -816,7 +1152,7 @@ export function generateDungeon(opt = {}) {
   }
   const carve = (x, y) => { if (x > 0 && y > 0 && x < w - 1 && y < h - 1) setTile(map, x, y, T[style.floor]); };
   for (const r of rooms) {
-    if (opt.style === 'cave') {
+    if (styleKey === 'cave') {
       forBlob(map, r.cx, r.cy, Math.max(r.w, r.h) / 2 + 0.5, rng.int(1, 9999), (x, y, d) => { if (d < 1) carve(x, y); }, 0, 0.35);
     } else {
       for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) carve(x, y);
@@ -828,7 +1164,7 @@ export function generateDungeon(opt = {}) {
     const pts = rng.chance(0.5) ? [...line4(a.cx, a.cy, b.cx, a.cy), ...line4(b.cx, a.cy, b.cx, b.cy)] : [...line4(a.cx, a.cy, a.cx, b.cy), ...line4(a.cx, b.cy, b.cx, b.cy)];
     for (const [x, y] of pts) {
       carve(x, y);
-      if (opt.style === 'cave' && rng.chance(0.3)) carve(x + 1, y);
+      if (styleKey === 'cave' && rng.chance(0.3)) carve(x + 1, y);
     }
   };
   for (let i = 1; i < rooms.length; i++) link(rooms[i - 1], rooms[i]);
@@ -857,53 +1193,83 @@ export function generateDungeon(opt = {}) {
       }
       setTile(map, x, y, T[k2]);
     }
-    if (opt.style !== 'cave' && rng.chance(0.5)) {
+    if (styleKey !== 'cave' && rng.chance(0.5)) {
       setTile(map, r.x, r.y, T.brazier);
     }
   }
   // the deepest room (last) holds the treasure; mid rooms hold monsters & chests
   const last = rooms[rooms.length - 1];
-  map.entities.push({ id: uid('chest'), type: 'chest', x: last.cx, y: last.cy, gold: 80 + map.level * 60, items: [] });
-  const monsters = opt.monsters || [];
+  const prize = P?.treasure || null;
+  map.entities.push({ id: uid('chest'), type: 'chest', x: last.cx, y: last.cy, gold: prize ? prize.gold ?? 80 + map.level * 60 : 80 + map.level * 60, items: prize ? JSON.parse(JSON.stringify(prize.items || [])) : [] });
+  const monsters = P ? P.monsters || [] : opt.monsters || [];
+  const boss = P ? P.boss : opt.boss;
   for (let i = 1; i < rooms.length; i++) {
     const r = rooms[i];
-    if (monsters.length && (i < rooms.length - 1 || !opt.boss)) {
+    if (monsters.length && (i < rooms.length - 1 || !boss)) {
       const mx = r.cx + (rng.chance(0.5) ? 1 : -1), my = r.cy;
-      if (def(getTile(map, mx, my)).walk) map.entities.push({ id: uid('mon'), type: 'monster', x: mx, y: my, monster: rng.pick(monsters), count: '2-4', wander: 3 });
+      if (def(getTile(map, mx, my)).walk) {
+        const id = rng.pick(monsters);
+        map.entities.push({ id: uid('mon'), type: 'monster', x: mx, y: my, monster: id, count: (P && P.counts?.[id]) || '2-4', wander: 3 });
+      }
     }
-    if (i < rooms.length - 1 && rng.chance(0.35)) {
+    if (!P && i < rooms.length - 1 && rng.chance(0.35)) {
       const x = r.x + r.w - 1, y = r.y + r.h - 1;
       if (def(getTile(map, x, y)).walk) map.entities.push({ id: uid('chest'), type: 'chest', x, y, gold: rng.int(10, 30) * map.level, items: rng.chance(0.5) ? [{ id: 'healing_draught', n: 1 }] : [] });
     }
   }
-  if (opt.boss) {
-    map.entities.push({ id: uid('mon'), type: 'monster', x: last.cx, y: Math.max(last.y, last.cy - 1), monster: opt.boss, count: '1', wander: 0, boss: true });
+  if (P) {
+    // exactly as many chests as the plan asks, spread over the middle rooms
+    const mids = rooms.length > 2 ? rooms.slice(1, -1) : rooms.slice(0, 1);
+    const order = rng.shuffle ? rng.shuffle([...mids]) : mids;
+    const taken = (x, y) => map.entities.some((e) => e.x === x && e.y === y);
+    for (let k = 0, placed = 0; placed < clampInt(P.chests, 0, 24) && k < 200; k++) {
+      const r = order[k % order.length];
+      const corners = [[r.x + r.w - 1, r.y + r.h - 1], [r.x, r.y + r.h - 1], [r.x + r.w - 1, r.y], [r.x, r.y]];
+      const [x, y] = k < order.length * 4 ? corners[Math.floor(k / order.length) % 4] : [rng.int(r.x, r.x + r.w - 1), rng.int(r.y, r.y + r.h - 1)];
+      const t = def(getTile(map, x, y));
+      if (!t.walk || t.door || taken(x, y) || ['stairs_up', 'stairs_down'].includes(t.key)) continue;
+      map.entities.push({ id: uid('chest'), type: 'chest', x, y, gold: rng.int(10, 30) * map.level, items: rng.chance(0.5) ? [{ id: 'healing_draught', n: 1 }] : [] });
+      placed++;
+    }
+  }
+  if (boss) {
+    map.entities.push({ id: uid('mon'), type: 'monster', x: last.cx, y: Math.max(last.y, last.cy - 1), monster: boss, count: '1', wander: 0, boss: true });
   }
   map.encounterRate = 0.6;
-  if (opt.wonders !== false && rooms.length > 4) {
+  if (P ? P.wonders > 0 : opt.wonders !== false && rooms.length > 4) {
     const r2 = new RNG((opt.seed ?? 1) + 77);
     const spots = [];
-    for (const r of rooms.slice(1, -1)) for (let k = 0; k < 4; k++) {
-      const x = r2.int(r.x, r.x + r.w - 1), y = r2.int(r.y, r.y + r.h - 1);
-      if (getTile(map, x, y) === T[style.floor] && !map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2)) { spots.push({ x, y }); break; }
+    const pool = P && rooms.length <= 2 ? rooms : rooms.slice(1, -1);
+    const want = P ? clampInt(P.wonders, 0, 8) : 2;
+    for (let pass = 0; pass < (P ? 4 : 1) && spots.length < want + (P ? 0 : pool.length); pass++) {
+      for (const r of pool) for (let k = 0; k < 4; k++) {
+        const x = r2.int(r.x, r.x + r.w - 1), y = r2.int(r.y, r.y + r.h - 1);
+        if (getTile(map, x, y) === T[style.floor] && !map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2) && !spots.some((s) => s.x === x && s.y === y)) { spots.push({ x, y }); break; }
+      }
     }
-    const pick = (tpl, extra) => {
+    const pick = (tpl, extra, n = 0) => {
       const s = spots.splice(r2.int(0, spots.length - 1), 1)[0];
-      if (s) map.entities.push({ ...eventFromTemplate(tpl), id: opt.seed != null ? `ev_${opt.seed}_${tpl}` : uid('ev'), x: s.x, y: s.y, ...extra });
+      if (s) map.entities.push({ ...eventFromTemplate(tpl), id: opt.seed != null ? `ev_${opt.seed}_${tpl}${n ? '_' + n : ''}` : uid('ev'), x: s.x, y: s.y, ...extra });
     };
-    if (spots.length) pick('lore', { name: 'Carved Pillar', text: r2.pick(['Scratched into the stone: "The deep ones sleep below. Light thy torch and pray."', 'A warning, half worn away: "...TREASURE...DEATH...DO NOT..."', 'A tally of marks, hundreds of them, ending in a single word: OUT.']) });
-    if (spots.length) pick('cache', { name: 'Loose Flagstone' });
+    const extraFor = (tpl) => (tpl === 'lore' ? { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) } : tpl === 'cache' ? { name: 'Loose Flagstone' } : { name: 'Forgotten Shrine' });
+    if (!P) {
+      if (spots.length) pick('lore', { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) });
+      if (spots.length) pick('cache', { name: 'Loose Flagstone' });
+    } else for (let i = 0; i < want && spots.length; i++) pick(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length], extraFor(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length]), i >= 2 ? i : 0);
   }
   return { map, rooms, last };
 }
 
 // A smugglers' sea cave: a short cave whose black water reaches in from the
 // sea, bandits in its chambers and their hoard of brandy, silk and coin at
-// the back. (opt: boss, monsters, rooms, counts as for generateDungeon)
+// the back. (opt: boss, monsters, rooms, counts as for generateDungeon; or
+// plan, from world/places.js)
 export function smugglersCave(game, name, seed, opt = {}) {
   const have = (id) => !game || game.monsters.some((m) => m.id === id);
+  const P = opt.plan ? { ...opt.plan, style: 'cave', monsters: (opt.plan.monsters || []).filter(have), boss: opt.plan.boss && have(opt.plan.boss) ? opt.plan.boss : null } : null;
   const monsters = (opt.monsters || ['bandit', 'giant_rat', 'bat_swarm']).filter(have);
-  const res = generateDungeon({ name, seed, style: 'cave', monsters, rooms: opt.rooms || 6, w: opt.w || 28, h: opt.h || 28, boss: opt.boss && have(opt.boss) ? opt.boss : null, ...opt.dungeon });
+  const res = P ? generateDungeon({ name, seed, plan: P, ...opt.dungeon })
+    : generateDungeon({ name, seed, style: 'cave', monsters, rooms: opt.rooms || 6, w: opt.w || 28, h: opt.h || 28, boss: opt.boss && have(opt.boss) ? opt.boss : null, ...opt.dungeon });
   const { map, rooms, last } = res;
   const rng = new RNG(seed + 5);
   // sea water lapping into the first chambers, and the smugglers' stores
@@ -915,20 +1281,47 @@ export function smugglersCave(game, name, seed, opt = {}) {
     const x = r.x, y = r.y;
     if (getTile(map, x, y) === T.cave_floor && !map.entities.some((e) => e.x === x && e.y === y)) setTile(map, x, y, rng.chance(0.5) ? T.barrel : T.cargo);
   }
-  for (const e of map.entities) if (e.type === 'monster' && !e.boss && opt.counts?.[e.monster]) e.count = opt.counts[e.monster];
+  if (!P) for (const e of map.entities) if (e.type === 'monster' && !e.boss && opt.counts?.[e.monster]) e.count = opt.counts[e.monster];
   const chest = map.entities.find((e) => e.type === 'chest' && e.x === last.cx && e.y === last.cy);
-  if (chest) { chest.gold = opt.gold ?? 180; chest.items = opt.items || [{ id: 'healing_draught', n: 2 }, { id: 'mana_tonic', n: 1 }].filter((it) => !game || game.items.some((x) => x.id === it.id)); }
+  const known = (it) => !game || game.items.some((x) => x.id === it.id);
+  if (chest && P) chest.items = chest.items.filter(known);
+  else if (chest) { chest.gold = opt.gold ?? 180; chest.items = opt.items || [{ id: 'healing_draught', n: 2 }, { id: 'mana_tonic', n: 1 }].filter(known); }
   return { ...res, chest };
 }
 
+// Build a place's map from its plan (see world/places.js for what a plan
+// holds): { map, missing: [what would not fit, even on a bigger map] }.
+// The map carries the plan (map.plan) so it can be changed and rebuilt.
+export function generateFromPlan(game, plan, opt = {}) {
+  const fk = FEATURE_KINDS[plan.kind] || FEATURE_KINDS.town;
+  const seed = opt.seed ?? plan.seed ?? Math.floor(Math.random() * 1e9);
+  const name = opt.name || 'New place';
+  let res;
+  if (fk.mapType === 'dungeon') {
+    const have = (id) => !game || game.monsters.some((m) => m.id === id);
+    const P = { ...plan, monsters: (plan.monsters || []).filter(have), boss: plan.boss && have(plan.boss) ? plan.boss : null };
+    if (P.treasure && game) P.treasure = { ...P.treasure, items: (P.treasure.items || []).filter((it) => game.items.some((x) => x.id === it.id)) };
+    res = plan.style === 'seacave' ? smugglersCave(game, name, seed, { plan: P }) : generateDungeon({ name, seed, plan: P, level: opt.level });
+  } else {
+    res = generateSettlement(SETTLEMENT_STYLES[plan.style] ? plan.style : 'town', { name, seed, plan });
+    nameNpcs(res.map, game, seed);
+  }
+  res.map.name = name;
+  res.map.plan = JSON.parse(JSON.stringify({ ...plan, seed }));
+  return { map: res.map, missing: res.missing || [] };
+}
+
 // ---------------------------------------------------------------- feature placement
-export function placeFeature(game, world, x, y, kind, name, seed) {
+// (plan: build the place's map to a plan instead of the kind's usual one)
+export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   const fk = FEATURE_KINDS[kind];
   if (!fk) return null;
   setTile(world, x, y, T[fk.terrain]);
   let sub;
   const s = seed ?? Math.floor(Math.random() * 1e9);
-  if (kind === 'seacave') {
+  if (plan) {
+    sub = generateFromPlan(game, { ...plan, kind }, { name, seed: s }).map;
+  } else if (kind === 'seacave') {
     sub = smugglersCave(game, name, s).map;
   } else if (fk.mapType === 'dungeon') {
     const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : 'cave';
@@ -967,6 +1360,8 @@ const NAMES = {
     'Asa', 'Bera', 'Dagrun', 'Edda', 'Frida', 'Gudrun', 'Hervor', 'Inga', 'Jorunn', 'Kelda', 'Ragna', 'Solvei', 'Tova', 'Unn', 'Yrsa', 'Svala'] },
 };
 
+const BYNAMES = ['Brightwater', 'Ashdown', 'Fairfield', 'Stonebrook', 'Hollins', 'Marsh', 'Underhill', 'Greenleaf', 'Oakshott', 'Redmane'];
+
 // A random first name. `avoid` (a Set from nameWords) keeps it from
 // sounding like anyone already in the game: "Hilda" is taken by Mayor Hilda.
 // look: a figure's look, so a bearded "bold" face is not called Freya
@@ -980,7 +1375,7 @@ export function randomName(race, rng, avoid = null, look = null) {
   if (other.length) return rng.pick(other);
   // every name is taken: a byname tells this one apart
   for (let i = 0; i < 40; i++) {
-    const n = `${rng.pick(list)} ${rng.pick(['Brightwater', 'Ashdown', 'Fairfield', 'Stonebrook', 'Hollins', 'Marsh', 'Underhill', 'Greenleaf', 'Oakshott', 'Redmane'])}`;
+    const n = `${rng.pick(list)} ${rng.pick(BYNAMES)}`;
     if (!avoid.has(n.split(' ')[1].toLowerCase())) return n;
   }
   return rng.pick(list);
@@ -1020,7 +1415,8 @@ export function uniqueTownsfolk(game, keep, seed = 1) {
   }
 }
 
-const ROLE_TEXT = {
+// the words a generated person starts with (the checklist knows them as unwritten)
+export const ROLE_TEXT = {
   weapons: { job: 'I forge blades and sell arms. Wouldst thou BUY or SELL?', greet: 'Steel for the road, traveller?' },
   armor: { job: 'I sell armour of every kind. Wouldst thou BUY or SELL?', greet: 'A good hauberk is a friend for life.' },
   provisions: { job: 'I sell FOOD, torches and potions. Wouldst thou BUY?', greet: 'Hungry? The road is long.' },
@@ -1033,7 +1429,27 @@ const ROLE_TEXT = {
   sage: { job: 'I study the old lore and the stars, and copy out spell scrolls. Wouldst thou BUY?', greet: 'Hmm? Oh, visitors.' },
   bowyer: { job: 'I make bows of yew and ash. Wouldst thou BUY or SELL?', greet: 'A fine bow is a friend in the wild.' },
   villager: { job: 'I work hard and keep my head down.', greet: 'Good day to thee.' },
+  merchant: { job: 'I trade in a little of everything. Wouldst thou BUY or SELL?', greet: 'Come, look! Bargains from every road in the realm.' },
 };
+
+// What the generator gives a person of a role (their words and the title in
+// their description), so the editor can tell a made-up townsperson from one
+// the designer has written
+export function madeUpWords(role) {
+  const rt = ROLE_TEXT[role] || ROLE_TEXT.villager;
+  return { job: rt.job, greeting: rt.greet, title: SHOP_ROLES[role]?.title?.toLowerCase() || (role === 'villager' ? 'local' : role) };
+}
+
+// Whether a name is one the generator could have made up
+export function isMadeUpName(name) {
+  const words = String(name || '').trim().split(/\s+/);
+  if (!words[0] || words.length > 2) return !words[0];
+  const all = Object.values(NAMES).some((n) => n.m.includes(words[0]) || n.f.includes(words[0]));
+  return all && (words.length === 1 || BYNAMES.includes(words[1]));
+}
+
+// the shopkeepers, innkeepers and healers (each keeps a building)
+export const KEEPER_ROLES = Object.keys(SHOP_ROLES);
 
 export function nameNpcs(map, game, seed = 1) {
   const rng = new RNG(seed + 77);

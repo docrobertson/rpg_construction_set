@@ -213,6 +213,7 @@ function buildSample() {
   // --- things to find, and the quests that tie it all together
   placeWonders(game, w, { barrow, fortress, tower, village });
   game.quests = buildQuests(barrow.map.id, fortress.map.id);
+  game.story = buildChapters(game);
   // (last of all, so every id made before keeps its place in old saves)
   hideTreasures(game, w, westhold);
   addPlaces(game, w);
@@ -677,6 +678,41 @@ function buildQuests(barrowId, fortressId) {
       thanks: 'Shall I sing thee the Lay of Elendur? All of it, at last — thanks to thee.',
     },
   ];
+}
+
+// Three chapters over the main quest, each ending at one of its steps. The
+// side quests belong to no chapter: they are open from the start.
+function buildChapters(game) {
+  game.quests.find((q) => q.id === 'q_main').chapter = 'ch_gathering';
+  return {
+    chapters: [
+      {
+        id: 'ch_gathering', name: 'The Gathering Dark',
+        summary: 'Orcs burn the farms of Eldmark. Mayor Hilda of Westhold sends the company to King Aldric, and the King sends them on with his seal to the dwarves of Hammerdeep, who keep the Rune-Key.',
+        notes: 'The side quests have no chapter, so they are open from the start: the company can roam and grow before heading north.',
+        cast: [
+          { npc: 'npc_hilda', note: 'Sets the company on the road' },
+          { npc: 'npc_aldric', note: 'Tells of Malgrath; gives his seal' },
+          { npc: 'npc_durgan', note: 'Must take the seal and tell of the stolen Key' },
+        ],
+        ends: { type: 'stage', quest: 'q_main', stage: 4 },
+      },
+      {
+        id: 'ch_barrow', name: 'The Barrow King',
+        summary: 'The Rune-Key was carried off to Grimholt Barrow, where Ulfgar the Hollow King will not stay dead. Win it back, and bring it home to Hammerdeep.',
+        notes: 'Ulfgar guards the deepest chamber; the Key is in his hoard. Durgan gives the Runeblade, the weapon for the last fight.',
+        cast: [{ npc: 'npc_durgan', note: 'Takes back the Key and gives the Runeblade' }],
+        ends: { type: 'stage', quest: 'q_main', stage: 8 },
+      },
+      {
+        id: 'ch_garoth', name: 'Dol Garoth',
+        summary: 'The Rune-Key opens the black gate in the Ashen Peaks. Beyond it, in the heart of his fortress, Malgrath the Shadow Lord waits.',
+        notes: 'Slaying Malgrath wins the game (Campaign → How it ends).',
+        cast: [],
+        ends: { type: 'stage', quest: 'q_main', stage: 10 },
+      },
+    ],
+  };
 }
 
 function addDungeon(game, world, x, y, kind, name, opt) {
