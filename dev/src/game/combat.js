@@ -52,6 +52,11 @@ export class Battle {
   }
 
   log(t, c) { this.s.log(t, c); }
+  // Hooks for what heroes carry (charms and the like): the session answers
+  // battleHook(kind, battle, ...) for 'start' (after setup), 'turn' (a unit's
+  // turn begins; return true to make it lose the turn), 'hit' (attacker,
+  // target, damage dealt), 'hurt' (target, damage, by) and 'end' (outcome).
+  hook(kind, ...a) { try { return this.s.battleHook?.(kind, this, ...a); } catch (e) { console.error(e); return null; } }
   emit(type, data) { this.s.ui?.combatEvent?.(type, data, this); }
 
   // ------------------------------------------------------------ setup
@@ -399,6 +404,8 @@ export class Battle {
 
   // Returns true if the unit loses its turn
   async startTurn(u) {
+    if (await this.hook('turn', u)) return true;
+    if (!this.alive(u)) return true;
     // legacy buffs from older saves
     const buffs = u.side === 'party' ? u.member.buffs : u.buffs;
     if (buffs) {
@@ -476,6 +483,7 @@ export class Battle {
 
   async finish(outcome) {
     this.over = true;
+    this.hook('end', outcome);
     for (const u of this.units) if (u.charging) this.cancelWindup(u);
     const members = this.s.party.members;
     for (const m of members) {
@@ -872,6 +880,10 @@ export class Battle {
       t.member.hp -= dmg;
       if (t.member.status === 'asleep') t.member.status = 'ok';
     } else t.hp -= dmg;
+    if (dmg > 0) {
+      if (opts.by && opts.by !== t && !opts.dot) this.hook('hit', opts.by, t, dmg);
+      this.hook('hurt', t, dmg, opts.by || null);
+    }
     const kind = opts.crit ? 'crit' : t.side === 'party' ? 'hurt' : 'dmg';
     this.fx.number(t.x, t.y, String(dmg), kind, opts.color || (opts.dot === 'poisoned' ? '#9be070' : opts.dot === 'burning' ? '#ffa040' : null));
     if (!opts.dot) {

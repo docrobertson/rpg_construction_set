@@ -1191,7 +1191,7 @@ export class PlaySession {
     const battle = this.battle;
     // shrine blessings last the whole fight (the battle clears buffs as it sets up)
     const setup = battle.setup.bind(battle);
-    battle.setup = () => { setup(); blessBattle(this, battle); };
+    battle.setup = () => { setup(); this.prepareBattle(battle); };
     this.ui.setMode('combat');
     const res = await this.battle.run();
     if (res.outcome === 'aborted') return res; // the player quit mid-fight
@@ -1235,6 +1235,19 @@ export class PlaySession {
     checkQuests(this);
     this.checkVictory();
     return res;
+  }
+
+  // Every battle, wherever it is fought, is readied here once its field is
+  // set: shrine blessings, then the battle's 'start' hook
+  prepareBattle(battle) {
+    blessBattle(this, battle);
+    battle.hook('start');
+  }
+
+  // What heroes carry answers the battle's hooks (see Battle.hook)
+  battleHook(kind, battle, ...a) {
+    void kind; void battle; void a;
+    return null;
   }
 
   onMonsterKilled(monsterId) {
