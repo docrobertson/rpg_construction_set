@@ -194,6 +194,18 @@ function ago(t) {
 }
 
 // ------------------------------------------------------------ the Quick Start
+// names for a new world, and titles for the tale told in it
+const NAME_A = ['Eld', 'Ash', 'Mor', 'Val', 'Thal', 'Bryn', 'Cal', 'Dun', 'Ess', 'Fen', 'Gal', 'Har', 'Iver', 'Kel', 'Lor', 'Mar', 'Nor', 'Ost', 'Ryn', 'Sil', 'Tor', 'Wyn', 'Aer', 'Bel'];
+const NAME_B = ['mark', 'land', 'mere', 'reach', 'vale', 'dor', 'heim', 'moor', 'wold', 'haven', 'fell', 'march', 'garth', 'ria'];
+function worldName(seed) {
+  const a = NAME_A[seed % NAME_A.length], b = NAME_B[Math.floor(seed / NAME_A.length) % NAME_B.length];
+  return a + b;
+}
+const TITLES = {
+  darklord: (w) => `Shadow over ${w}`, relic: (w) => `The Stolen Relic of ${w}`, curse: (w) => `The Curse of ${w}`,
+  heir: (w) => `The Lost Heir of ${w}`, blank: (w) => `Tales of ${w}`,
+};
+
 const SIZES = [['48', 'Small (48 × 48) — an evening\'s adventure'], ['64', 'Medium (64 × 64)'], ['80', 'Large (80 × 80)'], ['112', 'Vast (112 × 112) — a long campaign']];
 const EXTRAS = ['elfhall', 'dwarfgate', 'harbour', 'tower', 'fortress', 'seacave'];
 
@@ -218,7 +230,7 @@ export function quickStart(ed) {
     }
     body.appendChild(h('div.form-section', '1 · The realm'));
     body.appendChild(buildForm(o, [
-      { key: 'title', label: 'Title', type: 'text', placeholder: game.meta.title, show: () => afresh },
+      { key: 'title', label: 'Title', type: 'text', placeholder: 'Leave blank and the world is named, and the tale after it', show: () => afresh },
       { key: 'premise', label: 'Story', type: 'select', rerender: true, options: Object.entries(PREMISES).map(([k, p]) => [k, p.label]) },
       { type: 'info', label: () => PREMISES[o.premise]?.desc || '' },
     ], (k) => { if (k === 'premise') { tick(); draw(); } }));
@@ -276,7 +288,9 @@ function buildCampaign(ed, o) {
     game.story = { chapters: [] };
     forgetLostMaps(game);
     buryTreasures(game, world, seed);
-    if (o.title?.trim()) game.meta.title = o.title.trim();
+    // a name for the world, and (unless one was given) a title to match
+    if (!world.name || world.name === 'The World') world.name = worldName(seed);
+    game.meta.title = o.title?.trim() || (TITLES[o.premise] || TITLES.blank)(world.name);
   }
   // the places: a town first (where the adventure begins), then the rest
   const wants = [];
