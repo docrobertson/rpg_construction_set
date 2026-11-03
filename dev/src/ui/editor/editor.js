@@ -136,7 +136,7 @@ export class Editor {
     this.right = h('div.ed-right.panel');
     this.main = h('div.ed-main.panel');
     this.statusText = h('span.st-text');
-    this.nextBtn = h('button.small.st-next', { onclick: () => this.nextStep() });
+    this.nextBtn = h('button.small.ed-next', { onclick: () => this.nextStep() });
     this.status = h('div.ed-status', this.statusText, this.nextBtn);
     root.append(top, this.left, this.main, this.right, this.status);
     this.app.ui.appendChild(root);

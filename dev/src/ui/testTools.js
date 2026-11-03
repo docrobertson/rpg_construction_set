@@ -118,6 +118,10 @@ export function prepareChapter(game, state, chapterId) {
     }
     if (isDone(state, id)) res.done.push(id);
   }
+  // the chapters behind the company are on record, so only the chosen one
+  // is announced with its title card as play begins
+  if (!state.chapters || typeof state.chapters !== 'object') state.chapters = {};
+  for (const ch of earlier) if (state.chapters[ch.id] == null) state.chapters[ch.id] = 0;
   state.tracked = null;
   state.pinned = null;
   res.pos = openingSpot(game, state, chs[at]);
@@ -240,8 +244,9 @@ export class TestTools {
   // ---------------------------------------------------------- coverage
   hook() {
     const ui = this.ui;
-    const was = { quest: ui.onQuestEvent, map: ui.onMapChanged, win: ui.showVictory, lose: ui.showGameOver };
+    const was = { quest: ui.onQuestEvent, map: ui.onMapChanged, win: ui.showVictory, lose: ui.showGameOver, chapter: ui.onChapter };
     this.was = was;
+    ui.onChapter = (ch, n) => { this.note('chapters', ch?.id); this.refresh(); return was.chapter?.call(ui, ch, n); };
     ui.onQuestEvent = (kind, q, extra) => { this.onQuest(kind, q, extra); return was.quest?.call(ui, kind, q, extra); };
     ui.onMapChanged = () => { this.note('visited', this.s.map?.id); this.refresh(); return was.map.call(ui); };
     ui.showVictory = () => { if (!this.won) { this.won = true; this.bump('wins'); } return was.win.call(ui); };
@@ -271,7 +276,7 @@ export class TestTools {
 
   destroy() {
     const ui = this.ui;
-    if (this.was) { ui.onQuestEvent = this.was.quest; ui.onMapChanged = this.was.map; ui.showVictory = this.was.win; ui.showGameOver = this.was.lose; }
+    if (this.was) { ui.onQuestEvent = this.was.quest; ui.onMapChanged = this.was.map; ui.showVictory = this.was.win; ui.showGameOver = this.was.lose; ui.onChapter = this.was.chapter; }
     this.btn?.remove();
     this.panel?.remove();
     const ed = this.app.editor;

@@ -1388,6 +1388,7 @@ export class PlaySession {
       if (lodge.map === this.map.id) { const e = this.restingNpc(this.map, c); this.map.entities.push(e); this.addVisual(e); }
       this.log(`${c.name} will wait for you at the inn in ${lodge.name} until there is room in the company.`, 'place');
     } else this.party.members.push(c);
+    c.fromNpc = npc.id; checkQuests(this); // who they were: "have someone in the company" goals
     if (this.map.entities.includes(npc)) this.removeEntity(npc);
     else if (npc.mapId) this.mapState(npc.mapId).removed.push(npc.id);
     this.state.joinOffers = (this.state.joinOffers || []).filter((id) => id !== npc.id);

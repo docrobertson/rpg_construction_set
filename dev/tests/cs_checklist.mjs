@@ -210,11 +210,13 @@ try {
   check('Ignore persists with the realm', kept.includes(`unreach:${isleId}`), kept);
 
   // ------------------------------------------------------------ a playtest from a chapter
-  // (the sample has no chapters of its own: make three)
+  // three chapters of its own, each ending when its quests are done (the
+  // sample's own chapters split its main quest at steps instead)
   const chapters = await ev(() => {
     const ed = window.__app.editor, g = ed.game;
     g.story = g.story || { chapters: [] };
-    if (!g.story.chapters.length) {
+    {
+      for (const q of g.quests) delete q.chapter;
       g.story.chapters = [
         { id: 'ch_a', name: 'Troubles near Westhold', summary: '', notes: '', cast: [{ npc: 'npc_wynn', note: '' }], ends: { type: 'quests' } },
         { id: 'ch_b', name: 'Friends Far Away', summary: '', notes: '', cast: [], ends: { type: 'quests' } },

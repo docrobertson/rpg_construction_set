@@ -13,11 +13,14 @@ import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLo
 import * as Quests from '../game/quests.js';
 import * as Events from '../game/events.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
+import { chapterList, chapterLabel, currentChapter, chapterOfQuestNow, questSpans, roman } from '../game/story.js';
+import * as Story from '../game/story.js';
 
 // handles for tests and the browser console
 if (typeof window !== 'undefined') {
   window.__quests = Quests;
   window.__events = Events;
+  window.__story = Story;
   window.__schema = { serializeGame, deserializeGame, cloneGame };
 }
 
@@ -63,13 +66,23 @@ export class QuestUI {
     this.narrow?.addEventListener?.('change', this.place);
     this.bannerHost = h('div.qbanner-host');
     ui.root.appendChild(this.bannerHost);
+    // a new chapter gets a title card of its own, over the middle of the map
+    this.chapterHost = h('div.chbanner-host');
+    ui.root.appendChild(this.chapterHost);
+    this.chapterCards = [];
+    ui.onChapter = (ch, n) => this.onChapter(ch, n);
     // the session talks to the PlayUI; these land here
     ui.openEvent = (e) => this.openEvent(e);
     ui.onQuestEvent = (kind, q, extra) => this.onQuestEvent(kind, q, extra);
     ui.openJournal = () => this.openJournal();
   }
 
-  destroy() { clearTimeout(this.waitT); this.narrow?.removeEventListener?.('change', this.place); this.el.remove(); this.bannerHost.remove(); this.banners.length = 0; }
+  destroy() {
+    clearTimeout(this.waitT); clearTimeout(this.chWaitT);
+    this.narrow?.removeEventListener?.('change', this.place);
+    this.el.remove(); this.bannerHost.remove(); this.chapterHost.remove();
+    this.banners.length = 0; this.chapterCards.length = 0;
+  }
 
   // ------------------------------------------------------------ tracker
   refresh() {
@@ -155,6 +168,40 @@ export class QuestUI {
     };
     el.addEventListener('click', kill);
     setTimeout(kill, this.banners.length ? 2400 : 4200);
+  }
+
+  // ------------------------------------------------------------ chapters
+  // "Chapter II — The Barrow King": a title card, shown once no window is open
+  onChapter(ch, n) {
+    const card = h('div.chbanner', { title: 'Click to close' },
+      h('div.chb-n', h('i'), `Chapter ${roman(n)}`, h('i')),
+      h('div.chb-name', ch.name || ''),
+      ch.summary ? h('div.chb-sum', ch.summary) : null);
+    this.chapterCards.push(card);
+    if (!this.chShowing) this.nextChapterCard();
+  }
+
+  nextChapterCard() {
+    if (this.chapterCards.length && anyModal()) {
+      this.chShowing = true;
+      clearTimeout(this.chWaitT);
+      this.chWaitT = setTimeout(() => { this.chShowing = null; if (this.chapterHost.isConnected) this.nextChapterCard(); }, 400);
+      return;
+    }
+    const el = this.chapterCards.shift();
+    this.chShowing = el || null;
+    if (!el) return;
+    sfx('portal');
+    this.chapterHost.appendChild(el);
+    let gone = false;
+    const kill = () => {
+      if (gone) return;
+      gone = true;
+      el.classList.add('out');
+      setTimeout(() => { el.remove(); this.nextChapterCard(); }, 700);
+    };
+    el.addEventListener('click', kill);
+    setTimeout(kill, 6000);
   }
 
   // ------------------------------------------------------------ minimap / map pins
@@ -273,13 +320,35 @@ export class QuestUI {
       if (!list.includes(sel)) sel = list[0] || null;
       const left = h('div.j-list');
       if (!list.length) left.appendChild(h('p.hint', tab === 'active' ? 'No quests under way. People with a task for you are marked “!” — go and talk to them.' : 'Nothing finished yet.'));
-      for (const q of list) {
-        left.appendChild(h('button.j-item' + (q === sel ? '.on' : '') + (q.main ? '.main' : ''), { onclick: () => { sel = q; render(); } },
-          h('b', q.main ? '★ ' : '', q.name),
-          h('span', tab === 'active' ? stageLine(s, q) : 'Completed')));
-      }
+      const item = (q) => h('button.j-item' + (q === sel ? '.on' : '') + (q.main ? '.main' : ''), { onclick: () => { sel = q; render(); } },
+        h('b', q.main ? '★ ' : '', q.name),
+        h('span', tab === 'active' ? stageLine(s, q) : 'Completed'));
+      // with chapters, the quests stand under the chapter they are in now
+      const chs = chapterList(g);
+      if (chs.length && list.length) {
+        const spans = questSpans(g);
+        const groups = new Map();
+        for (const q of list) {
+          const key = chapterOfQuestNow(g, s.state, q, spans)?.id || '';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(q);
+        }
+        for (const ch of chs) {
+          if (!groups.has(ch.id)) continue;
+          left.appendChild(h('div.j-chapter', h('span', chapterLabel(g, ch)), ch.name ? ' ' + ch.name : ''));
+          for (const q of groups.get(ch.id)) left.appendChild(item(q));
+        }
+        if (groups.has('')) {
+          left.appendChild(h('div.j-chapter.other', 'Other quests'));
+          for (const q of groups.get('')) left.appendChild(item(q));
+        }
+      } else for (const q of list) left.appendChild(item(q));
       const right = h('div.j-detail');
       if (sel) renderQuest(right, sel);
+      if (tab === 'active' && chs.length) {
+        const cur = currentChapter(g, s.state);
+        if (cur) body.appendChild(h('div.j-chapnow', h('span.jcn-n', chapterLabel(g, cur)), h('b', cur.name || ''), cur.summary ? h('p', cur.summary) : null));
+      }
       body.appendChild(h('div.j-cols', left, right));
     };
     const renderQuest = (el, q) => {

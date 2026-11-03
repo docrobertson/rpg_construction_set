@@ -81,7 +81,7 @@ r = await ev(() => {
   const ed = window.__app.editor;
   ed.setTab('campaign');
   const seen = [ed.tab];
-  for (let i = 0; i < 4; i++) { document.querySelector('.st-next').click(); seen.push(ed.tab); }
+  for (let i = 0; i < 4; i++) { document.querySelector('.ed-next').click(); seen.push(ed.tab); }
   return seen;
 });
 check('Next walks Campaign → Land → Places → Story → Details', r.join() === 'campaign,land,places,story,map', r);

@@ -17,7 +17,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile, inBounds } from '../world/map.js';
 import { placesOf } from '../world/places.js';
 import { ROLE_TEXT } from '../world/generate.js';
-import { chapterList, questsOfChapter } from './story.js';
+import { chapterList, questsInChapter, questSpans, walkStory } from './story.js';
 import { GOAL_TYPES } from './quests.js';
 import { mooringFor } from './ships.js';
 
@@ -70,6 +70,11 @@ export function questProblems(game, q) {
     if (g.type === 'kill' && !(game.monsters || []).some((mo) => mo.id === g.monster)) out.push(`${n}: choose the monster to defeat.`);
     if ((g.type === 'reach' || g.type === 'clear') && !game.maps.some((m) => m.id === g.map)) out.push(`${n}: choose the map.`);
     if (g.type === 'flag' && !String(g.flags || g.flag || '').trim()) out.push(`${n}: name the story flag(s) to wait for.`);
+    if (g.type === 'companion') {
+      const p = npcs.get(g.npc);
+      if (!p) out.push(`${n}: choose who must be in the company.`);
+      else if (!p.recruit && !(p.keywords || []).some((k) => k.action?.type === 'join')) out.push(`${n}: ${p.name || 'that person'} never offers to join the company — tick “Can JOIN the party” on them, or give them a keyword that makes them join.`);
+    }
   });
   return out;
 }
@@ -498,9 +503,11 @@ export function analyzeCampaign(game, opt = {}) {
   if (!quests.length) add('noquests', 'story', 'todo', 'No quests yet: give the players something to do.', { tab: 'story' });
   if (!chapters.length) add('nochapters', 'story', 'todo', 'No chapters yet: group the quests into chapters to see the shape of the adventure.', { tab: 'story' });
   else add('ok-chapters', 'story', 'ok', `The story has ${plural(chapters.length, 'chapter')}.`);
+  const spans = chapters.length ? questSpans(game) : null;
   for (const ch of chapters) {
     const go = { tab: 'story', chapter: ch.id };
-    const qs = questsOfChapter(game, ch);
+    // (a long quest may run on through several chapters)
+    const qs = questsInChapter(game, ch, spans);
     if (!qs.length) add(`ch-empty:${ch.id}`, 'story', 'todo', `Chapter “${ch.name}” has no quests yet.`, go);
     const involved = new Set();
     for (const q of qs) { involved.add(q.giver); for (const st of q.stages || []) if (st.goal?.npc) involved.add(st.goal.npc); }
@@ -512,6 +519,18 @@ export function analyzeCampaign(game, opt = {}) {
     const end = ch.ends || {};
     if (end.type === 'stage' && !quests.some((q) => q.id === end.quest)) add(`ch-end:${ch.id}`, 'story', 'warn', `Chapter “${ch.name}” ends at a step of a quest that no longer exists.`, go);
     if (end.type === 'flag' && end.flag && !ix.flagSrc.has(end.flag)) add(`ch-end:${ch.id}`, 'story', 'warn', `Chapter “${ch.name}” ends when “${end.flag}” is set, but nothing sets it.`, go);
+  }
+  // the story played through step by step, as a company would: where it stalls
+  if (quests.length) {
+    let walk = null;
+    try { walk = walkStory(game); } catch (e) { console.error(e); }
+    if (walk) {
+      for (const st of walk.stuck) {
+        add(`walk:${st.quest.id}`, 'story', 'warn', `Played through, a company gets stuck on “${st.quest.name}” at step ${st.step + 1}${st.why ? ': ' + st.why : ''}.`, { tab: 'story', quest: st.quest.id });
+      }
+      if (!walk.stuck.length && walk.won === false) add('walk-win', 'story', 'warn', 'Played through, every quest can be finished but the game is never won: check how it ends on the Campaign step.', { tab: 'campaign' });
+      else if (!walk.stuck.length && walk.won) add('ok-walk', 'story', 'ok', 'Played through step by step, the story can be won.');
+    }
   }
   let questTrouble = 0;
   const needs = new Map(); // item -> [{ text, go, hard }]
