@@ -1,5 +1,5 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES, RARITIES } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
 import { roll, RNG, hashString } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
@@ -14,6 +14,8 @@ export function itemOf(game, id) { return id ? byId(game.items, id) : null; }
 // item's data. Returns { color: '#rrggbb', notes: ['+2 to hit', ...] } or null.
 const MAGIC_GOLD = 0xffd56a;
 export function magicalOf(it) {
+  // charms are magic by nature: their rarity's colour
+  if (it?.type === 'charm') return { color: RARITIES[it.rarity]?.color || '#c8b8ff', notes: [], charm: true };
   if (!it || !['weapon', 'armor', 'shield'].includes(it.type)) return null;
   if (it.magical === false || (it.magical !== true && it.glow == null)) return null;
   const notes = [];
@@ -48,7 +50,7 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
     level,
     xp: XP_TABLE[level] || 0,
     status: 'ok',
-    equip: { weapon: null, ranged: null, armor: null, shield: null },
+    equip: { weapon: null, ranged: null, armor: null, shield: null, charm: null },
     points: 0,
     buffs: [],
     look: look || {},
@@ -65,7 +67,7 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
 export function maxHp(game, c) {
   const k = classOf(game, c), r = raceOf(game, c);
   const per = Math.ceil((k.hpLevel || 6) * 0.6) + Math.floor(Math.max(-1, mod(c.str)) / 2) + Math.sign(r.hp || 0);
-  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5);
+  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5 + wornBonus(game, c, 'hp'));
 }
 
 // --- talents chosen on levelling up
@@ -156,7 +158,9 @@ export function abilityLevel(k, id) {
   return i <= 0 ? 1 : 1 + i * 2;
 }
 
-// abilities in hand, in class order (all = include those not yet learned)
+// abilities in hand, in class order (all = include those not yet learned);
+// what the hero wears may add a battle action of its own (a charm's, or a
+// magic staff's), listed after the class skills and before the ★ special
 export function heroAbilities(game, c, all = false) {
   const k = classOf(game, c);
   ensureCombatData(game);
@@ -164,6 +168,12 @@ export function heroAbilities(game, c, all = false) {
   for (const id of [...(k.skills || []), k.special]) {
     const a = abilityOf(game, id);
     if (a && !out.includes(a) && (all || (c.level || 1) >= abilityLevel(k, id))) out.push(a);
+  }
+  const worn = wornAbilities(game, c).filter((a) => !out.includes(a));
+  if (worn.length) {
+    const sp = abilityOf(game, k.special);
+    const i = sp ? out.indexOf(sp) : -1;
+    out.splice(i >= 0 ? i : out.length, 0, ...worn);
   }
   return out;
 }
@@ -195,7 +205,7 @@ export function maxMp(game, c) {
     const statMod = Math.max(0, mod(c[ci.sys.stat] || 10));
     best = Math.max(best, Math.floor(3 + ci.castLevel * (2 + statMod * 0.5)));
   }
-  return best > 0 ? best + perkCount(c, 'arcane') * 4 : 0;
+  return best > 0 ? best + perkCount(c, 'arcane') * 4 + wornBonus(game, c, 'mp') : 0;
 }
 
 // Spells within reach of the caster's power, lowest first; a novice knows
