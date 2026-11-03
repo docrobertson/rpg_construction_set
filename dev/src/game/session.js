@@ -28,6 +28,8 @@ import { findBuildings } from '../world/buildings.js';
 import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
 import { forageFind, lootTag } from './magic.js';
 import { buyShip } from './ships.js';
+// (charms) what heroes wear: battle hooks, and the ways and paces it opens
+import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen } from './charms.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -197,6 +199,7 @@ export class PlaySession {
       if (ms.moved[e.id]) [e.x, e.y] = ms.moved[e.id];
       e.home = { x: e.x, y: e.y };
     }
+    hideUnseen(map, ms); // (charms) things hidden from mortal eyes wait for true sight
     // a ship the company has sailed is theirs to keep, even if the map no
     // longer has it (saves from when Westhold lent its ship for nothing)
     for (const [id, at] of Object.entries(ms.moved)) {
@@ -332,6 +335,7 @@ export class PlaySession {
   followerGround(x, y) {
     if (!this.map || !inBounds(this.map, x, y)) return false;
     const t = terrain(getTile(this.map, x, y));
+    if (charmWay(this, t)) return true; // (charms) wading the shallows, climbing a pass
     if (!t.walk || t.door || t.dmg || t.feature || (t.water && !t.deck)) return false;
     // world-map towns and castles are drawn larger than their square: keep
     // the company off their edges (else they stand on the walls)
@@ -418,7 +422,7 @@ export class PlaySession {
       this.visible = null;
       return;
     }
-    const { sight, light } = this.sightRadius();
+    const { sight, light } = charmSight(this, this.sightRadius()); // (charms) keener eyes, a charm's light
     const vis = computeVisible(map, p.x, p.y, sight, light, map.litMask);
     this.visible = vis;
     const dark = map.lighting === 'dark';
@@ -429,7 +433,7 @@ export class PlaySession {
     for (let i = 0; i < vis.length; i++) {
       if (vis[i]) { map.explored[i] = 1; levels[i] = 1; } else levels[i] = map.explored[i] ? (dark ? 0.42 : 0.55) : (dark ? 0 : vellum ? 0.55 : 0.12);
     }
-    this.view.setCarriedLight?.(this.party.light > 0);
+    this.view.setCarriedLight?.(this.party.light > 0 || charmLit(this));
     this.view.setVellum?.(vellum);
     this.view.setVisibility(levels, instant, vellum ? map.explored : null);
     this.view.setVisibilityEnabled(true);
@@ -553,6 +557,9 @@ export class PlaySession {
       this.log(gate.lockedText || `The way is barred. You need the ${itemOf(this.game, gate.requires)?.name || gate.requires}.`, 'warn');
       return;
     }
+    // (charms) a way sealed by magic opens only to a charm of opening
+    const seal = this.map.entities.find((e) => e.type === 'portal' && e.x === nx && e.y === ny && e.sealed);
+    if (seal && !charmOpens(this, seal)) return;
     const ship = this.map.entities.find((e) => e.type === 'ship' && e.x === nx && e.y === ny);
     if (this.state.vehicle) {
       if (t.ship || (t.water && !t.deck)) {
@@ -588,7 +595,7 @@ export class PlaySession {
     // bumping a shop counter speaks with the keeper behind it
     const across = t.talkOver && this.blockingAt(nx + dx, ny + dy);
     if (!t.walk && across?.type === 'npc') return this.talkTo(across);
-    if (!t.walk) {
+    if (!t.walk && !charmWay(this, t, true)) { // (charms) unless a worn charm opens the way
       sfx('bump');
       this.log(t.water ? 'You cannot swim! (Find a ship or a bridge.)' : `Blocked by ${t.name.toLowerCase()}.`);
       return;
@@ -607,8 +614,8 @@ export class PlaySession {
   stepCost(x, y) {
     if (this.state.vehicle) return 1;
     const t = terrain(getTile(this.map, x, y));
-    if (!(t.cost > 1)) return t.cost ?? 1;
-    return easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0);
+    // (charms) wading and climbing have their own pace; quick-foot charms shorten every step
+    return charmPace(this, t, !(t.cost > 1) ? t.cost ?? 1 : easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0));
   }
 
   // quick little steps along a road, a slow trudge through sand
@@ -677,6 +684,7 @@ export class PlaySession {
     const keyItem = this.game.items.find((it) => it.type === 'key' && inv[it.id] > 0);
     if (picker && rng.chance(0.6 + picker.dex * 0.015)) {
       this.log(`${picker.name} picks the lock!`, 'good');
+    } else if (charmOpens(this)) { // (charms) a ring of opening spares the keys
     } else if (keyItem) {
       inv[keyItem.id]--;
       this.log(`You unlock the door with a ${keyItem.name}.`, 'good');
@@ -738,11 +746,12 @@ export class PlaySession {
         }
       }
       if (t.dmg) {
-        for (const m of partyAlive(this.party)) this.hurtMember(m, roll(`1d${t.dmg}`), 'burns');
+        for (const m of partyAlive(this.party)) if (!charmFireproof(this.game, m)) this.hurtMember(m, roll(`1d${t.dmg}`), 'burns'); // (charms) fire-walkers walk on
         this.view.burst(p.x, p.y, 0xff6020, 10);
         sfx('fire');
       }
       if (map.type === 'world') this.forage(t.key);
+      charmStep(this, t); // (charms) true sight, dowsing, food from the wild
     }
     for (let k = 0; k < ticks; k++) {
       if (k > 0) this.updateVisibility();
@@ -779,7 +788,7 @@ export class PlaySession {
         if (st.foodTick >= FOOD_TURNS) {
           st.foodTick = 0;
           const n = partyAlive(this.party).length;
-          this.party.food = Math.max(0, this.party.food - n);
+          this.party.food = Math.max(0, this.party.food - charmRations(this, n)); // (charms) eat less
           if (this.party.food <= 0) {
             this.log('Starving! Each hero loses a little health until you find food.', 'bad');
             this.tip('starving', 'Out of food: the company weakens as it walks. Buy rations from a provisioner (every town has one), or look for farms, camps and caches along the roads.');
@@ -889,12 +898,13 @@ export class PlaySession {
   // ------------------------------------------------------------ chests
   async openChest(chest) {
     const st = this.state;
+    if (chest.sealed && !charmOpens(this, chest)) return; // (charms) a seal of magic
     if (chest.locked) {
       const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick'));
       const key = this.game.items.find((it) => it.type === 'key' && this.party.inventory[it.id] > 0);
       if (picker) this.log(`${picker.name} picks the chest's lock.`);
       else if (key) { this.party.inventory[key.id]--; this.log(`You open the chest with a ${key.name}.`); }
-      else { this.log('The chest is locked.'); return; }
+      else if (!charmOpens(this, chest)) { this.log('The chest is locked.'); return; }
     }
     if (chest.trap) {
       const burglar = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick'));
@@ -913,6 +923,7 @@ export class PlaySession {
       this.party.inventory[it.id] = (this.party.inventory[it.id] || 0) + (it.n || 1);
       got.push(((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name) + lootTag(this.game, this.party.members, def));
     }
+    got.push(...charmHoard(this, chest)); // (charms) a dungeon's hoard holds a charm
     sfx('gold');
     this.view.burst(chest.x, chest.y, 0xffd040, 14, { up: 2, speed: 0.8 });
     this.log(got.length ? `The chest holds: ${got.join(', ')}.` : 'The chest is empty.', 'good');
@@ -987,7 +998,7 @@ export class PlaySession {
         if (e.roaming && d > 30) this.removeEntity(e, false);
         continue;
       }
-      if (e.passive) continue;
+      if (e.passive || charmCalms(this, e)) continue; // (charms) a calmed beast lets the company pass
       const sees = d <= 9 && hasLOS(map, e.x, e.y, p.x, p.y) && (map.lighting !== 'dark' || this.isVisible(e.x, e.y) || d <= 4);
       const def = byId(this.game.monsters, e.monster);
       const home = e.home || (e.home = { x: e.x, y: e.y });
@@ -1085,7 +1096,7 @@ export class PlaySession {
     const tracker = partyAlive(this.party).some((m) => hasAbility(this.game, m, 'tracker'));
     const world = map.type === 'world';
     const base = world ? 0.045 : 0.03;
-    if (!rng.chance(base * rate * (tracker ? 0.75 : 1))) return;
+    if (!rng.chance(base * rate * (tracker ? 0.75 : 1) * charmEncounters(this))) return; // (charms) fewer wanderers
     if (map.entities.filter((e) => e.roaming).length >= 4) return;
     const p = st.pos;
     // the first stretch inside a dungeon is a breather: nothing new wanders
@@ -1160,6 +1171,7 @@ export class PlaySession {
     let style = e.style || (this.state.vehicle ? 'water' : t.arena);
     if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
     if (this.mapIsTown() && style === 'grass') style = 'town';
+    if (style === 'water' && !this.state.vehicle) style = 'swamp'; // (charms) a fight in the shallows, wading
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
     this.state.lastEncounter = this.state.turn || 0;
     if (res.outcome === 'victory') {
@@ -1246,8 +1258,7 @@ export class PlaySession {
 
   // What heroes carry answers the battle's hooks (see Battle.hook)
   battleHook(kind, battle, ...a) {
-    void kind; void battle; void a;
-    return null;
+    return charmHook(this, kind, battle, ...a); // (charms) game/charms.js
   }
 
   onMonsterKilled(monsterId) {
@@ -1667,6 +1678,7 @@ export class PlaySession {
     // a hobbit's cooking: the camp mends a quarter more
     const cook = partyAlive(this.party).find((m) => hasTrait(this.game, m, 'homely'));
     if (cook) rest *= 1.25;
+    rest *= charmCamp(this, true); // (charms) a snug camp
     for (const m of partyAlive(this.party)) {
       m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
       m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
@@ -1732,7 +1744,7 @@ export class PlaySession {
       if (!inBounds(this.map, tx, ty)) return false;
       if (bumpable && tx === x && ty === y) return true;
       const t = terrain(getTile(this.map, tx, ty));
-      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk && !charmWay(this, t)) return false; // (charms) wading, climbing
       if (this.map.lighting === 'dark' && !this.map.explored[ty * this.map.w + tx]) return false;
       return !this.blockingAt(tx, ty);
     }, 30);

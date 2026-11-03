@@ -281,6 +281,7 @@ export class Battle {
   }
 
   resists(t, id) {
+    if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
     const iron = t.side === 'party' && perkCount(t.member, 'iron_will');
     const stout = t.side === 'party' && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
@@ -330,6 +331,7 @@ export class Battle {
   movesFor(u) {
     let n = u.side === 'party' ? combatMoves(this.game, u.member) : (u.def.moves ?? 4);
     if (this.has(u, 'rooted')) return 0;
+    n += this.power(u, 'hasted'); // (charms) quick feet
     if (this.has(u, 'slowed')) n = Math.ceil(n / 2);
     return n;
   }
@@ -1306,6 +1308,7 @@ export class Battle {
       this.log(`${how} ${/^[aeiou]/i.test(it.name) ? 'an' : 'a'} ${it.name}!${lootTag(this.game, this.s.party.members, it)}`, 'loot');
       sfx('gold');
     };
+    this.hook('loot', power, give); // (charms) now and then a charm
     if (rng.chance(Math.min(0.6, 0.22 + power * 0.04))) {
       const drops = this.game.items.filter((it) => it.type === 'consumable' && it.combat && (it.price || 0) <= 40 + power * 6);
       if (drops.length) give(rng.pick(drops), 'Among the fallen you find');
