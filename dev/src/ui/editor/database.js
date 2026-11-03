@@ -4,8 +4,9 @@ import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
   STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
-  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES,
+  ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES, CHARM_KINDS, CHARM_KIND_ICONS, RARITIES,
 } from '../../data/defaults.js';
+import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
 import { ensureCombatData } from '../../game/rules.js';
@@ -27,6 +28,86 @@ const statusList = (label = 'Conditions inflicted') => ({
     { key: 'self', label: 'On the user instead of the target', type: 'check' },
   ], rowLabel: (r) => STATUS_EFFECTS[r.id]?.name || r.id, newRow: () => ({ id: 'stunned', rounds: 1 }), addLabel: '+ Add condition',
 });
+
+const abilityFields = () => [
+  { key: 'name', label: 'Name', type: 'text' },
+  { key: 'desc', label: 'Description', type: 'textarea', rows: 2, hint: 'Shown on the battle button and the hero sheet' },
+  { key: 'icon', label: 'Icon', type: 'select', options: ICON_NAMES },
+  { type: 'section', label: 'Targeting' },
+  { key: 'target', label: 'Affects', type: 'select', options: ABILITY_TARGETS.map((t) => [t, `${t} — ${TARGET_HELP[t]}`]), rerender: true },
+  { key: 'range', label: 'Range (squares)', type: 'number', min: 0, max: 12, show: (o) => ['enemy', 'ally', 'tile', 'multi'].includes(o.target), hint: '1 = beside; 0 = centred on the user' },
+  { key: 'radius', label: 'Radius', type: 'number', min: 0, max: 4, show: (o) => ['nearbyFoes', 'nearbyAllies', 'tile'].includes(o.target) },
+  { key: 'count', label: 'Number of foes', type: 'number', min: 1, max: 6, show: (o) => o.target === 'multi' },
+  { key: 'move', label: 'Movement', type: 'select', empty: '— none —', nullable: true, options: [['teleport', 'Teleport to the chosen square'], ['beside', 'Appear beside the target'], ['charge', 'Charge at the target']] },
+  { type: 'section', label: 'Effect' },
+  { key: 'attack', label: 'Weapon attack', type: 'select', empty: '— no attack roll —', nullable: true, options: [['melee', 'Melee weapon'], ['ranged', 'Ranged weapon']], rerender: true },
+  { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => !!o.attack },
+  { key: 'mult', label: 'Damage multiplier', type: 'number', step: 0.25, min: 0, show: (o) => !!o.attack },
+  { key: 'bonus', label: 'Extra damage dice', type: 'dice', placeholder: '1d6', show: (o) => !!o.attack },
+  { key: 'autoCrit', label: 'Always a critical hit', type: 'check', show: (o) => !!o.attack },
+  { key: 'ignoreCover', label: 'Ignores cover', type: 'check', show: (o) => o.attack === 'ranged' },
+  { key: 'needs', label: 'Needs a ranged weapon', type: 'select', empty: '— nothing —', nullable: true, options: [['ranged', 'A bow, crossbow or sling']] },
+  { key: 'damage', label: 'Sure damage (no roll to hit)', type: 'dice', placeholder: '1d8', show: (o) => !o.attack },
+  { key: 'heal', label: 'Healing', type: 'dice', placeholder: '1d6+1' },
+  { key: 'healPct', label: 'Heal a share of health', type: 'number', step: 0.05, min: 0, max: 1 },
+  { key: 'stat', label: 'Adds the modifier of', type: 'select', empty: '— none —', nullable: true, options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'For damage and healing; monsters add half their level' },
+  { key: 'undeadBonus', label: 'Multiplier against the undead', type: 'number', step: 0.5, min: 0 },
+  { key: 'lifesteal', label: 'Heals the user for this share of damage', type: 'number', step: 0.05, min: 0, max: 1 },
+  { key: 'cure', label: 'Cures poison', type: 'check' },
+  { key: 'knockback', label: 'Knock back (squares)', type: 'number', min: 0, max: 4 },
+  statusList(),
+  { type: 'section', label: 'Use' },
+  { key: 'cooldown', label: 'Cooldown (turns)', type: 'number', min: 0, max: 10 },
+  { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
+  { key: 'free', label: 'Free action (does not end the turn)', type: 'check' },
+  { key: 'windup', label: 'Telegraphed: lands next turn on the marked squares', type: 'check' },
+  { type: 'section', label: 'Look' },
+  { key: 'vfx', label: 'Effect', type: 'select', options: ABILITY_VFX },
+  { key: 'fx', label: 'Colour', type: 'color' },
+];
+
+// ---- charms: what a worn piece does (game/charms.js has the vocabulary)
+const GEAR = ['weapon', 'armor', 'shield'];
+const isCharm = (o) => o.type === 'charm';
+const wearable = (o) => isCharm(o) || GEAR.includes(o.type);
+const takes = (p) => (r) => (EFFECT_TYPES[r.type]?.params || []).includes(p);
+const effectFields = (game) => [
+  { key: 'type', label: 'Effect', type: 'select', rerender: true, options: Object.entries(EFFECT_TYPES).map(([k, v]) => [k, `${v.group} — ${v.name}`]),
+    put: (r, v) => { for (const k of Object.keys(r)) delete r[k]; Object.assign(r, newEffect(v)); } },
+  { key: 'stat', label: 'Raises', type: 'select', options: Object.entries(BONUS_STATS), show: takes('stat'), hint: 'Critical range: crits on that many more numbers of the die' },
+  { key: 'status', label: 'Condition', type: 'select', options: Object.entries(STATUS_EFFECTS).map(([k, v]) => [k, `${v.name} — ${v.desc}`]), show: takes('status') },
+  { key: 'power', label: 'Strength', type: 'number', show: takes('power'), hint: 'Bonus points; for a condition its strength (to hit, armour, squares, poison a turn); for sight, squares further' },
+  { key: 'rounds', label: 'Turns', type: 'number', min: 1, max: 99, show: takes('rounds'), hint: '99 = the whole battle' },
+  { key: 'chance', label: 'Chance', type: 'number', step: 0.05, min: 0, max: 1, nullable: true, show: takes('chance'), hint: 'Empty or 1: always' },
+  { key: 'who', label: 'On whom', type: 'select', options: [['self', 'The wearer'], ['party', 'The whole company'], ['foes', 'Every foe (battle start only)']], show: takes('who') },
+  { key: 'with', label: 'Only while someone else in the company wears', type: 'select', empty: '— always —', nullable: true, show: takes('with'),
+    options: () => game.items.filter((i) => i.type === 'charm').map((i) => [i.id, i.name]), hint: 'A twin: this magic wakes only beside its other half' },
+  { key: 'hp', label: 'Health a turn', type: 'number', min: 0, show: takes('hp') },
+  { key: 'mp', label: 'Mana a turn', type: 'number', min: 0, show: takes('mp') },
+  { key: 'melee', label: 'Only in melee', type: 'check', show: takes('melee') },
+  { key: 'ranged', label: 'Only with missiles', type: 'check', show: takes('ranged') },
+  { key: 'pct', label: 'How much (0.1 = 10%)', type: 'number', step: 0.05, min: 0, max: 2, show: takes('pct') },
+  { key: 'dmg', label: 'Damage', type: 'dice', placeholder: '1d4', show: takes('dmg') },
+  { key: 'below', label: 'Below this share of health', type: 'number', step: 0.05, min: 0.05, max: 0.95, show: takes('below') },
+  { key: 'gold', label: 'More gold (0.25 = a quarter)', type: 'number', step: 0.05, min: 0, max: 1, show: takes('gold') },
+  { key: 'xp', label: 'Learns faster (0.1 = a tenth)', type: 'number', step: 0.05, min: 0, max: 1, show: takes('xp') },
+  { key: 'light', label: 'Light in the dark (squares)', type: 'number', min: 0, max: 8, show: takes('light') },
+  { key: 'radius', label: 'Senses within (squares)', type: 'number', min: 1, max: 12, show: takes('radius') },
+];
+
+// a battle action granted by a worn piece: the ability fields, kept on item.ability
+const itemAbilityFields = () => abilityFields().map((f) => ({ ...f, key: f.key ? `ability.${f.key}` : undefined, show: (o) => !!o.ability && (!f.show || f.show(o.ability)) }));
+const NEW_ACTION = (o) => ({ name: `${o.name || 'Charm'}'s Power`, icon: o.icon || CHARM_KIND_ICONS[o.kind] || 'star', target: 'nearbyFoes', radius: 2, perBattle: 1, statuses: [{ id: 'stunned', rounds: 1, chance: 0.3 }], vfx: 'arcane', fx: o.tint ?? 0xc8b8ff, desc: 'Once per battle. Describe what it does.' });
+
+// a new charm (or an item turned into one) starts as a humble lucky trinket
+function charmDefaults(o) {
+  for (const k of ['wkind', 'dmg', 'hit', 'range', 'twoHanded', 'model', 'weight', 'ac', 'effect', 'power', 'combat', 'magical', 'glow']) delete o[k];
+  Object.assign(o, { kind: o.kind || 'ring', rarity: o.rarity || 'common', level: o.level || 1, tint: o.tint ?? 0xd8c8a0, price: Math.max(o.price || 0, 40) });
+  if (!Array.isArray(o.effects) || !o.effects.length) o.effects = [newEffect('bonus')];
+  if (!o.desc) o.desc = 'A trinket of magic. Say where it came from, and what it feels like to wear.';
+}
+
+const ITEM_GROUPS = { weapon: 'Weapons', armor: 'Armour & shields', shield: 'Armour & shields', charm: 'Charms', consumable: 'Potions & supplies', reagent: 'Reagents & herbs', scroll: 'Spell scrolls', key: 'Keys, maps & quest things', quest: 'Keys, maps & quest things', map: 'Keys, maps & quest things' };
 
 const WEAPON_MODELS = ['sword', 'greatsword', 'axe', 'hammer', 'mace', 'club', 'staff', 'spear', 'dagger', 'bow', 'crossbow', 'sling'];
 
@@ -82,14 +163,20 @@ export function categories(game) {
     },
     items: {
       label: 'Items', icon: '🗡', list: game.items,
+      group: (i) => ITEM_GROUPS[i.type] || 'Other things',
       blank: () => ({ name: 'New Item', type: 'weapon', wkind: 'blade', dmg: '1d6', hit: 0, range: 1, price: 20, model: 'sword', desc: '' }),
+      // (a second button: a new charm, ready to wear)
+      blanks: [['+ New charm', () => { const o = { name: 'New Charm', type: 'charm' }; charmDefaults(o); return o; }]],
       fields: [
         { key: 'name', label: 'Name', type: 'text' },
-        { key: 'type', label: 'Kind', type: 'select', options: ITEM_TYPES, rerender: true },
+        { key: 'type', label: 'Kind', type: 'select', options: ITEM_TYPES, rerender: true, put: (o, v) => { o.type = v; if (v === 'charm') charmDefaults(o); } },
+        { key: 'kind', label: 'What it is', type: 'select', options: Object.entries(CHARM_KINDS), show: isCharm, rerender: true, hint: 'Worn in the charm slot. Gives it a default icon.' },
+        { key: 'rarity', label: 'Rarity', type: 'select', options: Object.entries(RARITIES).map(([k, v]) => [k, v.name]), show: isCharm, hint: 'Colours its name; rarer charms turn up less often' },
+        { key: 'level', label: 'Level', type: 'number', min: 1, max: 12, show: isCharm, hint: 'Found in the spoils of battle and in hoards from about this level of the company' },
         { key: 'desc', label: 'Description', type: 'textarea', rows: 2 },
         { key: 'price', label: 'Price (gold)', type: 'number', min: 0 },
         { key: 'unique', label: 'Unique — never sold in shops', type: 'check' },
-        { key: 'noLoot', label: 'Never dropped by defeated monsters', type: 'check', show: (o) => ['weapon', 'armor', 'shield'].includes(o.type) },
+        { key: 'noLoot', label: 'Never dropped by defeated monsters or found in hoards', type: 'check', show: wearable },
         { key: 'wkind', label: 'Weapon type', type: 'select', options: WEAPON_KINDS, show: (o) => o.type === 'weapon' },
         { key: 'dmg', label: 'Damage', type: 'dice', placeholder: '1d8', show: (o) => o.type === 'weapon' },
         { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => o.type === 'weapon' },
@@ -109,10 +196,23 @@ export function categories(game) {
           options: () => TERRAIN_LIST.filter((t) => t.group === 'world' && t.walk && !t.feature && !t.water).map((t) => [t.key, t.name]),
           hint: 'A hero whose art burns it (a ranger, for herbs) sometimes finds a few on this ground. Leave empty: bought only.' },
         { key: 'icon', label: 'Icon', type: 'select', empty: '— herb —', nullable: true, options: ICON_NAMES, show: (o) => o.type === 'reagent' },
-        { key: 'tint', label: 'Icon colour', type: 'color', nullable: true, show: (o) => o.type === 'reagent' },
+        { key: 'icon', label: 'Icon', type: 'select', empty: '— as its kind —', nullable: true, options: ICON_NAMES, show: isCharm },
+        { key: 'tint', label: 'Icon colour', type: 'color', nullable: true, show: (o) => o.type === 'reagent' || isCharm(o) },
         { key: 'spell', label: 'Teaches', type: 'select', options: () => game.spells.filter((sp) => !sysOf(sp)?.monsterOnly).map((sp) => [sp.id, `${sp.name} (${sysOf(sp)?.name || sp.system}, circle ${sp.level || 1})`]), show: (o) => o.type === 'scroll',
           hint: 'Copied into the spellbook of a hero whose school is drawn as a spellbook, once its circle is within reach.' },
         { type: 'info', label: 'Reagents fuel reagent schools such as Rune-craft and Herb-lore. Keys open locked doors and chests (one key per lock). Quest items can be required by portals and checked in conversations.', show: (o) => ['reagent', 'key', 'quest'].includes(o.type) },
+        // ---- magic worn: charms, and arms and armour with a little magic of their own
+        { type: 'section', label: 'Magic while worn', show: wearable },
+        { type: 'info', label: (o) => (isCharm(o) ? 'Only a worn charm works: one in the pack sleeps.' : 'Works while the piece is worn (a weapon\'s, only with its own blows).'), show: wearable },
+        { key: 'effects', label: 'Effects', type: 'list', show: wearable, fields: effectFields(game), rowLabel: (r) => effectText(game, r) || r.type, newRow: () => newEffect('bonus'), addLabel: '+ Add effect' },
+        { key: 'say', label: 'Said when its battle-start magic fires', type: 'text', placeholder: '{who} sounds the horn — the company is blessed!', show: (o) => wearable(o) && (o.effects || []).some((e) => e.type === 'onStart'), hint: '{who} is the wearer. Empty: a plain line.' },
+        { type: 'section', label: 'Battle action while worn', show: wearable },
+        { key: 'ability', label: 'Gives the wearer a battle action (on the battle bar, with the item\'s badge)', type: 'check', show: wearable, get: (o) => !!o.ability, put: (o, v) => { if (v) o.ability = o.ability || NEW_ACTION(o); else delete o.ability; } },
+        ...itemAbilityFields().map((f) => ({ ...f, show: (o) => wearable(o) && f.show(o) })),
+        { type: 'section', label: 'Who may wear it', show: wearable },
+        { key: 'only.races', label: 'Only these peoples', type: 'multicheck', options: () => game.races.map((r) => [r.id, r.name]), show: wearable, hint: 'None ticked: anyone' },
+        { key: 'only.classes', label: 'Only these callings', type: 'multicheck', options: () => game.classes.map((k) => [k.id, k.name]), show: wearable, hint: 'None ticked: anyone' },
+        { key: 'onlyText', label: 'Said to anyone else', type: 'text', placeholder: 'Only a dwarf can wake its runes', show: (o) => wearable(o) && ((o.only?.races || []).length || (o.only?.classes || []).length), hint: 'Empty: "Only a … can wear it"' },
       ],
     },
     spells: {
@@ -180,6 +280,7 @@ export function categories(game) {
         { key: 'regen', label: 'Regenerates per round', type: 'number', min: 0 },
         { key: 'fleeAt', label: 'Flees below (fraction of health)', type: 'number', step: 0.05, min: 0, max: 1 },
         { key: 'undead', label: 'Undead', type: 'check' },
+        { key: 'beast', label: 'A wild beast (a charm of calming soothes it)', type: 'check', get: (o) => isBeast(o) },
         { key: 'sleepImmune', label: 'Immune to sleep', type: 'check' },
         { key: 'swim', label: 'Lives in water', type: 'check' },
         { key: 'fly', label: 'Flies (crosses water)', type: 'check' },
@@ -206,42 +307,10 @@ export function categories(game) {
       group: (a) => (a.monster ? 'Monster abilities' : a.special ? 'Class specials ★' : 'Class skills'),
       blank: () => ({ name: 'New Ability', icon: 'star', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 2, statuses: [], vfx: 'slash', fx: 0xffe080, desc: '' }),
       fields: [
-        { key: 'name', label: 'Name', type: 'text' },
-        { key: 'desc', label: 'Description', type: 'textarea', rows: 2, hint: 'Shown on the battle button and the hero sheet' },
-        { key: 'icon', label: 'Icon', type: 'select', options: ICON_NAMES },
+        ...abilityFields().slice(0, 3),
         { key: 'special', label: 'A class special (★, key Q)', type: 'check' },
         { key: 'monster', label: 'Monster ability (hidden from class lists)', type: 'check' },
-        { type: 'section', label: 'Targeting' },
-        { key: 'target', label: 'Affects', type: 'select', options: ABILITY_TARGETS.map((t) => [t, `${t} — ${TARGET_HELP[t]}`]), rerender: true },
-        { key: 'range', label: 'Range (squares)', type: 'number', min: 0, max: 12, show: (o) => ['enemy', 'ally', 'tile', 'multi'].includes(o.target), hint: '1 = beside; 0 = centred on the user' },
-        { key: 'radius', label: 'Radius', type: 'number', min: 0, max: 4, show: (o) => ['nearbyFoes', 'nearbyAllies', 'tile'].includes(o.target) },
-        { key: 'count', label: 'Number of foes', type: 'number', min: 1, max: 6, show: (o) => o.target === 'multi' },
-        { key: 'move', label: 'Movement', type: 'select', empty: '— none —', nullable: true, options: [['teleport', 'Teleport to the chosen square'], ['beside', 'Appear beside the target'], ['charge', 'Charge at the target']] },
-        { type: 'section', label: 'Effect' },
-        { key: 'attack', label: 'Weapon attack', type: 'select', empty: '— no attack roll —', nullable: true, options: [['melee', 'Melee weapon'], ['ranged', 'Ranged weapon']], rerender: true },
-        { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => !!o.attack },
-        { key: 'mult', label: 'Damage multiplier', type: 'number', step: 0.25, min: 0, show: (o) => !!o.attack },
-        { key: 'bonus', label: 'Extra damage dice', type: 'dice', placeholder: '1d6', show: (o) => !!o.attack },
-        { key: 'autoCrit', label: 'Always a critical hit', type: 'check', show: (o) => !!o.attack },
-        { key: 'ignoreCover', label: 'Ignores cover', type: 'check', show: (o) => o.attack === 'ranged' },
-        { key: 'needs', label: 'Needs a ranged weapon', type: 'select', empty: '— nothing —', nullable: true, options: [['ranged', 'A bow, crossbow or sling']] },
-        { key: 'damage', label: 'Sure damage (no roll to hit)', type: 'dice', placeholder: '1d8', show: (o) => !o.attack },
-        { key: 'heal', label: 'Healing', type: 'dice', placeholder: '1d6+1' },
-        { key: 'healPct', label: 'Heal a share of health', type: 'number', step: 0.05, min: 0, max: 1 },
-        { key: 'stat', label: 'Adds the modifier of', type: 'select', empty: '— none —', nullable: true, options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'For damage and healing; monsters add half their level' },
-        { key: 'undeadBonus', label: 'Multiplier against the undead', type: 'number', step: 0.5, min: 0 },
-        { key: 'lifesteal', label: 'Heals the user for this share of damage', type: 'number', step: 0.05, min: 0, max: 1 },
-        { key: 'cure', label: 'Cures poison', type: 'check' },
-        { key: 'knockback', label: 'Knock back (squares)', type: 'number', min: 0, max: 4 },
-        statusList(),
-        { type: 'section', label: 'Use' },
-        { key: 'cooldown', label: 'Cooldown (turns)', type: 'number', min: 0, max: 10 },
-        { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
-        { key: 'free', label: 'Free action (does not end the turn)', type: 'check' },
-        { key: 'windup', label: 'Telegraphed: lands next turn on the marked squares', type: 'check' },
-        { type: 'section', label: 'Look' },
-        { key: 'vfx', label: 'Effect', type: 'select', options: ABILITY_VFX },
-        { key: 'fx', label: 'Colour', type: 'color' },
+        ...abilityFields().slice(3),
       ],
     },
     magic: {
@@ -294,8 +363,10 @@ export class DatabaseEditor {
         e.name || e.id, this.cat === 'magic' ? h('span.tag' + (e.enabled ? '.on' : ''), e.enabled ? 'on' : 'off') : null));
     }
     this.left.appendChild(list);
+    list.querySelector('.entry.on')?.scrollIntoView?.({ block: 'nearest' }); // (a long list: the chosen one in view)
     this.left.appendChild(h('div.row',
       h('button.small', { onclick: () => this.add(C) }, '+ New'),
+      ...(C.blanks || []).map(([label, make]) => h('button.small', { onclick: () => this.add(C, make) }, label)),
       this.sel ? h('button.small', { onclick: () => this.duplicate(C) }, 'Duplicate') : null,
       this.sel ? h('button.small.danger', { onclick: () => this.remove(C) }, 'Delete') : null,
     ));
@@ -321,8 +392,8 @@ export class DatabaseEditor {
     }
   }
 
-  add(C) {
-    const o = C.blank();
+  add(C, make = C.blank) {
+    const o = make();
     o.id = uniqueId(o.name, C.list.map((x) => x.id));
     C.list.push(o);
     this.sel = o;

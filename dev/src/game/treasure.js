@@ -15,6 +15,7 @@ import { RNG, hashString, roll, rng } from '../core/rng.js';
 import { uid } from '../core/util.js';
 import { partyAlive, partyLevel } from './rules.js';
 import { durationText } from './travel.js';
+import { pickCharm } from './charms.js';
 import { sfx } from '../core/sound.js';
 
 // a spell of digging: about half an hour
@@ -80,8 +81,10 @@ export function digOptions(session) {
   const map = session.map;
   if (!map || session.state.vehicle) return {};
   const maps = carriedMaps(session);
-  if (!maps.length) return {};
   const want = new Set(maps.map((it) => it.treasure));
+  // (charms) a spot a dowsing charm has sensed can be dug without its map
+  for (const [id, rec] of Object.entries(session.state.treasure || {})) if (rec.sensed != null && !rec.dug) want.add(id);
+  if (!want.size) return {};
   const p = session.state.pos;
   const out = {};
   for (const e of map.entities) {
@@ -106,6 +109,9 @@ export function treasureLoot(session, e) {
       const budget = 70 + lvl * 55;
       const gear = g.items.filter((it) => ['weapon', 'armor', 'shield'].includes(it.type) && !it.unique && !it.noLoot && (it.price || 0) <= budget && (it.price || 0) >= budget * 0.3);
       if (gear.length) items.push({ id: rng.weighted(gear, (it) => 1 + (it.price || 0) / 40).id, n: 1 });
+      // as often as not a charm too, finer for a stronger company
+      const charm = rng.chance(0.5) && pickCharm(g, lvl + 1, { hoard: true });
+      if (charm) items.push({ id: charm.id, n: 1 });
     }
   }
   return { gold, items };
