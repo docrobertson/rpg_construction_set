@@ -7,10 +7,11 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
- magicalOf,
+ magicalOf, wearRule,
 } from '../game/rules.js';
+import { charmInfo, charmPrice, hasMagic } from '../game/charms.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
-import { STAT_NAMES, STATS } from '../data/defaults.js';
+import { STAT_NAMES, STATS, CHARM_KINDS, RARITIES } from '../data/defaults.js';
 import { sfx, isMuted, setMuted } from '../core/sound.js';
 import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
@@ -325,7 +326,7 @@ export class PlayUI {
       }
       sel.value = cur ? cur.id : '';
       sel.addEventListener('change', () => {
-        if (!sel.value) unequip(m, slot, inv);
+        if (!sel.value) unequip(m, slot, inv, g);
         else {
           const res = equipItem(g, m, itemOf(g, sel.value), inv);
           if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); }
@@ -333,9 +334,10 @@ export class PlayUI {
         sfx('click');
         changed();
       });
-      eq.appendChild(h('div.slot', h('span.slot-name', SLOT_NAMES[slot]), sel));
+      eq.appendChild(h('div.slot' + (slot === 'charm' ? '.slot-charm' : ''), { title: cur && hasMagic(cur) ? itemTip(g, cur) : slot === 'charm' ? CHARM_SLOT_TIP : null }, h('span.slot-name', SLOT_NAMES[slot]), sel));
     }
     add(eq);
+    add(charmPanel(g, m));
     // battle skills, special and talents
     add(sheetAbilities(this, m, changed));
     // spells, by school
@@ -927,7 +929,8 @@ export class PlayUI {
   priceOf(item, npc, selling = false) {
     const mod = npc.shop?.priceMod || 1;
     const base = item.price || 0;
-    return selling ? Math.max(1, Math.floor(base * 0.5)) : Math.max(1, Math.round(base * mod));
+    // (a charm of haggling: the merchant asks less and pays more)
+    return selling ? Math.max(1, Math.floor(charmPrice(this.s, base * 0.5, true))) : Math.max(1, Math.round(charmPrice(this.s, base * mod)));
   }
 
   openShop(npc) {
@@ -943,7 +946,7 @@ export class PlayUI {
       if (!slotFor(it)) return null;
       const who = s.party.members.filter((m) => m.status !== 'dead');
       const can = who.filter((m) => canEquip(g, m, it).ok);
-      if (!can.length) return h('div.sr-cmp', h('span.cmp.none', 'No one in your company can use this'));
+      if (!can.length) return h('div.sr-cmp', h('span.cmp.none', noOneText(g, it)));
       return h('div.sr-cmp', ...can.map((m) => {
         const c = compareText(g, m, it);
         const cur = itemOf(g, m.equip[slotFor(it)]);
@@ -971,7 +974,8 @@ export class PlayUI {
           const owned = s.party.inventory[it.id] || 0;
           const afford = s.party.gold >= price;
           const magic = magicNote(g, s.party.members, it);
-          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : ''),
+          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
+            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it) : null },
             itemTile(it),
             h('div.sr-main',
               h('div.sr-name', itemName(it), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
@@ -1123,6 +1127,7 @@ export class PlayUI {
     if (!items.length) invList.appendChild(h('p.hint', 'The pack is empty.'));
     // grouped, so gear, supplies and spell reagents are easy to find
     const groups = [
+      ['Charms', (it) => it.type === 'charm'],
       ['Arms & armour', (it) => !!slotFor(it)],
       ['Potions & supplies', (it) => it.type === 'consumable'],
       ['Reagents & herbs', (it) => it.type === 'reagent'],
@@ -1148,7 +1153,7 @@ export class PlayUI {
             title: `${x.name}: ${c.text}. Click to put it on ${x.name}`,
             onclick: () => this.equipFromPack(x, it, { stay: true }),
           }, cmpArrow(c), `${x.name} ${c.text}`);
-        }) : [h('span.cmp.none', 'No one in your company can use this')];
+        }) : [h('span.cmp.none', noOneText(g, it))];
         // reagents and herbs say plainly who burns them; scrolls offer to be
         // copied into each spellbook-keeper's book
         if (it.type === 'scroll' && !s.battle) {
@@ -1167,7 +1172,7 @@ export class PlayUI {
             }, h('i', { html: iconSvg('quill') }), can.ok ? `Copy into ${x.name}'s spellbook` : can.why.replace(/\.$/, '')));
           }
         }
-        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : ''), { title: it.desc || null },
+        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''), { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : it.desc || null },
           itemTile(it),
           h('span.inv-name', itemName(it), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
@@ -1466,6 +1471,8 @@ function bar(label, v, max, cls) {
 
 function fmtMod(n) { return n >= 0 ? '+' + n : String(n); }
 
+const RARITY_NAMES = Object.fromEntries(Object.entries(RARITIES).map(([k, v]) => [k, v.name]));
+
 // the colours journal.js draws points of interest in, for the map key
 const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
 
@@ -1476,6 +1483,8 @@ function compareText(g, m, it) {
   if (!slot) return null;
   const cur = itemOf(g, m.equip[slot]);
   if (cur?.id === it.id) return { cls: 'same', text: 'equipped' };
+  // a charm is not better or worse, only different: say what it would replace
+  if (it.type === 'charm') return cur ? { cls: 'swap', text: `instead of ${cur.name}` } : { cls: 'up', text: 'new charm' };
   if (it.type === 'weapon') {
     const d = diceAvg(it.dmg || '1d2') + (it.hit || 0) * 0.5 - (cur ? diceAvg(cur.dmg || '1d2') + (cur.hit || 0) * 0.5 : slot === 'weapon' ? 1.5 : 0);
     if (!cur && slot === 'ranged') return { cls: 'up', text: 'new: can shoot' };
@@ -1494,6 +1503,8 @@ function compareText(g, m, it) {
 // someone can use them. Everything else (potions, food, keys) always counts.
 function uselessToCompany(g, members, it) {
   const who = members.filter((m) => m.status !== 'dead');
+  // a charm is never sold off while anyone in the company could wear it
+  if (it.type === 'charm') return !who.some((m) => canEquip(g, m, it).ok);
   if (slotFor(it)) {
     return !who.some((m) => {
       if (!canEquip(g, m, it).ok) return false;
@@ -1510,13 +1521,54 @@ function uselessToCompany(g, members, it) {
 function itemName(it) {
   const mg = magicalOf(it);
   if (!mg) return h('b', it.name);
-  return h('b.magic-name', { style: { '--magic': mg.color }, title: `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim() },
+  // (charms and enchanted gear with effects: the row itself carries the whole tooltip)
+  const title = mg.charm || hasMagic(it) ? null : `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim();
+  return h('b.magic-name', { style: { '--magic': mg.color }, title },
     h('span.mg-star', '✦ '), it.name);
 }
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip
 function cmpArrow(c) {
-  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.text === 'equipped' ? '✓' : '=');
+  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text === 'equipped' ? '✓' : '=');
+}
+
+// when no one in the company can wear a piece: a charm for one people or
+// calling says who could ("Only a dwarf can wake its runes")
+function noOneText(g, it) {
+  return it?.only && charmInfo(g, it)?.only ? charmInfo(g, it).only : 'No one in your company can use this';
+}
+
+const CHARM_SLOT_TIP = 'A ring, an amulet, a horn or another trinket of magic. A charm works only while it is worn here: in the pack it sleeps.';
+
+// A piece's whole magic as a tooltip: what it is, what it does, its battle
+// action, who may wear it (pack: and that it sleeps there)
+export function itemTip(g, it, inPack = false) {
+  const info = charmInfo(g, it);
+  if (!info) return it?.desc || '';
+  const head = it.type === 'charm' ? `${it.name} — ${[info.rarity?.name, info.kind || 'charm'].filter(Boolean).join(' ').toLowerCase()}` : it.name;
+  const out = [head];
+  if (it.desc) out.push(it.desc);
+  for (const l of magicalOf(it)?.notes || []) out.push(`• ${l}`);
+  for (const l of info.lines) out.push(`• ${l}`);
+  if (info.ability) out.push(`⚔ Battle action: ${info.ability.name}${info.ability.tags ? ` (${info.ability.tags})` : ''}. ${info.ability.desc}`);
+  if (info.only) out.push(`✋ ${info.only}.`);
+  if (it.type === 'charm') out.push(inPack ? '☾ Asleep in the pack: it works only while worn in a hero\'s charm slot.' : '☾ Works only while worn in a hero\'s charm slot.');
+  return out.join('\n');
+}
+
+// The hero sheet's charm: what it does while worn (or what the slot is for)
+function charmPanel(g, m) {
+  const it = itemOf(g, m.equip?.charm);
+  if (!it) return h('div.sheet-charm.empty', h('span.sc-ico', { html: iconSvg('ring') }), h('span.hint', 'No charm worn. Rings, amulets, horns and other trinkets of magic work only while worn here.'));
+  const info = charmInfo(g, it);
+  const rule = wearRule(g, m, it);
+  return h('div.sheet-charm', { title: itemTip(g, it), style: { '--magic': magicalOf(it)?.color || '#c8b8ff' } },
+    itemTile(it),
+    h('div.sc-main',
+      h('div.sc-name', itemName(it), h('span.sc-kind', [info.rarity?.name, info.kind].filter(Boolean).join(' '))),
+      rule.ok ? null : h('div.sc-warn', `${rule.why} It sleeps.`),
+      h('ul.sc-lines', ...info.lines.map((l) => h('li', l)),
+        info.ability ? h('li.sc-ab', h('span', { html: iconSvg(info.ability.icon || 'star') }), h('b', info.ability.name), info.ability.tags ? ` — ${info.ability.tags}` : '') : null)));
 }
 
 // What a thing is for, in plain words: reagents name the spells that burn
@@ -1533,6 +1585,14 @@ export function itemUse(g, it) {
   if (it.type === 'scroll') {
     const sp = byId(g.spells || [], it.spell);
     return sp ? `Copy into a spellbook to learn ${sp.name} for good (${byId(g.magic || [], sp.system)?.name || ''}, circle ${sp.level || 1})` : 'A spell scroll';
+  }
+  if (it.type === 'charm' || hasMagic(it)) {
+    const info = charmInfo(g, it);
+    const parts = [...info.lines];
+    if (info.ability) parts.push(`battle action: ${info.ability.name}`);
+    if (it.type === 'charm' && !parts.length) return 'A trinket of magic, worn in the charm slot';
+    if (it.type !== 'charm') return parts.length ? `✦ ${parts.join('; ')}` : '';
+    return parts.join('; ');
   }
   if (it.type === 'key') return 'Opens a locked door or chest (used up)';
   if (it.type === 'quest') return 'Needed for a quest';
@@ -1592,6 +1652,7 @@ export function itemStats(it) {
     case 'scroll': return 'spell scroll';
     case 'key': return 'key';
     case 'map': return 'treasure map';
+    case 'charm': return [(RARITY_NAMES[it.rarity] || ''), (CHARM_KINDS[it.kind] || 'charm')].filter(Boolean).join(' ').toLowerCase();
     default: return it.type;
   }
 }
