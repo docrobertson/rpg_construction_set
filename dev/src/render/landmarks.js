@@ -97,6 +97,14 @@ function place(res, s, x, z, ry = 0) {
   return res;
 }
 
+// The folk who keep the places (their faces go on the event's card too)
+export const LANDMARK_KEEPERS = {
+  windmill: { race: 'human', body: 0xe4dccb, legs: 0x8a7a64, hat: 'cap', hatColor: 0xd8cfbc, beard: 0xd8d2c4, face: 'bold' },
+  apiary: { race: 'human', body: 0xd8c89a, legs: 0x6a5a40, hat: 'hood', hatColor: 0xf2eee2, hair: 0x8a5a2a },
+  sheepfold: { race: 'human', body: 0x6a6a3a, legs: 0x5a4a32, hat: 'hood', hatColor: 0x7a5a32, beard: 0x8a8a84, weapon: 'staff' },
+  woodcamp: { race: 'human', body: 0x8a2a1e, legs: 0x4a3a2a, hat: 'cap', hatColor: 0x4a6a3a, beard: 0x6a3a1a },
+};
+
 // A keeper standing at the door: the diorama is built on the figure's own
 // builders (as the farmstead's farmer is). Folk are drawn small beside their
 // buildings, so they are no bigger than the company on the world map.
@@ -134,7 +142,7 @@ function transformTris(P, m, list = null) {
 const MILL_TOP = 1.16, MILL_HUB = [0, MILL_TOP + 0.1, 0.34];
 function windmill(spec) {
   const ruined = !!spec.ruined;
-  const { B, G, F } = ruined ? builders() : withKeeper({ race: 'human', body: 0xe4dccb, legs: 0x8a7a64, hat: 'cap', hatColor: 0xd8cfbc, beard: 0xd8d2c4, face: 'bold' }, 0.27, 0.36, -0.35);
+  const { B, G, F } = ruined ? builders() : withKeeper(spec.keeper || LANDMARK_KEEPERS.windmill, 0.27, 0.36, -0.35);
   const wall = spec.color ?? 0xece4d2, stone = 0xa29c90, cap = spec.roof ?? 0x8a3a2a;
   const R = (y) => 0.32 - y * 0.09;
   yard(B, 0.6, ruined ? [0x8a8268, 0x7a7258] : EARTH);
@@ -347,7 +355,7 @@ function millwheel(spec) {
 // Beehives: straw skeps on a bench and on posts, lavender and marigolds, a
 // pot of honey, bees in the air, and the bee-wife in her veil.
 function apiary(spec) {
-  const { B, G, F } = withKeeper({ race: 'human', body: 0xd8c89a, legs: 0x6a5a40, hat: 'hood', hatColor: 0xf2eee2, hair: 0x8a5a2a }, -0.24, 0.26, 0.5);
+  const { B, G, F } = withKeeper(spec.keeper || LANDMARK_KEEPERS.apiary, -0.24, 0.26, 0.5);
   const straw = spec.color ?? 0xd8b060;
   // the bench and its skeps
   B.box(WOOD, { x: 0.08, y: 0.12, z: -0.18, sx: 0.62, sy: 0.035, sz: 0.16 });
@@ -434,7 +442,7 @@ function fruitTree(B, x, z, s, seed, fruit) {
 // A shepherd's fold: a round stone bothy under a turf roof, a pen of wattle
 // hurdles with the flock in it, the shepherd with his crook and his dog.
 function sheepfold(spec) {
-  const { B, G, F } = withKeeper({ race: 'human', body: 0x6a6a3a, legs: 0x5a4a32, hat: 'hood', hatColor: 0x7a5a32, beard: 0x8a8a84, weapon: 'staff' }, 0.08, 0.3, -0.3);
+  const { B, G, F } = withKeeper(spec.keeper || LANDMARK_KEEPERS.sheepfold, 0.08, 0.3, -0.3);
   const stone = spec.color ?? 0xa8a090;
   // the bothy, back left
   const bx = -0.3, bz = -0.26;
@@ -806,7 +814,7 @@ function gibbet(spec) {
 // Woodcutters' camp: a lean-to of poles and bark, logs stacked high, an axe
 // in the chopping stump, a saw-horse, and the charcoal clamp smoking away.
 function woodcamp(spec) {
-  const { B, G, F } = withKeeper({ race: 'human', body: 0x8a2a1e, legs: 0x4a3a2a, hat: 'cap', hatColor: 0x4a6a3a, beard: 0x6a3a1a }, 0.26, 0.24, -0.9);
+  const { B, G, F } = withKeeper(spec.keeper || LANDMARK_KEEPERS.woodcamp, 0.26, 0.24, -0.9);
   const wood = spec.color ?? 0x8a5a30, bark = 0x5a3e26, cut = 0xe0b878;
   yard(B, 0.64, [0x8a7a50, 0x7a6a46], 0.95);
   // wood chips about the stump

@@ -15,6 +15,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
 import * as Quests from '../game/quests.js';
 import * as Events from '../game/events.js';
+import { LANDMARK_KEEPERS } from '../render/landmarks.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
 import { chapterList, chapterLabel, currentChapter, chapterOfQuestNow, questSpans, roman } from '../game/story.js';
 import * as Story from '../game/story.js';
@@ -416,8 +417,10 @@ export class QuestUI {
     sfx('click');
     const body = h('div.event');
     const look = eventLook(e, s.map) || {};
-    // a farmstead's farmer stands in his yard: his face goes on the card
-    const who = look.kind === 'humanoid' ? look : look.kind === 'farmstead' ? { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, ...(look.keeper || {}) } : null;
+    // a farmstead's farmer stands in his yard, the miller at his door: their
+    // faces go on the card
+    const keeper = !look.ruined && LANDMARK_KEEPERS[look.kind];
+    const who = look.kind === 'humanoid' ? look : look.kind === 'farmstead' ? { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, ...(look.keeper || {}) } : keeper ? { kind: 'humanoid', ...keeper, ...(look.keeper || {}) } : null;
     const pic = who ? portrait(s.view, who) : null;
     let pendingFight = null, whisk = null;
     const m = modal(body, {
