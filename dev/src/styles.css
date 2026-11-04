@@ -2172,3 +2172,15 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .charm-row .sr-use, .charm-row .inv-use { font-style: normal; color: #ddd2f6; }
 .pc-gear .pc-charm { flex: none; margin-left: auto; padding-right: 2px; }
 .pc-gear .pc-charm .gi { color: inherit; filter: drop-shadow(0 0 3px currentColor); }
+
+/* poison: a poisoned hero can't be missed */
+.pcard.poisoned { box-shadow: inset 0 0 0 1px #000, 0 0 0 2px #5fbf40, 0 0 14px rgba(110,220,70,.45); animation: pc-sick 2.4s ease-in-out infinite; }
+.pcard.poisoned .bar.hp i { background: linear-gradient(#8ee060, #3f8a24) !important; }
+@keyframes pc-sick { 0%, 100% { box-shadow: inset 0 0 0 1px #000, 0 0 0 2px #5fbf40, 0 0 8px rgba(110,220,70,.3); } 50% { box-shadow: inset 0 0 0 1px #000, 0 0 0 2px #8ef070, 0 0 18px rgba(130,240,80,.65); } }
+.pc-status.poisoned { display: inline-flex; align-items: center; gap: 3px; padding: 0 6px; border-radius: 9px; background: rgba(60,120,30,.55); color: #c8ffa8 !important; font-weight: 700; }
+.pc-status.poisoned svg { width: 12px; height: 12px; }
+.pcard.pc-sting { animation: pc-sting .6s ease-out, pc-sick 2.4s ease-in-out .6s infinite; }
+@keyframes pc-sting { 0% { box-shadow: inset 0 0 0 60px rgba(120,230,70,.4), 0 0 0 2px #b8ff90, 0 0 22px rgba(130,240,80,.9); transform: translateX(-3px); } 30% { transform: translateX(3px); } 60% { transform: translateX(-1px); } 100% { transform: none; } }
+.hud-status .st-poison { color: #c8ffa8; box-shadow: inset 0 1px 3px rgba(0,0,0,.8), 0 0 0 1px #000, 0 0 0 2px #5fbf40, 0 0 10px rgba(110,220,70,.45); animation: st-pulse 1.6s ease-in-out infinite; }
+.hud-status .st-poison .st-ico { color: #8ef070; }
+@keyframes st-pulse { 50% { box-shadow: inset 0 1px 3px rgba(0,0,0,.8), 0 0 0 1px #000, 0 0 0 2px #8ef070, 0 0 16px rgba(130,240,80,.7); } }

@@ -814,7 +814,10 @@ export class PlaySession {
       this.checkPhase();
       // poison ticks
       for (const m of partyAlive(this.party)) {
-        if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+        if (m.status === 'poisoned' && st.turn % 2 === 0) {
+          this.hurtMember(m, 1, 'poison');
+          this.poisonNote(m);
+        }
       }
       // food: in the wild each hero eats one ration every FOOD_TURNS turns
       if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
@@ -840,6 +843,27 @@ export class PlaySession {
       }
       blessingsTick(this);
     }
+  }
+
+  // Poison bites as the company walks: say so where it can't be missed (the
+  // figure, the hero's card, the log) without a line for every tick
+  poisonNote(m) {
+    this.ui?.onPoisonTick?.(m);
+    if (m.status === 'dead') return;
+    const mhp = maxHp(this.game, m);
+    const low = m.hp <= Math.max(2, Math.ceil(mhp * 0.3));
+    const pn = (this.state.poisonNotes ||= {});
+    const key = m.id || m.name;
+    const last = pn[key] ?? -99;
+    if (low && !(pn[key + ':low'] >= 0 && this.state.turn - pn[key + ':low'] < 20)) {
+      pn[key + ':low'] = this.state.turn;
+      this.log(`${m.name} is weak with poison: ${m.hp}/${mhp} health! Cure it — an Antidote, a healer's CURE, or a Cure Poison spell.`, 'bad');
+      sfx('hurt');
+    } else if (this.state.turn - last >= 12) {
+      pn[key] = this.state.turn;
+      this.log(`Poison burns in ${m.name}'s veins (${m.hp}/${mhp} health).`, 'bad');
+    }
+    this.tip('poison', 'A poisoned hero loses health as the company travels, until cured: drink an Antidote (U), cast Cure Poison or the Rune of Purity, or ask any town healer to CURE. Poison does not wear off by itself.');
   }
 
   hurtMember(m, dmg, why) {

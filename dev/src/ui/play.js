@@ -82,14 +82,19 @@ export class PlayUI {
     this.popEl = h('div.hero-pop', h('button.pop-close', { title: 'Close (Esc)', onclick: () => this.closeHero() }, '×'), this.heroEl);
     this.popEl.hidden = true;
     this.logEl = h('div.hud-log');
-    // The log follows new lines unless the player has scrolled back to read
-    // (decided by their own scrolling, not by where a line happens to land:
-    // a layout change or a burst of lines must not unpin it)
-    this.logPinned = true;
-    this.logEl.addEventListener('scroll', () => {
+    // The log always shows the newest line. Only while the player is reading
+    // back (they scrolled it up themselves, in the last few seconds) does it
+    // wait; then it jumps to the end with the next line. (Following "is it at
+    // the bottom?" alone stuck for good after one scroll up.)
+    this.logReadUntil = 0;
+    const reading = () => {
       const el = this.logEl;
-      this.logPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    }, { passive: true });
+      // (only the player's own wheel, drag or keys count, never our scrolling)
+      requestAnimationFrame(() => { this.logReadUntil = el.scrollHeight - el.scrollTop - el.clientHeight > 24 ? performance.now() + 8000 : 0; });
+    };
+    for (const ev of ['wheel', 'touchmove', 'keydown']) this.logEl.addEventListener(ev, reading, { passive: true });
+    this.logEl.addEventListener('pointerdown', () => { this.logDrag = true; });
+    window.addEventListener('pointerup', this.onLogUp = () => { if (this.logDrag) { this.logDrag = false; reading(); } });
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.logToEnd()).observe(this.logEl);
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
@@ -130,6 +135,7 @@ export class PlayUI {
     this.view.markers.clear();
     this.view.pathPreview.clear();
     document.removeEventListener('pointerdown', this.onOutside, true);
+    window.removeEventListener('pointerup', this.onLogUp);
     closeAllModals();
     this.root.remove();
     this.view.showCursor(null);
@@ -156,11 +162,14 @@ export class PlayUI {
     this.logToEnd();
   }
 
-  // show the newest line (unless the player is reading back)
+  // show the newest line (unless the player is reading back just now)
   logToEnd() {
     const el = this.logEl;
-    if (!el || !this.logPinned || el.scrollHeight - el.scrollTop - el.clientHeight < 1) return;
+    if (!el || performance.now() < this.logReadUntil) return;
     el.scrollTop = el.scrollHeight;
+    // and again once the line is laid out (fonts, icons, a wrapped line)
+    cancelAnimationFrame(this.logRaf);
+    this.logRaf = requestAnimationFrame(() => { if (performance.now() >= this.logReadUntil) el.scrollTop = el.scrollHeight; });
   }
 
   refresh() {
@@ -179,6 +188,21 @@ export class PlayUI {
 
   onMapChanged() { this.drawMinimap(); }
 
+  // A poison tick: a green "−1" and bubbles over the hero's figure, and their
+  // card flashes
+  onPoisonTick(m) {
+    const s = this.s, v = this.view;
+    const p = s.dv?.pos ? s.dv.pos(m) : s.state.pos;
+    if (p && !s.battle) {
+      v.floatText(p.x, p.y, '−1 ☠', '#8ef070');
+      v.burst(p.x, p.y, 0x70e040, 8, { speed: 0.3, up: 1.0, gravity: 0.4, duration: 0.9, y: 0.6 });
+    }
+    this.refresh();
+    const i = s.party.members.indexOf(m);
+    const card = this.partyEl.children[i];
+    if (card) { card.classList.remove('pc-sting'); void card.offsetWidth; card.classList.add('pc-sting'); }
+  }
+
   refreshStatus() {
     const s = this.s, p = s.party;
     const map = s.battle ? null : s.map;
@@ -195,6 +219,12 @@ export class PlayUI {
       this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 turns (roads are quicker, rough ground slower), and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', { title: 'Sailing: walk onto land to go ashore' }, ico('compass'), 'Aboard ship') : null,
+      (() => {
+        const sick = p.members.filter((m) => m.status === 'poisoned');
+        if (!sick.length || s.battle) return null;
+        return h('span.st-item.st-poison', { title: `Poisoned: ${sick.map((m) => `${m.name} (${m.hp}/${maxHp(s.game, m)})`).join(', ')}. They lose health as you travel until cured: an Antidote (U), Cure Poison or the Rune of Purity, or any town healer.` },
+          ico('skull'), sick.length === 1 ? `${sick[0].name} poisoned` : `${sick.length} poisoned`);
+      })(),
     ].filter(Boolean));
   }
 
@@ -268,7 +298,7 @@ export class PlayUI {
       const w = weaponOf(g, m), rw = rangedOf(g, m);
       const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
       const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
-      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '') + (walker === m ? '.dv-walks' : '');
+      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m.status === 'poisoned' ? '.poisoned' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '') + (walker === m ? '.dv-walks' : '');
       const pic = portrait(this.view, charLook(g, m));
       const who = `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}${i === 0 ? ' · party leader' : ''}`;
       const card = h('div' + cls, { title: `${who}. Click for the full sheet.` },
@@ -277,7 +307,8 @@ export class PlayUI {
           h('div.pc-head', h('span.pc-name', m.name),
             m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
             m.perkPending > 0 ? h('span.pc-pts.perk', { title: 'A talent to choose — open the sheet', html: iconSvg('star') }) : null,
-            m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
+            m.status === 'poisoned' ? h('span.pc-status.poisoned', { title: `${m.name} is poisoned: loses health as the company travels, and in battle, until cured — an Antidote (U), a Cure Poison spell or Rune of Purity, or a town healer.`, html: iconSvg('skull') + 'Poisoned' })
+              : m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
             i === 0 ? h('span.pc-lead', 'Leader') : null),
           h('div.pc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
           bar('HP', m.hp, mhp, 'hp'),
