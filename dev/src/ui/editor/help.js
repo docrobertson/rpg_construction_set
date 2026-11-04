@@ -42,6 +42,9 @@ The <b>cast</b> lists the people a chapter cannot do without.</p>`,
 <b>Characters & objects</b> places people, monsters, chests, signs, ships and passages; <b>Points of interest</b>
 adds shrines, campfires and small events with choices.</p><p>Select anything to edit it on the right; drag to move it;
 Delete removes it. Double-click a site or stairs to go inside.</p>
+<p>A map can be a <b>battleground</b> (⚙ map properties; on by default for dungeons): every monster band you place stands
+there as its own monsters, each hero walks a square of their own, and a band wakes when one of its monsters notices a hero —
+then the battle is fought right there on the map. Turn it on for, say, a haunted castle, or off for a peaceful mine.</p>
 <table class="keys">
 <tr><td>B</td><td>Brush</td><td>F</td><td>Fill</td><td>R</td><td>Rectangle</td></tr>
 <tr><td>L</td><td>Line</td><td>I</td><td>Pick tile</td><td>V</td><td>Select</td></tr>

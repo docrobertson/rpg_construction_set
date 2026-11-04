@@ -58,7 +58,8 @@ export class Battle {
   // Hooks for what heroes carry (charms and the like): the session answers
   // battleHook(kind, battle, ...) for 'start' (after setup), 'turn' (a unit's
   // turn begins; return true to make it lose the turn), 'hit' (attacker,
-  // target, damage dealt), 'hurt' (target, damage, by) and 'end' (outcome).
+  // target, damage dealt), 'hurt' (target, damage, by) and 'end' (outcome);
+  // (delve) 'join' (the foes that joined a battle on the dungeon floor).
   hook(kind, ...a) { try { return this.s.battleHook?.(kind, this, ...a); } catch (e) { console.error(e); return null; } }
   emit(type, data) {
     if (type === 'moved' && this.field?.moved) this.field.moved(data);
@@ -184,6 +185,7 @@ export class Battle {
     if (!added.length) return [];
     this.retag();
     if (text) this.log(text, 'bad');
+    this.hook('join', added); // (what heroes carry may answer newcomers too)
     for (const u of added) this.fx.number(u.x, u.y, 'Joins the fight!', 'info', '#ff9070');
     this.emit('update');
     return added;
@@ -1661,9 +1663,22 @@ export class Battle {
   async monsterTurn(m) {
     await this.view.wait(0.1);
     const actions = m.def.speed > 1 ? 2 : 1;
+    const x0 = m.x, y0 = m.y;
     for (let a = 0; a < actions && !this.aborted && this.alive(m) && !this.checkEnd(); a++) {
       // a fast monster's second action is a short lunge, not another full charge
       await this.monsterAct(m, a === 0 ? this.movesFor(m) : Math.min(1, this.movesFor(m)), a > 0);
+    }
+    // (delve) on a big field a foe that can find no way to anyone (a locked door,
+    // deep water) gives up after a few turns, so the battle cannot stall
+    if (this.field && this.alive(m)) {
+      const stuck = m.x === x0 && m.y === y0 && !this.helpless(m)
+        && !this.foesOf(m).some((f) => (cheb(f, m) <= 6 && this.lineClear(f, m)) || this.distField(f, m).has(`${m.x},${m.y}`));
+      m.stuck = stuck ? (m.stuck || 0) + 1 : 0;
+      if (m.stuck >= 3) {
+        m.fled = true;
+        this.log(`${this.The(m)} can find no way to you and gives up the fight.`);
+        this.emit('update');
+      }
     }
     await this.view.wait(0.05);
   }
@@ -1829,8 +1844,10 @@ export class Battle {
       if (!this.alive(m)) return;
       if (!(await this.provoke(m, x, y))) return;
       m.face = [x - m.x, y - m.y];
+      // (delve) a foe moving out in the dark, where no hero sees it, is not waited on
+      const unseen = this.field && m.side === 'enemy' && !this.field.visible?.(m.x, m.y) && !this.field.visible?.(x, y);
       m.x = x; m.y = y;
-      await this.view.moveEntity(m.id, x, y, speed);
+      await this.view.moveEntity(m.id, x, y, unseen ? 0.02 : speed);
     }
   }
 

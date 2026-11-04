@@ -118,6 +118,58 @@ const together = await ev(async () => {
 });
 check('all together, the others fall in behind the leader on real squares', together.steps >= 2 && together.ok && together.near, together);
 
+// --- a quiet scout goes ahead alone (torch-lit company behind) until a band is in sight
+const scout = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  document.querySelectorAll('.chbanner').forEach((el) => el.click());
+  s.party.light = 120;
+  const quiet = dv.alive().find((h) => window.__delve.stealthy(s.game, h) && h !== dv.alive()[0]) || dv.alive()[1];
+  dv.select(quiet, true);
+  const p0 = dv.pos(quiet);
+  // the nearest band (by the way there), not the boss
+  let best = null;
+  for (const [gid, g] of Object.entries(dv.groups)) {
+    if (dv.entityOf(gid)?.boss) continue;
+    for (const mm of g.m) {
+      const goal = dv.freeSquares(mm.x, mm.y, 1, (x, y) => dv.standable(x, y) && Math.max(Math.abs(x - mm.x), Math.abs(y - mm.y)) === 3)[0];
+      const path = goal && dv.pathFor(p0, goal, new Set());
+      if (path && (!best || path.length < best.path.length)) best = { gid, path };
+    }
+  }
+  let steps = 0, seen = false;
+  for (const [x, y] of best?.path || []) {
+    const p = dv.pos(quiet);
+    await s.move(x - p.x, y - p.y);
+    await window.__idle();
+    steps++;
+    seen = dv.groups[best.gid]?.m.some((mm) => !mm.dead && s.isVisible(mm.x, mm.y));
+    if (s.battle || seen || steps > 16) break;
+  }
+  window.__tick(1.5);
+  s.camFocus(s.state.pos.x, s.state.pos.y, true);
+  window.__tick(1);
+  const mark = [...document.querySelectorAll('.emark.unaware')].some((el) => el.style.display !== 'none');
+  return { scout: quiet.name, steps, seen, battle: !!s.battle, mark, gid: best?.gid };
+});
+check('a scout walks ahead alone and comes upon a band, still unaware', scout.steps > 0 && scout.seen && !scout.battle && scout.mark, scout);
+// point at one of them: the card says it has not noticed anyone
+const card = await ev(() => {
+  const s = window.__app.session, dv = s.dv, v = s.view;
+  const g = dv.groups[window.__dvScoutGid || Object.keys(dv.groups).find((k) => dv.groups[k].m.some((mm) => !mm.dead && s.isVisible(mm.x, mm.y)))];
+  const k = g.m.findIndex((mm) => !mm.dead && s.isVisible(mm.x, mm.y));
+  const gid = Object.keys(dv.groups).find((x) => dv.groups[x] === g);
+  const e = v.entities.get(`dv:${gid}:${k}`);
+  const q = v.worldToScreen(e.root.position.x, e.root.position.y + 0.5, e.root.position.z);
+  const r = v.renderer.domElement.getBoundingClientRect();
+  const ex = window.__app.playUI.explore;
+  ex.mouse = { x: r.left + q.x, y: r.top + q.y };
+  ex.refreshHover();
+  return ex.tip.el.hidden ? '' : ex.tip.el.textContent;
+});
+check('pointing at an unaware monster says so (and that striking first surprises it)', /Unaware of you/.test(card) && /attack/i.test(card), card);
+await shot('dv-02-scout-and-dormant-band');
+await ev(() => { const ex = window.__app.playUI.explore; ex.mouse = null; ex.clearHover(); window.__app.session.dv.select(null, true); });
+
 // --- a band out of sight stays dormant
 const dormant = await ev(async () => {
   const s = window.__app.session, dv = s.dv;
@@ -373,6 +425,57 @@ const old = await ev(async () => {
   };
 });
 check('an old save inside a dungeon loads: the company split round where it stood, the bands all there', old.dv && old.map === 'Grimholt Barrow' && old.heroes.length >= 2 && old.groups === old.ents && old.figs === old.heroes.length && old.heroes.some((p) => p.x === old.pos.x && p.y === old.pos.y), old);
+
+// --- a battle in a corridor: the company strung out along it, a band coming down on them
+const corridor = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (const m of s.party.members) { m.status = 'ok'; m.hp = Math.max(m.hp, 12); }
+  dv.refreshHeroes();
+  const open = (x, y) => dv.walkable(x, y);
+  // a passage: a square with little open ground round it (the barrow's tunnels are one or two wide)
+  const corr = (x, y) => {
+    if (!dv.standable(x, y)) return false;
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && open(x + dx, y + dy)) n++;
+    return n <= 5 && ((open(x, y - 1) && open(x, y + 1)) || (open(x - 1, y) && open(x + 1, y)));
+  };
+  const n = dv.alive().length;
+  for (const [gid, g] of Object.entries(dv.groups)) {
+    if (dv.entityOf(gid)?.boss || !g.m.some((mm) => !mm.dead)) continue;
+    const mm = g.m.find((x) => !x.dead);
+    // a straight run of corridor some way from the band
+    const runs = dv.freeSquares(mm.x, mm.y, 400, (x, y) => corr(x, y) && Math.abs(x - mm.x) + Math.abs(y - mm.y) >= 5, (x, y) => open(x, y));
+    for (const c of runs) {
+      const dir = open(c.x, c.y - 1) && open(c.x, c.y + 1) ? [0, 1] : [1, 0];
+      const line = [];
+      for (let i = -n; i <= n && line.length < n; i++) { const x = c.x + dir[0] * i, y = c.y + dir[1] * i; if (corr(x, y)) line.push({ x, y }); else if (line.length) break; }
+      if (line.length < n) continue;
+      const others = Object.entries(dv.groups).filter(([og, gg]) => og !== gid && gg.m.some((o) => !o.dead && line.some((p) => Math.max(Math.abs(p.x - o.x), Math.abs(p.y - o.y)) < 7)));
+      if (others.length) continue;
+      dv.alive().forEach((h, i) => dv.setPos(h, line[i].x, line[i].y));
+      dv.spawnHeroes();
+      s.updateVisibility(true);
+      s.camFocus(line[0].x, line[0].y, true);
+      dv.wake([{ gid, hero: dv.actor(), came: false }]);
+      // a round or two of standing fast while they come on
+      for (let k = 0; k < 10; k++) {
+        const u = await window.__heroTurn(20000);
+        if (!u) break;
+        const b = s.battle;
+        if (b.enemies.some((e) => b.alive(e) && b.partyUnits.some((p) => b.alive(p) && Math.abs(p.x - e.x) + Math.abs(p.y - e.y) <= 2))) return { gid, line, ok: true };
+        await b.actPass();
+        await sleep(50);
+      }
+      return { gid, line, ok: !!s.battle };
+    }
+  }
+  return { none: true };
+});
+await ev(() => window.__tick(0.5));
+await shot('dv-06-corridor-battle');
+check('a battle can be fought in a corridor of the dungeon', corridor.ok, corridor);
+await ev(() => window.__win());
 
 console.log(JSON.stringify(errors.slice(0, 5)));
 await browser.close();

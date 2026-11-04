@@ -2141,3 +2141,4 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .cbt-round.dv-free { color: #b8ff8a; }
 .field.check.dv-bg { margin-top: 4px; }
 @media (max-width: 900px) { .dv-bar { right: 8px; top: calc(var(--hud-top) + 6px); max-width: calc(100% - 16px); } .dv-chip .dv-name { display: none; } .dv-chip.all .dv-name { display: inline; } }
+.ht-badge.unaware svg { color: #b8c8e8; }

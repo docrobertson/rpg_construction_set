@@ -928,6 +928,17 @@ export class View {
       const dark = this.lighting === 'dark';
       shared.uParty.value.set(p.x, p.z, (dark ? 4.2 : 3.8) * (torch ? 1.55 : 1), L.party * (torch ? 1.35 : 0.85));
     } else shared.uParty.value.set(0, 0, 0, 0);
+    // (delve) heroes on squares of their own, away from the torch: a dim pool each
+    let k = 0;
+    if (this.cutAlways && L.party > 0) {
+      const pools = shared.uPools.value;
+      for (const id of this.cutAlways) {
+        const e = this.entities.get(id);
+        if (!e || e === party || !e.root.visible || k >= pools.length) continue;
+        pools[k++].set(e.root.position.x, e.root.position.z, this.lighting === 'dark' ? 4.2 : 3.8, L.party * 0.9); // (as a company with no torch)
+      }
+    }
+    shared.uPoolN.value = k;
   }
 
   // ---- overlays ----

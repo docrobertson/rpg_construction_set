@@ -309,7 +309,8 @@ export class Delve {
   // ------------------------------------------------------------ figures
   spawn() {
     this.spawnHeroes();
-    for (const gid of Object.keys(this.groups)) this.spawnGroup(gid);
+    // (bands already put up with the map's other figures are left as they are)
+    for (const [gid, g] of Object.entries(this.groups)) if (g.m.some((mm, k) => !mm.dead && !this.view.hasEntity(memFig(gid, k)))) this.spawnGroup(gid);
     this.refreshMarkers();
   }
 
@@ -340,6 +341,19 @@ export class Delve {
       const boss = def?.boss || (ent?.boss && mm.id === ent.monster);
       v.addEntity(memFig(gid, k), def?.look || { kind: 'blob' }, mm.x, mm.y, { ring: g.aware ? RING.aware : RING.dormant, scale: boss ? 1.18 : 1, facing: mm.f || [0, 1] });
     });
+  }
+
+  // after a fight: the dead are gone, the living stand where they ended, calm again
+  settleGroups() {
+    const v = this.view;
+    for (const [gid, g] of Object.entries(this.groups)) {
+      g.m.forEach((mm, k) => {
+        const id = memFig(gid, k);
+        if (mm.dead) v.removeEntity(id);
+        else if (!v.hasEntity(id)) this.spawnGroup(gid);
+        else v.setRing(id, g.aware ? RING.aware : RING.dormant);
+      });
+    }
   }
 
   refreshRings() {
@@ -609,6 +623,7 @@ export class Delve {
     if (this.s.currentLighting() === 'night' && !map.litMask?.[p.y * map.w + p.x] && this.bearer() !== m) r = Math.min(r, 4);
     if (stealthy(this.game, m)) r -= 2;
     if (this.def(mm)?.boss) r += 1;
+    r -= +this.s.stealthBonus?.(m) || 0; // (what a hero carries may quieten them)
     return Math.max(1, r);
   }
 
@@ -735,7 +750,7 @@ export class Delve {
       blocked: (x, y, unit) => this.fieldBlocked(x, y, unit),
       exitAt: (x, y) => this.exitAt(x, y),
       afterTurn: (b, u) => this.afterTurn(b, u),
-      moved: () => this.s.updateVisibility(),
+      moved: (u) => this.onMoved(u),
       carried: (b) => this.carried(b),
       visible: (x, y) => this.s.isVisible(x, y),
       describe: (x, y) => this.describeAt(x, y),
@@ -789,6 +804,14 @@ export class Delve {
     }
     for (const f of found) this.join(b, f.gid, `${this.groupName(f.gid)} ${this.plural(f.gid) ? 'notice' : 'notices'} ${f.hero.name} and ${this.plural(f.gid) ? 'join' : 'joins'} the fight!`);
     for (const gid of heard) this.join(b, gid, `${this.groupName(gid)} ${this.plural(gid) ? 'hear' : 'hears'} the fighting and ${this.plural(gid) ? 'come' : 'comes'} running!`);
+  }
+
+  // a hero moved in the fight: what they see now, and who sees them
+  onMoved(u) {
+    this.s.updateVisibility();
+    const b = this.battle;
+    if (!b || this.s.peaceful || u?.side !== 'party' || !b.alive(u)) return;
+    for (const f of this.notices([u.member])) this.join(b, f.gid, `${this.groupName(f.gid)} ${this.plural(f.gid) ? 'notice' : 'notices'} ${f.hero.name} and ${this.plural(f.gid) ? 'join' : 'joins'} the fight!`);
   }
 
   join(b, gid, text) {
@@ -865,7 +888,7 @@ export class Delve {
     ui?.setMode('explore');
     playMusic(this.map.type === 'dungeon' ? 'dungeon' : this.map.type === 'world' ? 'world' : 'town');
     this.refreshHeroes();
-    for (const gid of Object.keys(this.groups)) this.spawnGroup(gid);
+    this.settleGroups();
     this.refreshMarkers();
     s.updateVisibility();
     s.camFocus(s.state.pos.x, s.state.pos.y);

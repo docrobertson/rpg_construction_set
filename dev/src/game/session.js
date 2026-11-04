@@ -1287,6 +1287,10 @@ export class PlaySession {
     return null;
   }
 
+  // (delve) how many squares closer a monster must come to notice this hero in
+  // a dungeon battleground: what they carry may quieten them (a charm answers)
+  stealthBonus(m) { void m; return 0; }
+
   onMonsterKilled(monsterId) {
     this.party.flags['killed_' + monsterId] = true;
     onKill(this, monsterId);
@@ -1782,7 +1786,7 @@ export class PlaySession {
     if (this.visible && !this.map.explored[y * this.map.w + x]) return this.vellumMap() ? 'Unexplored land.' : 'Darkness.';
     const t = terrain(getTile(this.map, x, y));
     const parts = [t.name];
-      if (this.isVisible(x, y)) {
+    if (this.isVisible(x, y)) {
       const mem = this.dv?.memberAt(x, y);
       if (mem) { const d = byId(this.game.monsters, mem.mem.id); parts.push(`${d ? d.name : 'a monster'}${mem.g.aware ? '' : ' (unaware of you)'}`); }
       for (const e of this.entitiesAt(x, y)) {
