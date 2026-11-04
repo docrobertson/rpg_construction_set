@@ -30,6 +30,8 @@ export const shared = {
   // 12: in battle every combatant gets one, so no tree hides a fighter)
   uCut: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
   uCutY: { value: new Float32Array(12) },
+  // how much of each window clears: 1 a clean hole, less a see-through ghost
+  uCutK: { value: new Float32Array(12).fill(1) },
   uCutN: { value: 0 },
   // extra rim light on figures (rgb, strength): lifts dark monsters off a dark battlefield
   uRim: { value: new THREE.Vector4(0, 0, 0, 0) },
@@ -53,6 +55,7 @@ const COMMON_FRAG = `
   uniform int uPoolN;
   uniform vec4 uCut[12];
   uniform float uCutY[12];
+  uniform float uCutK[12];
   uniform int uCutN;
   uniform vec4 uRim;
   uniform vec3 uSky;
@@ -156,7 +159,7 @@ function injectVisibility(material, extra = {}) {
             if (d > c.z || vWorldPos.z < c.w) continue;
             // the middle clears completely; only a thin rim dithers, so the
             // hole reads as a clean window rather than a speckled patch
-            float k = smoothstep(c.z, c.z * 0.9, d) * smoothstep(0.0, 0.1, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.12, vWorldPos.z - c.w);
+            float k = smoothstep(c.z, c.z * 0.9, d) * smoothstep(0.0, 0.1, vWorldPos.y - uCutY[i]) * smoothstep(0.0, 0.12, vWorldPos.z - c.w) * uCutK[i];
             if (fxBayer(gl_FragCoord.xy) < k * 1.08) discard;
           }
         }

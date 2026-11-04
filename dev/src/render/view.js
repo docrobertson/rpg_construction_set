@@ -872,11 +872,12 @@ export class View {
   // Scenery between the camera and the party (or the unit whose turn it is,
   // or the square under the cursor) dithers away in a circle around them.
   _updateCutaway() {
-    const cuts = shared.uCut.value, ys = shared.uCutY.value;
+    const cuts = shared.uCut.value, ys = shared.uCutY.value, ks = shared.uCutK.value;
     const pr = this.renderer.getPixelRatio();
     const H = this._h || 1;
     let n = 0;
-    const add = (x, y, z, h, rad) => {
+    ks.fill(1);
+    const add = (x, y, z, h, rad, k = 1) => {
       if (n >= cuts.length) return;
       const a = this.worldToScreen(x, y, z), b = this.worldToScreen(x, y + h, z);
       const px = Math.abs(a.y - b.y);
@@ -884,12 +885,13 @@ export class View {
       const r = px * 1.25 + rad * Math.min(1, px / 50);
       cuts[n].set(((a.x + b.x) / 2) * pr, (H - (a.y + b.y) / 2) * pr, r * pr, z - 0.1);
       ys[n] = y + 0.08;
+      ks[n] = k;
       n++;
     };
-    const ent = (e, extra = 0) => {
+    const ent = (e, extra = 0, k = 1) => {
       if (!e.root.visible) return;
       const p = e.root.position;
-      add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
+      add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra, k);
     };
     const party = this.partyFigure();
     if (party && party.root.visible) {
@@ -954,8 +956,10 @@ export class View {
       const c = this.cursor.position, s = this.cursor.scale.x;
       add(c.x + s / 2, c.y, c.z + s / 2, 0.9, 34 + s * 10);
     }
-    // in battle no tree or rock may hide any fighter
-    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8);
+    // in battle no tree or rock may hide any fighter: what stands in front
+    // turns to a see-through ghost of itself (a clean hole left the stump and
+    // the shadow of a tree that seemed to be missing)
+    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8, 0.5);
     shared.uCutN.value = n;
     // the party's own torchlight at night and underground
     const L = this.light;
