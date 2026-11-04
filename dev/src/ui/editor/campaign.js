@@ -9,6 +9,7 @@ import { FEATURE_KINDS, terrain } from '../../data/terrain.js';
 import { generateWorld, WORLD_SHAPES } from '../../world/generate.js';
 import { worldMap } from '../../data/schema.js';
 import { placesOf, autoPlaceSites, connectPlaces, besideSite } from '../../world/places.js';
+import { sowFields } from '../../world/countryside.js';
 import { PREMISES, generateStory } from '../../world/storyGen.js';
 import { chapterList } from '../../game/story.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
@@ -321,6 +322,11 @@ function buildCampaign(ed, o) {
       const r = connectPlaces(game, world, { seed });
       if (r?.unreached?.length) notes.push(`No road could reach ${r.unreached.join(', ')}.`);
     } catch (e) { console.error(e); }
+  }
+  // farmland round the new towns, villages and castles (after the roads, so
+  // it never lies across them), a windmill or an orchard beside some
+  if (placed.length) {
+    try { sowFields(world, { seed, sites: placed.map((p) => p.portal).filter(Boolean), keep: [game.settings.start], landmarks: true }); } catch (e) { console.error(e); }
   }
   if (o.premise !== 'blank') {
     try {

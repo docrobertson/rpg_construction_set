@@ -381,6 +381,10 @@ export function scatterWonders(map, seed, opt = {}) {
     ...Array(Math.ceil(scale * 0.6)).fill('lore'),
     'well', 'cache', 'traveller', 'toll_troll', 'bandits',
     'farm', 'fortune', 'fairy_ring', 'arena', 'lighthouse',
+    // the countryside's older and wilder places, and its ruins (last, so the
+    // places above fall where they always did)
+    'tower', 'circle', 'chapel', 'statue', 'graveyard', 'bones', 'woodcutters', 'quarry', 'wreck',
+    'ruined_tower', 'ruined_chapel', 'broken_circle', 'burnt_farm', 'ruined_mill', 'toppled_statue',
   ];
   const shrines = ['shrine_might', 'shrine_ward', 'shrine_vigour', 'shrine_fortune'];
   const placed = [];
@@ -393,7 +397,17 @@ export function scatterWonders(map, seed, opt = {}) {
   // a lighthouse stands on the shore; farms and fairy rings on open grass
   const sea = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => def(getTile(map, x + dx, y + dy)).key === 'ocean');
   const grassy = (x, y) => ['grass', 'meadow'].includes(def(getTile(map, x, y)).key);
-  const fits = { lighthouse: sea, farm: grassy, fairy_ring: grassy };
+  const beside = (x, y, keys) => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => keys.includes(def(getTile(map, x + dx, y + dy)).key));
+  // (woodcutters at the edge of a wood, a quarry under the hills, a wreck on
+  // a beach; the rest on open grass)
+  const fits = {
+    lighthouse: sea, farm: grassy, fairy_ring: grassy,
+    tower: grassy, circle: grassy, chapel: grassy, statue: grassy, graveyard: grassy,
+    ruined_tower: grassy, ruined_chapel: grassy, broken_circle: grassy, burnt_farm: grassy, ruined_mill: grassy, toppled_statue: grassy,
+    woodcutters: (x, y) => grassy(x, y) && beside(x, y, ['forest', 'pines']),
+    quarry: (x, y) => (grassy(x, y) || def(getTile(map, x, y)).key === 'hills') && beside(x, y, ['mountains', 'hills']),
+    wreck: (x, y) => def(getTile(map, x, y)).key === 'sand' && sea(x, y),
+  };
   let n = 0;
   for (const kind of want) {
     for (let a = 0; a < (fits[kind] ? 400 : 60); a++) {

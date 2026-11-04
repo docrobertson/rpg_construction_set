@@ -309,7 +309,7 @@ function openQuest(ed, q) {
 // The map tool that places an event from a template
 export const EVENT_TOOL = {
   label: 'Event', icon: '✨', cursor: 'tile',
-  hint: 'Place a point of interest — a shrine, campfire, lore stone, well — or a little event with choices. Pick the kind below; edit everything in the inspector.',
+  hint: 'Place a point of interest — a shrine, a campfire, a windmill, a ruined chapel — or a little event with choices. Pick the kind below; edit everything in the inspector.',
   down(ed, t) {
     if (!inBounds(ed.map, t.x, t.y)) return;
     const existing = ed.entityAt(t.x, t.y);
@@ -324,7 +324,14 @@ export const EVENT_TOOL = {
 };
 
 export function eventTemplatePicker(ed) {
-  const sel = h('select', { title: 'What the Event tool places' }, ...Object.entries(EVENT_TEMPLATES).map(([k, t]) => h('option', { value: k }, `${EVENT_KINDS[t.kind]?.icon || ''} ${t.name}`)));
+  // filed by kind of place: the wayside first, then the countryside's
+  const groups = new Map();
+  for (const [k, t] of Object.entries(EVENT_TEMPLATES)) {
+    const g = EVENT_KINDS[t.kind]?.group || 'Wayside and wonders';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(h('option', { value: k }, `${EVENT_KINDS[t.kind]?.icon || ''} ${t.name}`));
+  }
+  const sel = h('select', { title: 'What the Event tool places' }, ...[...groups].map(([g, opts]) => h('optgroup', { label: g }, ...opts)));
   sel.value = ed.eventTemplate || 'shrine_might';
   sel.addEventListener('change', () => { ed.eventTemplate = sel.value; ed.setTool('event'); });
   return sel;

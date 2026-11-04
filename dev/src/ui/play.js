@@ -32,6 +32,7 @@ import { isDug } from '../game/treasure.js';
 import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
 import { reagentUse, scrollUse, canCopy, copyScroll, hasBook, restoresPool, poolWords, poolName, noNeed } from '../game/magic.js';
 import { heroKey } from '../game/delve.js';
+import { EVENT_DOTS, eventDot } from '../game/events.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -525,7 +526,7 @@ export class PlayUI {
       if (e.type !== 'event' || (vis && !explored[e.y * map.w + e.x])) continue;
       if (terrain(getTile(map, e.x, e.y)).feature) continue; // (a shipyard on its harbour: the site square says enough)
       if (e.x < ox - 1 || e.y < oy - 1 || e.x > ox + span || e.y > oy + span) continue;
-      ctx.fillStyle = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' }[e.kind] || '#d0a0ff';
+      ctx.fillStyle = EVENT_DOTS[eventDot(e)][0];
       ctx.strokeStyle = '#000';
       ctx.beginPath(); ctx.arc(sx(e.x + 0.5), sy(e.y + 0.5), Math.max(u * 2.6, k * 0.36), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
@@ -1720,8 +1721,6 @@ function fmtMod(n) { return n >= 0 ? '+' + n : String(n); }
 
 const RARITY_NAMES = Object.fromEntries(Object.entries(RARITIES).map(([k, v]) => [k, v.name]));
 
-// the colours journal.js draws points of interest in, for the map key
-const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
 
 
 // What a piece's magic does, line by line (its effects, then its battle action)

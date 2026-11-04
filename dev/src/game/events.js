@@ -17,6 +17,7 @@ import { roll, rng } from '../core/rng.js';
 import { deepClone } from '../core/util.js';
 import { MODEL_KINDS } from '../render/models.js';
 import { cacheLook } from '../data/containers.js';
+import { siteScale } from '../render/landmarks.js';
 import { DAY_LEN } from './session.js';
 import { carriedMaps, findSpot, isDug } from './treasure.js';
 import { getMap } from '../data/schema.js';
@@ -34,14 +35,50 @@ export const EVENT_KINDS = {
   person: { label: 'Someone', icon: '🧍' },
   creature: { label: 'Creature', icon: '👹' },
   cache: { label: 'Hidden cache', icon: '🎁' },
-  farm: { label: 'Farmstead', icon: '🏡' },
+  farm: { label: 'Farmstead', icon: '🏡', dot: 'farm' },
   arena: { label: 'Fighting pit', icon: '⚔' },
   fortune: { label: 'Fortune-teller', icon: '🔮' },
   fairy: { label: 'Fairy ring', icon: '🍄' },
   lighthouse: { label: 'Lighthouse', icon: '🗼' },
   shipyard: { label: 'Shipyard', icon: '⚓' },
+  // the countryside (render/landmarks.js): `dot` is the colour group the
+  // maps draw it in, `group` where the Event tool's list files it
+  windmill: { label: 'Windmill', icon: '🌾', dot: 'farm', group: 'Farm and mill' },
+  watermill: { label: 'Watermill', icon: '⚙', dot: 'farm', group: 'Farm and mill' },
+  apiary: { label: 'Beehives', icon: '🐝', dot: 'farm', group: 'Farm and mill' },
+  orchard: { label: 'Orchard', icon: '🍎', dot: 'farm', group: 'Farm and mill' },
+  shepherd: { label: 'Shepherd\'s fold', icon: '🐑', dot: 'farm', group: 'Farm and mill' },
+  chapel: { label: 'Wayside chapel', icon: '⛪', dot: 'shrine', group: 'Old places' },
+  circle: { label: 'Stone circle', icon: '🪨', dot: 'lore', group: 'Old places' },
+  statue: { label: 'Statue', icon: '👑', dot: 'lore', group: 'Old places' },
+  graveyard: { label: 'Graveyard', icon: '🪦', dot: 'ruins', group: 'Old places' },
+  bones: { label: 'Dragon bones', icon: '🐉', dot: 'lore', group: 'Old places' },
+  tower: { label: 'Watchtower', icon: '🏰', group: 'Out in the wilds' },
+  woodcutters: { label: 'Woodcutters\' camp', icon: '🪓', group: 'Out in the wilds' },
+  quarry: { label: 'Quarry', icon: '⛏', group: 'Out in the wilds' },
+  gallows: { label: 'Gallows', icon: '💀', group: 'Out in the wilds' },
+  wreck: { label: 'Shipwreck', icon: '⛵', group: 'Out in the wilds' },
+  ruined_mill: { label: 'Ruined windmill', icon: '🏚', dot: 'ruins', group: 'Ruins' },
+  ruined_tower: { label: 'Ruined tower', icon: '🏚', dot: 'ruins', group: 'Ruins' },
+  ruined_chapel: { label: 'Ruined chapel', icon: '🏚', dot: 'ruins', group: 'Ruins' },
+  burnt_farm: { label: 'Burnt farmstead', icon: '🏚', dot: 'ruins', group: 'Ruins' },
+  broken_circle: { label: 'Broken stone circle', icon: '🪨', dot: 'ruins', group: 'Ruins' },
+  toppled_statue: { label: 'Toppled statue', icon: '🏚', dot: 'ruins', group: 'Ruins' },
   other: { label: 'Something', icon: '❔' },
 };
+
+// The colours points of interest wear on the maps, grouped so the key stays
+// short: [colour, what the key calls them]
+export const EVENT_DOTS = {
+  shrine: ['#ffd870', 'Shrine or chapel'],
+  campfire: ['#ff8a30', 'Campfire: rest'],
+  lore: ['#b0b8ff', 'Lore: old stones and relics'],
+  well: ['#60b0ff', 'Well'],
+  farm: ['#a8dc60', 'Farm or mill: food'],
+  ruins: ['#b4a48e', 'Ruins and graves'],
+  other: ['#d0a0ff', 'Something curious'],
+};
+export const eventDot = (e) => EVENT_KINDS[e.kind]?.dot || (EVENT_DOTS[e.kind] ? e.kind : 'other');
 
 export const BLESSINGS = {
   might: { name: 'Blessing of Might', desc: '+2 to hit in battle', buffs: [{ kind: 'bless', power: 2 }] },
@@ -61,14 +98,29 @@ export const REQS = {
   stat: 'Best attribute at least (e.g. str:15)',
   quest: 'Quest under way',
   questdone: 'Quest finished',
+  night: 'Only after dark',
+  day: 'Only by daylight',
 };
 
 // ------------------------------------------------------------ looks
 const has = (k) => MODEL_KINDS.includes(k);
+// the countryside's landmarks, and the ruins of some of them
+const LANDMARK_LOOKS = {
+  windmill: { kind: 'windmill' }, watermill: { kind: 'watermill' }, apiary: { kind: 'apiary' }, orchard: { kind: 'orchard' },
+  shepherd: { kind: 'sheepfold' }, chapel: { kind: 'chapel' }, circle: { kind: 'stonecircle' }, statue: { kind: 'statue' },
+  graveyard: { kind: 'graveyard' }, bones: { kind: 'dragonbones' }, tower: { kind: 'watchtower' }, woodcutters: { kind: 'woodcamp' },
+  quarry: { kind: 'quarry' }, gallows: { kind: 'gibbet' }, wreck: { kind: 'wreck' },
+  ruined_mill: { kind: 'windmill', ruined: true }, ruined_tower: { kind: 'watchtower', ruined: true }, ruined_chapel: { kind: 'chapel', ruined: true },
+  burnt_farm: { kind: 'burntfarm' }, broken_circle: { kind: 'stonecircle', ruined: true }, toppled_statue: { kind: 'statue', ruined: true },
+};
 // (map: where it stands; a shipyard on a harbour square is drawn by the
 // harbour itself, quay, slipway and all, and needs no model of its own)
 export function eventLook(e, map = null) {
   if (e.look && e.look.kind) return e.look;
+  // (the world map draws a landmark larger by its kind; in a town it is
+  // drawn to stand among the houses)
+  const l = LANDMARK_LOOKS[e.kind];
+  if (l) return !has(l.kind) ? { kind: 'marker', color: 0xc080ff } : map && map.type !== 'world' ? { ...l, scale: siteScale(l.kind) } : { ...l };
   switch (e.kind) {
     case 'shipyard': return map && inBounds(map, e.x, e.y) && terrain(getTile(map, e.x, e.y)).key === 'harbour' ? null : { kind: 'ship', scale: 0.8 };
     case 'shrine': return has('shrine') ? { kind: 'shrine', glow: e.glow ?? 0xffd870 } : { kind: 'waygate', glow: e.glow ?? 0xffd870, scale: 0.7 };
@@ -122,6 +174,13 @@ export function checkReq(session, req, e = null) {
     }
     case 'quest': return { ok: isActive(st, v) };
     case 'questdone': return { ok: isDone(st, v) };
+    // (where the sun never sets or rises — indoors, underground — it is
+    // neither: night-only and day-only choices wait for the open sky)
+    case 'night': case 'day': {
+      if (!session.dayCycleActive?.()) return { ok: false, tag: req.type === 'night' ? 'darkness' : 'daylight' };
+      const dark = session.timeOfDay().dark >= 0.5;
+      return { ok: req.type === 'night' ? dark : !dark, tag: req.type === 'night' ? 'darkness' : 'daylight' };
+    }
     default: return { ok: true };
   }
 }
@@ -556,6 +615,230 @@ Object.assign(EVENT_TEMPLATES, {
     text: 'A slipway runs down into the water, and on it stands a new hull, her oak ribs still pale from the saw. The shipwright wipes the tar from his hands. "Come about a ship? Say the word and my lads will finish her for thee."',
     ship: { name: 'Seahorse', price: 450 },
     choices: [ch('Have a ship built', '', { ship: true }), leave('Walk on')],
+  },
+});
+
+// The countryside: mills and farms that sell food, old places with lore and
+// blessings, honest work for strong arms, and ruins with something left in
+// them (and sometimes someone). Once-only rewards hide behind a flag named
+// for the place itself ({id}), so each mill's strongbox is found only once.
+Object.assign(EVENT_TEMPLATES, {
+  windmill: {
+    kind: 'windmill', name: 'The Windmill', repeat: 'always',
+    text: 'Great canvas sails creak round against the sky. The miller, white with flour from his eyebrows to his boots, leans in the doorway. "Grinding\'s good with this wind. And the bread\'s just out of the oven, if you\'ve coin."',
+    choices: [
+      ch('Buy flour and fresh bread (8 gold)', 'Two warm loaves and a sack of flour, dusted white. "That\'ll see you a fair way. Mind the sack, it leaks."', { food: 25 }, { cost: { gold: 8 } }),
+      ch('Hear the miller\'s gossip', '"Wind\'s from the east. Never trust an east wind, my old dad said: it brings rain, tax-men and worse." He taps his floury nose. "And folk say there\'s old gold under the hills hereabouts. Folk say a lot of things."'),
+      ch('Climb up to the cap and look about', 'Up the ladders, past the rumbling stones, to the little window under the cap. The country lies spread out below you like a patchwork quilt.', { reveal: 12 }),
+      ch('Hump sacks for the miller', '{who} carries sacks up and down the ladders all morning. The miller pays in coin and a loaf still too hot to hold.', { gold: 10, food: 8, xp: 10, flag: '{id}_helped' }, { req: { type: 'stat', value: 'str:13' }, hideFlag: '{id}_helped' }),
+      leave('Walk on'),
+    ],
+  },
+  watermill: {
+    kind: 'watermill', name: 'The Watermill', repeat: 'daily',
+    text: 'The great wheel turns and turns in the mill-race, slapping the water white. Inside, the millstones rumble like faraway thunder, and the miller\'s wife sits shelling peas on the step. "Hungry? There\'s pie."',
+    choices: [
+      ch('Buy a sack of meal and a pie (8 gold)', '"Eel pie. Don\'t make that face — it\'s the best in the shire."', { food: 25 }, { cost: { gold: 8 } }),
+      ch('Fish below the weir', '{who} sits by the weir with a borrowed line. Supper bites!', { food: 10 }, { chance: 0.6, failText: 'Not a nibble. The ducks seem to find this very funny.' }),
+      ch('Wash off the road in the mill-pond', 'Cold enough to make you yelp, but you come out scrubbed and lively.', { heal: '1d6' }),
+      leave('Walk on'),
+    ],
+  },
+  apiary: {
+    kind: 'apiary', name: 'The Bee-wife\'s Hives', repeat: 'daily',
+    text: 'Straw skeps hum on a bench among the lavender. A woman in a veil moves between them without hurry, talking to the bees as if they were old friends. "Mind your manners," she says. "They know if you\'re rude."',
+    choices: [
+      ch('Buy a comb of honey (6 gold)', 'Golden and dripping. You eat half of it before you mean to, and feel all the better for it.', { food: 8, heal: '1d6' }, { cost: { gold: 6 } }),
+      ch('Buy a pot of lark\'s honey (40 gold)', '"Gathered where the larks sing. Good for a tired voice, or a tired heart."', { items: [{ id: 'larks_honey', n: 1 }] }, { cost: { gold: 40 } }),
+      ch('Tell the bees your news', '{who} leans close to the hives and tells them everything: the road, the dangers, the hopes. The humming changes, softer. "There," says the bee-wife. "Now they\'ll watch over you."', { blessing: 'vigour', turns: 300 }),
+      ch('Help yourself to a comb', 'You slip a hand into the nearest skep... and draw out a dripping comb, quite unstung!', { food: 8 }, { chance: 0.3, failText: 'The skep erupts. You run. The bees are faster.', failEffects: { hurt: '1d4' } }),
+      leave(),
+    ],
+  },
+  orchard: {
+    kind: 'orchard', name: 'Apple Orchard', repeat: 'daily',
+    text: 'Gnarled old apple trees stand in rows, heavy with red fruit. A ladder leans in one of them and a basket waits below, but the picker is nowhere to be seen — only a sign: "WINDFALLS FREE. PICKED, THREE COIN THE BASKET. THIEVES, A BOOT UP THE BREECHES."',
+    choices: [
+      ch('Gather windfalls', 'Bruised but sweet. You fill your pockets.', { food: 6 }),
+      ch('Leave three coins and pick a basketful', 'You climb the ladder and pick the best of them, crisp and cold and crunching.', { food: 18, heal: '1d4' }, { cost: { gold: 3 } }),
+      ch('Shake the old tree in the middle', 'Apples thump down all around you — and with them a little leather purse that someone hid in the fork of the branches, long ago.', { food: 6, gold: 15, flag: '{id}_shaken' }, { hideFlag: '{id}_shaken' }),
+      leave('Walk on'),
+    ],
+  },
+  shepherd: {
+    kind: 'shepherd', name: 'Shepherd\'s Fold', repeat: 'always',
+    text: 'Sheep crowd a pen of wattle hurdles beside a round stone hut with a turf roof. An old shepherd leans on his crook, his dog at his feet, watching the hills more than the sheep. "Wolves," he says, before you can ask. "Every night this moon. Bold as bailiffs."',
+    choices: [
+      ch('Ask about the wolves', '"Come down off the high ground after dark, three or four of them, and a big grey one leading. Took two of my ewes Tuesday. I\'d give a fair bit to see them gone."'),
+      ch('Keep watch with him through the night', 'You settle down by the fold with your weapons ready. Near midnight, eyes shine at the edge of the firelight...', { fight: 'wolf', count: '3-4' }, {
+        req: { type: 'night' }, lockedText: '"Come back at dusk. They never come by daylight."', hideFlag: '{id}_wolves',
+        win: { gold: 25, xp: 30, food: 10, flag: '{id}_wolves', items: [{ id: 'shepherds_bell', n: 1 }], text: '"Well, I\'ll be!" The old man presses his own bell into your hand. "Take it. It\'s rung me home through many a fog." And a leg of mutton besides.' },
+      }),
+      ch('Share his bread and cheese (2 gold)', 'Hard cheese, harder bread, and a tale about a ram called Old Nick that goes on for most of an hour.', { food: 10, heal: '1d4' }, { cost: { gold: 2 } }),
+      leave('Walk on'),
+    ],
+  },
+  chapel: {
+    kind: 'chapel', name: 'Wayside Chapel', repeat: 'daily',
+    text: 'A little chapel of grey stone stands by the way, its bell tower leaning just slightly, as if listening. Inside it is cool and dim and smells of candle-wax. An elderly priest is sweeping the step. "All are welcome. Even the muddy ones."',
+    choices: [
+      ch('Kneel and pray', 'The quiet settles on you like a cloak. When you rise, you feel steadier.', { blessing: 'ward', turns: 300 }),
+      ch('Ask the priest to tend your wounds (15 gold, for the poor box)', 'He washes and binds your hurts with gentle, practised hands, murmuring a blessing over each.', { heal: 'full' }, { cost: { gold: 15 } }),
+      ch('Ring the bell', '{who} hauls on the rope. BONG. BONG. Crows burst from every tree for a league around. The priest sighs. "It is meant for feast-days."'),
+      leave('Walk on'),
+    ],
+  },
+  circle: {
+    kind: 'circle', name: 'Circle of Standing Stones', repeat: 'daily',
+    text: 'Nine grey stones stand in a ring, older than anyone remembers, two of them capped with a great lintel. In the middle lies a flat altar-stone, its runes worn almost smooth. The wind does not blow inside the ring.',
+    choices: [
+      ch('Trace the runes on the altar-stone', 'The runes are a calendar: moons, harvests and the longest night of the year. You copy them carefully.', { lore: true, xp: 15 }),
+      ch('Stand in the ring under the stars', 'The stones hum, a sound you feel in your teeth more than hear. Starlight pools on the altar-stone and runs up your arms like cold water. You feel... watched over.', { blessing: 'ward', turns: 400, heal: '2d6' }, { req: { type: 'night' }, lockedText: 'Only under the stars: come back after dark' }),
+      ch('Sleep within the ring', 'You lie down on the turf between the stones. You dream of old kings and long roads, and wake strangely rested.', { rest: true }, { chance: 0.75, failText: 'You dream of cold hands and wake with a start, hours later, frost on your blankets. Something walked the ring in the night.', failEffects: { hurt: '1d4' } }),
+      leave('Leave the stones be'),
+    ],
+  },
+  statue: {
+    kind: 'statue', name: 'Statue of a Forgotten King', repeat: 'daily',
+    text: 'A king of old stands on his plinth by the way, crowned and sword in hand, his stone face stern beneath a cap of moss. Coins and flowers lie at his feet. The inscription is half worn away: "...WHO HELD THE FORD..."',
+    choices: [
+      ch('Scrape the moss off the inscription', '"ALDRED THE STEADFAST, WHO HELD THE FORD AGAINST THE DARK. STAND AS HE STOOD."', { lore: true, xp: 15 }),
+      ch('Leave a coin at his feet (1 gold)', 'The old king seems, just for a moment, to nod.', { blessing: 'might', turns: 240 }, { cost: { gold: 1 } }),
+      leave('Walk on'),
+    ],
+  },
+  graveyard: {
+    kind: 'graveyard', name: 'Old Graveyard', repeat: 'always',
+    text: 'Lichened headstones lean this way and that inside a tumbledown wall. Pale lights drift between the graves though it is not yet dark, and the crypt door at the back stands open a hand\'s breadth. It was not open a moment ago.',
+    choices: [
+      ch('Read the headstones', '"HERE LIES OLD TOM, WHO KEPT THE GATE. HE OPENED IT ONCE, A LITTLE TOO LATE." Most of the rest are worse.', { lore: true, xp: 10 }),
+      ch('Look into the crypt', 'You push the door. Bones rattle in the dark — and stand up.', { fight: 'skeleton', count: '2-3' }, {
+        hideFlag: '{id}_laid',
+        win: { gold: 40, xp: 30, flag: '{id}_laid', items: [{ id: 'healing_draught', n: 1 }], text: 'The dead lie still at last. In the crypt, among the dust, a burial purse and a stoppered phial.' },
+      }),
+      ch('Leave flowers on the oldest grave', 'You lay wild flowers on a grave so old its name is gone. The pale lights gather round you for a moment, then drift away, content.', { xp: 10, heal: '1d6', flag: '{id}_flowers' }, { hideFlag: '{id}_flowers' }),
+      leave('Hurry on'),
+    ],
+  },
+  bones: {
+    kind: 'bones', name: 'Dragon Bones', repeat: 'always',
+    text: 'The bones of a dragon lie half sunk in the turf, ribs arching higher than a house, one great wing-bone still raised against the sky. Nothing grows near the skull. Even the crows keep a respectful distance — mostly.',
+    choices: [
+      ch('Study the bones', 'Scorch marks on the ribs, a broken lance-head lodged in the spine. Whoever slew this beast did not walk away from it either. You note it all in your journal.', { lore: true, xp: 25 }),
+      ch('Prise loose a dragon\'s tooth', '{who} wrestles a tooth as long as a forearm out of the jaw. Dragon-ivory: any merchant will pay well for that.', { gold: 60, flag: '{id}_tooth' }, { req: { type: 'stat', value: 'str:14' }, hideFlag: '{id}_tooth' }),
+      leave('Leave the dead to rest'),
+    ],
+  },
+  tower: {
+    kind: 'tower', name: 'Old Watchtower', repeat: 'always',
+    text: 'A square tower of grey stone, its beacon smoking on top. A bored watchman sits on the step, whittling a stick into a smaller stick. "Want to see the view? Everyone wants to see the view. Mind the fourth step, it\'s loose."',
+    choices: [
+      ch('Climb to the beacon', 'Ninety-nine steps (the fourth is loose). From the battlements you can see for leagues in every direction.', { reveal: 18 }),
+      ch('Ask what he has seen', '"Smoke, mostly. Riders on the road, too fast to be honest. And once a dragon, but the sergeant says that was a heron."'),
+      ch('Share his watch-ration (2 gold)', 'Black bread, a hard sausage and a swig of something that makes your eyes water.', { food: 10 }, { cost: { gold: 2 } }),
+      leave('Walk on'),
+    ],
+  },
+  woodcutters: {
+    kind: 'woodcutters', name: 'Woodcutters\' Camp', repeat: 'always',
+    text: 'Chips fly and an axe rings in the clearing. Logs are stacked by a lean-to, and a turf mound beside it smokes gently: charcoal, slowly cooking. A woodcutter with forearms like hams wipes his brow. "Lost? Hungry? Handy with an axe?"',
+    choices: [
+      ch('Lend a hand for the day', '{who} swings an axe from dawn to dusk. Your backs ache, but the foreman pays fair, and there is stew.', { gold: 12, food: 8, xp: 15, flag: '{id}_worked' }, { req: { type: 'stat', value: 'str:12' }, hideFlag: '{id}_worked' }),
+      ch('Share their stew (2 gold)', 'Rabbit stew, black bread and a long argument about which wood burns best.', { food: 12, heal: '1d6' }, { cost: { gold: 2 } }),
+      ch('Ask about the woods', '"Stay on the paths. There\'s a hollow oak to the north they say is lucky, and a bog to the south that\'s anything but. And don\'t whistle after dark."'),
+      leave('Walk on'),
+    ],
+  },
+  quarry: {
+    kind: 'quarry', name: 'Stone Quarry', repeat: 'always',
+    text: 'A raw face of cut grey stone, a wooden crane creaking over it and blocks stacked ready for the carts. The quarry-master, grey with dust from head to foot, eyes your company like stone he might buy. "You lot look like you can lift."',
+    choices: [
+      ch('Haul stone for the quarry-master', '{who} heaves blocks onto carts until the sun goes down. "Not bad," says the master, and counts out your pay.', { gold: 20, xp: 15, flag: '{id}_hauled' }, { req: { type: 'stat', value: 'str:14' }, hideFlag: '{id}_hauled' }),
+      ch('Explore the old workings', 'Behind a rockfall you find a forgotten tunnel... and a forgotten miner\'s pack, with his wages still in it.', { gold: 25, flag: '{id}_delved' }, { hideFlag: '{id}_delved', chance: 0.6, failText: 'Something in the dark squeaks. A lot of somethings.', failEffects: { fight: 'giant_rat', count: '4-6' } }),
+      leave('Walk on'),
+    ],
+  },
+  gallows: {
+    kind: 'gallows', name: 'Gallows Hill', repeat: 'always',
+    text: 'A gibbet creaks on the hilltop where the roads meet, an iron cage swinging from its arm. What is left of its last tenant grins down at you. A notice is nailed to the post: "SO PERISH ALL HIGHWAYMEN. BY ORDER OF THE SHERIFF."',
+    choices: [
+      ch('Read the notice', 'Beneath the sheriff\'s words someone has scratched: "his gold\'s still in the cage ha ha". Charming.'),
+      ch('Climb up and search the cage', '{who} shins up the post and rummages among the bones. Tucked into a boot: a purse of old coins!', { gold: 35, xp: 10, flag: '{id}_searched' }, { hideFlag: '{id}_searched', chance: 0.7, failText: 'The rotten ladder gives way. {who} lands in a heap of nettles, and the crows laugh.', failEffects: { hurt: '1d4' } }),
+      leave('Hurry on'),
+    ],
+  },
+  wreck: {
+    kind: 'wreck', name: 'Wreck on the Strand', repeat: 'always',
+    text: 'A ship lies heeled over on the sand, her ribs bare where the sea has torn the planks away and her mast snapped like a twig. Gulls wheel and scream. Barrels and a sea-chest have washed up beside her.',
+    choices: [
+      ch('Break open the sea-chest', 'Salt-stained shirts, a rusty cutlass — and at the bottom, a purse of foreign silver.', { gold: 45, items: [{ id: 'antidote', n: 1 }], flag: '{id}_chest' }, { hideFlag: '{id}_chest' }),
+      ch('Search the hold', 'You crawl into the dark belly of the wreck and come out with ship\'s biscuit, salt pork and a keg of something.', { food: 20, flag: '{id}_hold' }, { hideFlag: '{id}_hold', chance: 0.6, failText: 'Ship\'s rats! Big ones, and they don\'t care to share.', failEffects: { fight: 'giant_rat', count: '3-5' } }),
+      ch('Read the captain\'s log', 'The last entry, in a shaking hand: "Lights on the shore. Not the lighthouse. NOT the lighthouse. They are waving us in." Wreckers.', { lore: true, xp: 15 }),
+      leave(),
+    ],
+  },
+  ruined_mill: {
+    kind: 'ruined_mill', name: 'Burnt-out Mill', repeat: 'always',
+    text: 'The mill is a blackened shell, its sails fallen and broken in the grass, its stones split by the heat. Whoever did this took the flour and left the miller\'s cat, who watches you from the rubble with deep suspicion.',
+    choices: [
+      ch('Search the ruins', 'Under a fallen beam: the miller\'s strongbox, scorched but shut tight.', { gold: 30, flag: '{id}_searched' }, { hideFlag: '{id}_searched' }),
+      ch('Coax the cat out', 'It takes a long while and most of your dried fish. The cat accepts both, then sits on {who}\'s feet and purrs like a millstone.', { xp: 10, flag: '{id}_cat' }, { cost: { food: 3 }, hideFlag: '{id}_cat' }),
+      leave('Walk on'),
+    ],
+  },
+  ruined_tower: {
+    kind: 'ruined_tower', name: 'Broken Tower', repeat: 'always',
+    text: 'Only the lower half of a watchtower still stands, its top broken off like a rotten tooth and its stones tumbled in the grass. The stair inside climbs to a ragged edge, open to the sky.',
+    choices: [
+      ch('Climb the broken stair', 'You edge up the crumbling steps to the top of what is left. Even half a tower sees a long way.', { reveal: 12 }, { chance: 0.8, failText: 'A step crumbles underfoot, and {who} slides down the whole stair on the seat of their breeches.', failEffects: { hurt: '1d4' } }),
+      ch('Dig in the rubble', 'Under the fallen stones, the watch\'s old strongbox, its lock rusted through.', { gold: 25, items: [{ id: 'torch', n: 2 }], flag: '{id}_dug' }, { hideFlag: '{id}_dug' }),
+      leave('Walk on'),
+    ],
+  },
+  ruined_chapel: {
+    kind: 'ruined_chapel', name: 'Ruined Chapel', repeat: 'always',
+    text: 'Roofless walls, an empty gable and a fallen beam across the nave; ivy has taken the rest. Yet a small stone in the nave is carved with fresh-looking runes, and a cold pale light hangs in the air above it, like a held breath.',
+    choices: [
+      ch('Read the runestone', '"I KEPT THIS HOUSE AND I KEEP IT STILL. LEAVE IT AS YOU FOUND IT."', { lore: true, xp: 15 }),
+      ch('Speak to the light', 'The light gathers itself into the shape of a robed figure with empty eyes. Its voice is the creak of the old doors: "THIEVES." It raises its hands...', { fight: 'barrow_wight', count: '1' }, {
+        hideFlag: '{id}_ghost',
+        win: { gold: 50, xp: 50, flag: '{id}_ghost', items: [{ id: 'votive_candle', n: 2 }], text: 'The figure sighs and thins away to nothing. Where it stood lie two church candles that never quite burn down, and the poor box, still full.' },
+      }),
+      ch('Pray in the quiet nave', 'The chapel is only a ruin now, but a peaceful one. Something old and kind seems to listen.', { blessing: 'ward', turns: 300 }, { req: { type: 'flag', value: '{id}_ghost' }, lockedText: 'Not while it is haunted' }),
+      leave('Leave quietly'),
+    ],
+  },
+  burnt_farm: {
+    kind: 'burnt_farm', name: 'Burnt Farmstead', repeat: 'always',
+    text: 'The farmhouse is a black shell, its thatch gone to ash and its roof-beams fallen in. Smoke still curls from the ruin. Tracks of iron-shod boots lead away from the yard, and a scrap of red cloth flaps on the broken fence.',
+    choices: [
+      ch('Call out for survivors', 'A small voice answers from the well. A boy and his grandmother, soot-faced and shaking, hid there all night. You see them safe to the road, and they bless you all the way.', { xp: 30, flag: '{id}_found' }, { hideFlag: '{id}_found' }),
+      ch('Search the cellar', 'Under the floor, the family\'s winter store, untouched by the fire.', { food: 20, flag: '{id}_cellar' }, { hideFlag: '{id}_cellar' }),
+      ch('Follow the raiders\' tracks', 'The tracks lead to a hollow where the raiders sit round a fire, picking over their plunder.', { fight: 'orc', count: '3' }, {
+        hideFlag: '{id}_avenged',
+        win: { gold: 40, xp: 40, flag: '{id}_avenged', text: 'You take back what they stole. It will not raise the farm again, but someone will be glad of it.' },
+      }),
+      leave('Walk on'),
+    ],
+  },
+  broken_circle: {
+    kind: 'broken_circle', name: 'Broken Circle', repeat: 'daily',
+    text: 'A ring of standing stones, most of them fallen, the rest leaning like drinkers at closing time. Moss has swallowed the altar-stone. Whatever power was here has mostly leaked away... mostly.',
+    choices: [
+      ch('Lay a hand on the fallen altar', 'For a moment the old power stirs under your palm, and a voice like grinding stone speaks in your head...', { fortune: true }, { chance: 0.5, failText: 'Cold stone, and nothing more. The stones seem to sulk.' }),
+      ch('Set a fallen stone upright', '{who} heaves and heaves. Slowly, grinding, the stone rises and settles into its old socket. The whole ring seems to sigh.', { xp: 30, blessing: 'might', turns: 300, flag: '{id}_raised' }, { req: { type: 'stat', value: 'str:15' }, hideFlag: '{id}_raised' }),
+      leave('Leave the stones be'),
+    ],
+  },
+  toppled_statue: {
+    kind: 'toppled_statue', name: 'Toppled Statue', repeat: 'always',
+    text: 'A stone king lies on his back in the grass, broken off at the shins, his feet still standing on the plinth. Someone has drawn a moustache on him in charcoal. His stone eyes regard the clouds with great patience.',
+    choices: [
+      ch('Read the cracked plinth', '"...THE STEADFAST... HELD THE FORD..." And, in smaller, newer letters: "NOT ANY MORE HE DOESN\'T."', { lore: true, xp: 10 }),
+      ch('Heave him over and look underneath', 'Wedged under his stone shoulder, where no one could reach it without a great deal of heaving: a small iron box.', { gold: 35, items: [{ id: 'healing_draught', n: 1 }], flag: '{id}_box' }, { req: { type: 'stat', value: 'str:13' }, hideFlag: '{id}_box' }),
+      ch('Wipe off the moustache', 'There. A little dignity restored. You feel oddly better for it.', { xp: 5, flag: '{id}_clean' }, { hideFlag: '{id}_clean' }),
+      leave('Walk on'),
+    ],
   },
 });
 
