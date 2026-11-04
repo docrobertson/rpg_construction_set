@@ -1200,8 +1200,7 @@ export function generateDungeon(opt = {}) {
   // the deepest room (last) holds the treasure; mid rooms hold monsters & chests
   const last = rooms[rooms.length - 1];
   const prize = P?.treasure || null;
-  // (hoard: it also holds a charm, chosen when it is opened: game/charms.js charmHoard)
-  map.entities.push({ id: uid('chest'), type: 'chest', x: last.cx, y: last.cy, gold: prize ? prize.gold ?? 80 + map.level * 60 : 80 + map.level * 60, items: prize ? JSON.parse(JSON.stringify(prize.items || [])) : [], hoard: true });
+  map.entities.push({ id: uid('chest'), type: 'chest', x: last.cx, y: last.cy, gold: prize ? prize.gold ?? 80 + map.level * 60 : 80 + map.level * 60, items: prize ? JSON.parse(JSON.stringify(prize.items || [])) : [] });
   const monsters = P ? P.monsters || [] : opt.monsters || [];
   const boss = P ? P.boss : opt.boss;
   for (let i = 1; i < rooms.length; i++) {

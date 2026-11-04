@@ -471,10 +471,10 @@ function addCharms(game, w) {
   give(placed('west_serpent'), 'kings_coin');
   give(placed('troll'), 'trollblood_ring');
   give(placed('drake'), 'phoenix_ember');
-  const barrow = game.maps.find((m) => m.name === 'Grimholt Barrow');
-  give(barrow?.entities.find((e) => e.type === 'monster' && e.monster === 'hollow_king'), 'moonstone');
-  const cove = game.maps.find((m) => m.name === 'Smugglers\' Cove');
-  give(cove?.entities.find((e) => e.type === 'monster' && e.monster === 'black_maddoc'), 'bone_dice');
+  // (in the dungeons' own hoards, not on their bosses: a rebuilt dungeon makes its boss anew)
+  const hoardWith = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.type === 'chest' && (e.items || []).some((i) => i.id === id));
+  hoardWith('rune_key')?.items.push({ id: 'moonstone', n: 1 }); // the Hollow King's pale stone
+  hoardWith('duellists_rapier')?.items.push({ id: 'bone_dice', n: 1 }); // Black Maddoc's dice
   // buried: Brannoc's horn with the pay-chest of Elendur's host, the sunstone with the Laughing God's tithe
   for (const [id, it] of [['tr_downs', 'horn_of_brannoc'], ['tr_tithe', 'sunstone']]) {
     const t = w.entities.find((e) => e.id === id);

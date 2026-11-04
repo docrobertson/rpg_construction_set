@@ -8,6 +8,7 @@ import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
+import { isHoard } from '../../game/charms.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -184,7 +185,7 @@ export function inspectEntity(ed, ent, container) {
         { key: 'sealed', label: 'Sealed by magic (opens only to a charm of opening, e.g. a Ring of Opening)', type: 'check' },
         { key: 'sealedText', label: 'Said when it will not open', type: 'textarea', rows: 2, show: (o) => !!o.sealed },
         { key: 'unseen', label: 'Hidden from mortal eyes (only true sight, e.g. an Owl Feather, finds it)', type: 'check' },
-        { key: 'hoard', label: 'A hoard: also holds a charm, chosen for the company when opened', type: 'check' },
+        { key: 'hoard', label: 'A hoard: also holds a charm, chosen for the company when opened', type: 'check', get: (o) => isHoard(ed.map, o), hint: 'A dungeon\'s final chest is one unless unticked.' },
       ], changed));
       break;
     case 'treasure': {

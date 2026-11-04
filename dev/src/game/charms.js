@@ -15,6 +15,7 @@ import { byId } from '../data/schema.js';
 import { wornEffects, wornItems, partyAlive, partyLevel, maxMp, onlyWords, itemAbility,
   equipItem, unequip, canEquip, armorClass, attackBonus, heroAbilities, normalizeMember, combatMoves, maxHp, wornBonus } from './rules.js';
 import { hasLOS } from './los.js';
+import { finalChest } from '../world/places.js';
 import { pacesText, treasureState } from './treasure.js';
 import { rng, roll } from '../core/rng.js';
 import { sfx } from '../core/sound.js';
@@ -368,12 +369,19 @@ export function pickCharm(game, level, { boss = false, hoard = false, maxPrice =
   return r.weighted(pool, (it) => (RARITIES[it.rarity]?.weight ?? 2) * (boost[it.rarity] ?? 1) * (1 + Math.max(0, 3 - Math.abs((it.level || 1) - level)) * 0.4));
 }
 
-// A dungeon's hoard (chest.hoard, the treasure in its deepest room) holds a
-// charm as well, chosen when it is opened for the company's level and the
-// depth. Adds it to the pack and returns the lines for the chest's message.
+// Is this chest a hoard? Marked so in the editor (hoard: true / false), or
+// else a dungeon's final chest (by its boss, or its richest: world/places.js)
+export function isHoard(map, chest) {
+  if (chest?.hoard != null) return !!chest.hoard;
+  return map?.type === 'dungeon' && finalChest(map) === chest;
+}
+
+// A hoard holds a charm as well, chosen when it is opened for the company's
+// level and the depth. Adds it to the pack and returns the lines for the
+// chest's message.
 export function charmHoard(session, chest) {
   const g = session.game;
-  if (!chest?.hoard || chest.charm === false || g.settings.loot === false) return [];
+  if (!isHoard(session.map, chest) || g.settings.loot === false) return [];
   const lvl = Math.max(partyLevel(session.party), (session.map?.level || 1) + 1);
   const it = pickCharm(g, lvl, { hoard: true, maxPrice: 200 + lvl * 150 });
   if (!it) return [];
@@ -583,6 +591,6 @@ export function charmStep(session, t, at = session.state.pos) {
 if (typeof window !== 'undefined') {
   window.__charms = {
     EFFECT_TYPES, effectText, charmInfo, pickCharm, companyEffects, charmWay, charmPace, charmRations, charmPrice, charmSight, charmEncounters, isBeast, STAT_NAMES,
-    equipItem, unequip, canEquip, armorClass, attackBonus, heroAbilities, normalizeMember, combatMoves, maxHp, wornBonus, itemAbility,
+    equipItem, unequip, canEquip, armorClass, attackBonus, heroAbilities, normalizeMember, combatMoves, maxHp, wornBonus, itemAbility, isHoard, charmHoard,
   };
 }

@@ -353,21 +353,28 @@ r = await ev(() => {
   delete data.settings.charmsV;
   const bow = data.items.find((i) => i.id === 'elven_bow');
   delete bow.effects;
-  for (const m of data.maps) for (const e of m.entities || []) delete e.hoard;
   const back = S.deserializeGame(JSON.stringify(data));
   const twice = S.deserializeGame(S.serializeGame(back));
+  // every dungeon's hoard (its final chest) holds a charm when opened, old game or new
   const dungeons = back.maps.filter((m) => m.type === 'dungeon');
+  const hoards = dungeons.filter((m) => {
+    const live = s.buildLiveMap(m.id);
+    const chest = live.entities.find((e) => e.type === 'chest' && C.isHoard(live, e));
+    const before = Object.values(s.party.inventory).reduce((a, b) => a + b, 0);
+    const lines = chest ? C.charmHoard({ game: g, party: s.party, map: live }, chest) : [];
+    return lines.length === 1 && Object.values(s.party.inventory).reduce((a, b) => a + b, 0) === before + 1;
+  }).length;
   return {
     slot: 'charm' in old.equip && old.equip.charm === null,
     charms: back.items.filter((i) => i.type === 'charm').length, want: g.items.filter((i) => i.type === 'charm' && i.id && !i.id.startsWith('x')).length,
     twice: twice.items.filter((i) => i.type === 'charm').length,
     bow: (back.items.find((i) => i.id === 'elven_bow').effects || []).length, flag: back.settings.charmsV,
-    hoards: dungeons.filter((m) => m.entities.some((e) => e.type === 'chest' && e.hoard)).length, dungeons: dungeons.length,
+    hoards, dungeons: dungeons.length,
   };
 });
 check('an old save\'s heroes gain an empty charm slot', r.slot, r);
 check('an old game gains the charms once, and its magic gear their effects', r.charms >= 35 && r.twice === r.charms && r.bow > 0 && r.flag >= 1, r);
-check('an old game\'s dungeons have their hoards marked', r.dungeons > 0 && r.hoards === r.dungeons, r);
+check('every dungeon\'s hoard holds a charm when opened', r.dungeons > 0 && r.hoards === r.dungeons, r);
 
 // ---- the editor: a charm's effects, battle action and who may wear it
 r = await ev(async () => {

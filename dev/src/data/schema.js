@@ -1,7 +1,6 @@
 // Game module structure: creation, (de)serialisation and migration.
 import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
-import { diceAvg } from '../core/rng.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
 import { T } from './terrain.js';
@@ -178,10 +177,10 @@ export function migrateGame(game) {
 }
 
 // Charms came later (a fifth equipment slot and the trinkets worn in it).
-// Older games gain the built-in charms once, their enchanted arms and armour
-// the small magic of the same vocabulary (unless the designer gave them
-// some), and each dungeon's richest chest is marked as its hoard, which holds
-// a charm when opened. Heroes gain the empty slot as they load (rules.js).
+// Older games gain the built-in charms once, and their enchanted arms and
+// armour the small magic of the same vocabulary (unless the designer gave
+// them some). Heroes gain the empty slot as they load (rules.js); a dungeon's
+// hoard holds a charm with no marking needed (game/charms.js isHoard).
 export const CHARMS_V = 1;
 export function migrateCharms(game) {
   if ((game.settings.charmsV || 0) >= CHARMS_V) return;
@@ -190,13 +189,6 @@ export function migrateCharms(game) {
   for (const [id, magic] of Object.entries(GEAR_MAGIC)) {
     const it = game.items.find((x) => x.id === id);
     if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
-  }
-  const worth = (c) => diceAvg(String(c.gold ?? 0)) + (c.items || []).length * 40;
-  for (const map of game.maps || []) {
-    if (map.type !== 'dungeon') continue;
-    const chests = (map.entities || []).filter((e) => e.type === 'chest');
-    if (!chests.length || chests.some((c) => c.hoard !== undefined)) continue;
-    chests.reduce((a, b) => (worth(b) > worth(a) ? b : a)).hoard = true;
   }
 }
 
