@@ -146,7 +146,8 @@ export async function digTreasure(session, e) {
     dropSpentMaps(s, true);
     s.removeEntity(e);
     const loot = treasureLoot(s, e);
-    const chest = { id: `${e.id}_chest`, type: 'chest', x: e.x, y: e.y, gold: String(loot.gold), items: loot.items };
+    // (the chest keeps the hoard's name: "The King's Pay-chest swings open…")
+    const chest = { id: `${e.id}_chest`, type: 'chest', x: e.x, y: e.y, gold: String(loot.gold), items: loot.items, ...(e.name ? { name: e.name } : {}) };
     s.log(`Your spade strikes wood: ${e.name ? `${e.name}!` : 'a buried chest!'}`, 'good');
     const guard = e.guardian && s.game.monsters.some((m) => m.id === e.guardian) && rng.chance(e.guardChance == null || e.guardChance === '' ? 1 : +e.guardChance);
     if (guard) {

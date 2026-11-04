@@ -103,7 +103,8 @@ function cart(spec) {
   return { B, G, height: 0.6, noLean: true };
 }
 
-// a grain sack: a lumpy body, a neck tied with cord; lying down if `lying`
+// a grain sack lying on its side: a lumpy body, its neck tied with cord (split:
+// slit open, its grain run out)
 function sack(B, x, z, ry, s, col, split = false) {
   const m = mat(x, 0, z, 0, ry, 0);
   ball(B, col, 0, 0.065 * s, 0, 0.1 * s, 0.07 * s, 0.075 * s, { matrix: m, grad: 0.3 });
@@ -119,8 +120,9 @@ function sack(B, x, z, ry, s, col, split = false) {
 }
 
 // ---------------------------------------------------------------- a loose flagstone
-// A patch of old paving with one slab prised up on its edge and propped with
-// an iron bar, a dark hole beneath and gold glinting in it.
+// A patch of old paving with one slab heaved up on its far edge like a
+// trapdoor, a dark hole beneath it with gold glinting in it, and the bar that
+// prised it up dropped in the grass.
 function flagstone(spec) {
   const { B, G } = kit();
   const st = spec.color ?? 0xb2aa98;
@@ -167,7 +169,7 @@ function wallstone(spec) {
         const c = [st, tint(st, 1.07), deep(st, 0.88), tint(st, 0.95)][(row + k) % 4];
         if (!hole) B.shape(TPL.box, c, { x: cx, y: y + 0.004, z: 0.006, sx: x1 - x - 0.012, sy: 0.068, sz: Dp * 2 + 0.01, flat: true, grad: 0.2 });
         else {
-          // the hole: dark, with a purse and coin at its lip
+          // the hole: dark, coins at its lip
           B.detail.box(0x16120e, { x: cx, y: y + 0.004, z: Dp - 0.01, sx: x1 - x - 0.01, sy: 0.068, sz: 0.012 });
           coins(B, G, cx, y + 0.004, Dp + 0.01, 3, 0.022, 1.5);
         }
@@ -254,7 +256,7 @@ function crates(spec) {
 // ---------------------------------------------------------------- sacks
 function sacks(spec) {
   const { B, G } = kit();
-  const col = spec.color ?? 0xcfae78;
+  const col = spec.color ?? 0xc89e64;
   // two standing at the back, slumped against each other
   for (const [x, z, s, lean, c] of [[-0.12, -0.1, 1.0, 0.2, col], [0.11, -0.12, 0.92, -0.25, tint(col, 0.9)]]) {
     const m = mat(x, 0, z, 0, 0, lean);
@@ -287,7 +289,7 @@ function urn(B, prof, col, band, matrix, handles = 0) {
   }
   if (handles) {
     const top = prof[prof.length - 2][1], neck = prof[prof.length - 2][0];
-    for (const s of [-1, 1]) tube(B, [[s * neck, top - 0.01, 0], [s * (neck + 0.05), top - 0.01, 0], [s * (neck + 0.045), top - 0.08, 0], [s * (neck + 0.02), top - 0.1, 0]].map(([x, y, z]) => { const v = new THREE.Vector3(x, y, z).applyMatrix4(matrix); return [v.x, v.y, v.z]; }), 0.012, col, { segs: 5, outline: true });
+    for (const s of [-1, 1]) tube(B, xf(matrix, [[s * neck, top - 0.01, 0], [s * (neck + 0.05), top - 0.01, 0], [s * (neck + 0.045), top - 0.08, 0], [s * (neck + 0.02), top - 0.1, 0]]), 0.012, col, { segs: 5, outline: true });
   }
 }
 function urns(spec) {
@@ -360,7 +362,7 @@ function coffin(spec) {
   MT(B, () => { for (const [x, y] of [[-0.18, 0], [0.04, 0.0], [0.2, 0]]) ball(B.detail, GOLDC, x, y, 0.024, 0.01, 0.01, 0.006, { matrix: lm }); });
   MT(B, () => B.box(GOLDC, { x: 0.12, y: -0.03, z: 0.022, sx: 0.08, sy: 0.06, sz: 0.006, matrix: lm })); // a name-plate
   // brass handles on its side
-  for (const x of [-0.14, 0.08]) MT(B, () => tube(B, [[x - 0.03, 0.08, 0.1], [x, 0.06, 0.13], [x + 0.03, 0.08, 0.1]].map(([px, py, pz]) => { const v = new THREE.Vector3(px, py, pz).applyMatrix4(mat(0, 0, 0, 0, ry, 0)); return [v.x, v.y, v.z]; }), 0.008, GOLDC, { segs: 4, outline: true }));
+  for (const x of [-0.14, 0.08]) MT(B, () => tube(B, xf(mat(0, 0, 0, 0, ry, 0), [[x - 0.03, 0.08, 0.1], [x, 0.06, 0.13], [x + 0.03, 0.08, 0.1]]), 0.008, GOLDC, { segs: 4, outline: true }));
   // the spade that dug it up
   MT(B, () => B.box(IRONC, { x: 0.36, y: 0.02, z: 0.16, sx: 0.08, sy: 0.012, sz: 0.1, ry: 0.4, rz: 0.15 }));
   tube(B, [[0.33, 0.035, 0.12], [0.2, 0.06, -0.12]], 0.012, WOODC, { segs: 5, outline: true });
@@ -653,10 +655,10 @@ function seachest(spec) {
     B.box(brass, { y: H - 0.06, z: D + 0.005, sx: 0.06, sy: 0.07, sz: 0.012, matrix: m });
   });
   lathe(B.detail, [[0.002, 0.05], [0.24, 0.045], [0.4, 0.0]], [tint(sand, 1.05), sand], { segs: 16, sq: 0.8 });
-  for (const [x, z, s] of [[-0.22, 0.12, 1], [0.22, 0.14, 0.9], [0.0, 0.2, 0.8], [0.26, -0.08, 0.8], [-0.26, -0.1, 0.9]]) ball(B, k3(sand, x), x, 0.0, z, 0.1 * s, 0.05 * s, 0.08 * s, { grad: 0.3 });
+  for (const [x, z, s] of [[-0.22, 0.12, 1], [0.22, 0.14, 0.9], [0.0, 0.2, 0.8], [0.26, -0.08, 0.8], [-0.26, -0.1, 0.9]]) ball(B, tint(sand, x > 0 ? 0.95 : 1.04), x, 0.0, z, 0.1 * s, 0.05 * s, 0.08 * s, { grad: 0.3 });
   // a starfish, shells, and the rope
   const sf = mat(-0.2, 0.03, 0.22, 0, 0.4, 0);
-  for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; tube(B, [[0, 0, 0], [Math.cos(a) * 0.055, -0.006, Math.sin(a) * 0.055]].map(([x, y, z]) => { const v = new THREE.Vector3(x, y, z).applyMatrix4(sf); return [v.x, v.y, v.z]; }), [0.016, 0.004], [0xe86a3a, 0xf08a5a], { segs: 4, outline: true }); }
+  for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; tube(B, xf(sf, [[0, 0, 0], [Math.cos(a) * 0.055, -0.006, Math.sin(a) * 0.055]]), [0.016, 0.004], [0xe86a3a, 0xf08a5a], { segs: 4, outline: true }); }
   for (const [x, z, c] of [[0.18, 0.24, 0xf4d8d0], [0.27, 0.12, 0xf8f0e0]]) lathe(B, [[0.002, 0], [0.03, 0.006], [0.002, 0.03]].map(([r, y]) => [r, y + 0.02, r * 0.8, z]), c, { segs: 7, dx: () => x });
   tube(B, [[0.18, 0.08, 0.05], [0.3, 0.03, 0.14], [0.36, 0.02, 0.0], [0.42, 0.02, -0.12]], 0.012, 0xc8a870, { segs: 5, outline: true });
   for (const [x, z] of [[-0.3, -0.02], [0.3, 0.04]]) tube(B, [[x, 0.02, z], [x + 0.02, 0.08, z + 0.01], [x - 0.01, 0.12, z]], [0.012, 0.004], 0x4a7a3a, { segs: 4, outline: true });
@@ -664,7 +666,6 @@ function seachest(spec) {
   G.shape(TPL.ico0, GLINT, { x: 0.0, y: 0.26, z: 0.02, s: 0.05 });
   return { B, G, height: 0.35, noLean: true };
 }
-const k3 = (c, x) => (x > 0 ? tint(c, 0.95) : tint(c, 1.04));
 
 // ---------------------------------------------------------------- a reliquary on an altar
 // A stone altar under a fringed cloth, and on it a little golden casket shaped

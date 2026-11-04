@@ -110,6 +110,7 @@ const sample = buildSampleGame();
 // ---- in the browser
 const browser = await pw.chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+page.setDefaultTimeout(240000); // (full-quality screenshots of the wide world are slow without a graphics card)
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
 page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -193,9 +194,15 @@ const sheet = async (name, focus) => {
     pos.forEach(({ k, x, y }, i) => v.addEntity('ct' + i, { kind: k }, x, y, { poi: true }));
     v.rig.minDist = 1;
     v.setZoom(focus.zoom, true); v.focus(o.x + focus.x, o.y + focus.y, true);
-    await new Promise((res) => setTimeout(res, 600));
+    window.__ctPos = pos;
+  }, [KINDS, focus]);
+  await wait(1500);
+  // name each one, once the camera has settled
+  await ev(() => {
+    const v = window.__app.session.view;
+    v.camera.updateMatrixWorld();
     const rect = v.renderer.domElement.getBoundingClientRect();
-    for (const { k, x, y } of pos) {
+    for (const { k, x, y } of window.__ctPos) {
       const p = v.worldToScreen(x + 0.5, 0, y + 1.05);
       if (p.x < 10 || p.y < 10 || p.x > rect.width - 10 || p.y > rect.height - 10) continue;
       const el = document.createElement('div');
@@ -203,8 +210,8 @@ const sheet = async (name, focus) => {
       el.style.left = rect.left + p.x + 'px'; el.style.top = rect.top + p.y + 'px';
       document.body.appendChild(el);
     }
-  }, [KINDS, focus]);
-  await wait(1200);
+  });
+  await wait(300);
   await shot(name);
 };
 await sheet('sheet', { zoom: 14, x: 6, y: 2.4 });

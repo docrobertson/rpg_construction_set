@@ -257,7 +257,7 @@ export function eventFields(game) {
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]), rerender: true },
     // (containers) a hidden cache drawn as what it is: a cart, a loose flagstone…
-    ...containerLookFields((o) => { const k = cacheLook(o)?.kind; return { kind: k || 'chest', why: k ? 'from its name or description' : '' }; },
+    ...containerLookFields((o) => { const k = cacheLook(o)?.kind; return { kind: k || 'chest', why: k ? 'from its words' : '' }; },
       { label: 'Drawn as', show: (o) => o.kind === 'cache' || isContainer(o.look?.kind), hint: 'What the cache is found in. Automatic picks it from the name or description ("Overturned Cart", "beneath a loose flagstone").' }),
     { key: 'text', label: 'Description', type: 'textarea', rows: 4, hint: 'Shown when the party bumps into it.' },
     { key: 'repeat', label: 'Can be used', type: 'select', options: [['once', 'Once (then it is gone)'], ['daily', 'Once a day'], ['always', 'Any time']], rerender: true },

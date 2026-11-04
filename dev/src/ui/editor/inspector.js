@@ -180,7 +180,7 @@ export function inspectEntity(ed, ent, container) {
       // (containers) a chest may be drawn as something else, and called by name
       const auto = (o) => {
         const k = chestLook({ ...o, look: null }, ed.map, isHoard(ed.map, o)).kind;
-        return { kind: k, why: o.name && containerLookFor(o.name) ? 'from its name' : k !== 'chest' ? 'as this dungeon keeps its treasure' : '' };
+        return { kind: k, why: o.name && containerLookFor(o.name) ? 'from its name' : k !== 'chest' ? 'suits the dungeon' : '' };
       };
       const lookName = CONTAINERS[chestLook(ent, ed.map, isHoard(ed.map, ent)).kind]?.label;
       container.appendChild(head(ent.name || 'Treasure chest', lookName && lookName !== 'Treasure chest' ? lookName : ''));
