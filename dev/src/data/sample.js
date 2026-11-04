@@ -217,6 +217,7 @@ function buildSample() {
   // (last of all, so every id made before keeps its place in old saves)
   hideTreasures(game, w, westhold);
   addPlaces(game, w);
+  addCharms(game, w);
   return game;
 }
 
@@ -401,6 +402,140 @@ function addPlaces(game, w) {
 
   // the free ship is gone from Westhold's harbour: ships are bought now
   w.entities = w.entities.filter((e) => e.id !== 'ship_westhold');
+}
+
+// Charms, the fifth slot: who sells them (Pelagia's curios at Gullhaven, the
+// sage, the dwarves, Pell on the road), who gives them (quest rewards, the
+// great foes' spoils, the hoards), and four places only a worn charm opens:
+// the islet in the Heron Mere (wading the shallows), the Dragon's Eyrie in the
+// Grey Mountains (climbing), the sealed vault of Hammerdeep (a Ring of
+// Opening) and an elven cache in Silverwood hidden from mortal eyes (true
+// sight). (Built last of all, so every id made before keeps its place.)
+function addCharms(game, w) {
+  const item = (id) => game.items.find((i) => i.id === id);
+  const mapNamed = (name) => game.maps.find((m) => m.name === name);
+  const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const placed = (monster) => w.entities.find((e) => e.type === 'monster' && e.monster === monster);
+  const give = (holder, ...ids) => { if (holder) holder.loot = [...(holder.loot || []), ...ids.map((id) => ({ id, n: 1 }))]; };
+  const sell = (shop, ...ids) => { if (shop?.shop) shop.shop.stock = [...new Set([...(shop.shop.stock || []), ...ids])]; };
+  const reward = (qid, ...ids) => { const q = game.quests.find((x) => x.id === qid); if (q) q.reward.items = [...(q.reward.items || []), ...ids.map((id) => ({ id, n: 1 }))]; };
+
+  // the tale's magic arms and armour gain a little magic of their own
+  Object.assign(item('tidecaller'), { effects: [{ type: 'wade' }, { type: 'resist', status: 'slowed', chance: 1 }] });
+  Object.assign(item('serpent_shield'), { effects: [{ type: 'resist', status: 'poisoned', chance: 0.5 }] });
+  Object.assign(item('whisperwind'), { effects: [{ type: 'onStart', status: 'hidden', rounds: 1, who: 'self' }] });
+  Object.assign(item('gilded_buckler'), { effects: [{ type: 'spoils', gold: 0.15 }] });
+  Object.assign(item('fallen_hauberk'), { effects: [{ type: 'resist', status: 'afraid', chance: 1 }] });
+  Object.assign(item('brakkas_cleaver'), { effects: [{ type: 'onStart', status: 'enraged', rounds: 2, who: 'self' }] });
+
+  // --- Pelagia's curios, on the quay at Gullhaven
+  const haven = mapNamed('Gullhaven');
+  const wright = npc('npc_halloran') || { x: 11, y: 8 };
+  addNpc(haven, wright.x + 4, wright.y + 3, {
+    id: 'npc_pelagia', name: 'Pelagia', race: 'human', role: 'merchant', wander: 1, desc: 'a weathered old woman behind a tray of shells, charms and curios',
+    lookExtra: { body: 0x4a6a7a, robe: true, hat: 'hood', hatColor: 0x2a4a5a, cape: 0x6a4a7a, hair: 0xd8d8d0 },
+    greeting: 'Charms, dearies! Lucky acorns, selkie shells, owl feathers — every one of them true.',
+    job: 'I sell CHARMS: trinkets with a little magic in them. They only work if you WEAR them, mind.',
+    keywords: [
+      kw('CHARMS', 'Rings, amulets, feathers, shells. A hero has one hand free for a charm — the charm slot, the young ones call it. In the pack they sleep; worn, they wake. Ask to BUY.'),
+      kw('WEAR', 'Open your hero\'s sheet and put it in the Charm slot. One each. Don\'t ask me why — the magic is jealous.'),
+      kw('SHELL', 'A selkie\'s shell. Hold it in your fist and walk out over the SHALLOWS — the sea holds you up. Slow going, but no boat needed.'),
+      kw('SHALLOWS', 'East of Westhold, behind the dunes, lies the HERON Mere. No boat was ever carried that far from the sea, so no one has set foot on its islet. With a shell, you could.'),
+      kw('HERON', 'The herons nest on the islet in the mere. Something glints there in the reeds, the fishermen say. Herons like shiny things.'),
+      kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
+      kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
+    ],
+    shop: { kind: 'charms', stock: ['lucky_acorn', 'tin_whistle', 'gull_feather', 'rabbit_foot', 'worry_stone', 'copper_bangle', 'glowworm_jar', 'honeycake_tin', 'shepherds_bell', 'hazel_twig', 'thieves_penny', 'nettle_ring', 'selkie_shell', 'merchants_brooch', 'owl_feather'], priceMod: 1 },
+    rumour: 'There\'s an old woman on the quay at Gullhaven sells charms. Selkie shells and the like. My cousin swears by his lucky acorn.',
+  });
+  // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
+  sell(npc('npc_merek'), 'star_ring', 'warding_mirror', 'owl_feather');
+  const deep = mapNamed('Hammerdeep');
+  sell(deep?.entities.find((e) => e.shop?.kind === 'armor'), 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc');
+  sell(deep?.entities.find((e) => e.shop?.kind === 'weapons'), 'forgespark_amulet');
+  sell(npc('npc_pell'), 'lucky_acorn', 'giants_hobnail', 'honeycake_tin');
+  sell(mapNamed('Lindaleth')?.entities.find((e) => e.shop?.kind === 'reagents'), 'wildwood_whistle', 'hawk_eye');
+  sell(mapNamed('Brookend')?.entities.find((e) => e.shop?.kind === 'provisions'), 'honeycake_tin', 'hearth_stone');
+
+  // quest rewards and what the great foes carry
+  reward('q_wolf', 'wolf_tooth');
+  reward('q_brookend', 'hearth_stone');
+  reward('q_spiders', 'leaf_brooch');
+  reward('q_chart', 'ring_of_opening');
+  reward('q_lay', 'golden_string');
+  const chart = game.quests.find((q) => q.id === 'q_chart');
+  if (chart) chart.stages[1].say = 'The chart! And annotated! The third moon — of course! Here, take these from my stores, with a scholar\'s thanks. And this ring came with the chart, wrapped in a note: "For the dwarves\' VAULT. I sealed it; this unseals it. Do not lose it. — F."';
+  give(placed('grishak'), 'salamander_scale');
+  give(placed('spider_queen'), 'viper_amulet');
+  give(placed('west_serpent'), 'kings_coin');
+  give(placed('troll'), 'trollblood_ring');
+  give(placed('drake'), 'phoenix_ember');
+  const barrow = game.maps.find((m) => m.name === 'Grimholt Barrow');
+  give(barrow?.entities.find((e) => e.type === 'monster' && e.monster === 'hollow_king'), 'moonstone');
+  const cove = game.maps.find((m) => m.name === 'Smugglers\' Cove');
+  give(cove?.entities.find((e) => e.type === 'monster' && e.monster === 'black_maddoc'), 'bone_dice');
+  // buried: Brannoc's horn with the pay-chest of Elendur's host, the sunstone with the Laughing God's tithe
+  for (const [id, it] of [['tr_downs', 'horn_of_brannoc'], ['tr_tithe', 'sunstone']]) {
+    const t = w.entities.find((e) => e.id === id);
+    if (t) t.items = [...(t.items || []), { id: it, n: 1 }];
+  }
+
+  // --- the Heron Mere: a shallow lake behind the dunes, its islet reached only by wading
+  const mere = { x: 28, y: 60 };
+  for (let y = mere.y - 4; y <= mere.y + 4; y++) for (let x = mere.x - 4; x <= mere.x + 4; x++) {
+    const d = Math.hypot(x - mere.x, y - mere.y);
+    if (!inBounds(w, x, y) || w.entities.some((e) => e.x === x && e.y === y)) continue;
+    const t = terrain(getTile(w, x, y));
+    if (t.water || t.feature || t.key === 'road') continue;
+    if (d < 0.5) setTile(w, x, y, T.meadow);
+    else if (d <= 2.3) setTile(w, x, y, T.shallows);
+    else if (d <= 3.4) setTile(w, x, y, (x + y) % 3 ? T.meadow : T.swamp);
+  }
+  w.entities.push({ id: 'chest_heron', type: 'chest', x: mere.x, y: mere.y, gold: '60', items: [{ id: 'leech_stone', n: 1 }, { id: 'healing_draught', n: 2 }] });
+  const heronSign = nearestWhere(w, mere.x, mere.y + 4, (t) => t.walk && !t.water && !t.feature && t.key !== 'road');
+  w.entities.push({ id: 'sign_heron', type: 'sign', x: heronSign.x, y: heronSign.y, text: 'HERON MERE. The herons nest on the islet; no boat was ever carried this far from the sea. (Something glints in the reeds out there.)' });
+
+  // --- the Dragon's Eyrie: a high vale closed in by the Grey Mountains, reached only by climbing
+  const rocky = (x, y) => inBounds(w, x, y) && ['mountains', 'peaks', 'hills'].includes(terrain(getTile(w, x, y)).key) && !w.entities.some((e) => e.x === x && e.y === y);
+  let vale = null;
+  for (let r = 0; r < 14 && !vale; r++) for (let dy = -r; dy <= r && !vale; dy++) for (let dx = -r; dx <= r && !vale; dx++) {
+    const cx = 25 + dx, cy = 16 + dy;
+    let ok = true;
+    for (let y = cy - 2; y <= cy + 2 && ok; y++) for (let x = cx - 2; x <= cx + 2 && ok; x++) ok = rocky(x, y);
+    if (ok) vale = { x: cx, y: cy };
+  }
+  if (vale) {
+    // a green vale of nine squares, walled all round by the peaks (steps go only N, S, E, W)
+    for (let y = vale.y - 2; y <= vale.y + 2; y++) for (let x = vale.x - 2; x <= vale.x + 2; x++) {
+      const d = Math.max(Math.abs(x - vale.x), Math.abs(y - vale.y));
+      if (d <= 1) setTile(w, x, y, d === 0 || (x + y) % 2 ? T.meadow : T.grass);
+      else if (terrain(getTile(w, x, y)).key === 'hills') setTile(w, x, y, T.mountains);
+    }
+    w.entities.push({ id: 'chest_eyrie', type: 'chest', x: vale.x, y: vale.y, gold: '180', items: [{ id: 'dragons_eye', n: 1 }, { id: 'greater_draught', n: 1 }] });
+    w.entities.push({ ...eventFromTemplate('lore'), id: 'ev_eyrie', x: vale.x - 1, y: vale.y - 1, name: 'The Dragon\'s Eyrie',
+      text: 'A hidden vale high among the peaks, green and still. Great bones lie half-sunk in the turf: the skull of a dragon, a black arrow still fixed in one eye-socket. The other socket is empty.',
+      choices: [{ label: 'Read the runes on the arrow', text: '"Elendur shot this." Then the dragon\'s other eye was taken as a prize... and hidden here, it seems.', effects: { lore: true, xp: 30 } }, { label: 'Leave it', leave: true }] });
+  }
+
+  // --- the old vault of Hammerdeep, sealed by Fennick's art
+  const durgan = npc('npc_durgan');
+  if (deep && durgan) {
+    const at = freeSpot(deep, durgan.x + 4, durgan.y);
+    deep.entities.push({ id: 'chest_vault', type: 'chest', x: at.x, y: at.y, gold: '250', items: [{ id: 'heart_of_the_mountain', n: 1 }], sealed: true,
+      sealedText: 'The old vault of the kings is shut with a ward of blue fire. No key fits it; Durgan\'s smiths say only a RING of opening could undo it.' });
+    durgan.keywords.push(
+      kw('VAULT', 'The old vault of the kings. When the goblins came, the wizard Fennick sealed it for us — and kept the only RING that opens it. The Heart of the Mountain lies within.'),
+      kw('RING', 'Fennick\'s ring of opening. Find the old fool on his isle; if he gives thee the ring, the vault is thine to open — and what is in it, if thou be of dwarf-kind, to wear.'));
+  }
+  const fen = npc('npc_fennick');
+  if (fen) fen.keywords.push(kw('RING', 'My Ring of Opening! I made it after locking myself out of my own tower. Twice. I left it with my star-chart for young Merek — ask HIM.'));
+
+  // --- an elven cache in Silverwood, hidden from mortal eyes
+  const cache = nearestWhere(w, 65, 36, (t) => t.key === 'forest' || t.key === 'pines');
+  w.entities.push({ id: 'chest_elfcache', type: 'chest', x: cache.x, y: cache.y, unseen: true, gold: '120', items: [{ id: 'phial_of_morning', n: 1 }] });
+  const ith = npc('npc_ithilwen');
+  if (ith) ith.keywords.push(kw('PHIAL', 'Light caught from the first dawn. We hid it in the wood, south-west of this glade, where no mortal eye can find it. An owl\'s eye is not mortal, mind.'));
+  if (ith) ith.keywords.find((k) => k.key === 'LIGHT').afterText = 'Holy prayers and the light of the stars — those are thy weapons against him. And the PHIAL, if thou canst find it.';
 }
 
 function dressHaven(game, map) {

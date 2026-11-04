@@ -283,7 +283,8 @@ export const CLASSES = [
 // an optional battle action (ability: the ability schema above, shown on the
 // battle bar), and who may wear it (only: { races, classes }, onlyText).
 // rarity and level decide where it turns up; say is the log line when its
-// battle-start magic fires ({who} is the wearer).
+// battle-start magic fires ({who} is the wearer). An effect with `with` wakes
+// only while someone else in the company wears that other piece (twins).
 const C = (o) => ({ type: 'charm', ...o });
 export const CHARMS = [
   // humble trinkets
@@ -381,6 +382,28 @@ export const CHARMS = [
   C({ id: 'moonstone', name: 'Moonstone of Ithil', kind: 'stone', icon: 'moonstone', tint: 0xc8d8ff, rarity: 'rare', level: 4, price: 340,
     desc: 'A pale stone that holds a winter midnight. It longs for its golden twin.',
     effects: [{ type: 'bonus', stat: 'ac', power: 1 }, { type: 'onStart', status: 'shielded', power: 2, rounds: 3, who: 'party', with: 'sunstone' }] }),
+  // sworn brothers: apart a little armour; worn by two of the company, neither falls easily
+  C({ id: 'oath_ring_aldred', name: 'Oath-ring of Aldred', kind: 'ring', icon: 'ring', tint: 0xd8dce8, rarity: 'uncommon', level: 3, price: 210,
+    desc: 'One of two silver rings sworn on the same blade. Aldred died beside his brother Edric, and the rings remember.',
+    effects: [{ type: 'bonus', stat: 'ac', power: 1 }, { type: 'regen', hp: 1, who: 'self', with: 'oath_ring_edric' }, { type: 'resist', status: 'afraid', chance: 1, with: 'oath_ring_edric' }] }),
+  C({ id: 'oath_ring_edric', name: 'Oath-ring of Edric', kind: 'ring', icon: 'ring', tint: 0xe8d8b8, rarity: 'uncommon', level: 3, price: 210,
+    desc: 'One of two silver rings sworn on the same blade. Edric died beside his brother Aldred, and the rings remember.',
+    effects: [{ type: 'bonus', stat: 'hit', power: 1 }, { type: 'regen', hp: 1, who: 'self', with: 'oath_ring_aldred' }, { type: 'resist', status: 'afraid', chance: 1, with: 'oath_ring_aldred' }] }),
+  // odds and ends
+  C({ id: 'gull_feather', name: 'Gull-feather Charm', kind: 'feather', icon: 'feather', tint: 0xf0f0f4, rarity: 'common', level: 1, price: 30,
+    desc: 'Sailors tie them to the mast for a fair wind. On land, it seems, the wind is fair too — and there is always a fish.',
+    effects: [{ type: 'travel', pct: 0.05 }, { type: 'food', pct: 0.1 }] }),
+  C({ id: 'thieves_penny', name: 'Thieves\' Penny', kind: 'token', icon: 'coin', tint: 0xd8a860, rarity: 'uncommon', level: 2, price: 110,
+    desc: 'A copper penny with a head on both sides, for those who never lose a toss.',
+    effects: [{ type: 'prices', pct: 0.1 }, { type: 'spoils', gold: 0.1 }] }),
+  C({ id: 'ember_ring', name: 'Ember Ring', kind: 'ring', icon: 'ring', tint: 0xff7838, rarity: 'uncommon', level: 3, price: 200,
+    desc: 'A band of red gold that is always warm. Strike with that hand, and sparks fly.',
+    effects: [{ type: 'onHit', status: 'burning', rounds: 2, chance: 0.25 }, { type: 'resist', status: 'burning', chance: 1 }] }),
+  C({ id: 'barrow_bell', name: 'Barrow-warden\'s Bell', kind: 'bell', icon: 'bell', tint: 0xb8c0a8, rarity: 'uncommon', level: 3, price: 230,
+    desc: 'The barrow-wardens rang it at dusk to tell the dead to keep to their graves. Most of them listen.',
+    effects: [{ type: 'resist', status: 'afraid', chance: 0.5, who: 'party' }],
+    ability: { name: 'Toll for the Dead', icon: 'bell', target: 'nearbyFoes', radius: 3, damage: '1d4', undeadBonus: 3, cooldown: 4, statuses: [{ id: 'afraid', rounds: 2, chance: 0.4 }], vfx: 'shout', fx: 0xd8e0c0,
+      desc: 'The bell tolls: every foe within 3 takes 1d4 (three times as much if undead) and may flee in fear. Ready again four turns later.' } }),
   // for one people
   C({ id: 'deep_runering', name: 'Rune-ring of the Deep', kind: 'ring', icon: 'ring', tint: 0x68e4ff, rarity: 'uncommon', level: 3, price: 300,
     only: { races: ['dwarf'] }, onlyText: 'Only a dwarf can wake its runes',

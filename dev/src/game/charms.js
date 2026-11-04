@@ -12,7 +12,8 @@
 // the company walks, what it eats, what it sees, and where it may go.
 import { STATUS_EFFECTS, RARITIES, CHARM_KINDS, STAT_NAMES } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { wornEffects, wornItems, partyAlive, partyLevel, maxMp, onlyWords, itemAbility } from './rules.js';
+import { wornEffects, wornItems, partyAlive, partyLevel, maxMp, onlyWords, itemAbility,
+  equipItem, unequip, canEquip, armorClass, attackBonus, heroAbilities, normalizeMember, combatMoves, maxHp, wornBonus } from './rules.js';
 import { hasLOS } from './los.js';
 import { pacesText, treasureState } from './treasure.js';
 import { rng, roll } from '../core/rng.js';
@@ -22,22 +23,22 @@ import { sfx } from '../core/sound.js';
 // Each type: its group (for the editor), name, and the parameters it reads.
 export const EFFECT_TYPES = {
   bonus: { group: 'Always', name: 'Steady bonus', params: ['stat', 'power'] },
-  resist: { group: 'Battle', name: 'Resists a condition', params: ['status', 'chance', 'who'] },
+  resist: { group: 'Battle', name: 'Resists a condition', params: ['status', 'chance', 'who', 'with'] },
   onStart: { group: 'Battle', name: 'At the start of a battle', params: ['status', 'power', 'rounds', 'who', 'with'] },
-  regen: { group: 'Battle', name: 'Each turn: mends health or mana', params: ['hp', 'mp', 'who'] },
-  cleanse: { group: 'Battle', name: 'Each turn: may shake off a bad condition', params: ['chance'] },
-  onHit: { group: 'Battle', name: 'A blow struck: a condition on the foe', params: ['status', 'power', 'rounds', 'chance', 'melee', 'ranged'] },
-  drain: { group: 'Battle', name: 'A blow struck: drinks some of the damage', params: ['pct'] },
-  thorns: { group: 'Battle', name: 'Struck in melee: hurts the attacker', params: ['dmg'] },
-  onHurt: { group: 'Battle', name: 'Badly hurt: a condition on the wearer', params: ['status', 'power', 'rounds', 'below'] },
-  spoils: { group: 'Battle', name: 'Spoils: more gold, or learns faster', params: ['gold', 'xp'] },
-  travel: { group: 'World', name: 'Quicker travel', params: ['pct'] },
-  food: { group: 'World', name: 'Eats less', params: ['pct'] },
-  prices: { group: 'World', name: 'Better prices', params: ['pct'] },
-  sight: { group: 'World', name: 'Sees further, or carries light', params: ['power', 'light'] },
-  encounters: { group: 'World', name: 'Fewer wandering monsters', params: ['pct'] },
-  forage: { group: 'World', name: 'Better foraging', params: ['pct'] },
-  camp: { group: 'World', name: 'Better rest in camp', params: ['pct'] },
+  regen: { group: 'Battle', name: 'Each turn: mends health or mana', params: ['hp', 'mp', 'who', 'with'] },
+  cleanse: { group: 'Battle', name: 'Each turn: may shake off a bad condition', params: ['chance', 'with'] },
+  onHit: { group: 'Battle', name: 'A blow struck: a condition on the foe', params: ['status', 'power', 'rounds', 'chance', 'melee', 'ranged', 'with'] },
+  drain: { group: 'Battle', name: 'A blow struck: drinks some of the damage', params: ['pct', 'with'] },
+  thorns: { group: 'Battle', name: 'Struck in melee: hurts the attacker', params: ['dmg', 'with'] },
+  onHurt: { group: 'Battle', name: 'Badly hurt: a condition on the wearer', params: ['status', 'power', 'rounds', 'below', 'with'] },
+  spoils: { group: 'Battle', name: 'Spoils: more gold, or learns faster', params: ['gold', 'xp', 'with'] },
+  travel: { group: 'World', name: 'Quicker travel', params: ['pct', 'with'] },
+  food: { group: 'World', name: 'Eats less', params: ['pct', 'with'] },
+  prices: { group: 'World', name: 'Better prices', params: ['pct', 'with'] },
+  sight: { group: 'World', name: 'Sees further, or carries light', params: ['power', 'light', 'with'] },
+  encounters: { group: 'World', name: 'Fewer wandering monsters', params: ['pct', 'with'] },
+  forage: { group: 'World', name: 'Better foraging', params: ['pct', 'with'] },
+  camp: { group: 'World', name: 'Better rest in camp', params: ['pct', 'with'] },
   wade: { group: 'New ways', name: 'Walks the shallows', params: [] },
   climb: { group: 'New ways', name: 'Climbs the mountains', params: [] },
   fireWalk: { group: 'New ways', name: 'Walks through fire', params: [] },
@@ -107,6 +108,12 @@ function statusWords(id, power) {
 // One effect in plain words, for tooltips, the shop and the hero sheet
 export function effectText(game, e) {
   if (!e?.type) return '';
+  const base = effectWords(game, e);
+  // a twin's half: while someone else in the company wears its other half
+  return e.with && e.type !== 'onStart' ? `${base} — while someone else in the company wears the ${byId(game?.items || [], e.with)?.name || e.with}` : base;
+}
+
+function effectWords(game, e) {
   const party = e.who === 'party';
   switch (e.type) {
     case 'bonus': {
@@ -201,7 +208,11 @@ export function battleHook(session, kind, battle, ...a) {
   }
 }
 
-const worn = (b, u) => (u?.side === 'party' && u.member && u.member.status !== 'dead' ? wornEffects(b.game, u.member) : []);
+// a unit's worn effects in battle (a twin's half only beside its other half)
+function worn(b, u) {
+  if (u?.side !== 'party' || !u.member || u.member.status === 'dead') return [];
+  return wornEffects(b.game, u.member).filter(({ e }) => !e.with || b.partyUnits.some((h) => h !== u && b.alive(h) && wears(b, h, e.with)));
+}
 const tint = (it) => it?.tint ?? 0xffe080;
 const wears = (b, u, id) => !!u?.member && wornItems(b.game, u.member).some((w) => w.it.id === id);
 const sayLine = (it, u, fallback) => (it.say ? it.say.replace(/\{who\}/g, u.name) : fallback);
@@ -217,8 +228,6 @@ function battleStart(b) {
     for (const { e, it } of worn(b, u)) {
       if (e.type === 'bonus' && e.stat === 'init') u.init += +e.power || 0;
       if (e.type !== 'onStart' || !STATUS_EFFECTS[e.status]) continue;
-      // a twin's magic wakes only beside its other half, worn by someone else
-      if (e.with && !heroes.some((h) => h !== u && wears(b, h, e.with))) continue;
       const who = e.who === 'party' ? heroes : e.who === 'foes' ? b.enemies.filter((x) => b.alive(x)) : [u];
       let hit = 0;
       for (const t of who) if (b.addStatus(t, e.status, +e.rounds || 3, +e.power || DEFAULT_POWER[e.status] || 0, u)) hit++;
@@ -338,7 +347,7 @@ function battleEnd(b, outcome) {
   let k = 0, from = null;
   for (const u of b.partyUnits) {
     if (!u.member || u.member.status === 'dead') continue;
-    for (const { e, it } of wornEffects(b.game, u.member)) if (e.type === 'spoils' && +e.gold > 0) { k += +e.gold; from = from || { u, it }; }
+    for (const { e, it } of worn(b, u)) if (e.type === 'spoils' && +e.gold > 0) { k += +e.gold; from = from || { u, it }; }
   }
   if (!k) return;
   const extra = Math.max(1, Math.round(b.gold * Math.min(1, k)));
@@ -373,7 +382,15 @@ export function charmHoard(session, chest) {
 // living heroes' worn effects: [{ m, e, it, slot }]
 export function companyEffects(session) {
   const out = [];
-  for (const m of partyAlive(session.party)) for (const w of wornEffects(session.game, m)) out.push({ m, ...w });
+  const alive = partyAlive(session.party);
+  const wearing = (m, id) => wornItems(session.game, m).some((w) => w.it.id === id);
+  for (const m of alive) {
+    for (const w of wornEffects(session.game, m)) {
+      // a twin's half works only while someone else wears the other
+      if (w.e.with && !alive.some((o) => o !== m && wearing(o, w.e.with))) continue;
+      out.push({ m, ...w });
+    }
+  }
   return out;
 }
 
@@ -559,4 +576,9 @@ export function charmStep(session, t) {
 }
 
 // for the tests and the browser console
-if (typeof window !== 'undefined') window.__charms = { EFFECT_TYPES, effectText, charmInfo, pickCharm, companyEffects, charmWay, charmPace, charmRations, charmPrice, charmSight, charmEncounters, isBeast, STAT_NAMES };
+if (typeof window !== 'undefined') {
+  window.__charms = {
+    EFFECT_TYPES, effectText, charmInfo, pickCharm, companyEffects, charmWay, charmPace, charmRations, charmPrice, charmSight, charmEncounters, isBeast, STAT_NAMES,
+    equipItem, unequip, canEquip, armorClass, attackBonus, heroAbilities, normalizeMember, combatMoves, maxHp, wornBonus, itemAbility,
+  };
+}

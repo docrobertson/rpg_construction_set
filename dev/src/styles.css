@@ -2126,3 +2126,4 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .cbt-btn .cb-item { position: absolute; right: -7px; bottom: 9px; width: 17px; height: 17px; font-size: 10px; border-radius: 5px; z-index: 1; }
 .cbt-btn.from-item .cb-ico { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .sa-row.from-item { background: linear-gradient(90deg, rgba(200,184,255,.1), rgba(0,0,0,.22)); }
+.charm-row .sr-use, .charm-row .inv-use { font-style: normal; color: #ddd2f6; }

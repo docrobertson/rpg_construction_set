@@ -947,6 +947,13 @@ export class PlayUI {
       const who = s.party.members.filter((m) => m.status !== 'dead');
       const can = who.filter((m) => canEquip(g, m, it).ok);
       if (!can.length) return h('div.sr-cmp', h('span.cmp.none', noOneText(g, it)));
+      // a charm is no better or worse than another, only different: say who may wear it
+      if (it.type === 'charm') {
+        const free = can.filter((m) => !m.equip?.charm);
+        return h('div.sr-cmp', h('span.cmp.' + (free.length ? 'up' : 'swap'), { title: can.map((m) => `${m.name}: ${compareText(g, m, it).text}`).join('\n') },
+          cmpArrow({ cls: free.length ? 'up' : 'swap' }), can.length === who.length ? 'Anyone in your company can wear it' : `${can.map((m) => m.name).join(', ')} can wear it`,
+          free.length && free.length < can.length ? ` (${free.map((m) => m.name).join(', ')} wear${free.length === 1 ? 's' : ''} none)` : ''));
+      }
       return h('div.sr-cmp', ...can.map((m) => {
         const c = compareText(g, m, it);
         const cur = itemOf(g, m.equip[slotFor(it)]);
