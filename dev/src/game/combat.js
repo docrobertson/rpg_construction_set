@@ -1520,7 +1520,7 @@ export class Battle {
       if (!this.summonBase(ab)) return { ok: false, why: `Nothing answers the call: there is no “${ab.summon}” in this realm.`, short: 'Nothing answers' };
       if (this.pets.some((p) => p.owner === u && this.alive(p) && p.def.id === ab.summon)) return { ok: false, why: `${u.name}'s ${this.summonBase(ab).name} is still in the fight.`, short: 'Still here' };
     }
-    if (ab.target === 'self' && (ab.heal || ab.healPct) && !ab.statuses?.length && !this.wounded([u], ab.cure).length) {
+    if (ab.target === 'self' && (ab.heal || ab.healPct) && !ab.statuses?.length && !ab.place && !this.wounded([u], ab.cure).length) {
       return { ok: false, why: `${u.name} is unhurt — save it for when it counts.`, short: 'Unhurt' };
     }
     const tg = this.abilityTargets(u, ab);

@@ -906,7 +906,7 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .cb-key { font: bold 9px/12px var(--font-ui); color: var(--gold); background: rgba(0,0,0,.45); border: 1px solid #5a4424; border-radius: 3px; padding: 0 3px; white-space: nowrap; }
 .cb-cd { position: absolute; left: 50%; top: 0; width: 28px; height: 28px; margin-left: -14px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   font: bold 16px var(--font-ui); color: #fff; background: rgba(0,0,0,.6); text-shadow: 0 1px 2px #000; }
-.cbt-btn.special { border-color: #b38a3c; background: linear-gradient(#4a3618, #2a1d0e); }
+.cbt-btn.special { margin: 0; border-color: #b38a3c; background: linear-gradient(#4a3618, #2a1d0e); } /* (not the margin of the sheet's .special) */
 .cbt-btn.special .cb-ico { box-shadow: 0 0 0 2px rgba(232,192,105,.35), 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent); }
 .cbt-btn.special .cb-name::before { content: '★ '; color: var(--gold); font-size: 11px; }
 .cbt-btn.off { opacity: .5; filter: saturate(.25); cursor: not-allowed; }
@@ -919,15 +919,17 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 /* a hero with many skills: three rows of slimmer buttons, the key tucked on the icon */
 .cbt-bar.dense { gap: 3px; }
 .cbt-btns.dense { gap: 3px 4px; }
-.cbt-btns.dense .cbt-btn { gap: 6px; padding: 2px 4px 2px 5px; border-radius: 6px; }
+.cbt-btns.dense .cbt-btn { gap: 7px; padding: 2px 4px 2px 5px; border-radius: 6px; }
 .cbt-btns.dense .cb-side { gap: 0; }
 .cbt-btns.dense .cb-ico { width: 25px; height: 25px; font-size: 15px; }
-.cbt-btns.dense .cb-key { position: absolute; right: -7px; bottom: -5px; font-size: 8.5px; line-height: 10px; padding: 0 2px; z-index: 1; }
+.cbt-btns.dense .cb-key { position: absolute; right: -4px; bottom: -5px; font-size: 8.5px; line-height: 10px; padding: 0 2px; z-index: 1; }
+/* (the special keeps its gold frame; its star moves onto the key, leaving the name room) */
+.cbt-btns.dense .cbt-btn.special .cb-name::before { content: none; }
+.cbt-btns.dense .cbt-btn.special .cb-key::before { content: '★'; margin-right: 1px; }
 .cbt-btns.dense .cb-cd { width: 25px; height: 25px; margin-left: -12.5px; font-size: 13px; }
 .cbt-btns.dense .cb-text { gap: 1px; }
 .cbt-btns.dense .cb-name { font-size: 12px; line-height: 1.06; }
 .cbt-btns.dense .cb-sub { font-size: 9.5px; line-height: 1.1; -webkit-line-clamp: 1; display: block; white-space: nowrap; text-overflow: ellipsis; }
-.cbt-btns.dense .cbt-btn.special .cb-name::before { font-size: 10px; }
 .cbt-btns.dense .cb-item { right: -9px; bottom: 6px; width: 15px; height: 15px; }
 /* a creature a hero called into the fight */
 .cbt-chip.pet { border-color: #7fd8ff; background: radial-gradient(ellipse at 50% 35%, #2a4a5a, #0b141a 80%); }

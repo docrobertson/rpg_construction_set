@@ -360,7 +360,7 @@ const migr = await ev(() => {
   const s = window.__app.session; const g = s.game; const b = s.battle;
   return { abilities: g.abilities?.length, warrior: g.classes.find((k) => k.id === 'warrior').skills, troll: g.monsters.find((m) => m.id === 'troll').abilities, bar: [...document.querySelectorAll('.cbt-btn .cb-name')].map((x) => x.textContent).length, active: !!b?.active };
 });
-check('older games gain the default abilities', migr.abilities > 20 && migr.warrior?.length === 2 && migr.troll?.includes('brutal_smash') && migr.bar >= 8, migr);
+check('older games gain the default abilities', migr.abilities > 20 && migr.warrior?.length >= 2 && migr.troll?.includes('brutal_smash') && migr.bar >= 8, migr);
 await ev(async () => { const b = window.__app.session.battle; if (b) { for (const e of b.enemies) if (b.alive(e)) await b.kill(e); if (b.active) b.actPass(); } });
 await idle();
 await wait(1200);

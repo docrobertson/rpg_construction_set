@@ -342,7 +342,7 @@ export class CombatHud {
     // two rows of buttons while they fit; a hero with many skills gets three
     // rows of slimmer ones (and the keys 1–9, 0, −, =), so nothing is cut off
     const abs = heroAbilities(g, m), keys = skillKeys(g, m, abs);
-    const total = 6 + abs.length, rows = total > 14 ? 3 : 2;
+    const total = 6 + abs.length, rows = total > 12 ? 3 : 2;
     row.style.setProperty('--cols', String(Math.max(5, Math.ceil(total / rows))));
     row.classList.toggle('dense', rows > 2);
     bar.classList.toggle('dense', rows > 2);

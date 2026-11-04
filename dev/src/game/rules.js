@@ -701,3 +701,11 @@ export function partyLevel(party) {
   if (!a.length) return 1;
   return Math.round(a.reduce((s, m) => s + m.level, 0) / a.length);
 }
+
+// for the tests and the browser console
+if (typeof window !== 'undefined') {
+  window.__skills = {
+    classSkills, abilityLevel, heroAbilities, lockedAbilities, battleArts, heroArts, artsInReach, pickLevel, perkChoices, choosePerk, lastPick,
+    newAtLevel, levelUpNote, gainXp, xpForLevel, normalizeMember, ensureCombatData, maxHp, SKILLS_V, ART_EVERY,
+  };
+}
