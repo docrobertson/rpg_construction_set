@@ -430,6 +430,47 @@ export class BattleFx {
     this.tween(0.25, (k) => { line.material.opacity = k < 0.5 ? 1 : 2 - k * 2; }, () => this.drop(line));
   }
 
+  // A forked bolt of lightning from one figure to another: a jagged white
+  // core with a glow of beads along it, a flash where it lands. Resolves as
+  // it strikes, so a chain can leap on from there.
+  arc(from, to, color = 0xa8d4ff) {
+    const a = this.pos(from.x, from.y, 0.8), b = this.pos(to.x, to.y, 0.6);
+    const n = Math.max(6, Math.round(a.distanceTo(b) * 3));
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const v = new THREE.Vector3().lerpVectors(a, b, i / n);
+      if (i > 0 && i < n) { const j = 0.28 * Math.sin((i / n) * Math.PI); v.x += (Math.random() - 0.5) * j; v.y += (Math.random() - 0.5) * j; v.z += (Math.random() - 0.5) * j; }
+      pts.push(v);
+    }
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true }));
+    this.add(line);
+    // the glow that gives the thin core its body
+    const beads = pts.map((v, i) => { const sp = this.sprite('glow', color, i % 2 ? 0.32 : 0.24); sp.position.copy(v); return sp; });
+    // a little fork off the main stroke
+    const fi = Math.floor(n / 2), fp = pts[fi].clone();
+    const fork = [fp, fp.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.7, -0.35, (Math.random() - 0.5) * 0.7))];
+    const fl = new THREE.Line(new THREE.BufferGeometry().setFromPoints(fork), new THREE.LineBasicMaterial({ color, transparent: true }));
+    this.add(fl);
+    this.pop(b, 'glow', color, 0.4, 1.9, 0.3);
+    this.particles(b, { tex: 'star', count: 12, color, size: 0.16, speed: 2.6, up: 1.4, gravity: -3, life: 0.4 });
+    this.flash(color, 90);
+    this.tween(0.32, (k) => {
+      const o = k < 0.4 ? 1 : 1 - (k - 0.4) / 0.6;
+      line.material.opacity = o; fl.material.opacity = o;
+      for (const sp of beads) sp.material.opacity = o * 0.9;
+    }, () => { this.drop(line); this.drop(fl); for (const sp of beads) this.drop(sp); });
+    return new Promise((res) => setTimeout(res, 140));
+  }
+
+  // Lightning leaping from a caster through one foe after another
+  async chain(from, targets, color = 0xa8d4ff) {
+    let at = from;
+    for (const t of targets) {
+      await this.arc(at, t, color);
+      at = t;
+    }
+  }
+
   blink(x, y, color = 0xc0a0ff) {
     const p = this.pos(x, y, 0.55);
     this.pop(p, 'glow', color, 1.2, 0.2, 0.3);

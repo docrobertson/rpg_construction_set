@@ -1345,9 +1345,17 @@ export class Battle {
           await this.view.wait(0.3);
         }
         break;
-      case 'shock':
-        if (target?.side) this.fx.shock(target.x, target.y, col);
+      case 'shock': {
+        // several foes: the lightning leaps from one to the next
+        const chain = this.affected(u, ab, target).filter((t) => t !== u && t.side && t.side !== u.side);
+        if (chain.length > 1) {
+          sfx('spell');
+          await this.view.attackAnim(u.id, chain[0].x, chain[0].y);
+          await this.fx.chain(u, chain, col);
+        } else if (target?.side) this.fx.shock(target.x, target.y, col);
+        else if (chain.length) await this.fx.arc(u, chain[0], col);
         break;
+      }
       case 'arcane':
         if (!ab.attack && !ab.move) { sfx('spell'); for (const t of this.affected(u, ab, target)) this.fx.splash(t.x, t.y, col, 'arcane'); }
         break;
