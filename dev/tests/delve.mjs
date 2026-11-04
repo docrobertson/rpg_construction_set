@@ -426,6 +426,59 @@ const old = await ev(async () => {
 });
 check('an old save inside a dungeon loads: the company split round where it stood, the bands all there', old.dv && old.map === 'Grimholt Barrow' && old.heroes.length >= 2 && old.groups === old.ents && old.figs === old.heroes.length && old.heroes.some((p) => p.x === old.pos.x && p.y === old.pos.y), old);
 
+// --- a curiosity that turns into a fight (the barrow's mimic) is fought right there, where the chest stood
+const mimic = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const e = s.map.entities.find((x) => x.id === 'ev_mimic');
+  if (!e) return { none: true };
+  const spot = dv.freeSquares(e.x, e.y, 1, (x, y) => dv.standable(x, y) && Math.abs(x - e.x) + Math.abs(y - e.y) === 1)[0];
+  dv.setPos(dv.actor(), spot.x, spot.y);
+  dv.spawnHeroes();
+  s.updateVisibility(true);
+  s.ui.openEvent(e);
+  await sleep(200);
+  [...document.querySelectorAll('.choose-item')].find((b) => /Open it/.test(b.textContent))?.click();
+  await sleep(300);
+  [...document.querySelectorAll('.modal-back button')].find((b) => /To arms/.test(b.textContent))?.click();
+  for (let i = 0; i < 200 && !s.battle?.active; i++) await sleep(30);
+  const b = s.battle;
+  const foe = b?.enemies[0];
+  const out = { battle: !!b, field: !!b?.field, foe: foe?.def.id, at: foe ? [foe.x, foe.y] : null, chest: [e.x, e.y], hidden: !s.view.entities.get(e.id)?.root.visible };
+  out.won = await window.__win();
+  out.gone = !s.map.entities.includes(e);
+  return out;
+});
+check('a curiosity that turns into a fight is fought on the dungeon floor, the mimic where the chest stood', mimic.field && mimic.foe === 'mimic' && mimic.at?.[0] === mimic.chest[0] && mimic.at?.[1] === mimic.chest[1] && mimic.hidden && mimic.won && mimic.gone, mimic);
+
+// --- camping: not with monsters in sight close by; otherwise a rest as ever
+const camp = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const rng = window.__delve.rng, chance = rng.chance;
+  const [gid, g] = Object.entries(dv.groups).find(([, gg]) => gg.m.some((mm) => !mm.dead));
+  const mm = g.m.find((x) => !x.dead);
+  s.party.light = 100;
+  const near = dv.freeSquares(mm.x, mm.y, 1, (x, y) => dv.standable(x, y) && Math.max(Math.abs(x - mm.x), Math.abs(y - mm.y)) === 2 && window.__delve.hasLOS(s.map, x, y, mm.x, mm.y))[0];
+  dv.setPos(dv.actor(), near.x, near.y);
+  s.updateVisibility(true);
+  const t0 = s.state.turn;
+  await s.camp();
+  const refused = s.state.turn === t0 && g.aware === false;
+  // far from every band
+  const entry = window.__barrow().entry;
+  dv.alive().forEach((h) => dv.setPos(h, entry.x, entry.y));
+  const mems = Object.values(dv.groups).flatMap((gg) => gg.m).filter((x) => !x.dead);
+  const quiet = dv.freeSquares(entry.x, entry.y, 1, (x, y) => dv.standable(x, y) && mems.every((o) => Math.max(Math.abs(o.x - x), Math.abs(o.y - y)) >= 12))[0] || entry;
+  const spots = dv.freeSquares(quiet.x, quiet.y, dv.alive().length, (x, y) => dv.standable(x, y));
+  dv.alive().forEach((h, i) => dv.setPos(h, spots[i].x, spots[i].y));
+  dv.spawnHeroes();
+  s.updateVisibility(true);
+  rng.chance = () => false; // (no ambush tonight)
+  try { await s.camp(); } finally { rng.chance = chance; }
+  return { refused, rested: s.state.turn >= t0 + 50, gid, foes: dv.visibleFoes().filter((f) => dv.nearHero(f.x, f.y, 8)).length, mode: s.mode, busy: s.busy, log: [...document.querySelectorAll('.log-line')].slice(-3).map((l) => l.textContent) };
+});
+check('no camp with a band in sight close by; a rest when none is', camp.refused && camp.rested, camp);
+
 // --- a battle in a corridor: the company strung out along it, a band coming down on them
 const corridor = await ev(async () => {
   const s = window.__app.session, dv = s.dv;

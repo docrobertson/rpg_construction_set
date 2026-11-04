@@ -29,7 +29,7 @@ import { confirmDialog } from '../ui/dom.js';
 // A map is fought over like this when the designer says so, or (unsaid) when
 // it is a dungeon: caves, crypts, towers, fortresses, the deeper levels
 export function isBattleground(map) {
-  if (!map || map.type === 'arena') return false;
+  if (!map || map.type === 'arena' || map.type === 'world') return false; // (the wide world is travelled as one company)
   return map.battleground === true || (map.battleground == null && map.type === 'dungeon');
 }
 
@@ -573,7 +573,7 @@ export class Delve {
     const names = far.map((m) => m.name);
     const who = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
     if (!this.s.ui) return true;
-    const ok = await confirmDialog(`${who} ${far.length === 1 ? 'is' : 'are'} still elsewhere in ${this.map.name}. Leave anyway? (${far.length === 1 ? 'They hurry' : 'They hurry'} after you.)`, `Leave ${this.map.name}?`);
+    const ok = await confirmDialog(`${who} ${far.length === 1 ? 'is' : 'are'} still elsewhere in ${this.map.name}. Leave anyway? The whole company goes: ${far.length === 1 ? names[0] + ' hurries' : 'they hurry'} after you.`, `Leave ${this.map.name}?`);
     if (!ok) this.s.log('You wait at the way out.');
     return !!ok;
   }
@@ -729,9 +729,9 @@ export class Delve {
     }
     if (!origin) return null;
     const roster = list || (e.monster ? s.enemiesFor(e) : []);
-    if (src) { this.view.setEntityVisible(src.id, false); this.hidden = src; }
     const g = this.populate({ ...e, id: gid, roaming: true }, roster, origin);
     if (!g.m.length) { delete this.groups[gid]; return null; }
+    if (src) { this.view.setEntityVisible(src.id, false); this.hidden = src; }
     g.temp = true;
     g.src = { id: e.id, alsoRemove: e.alsoRemove, flag: e.flag, loot: e.loot, monster: e.monster || roster[0]?.id, roaming: e.roaming };
     delete g.ent;
@@ -1011,4 +1011,4 @@ export class Delve {
 
 function s_log(s, text) { s.log(text, 'place'); }
 
-if (typeof window !== 'undefined') window.__delve = { isBattleground, stealthy, heroKey, heroFig, rng, cheb };
+if (typeof window !== 'undefined') window.__delve = { isBattleground, stealthy, heroKey, heroFig, rng, cheb, hasLOS };
