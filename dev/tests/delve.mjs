@@ -327,6 +327,7 @@ const surprise = await ev(async () => {
 check('striking an unaware monster catches its band unawares', surprise.surprise && surprise.round === 0 && surprise.log?.some((l) => /Caught unawares/.test(l)), surprise);
 check('in the surprise every hero has a turn before any foe, the striker first', surprise.order?.length === surprise.heroes && surprise.order.every((x) => x === 'party') && surprise.striker === surprise.lead, surprise);
 check('the surprise is shown on screen (banner, strip)', surprise.banner && surprise.strip === 'Free', surprise);
+await wait(700); // (the banner eases in)
 await ev(() => window.__tick(0.3));
 await shot('dv-03-surprise');
 const surpriseWin = await ev(() => window.__win());

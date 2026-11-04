@@ -112,7 +112,8 @@ export class CombatHud {
     }
     else if (type === 'busy') { if (!data) this.renderBar(); else this.cmdEl?.classList.add('busy'); }
     else if (type === 'surprise') this.showSurprise();
-    else if (type === 'start' || type === 'round' || type === 'death' || type === 'update' || type === 'moved') this.schedule();
+    if (type === 'round' && data >= 1) this.hideSurprise(); // (the free turns are over)
+    if (type === 'start' || type === 'round' || type === 'death' || type === 'update' || type === 'moved') this.schedule();
   }
 
   // many updates arrive in a burst: redraw once per frame
@@ -163,7 +164,16 @@ export class CombatHud {
     this.root.appendChild(el);
     this.surpriseEl = el;
     this.frame(false);
-    setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); if (this.surpriseEl === el) this.surpriseEl = null; }, 600); }, 3400);
+    // it stays while the free turns last, quieter after a moment
+    setTimeout(() => el.classList.add('dim'), 3400);
+  }
+
+  hideSurprise() {
+    const el = this.surpriseEl;
+    if (!el) return;
+    this.surpriseEl = null;
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 600);
   }
 
   // ------------------------------------------------------------ initiative strip

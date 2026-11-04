@@ -2136,6 +2136,7 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
   animation: dv-surprise-in .45s cubic-bezier(.2,1.4,.4,1); transition: opacity .5s, transform .5s; }
 .dv-surprise b { font: 600 20px var(--font-title); letter-spacing: 1px; color: #c8ff9a; text-shadow: 0 2px 0 #000, 0 0 14px rgba(140,255,100,.5); }
 .dv-surprise span { font: 13px var(--font-ui); color: #e0f0c8; opacity: .9; }
+.dv-surprise.dim { opacity: .78; }
 .dv-surprise.out { opacity: 0; transform: translateX(-50%) translateY(-8px); }
 @keyframes dv-surprise-in { from { opacity: 0; transform: translateX(-50%) scale(.7); } }
 .cbt-round.dv-free { color: #b8ff8a; }
