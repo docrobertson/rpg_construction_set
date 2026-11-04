@@ -5,6 +5,7 @@ import { createMaterials, shared, silhouetteMaterial } from './materials.js';
 import { TerrainView, WATER_Y, LAVA_Y } from './terrainView.js';
 import { BuildingsView } from './houses.js';
 import { makeModel } from './models.js';
+import { LANDMARK_WORLD_SCALE, SPINNERS } from './landmarks.js';
 import { Followers } from './followers.js';
 import { HeadMarkers, PathPreview, HoverGlow } from './markers.js';
 import { terrain } from '../data/terrain.js';
@@ -27,7 +28,8 @@ const LIGHTING = {
   dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
 const WORLD_FIGURE = 0.78;
-const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
+// (how much larger each point of interest is drawn there)
+const WORLD_POI = { ...Object.fromEntries(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate'].map((k) => [k, 1.6])), ...LANDMARK_WORLD_SCALE };
 const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {
@@ -547,7 +549,7 @@ export class View {
     // On the world map a square is a league: figures stand smaller beside the
     // (enlarged) towns and castles, and points of interest a little larger
     const world = this.map?.type === 'world';
-    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI.has(spec.kind) ? 1.6 : 1) : WORLD_FIGURE;
+    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI[spec.kind] ?? 1) : WORLD_FIGURE;
     const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale) * worldK;
     leanG.scale.setScalar(scale);
     // soft contact shadow under the feet
@@ -580,8 +582,18 @@ export class View {
         o.parent.add(s);
       }
     }
+    // a mill's sails or wheel: a part of its own that turns
+    const sp = SPINNERS[spec.kind]?.(spec);
+    let spin = null;
+    if (sp) {
+      const part = makeModel(sp.look, this.mats), k = spec.scale ?? 1;
+      part.position.set(sp.at[0] * k, sp.at[1] * k, sp.at[2] * k);
+      part.scale.setScalar(k);
+      model.add(part);
+      spin = { part, axis: sp.axis, speed: sp.speed };
+    }
     const e = {
-      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person, spin,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -837,6 +849,7 @@ export class View {
         }
         if (e.info.boat) e.model.rotation.z = Math.sin(this.time * 1.3 + e.bobPhase) * 0.05;
       }
+      if (e.spin) e.spin.part.rotation[e.spin.axis] += dt * e.spin.speed;
       if (e.faceTarget !== undefined) {
         let d = e.faceTarget - e.faceG.rotation.y;
         while (d > Math.PI) d -= Math.PI * 2;
