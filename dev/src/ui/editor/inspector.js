@@ -8,6 +8,7 @@ import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
+import { isBattleground } from '../../game/delve.js';
 import { isHoard } from '../../game/charms.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
@@ -259,7 +260,7 @@ export function inspectMap(ed, container) {
   const game = ed.game, map = ed.map;
   clear(container);
   container.appendChild(h('div.insp-head', h('b', 'Map properties'), h('span', `${map.w} × ${map.h}`)));
-  container.appendChild(buildForm(map, [
+  const form = buildForm(map, [
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'type', label: 'Kind', type: 'select', options: Object.entries(MAP_TYPES).map(([k, v]) => [k, v.label]) },
     { key: 'lighting', label: 'Lighting', type: 'select', options: [['day', 'Daylight'], ['dusk', 'Dusk'], ['night', 'Night'], ['dark', 'Dark (needs light)']], rerender: true },
@@ -272,7 +273,16 @@ export function inspectMap(ed, container) {
     if (k === 'lighting') ed.view.setLighting(map.lighting);
     if (k === 'fill' || k === 'name') ed.reloadMap();
     if (k === 'name' || k === 'type') ed.refreshMapList();
-  }));
+    // (delve) the battleground default follows the kind; a redrawn form needs its box again
+    if ((k === 'type' && map.battleground == null) || k === 'lighting') setTimeout(() => { if (container.isConnected && ed.map === map) inspectMap(ed, container); });
+  });
+  container.appendChild(form);
+  // (delve) dungeons are fought over where they stand, unless the designer says otherwise
+  const bg = h('input', { type: 'checkbox' });
+  bg.checked = isBattleground(map);
+  bg.addEventListener('change', () => { map.battleground = bg.checked; ed.markDirty(); });
+  if (map.type !== 'world') form.insertBefore(h('label.field.check.dv-bg', { title: 'On by default for dungeons: turn it on for, say, a haunted castle, or off for a peaceful mine' }, bg, h('span.field-label', 'Battleground'),
+    h('span.field-hint', 'Every monster stands on the map and each hero walks a square of their own; monsters wake when they notice a hero, and the battle is fought right here. On by default for dungeons.')), form.children[3] || null);
   if (map.exit) {
     const back = game.maps.find((m) => m.id === map.exit.map);
     container.appendChild(h('p.hint', `Walking off the edge leads back to ${back ? back.name : '?'} (${map.exit.x}, ${map.exit.y}).`));

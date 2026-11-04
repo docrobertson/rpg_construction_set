@@ -15,6 +15,7 @@ import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
 import { markerGlyph } from '../render/markers.js';
 import { digOptions } from '../game/treasure.js';
+import { charmWay } from '../game/charms.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -116,6 +117,9 @@ export class Explorer {
     const s = this.s, v = this.view;
     if (!s.map || s.battle) return null;
     const id = v.pickEntity(cx, cy, (e) => e.id !== 'campfire');
+    // (delve) in a battleground: a hero on a square of their own, a monster of a band
+    if (s.dv && id?.startsWith('hero:')) { const m = s.dv.memberOfFig(id); if (m) { const p = s.dv.pos(m); return { kind: 'hero', m, x: p.x, y: p.y }; } }
+    if (s.dv && id?.startsWith('dv:')) { const t = s.dv.targetOfFig(id); if (t && s.isVisible(t.x, t.y)) return { kind: 'monster', e: t.e, mem: t.mem, gid: t.gid, x: t.x, y: t.y }; }
     if (id === 'party') return { kind: 'party', m: s.state.vehicle ? null : partyAlive(s.party)[0] || s.leader, x: s.state.pos.x, y: s.state.pos.y };
     if (id && id.startsWith('party:')) { const m = this.member(id.slice(6)); if (m) return { kind: 'companion', m, x: s.state.pos.x, y: s.state.pos.y }; }
     if (id) {
@@ -124,6 +128,13 @@ export class Explorer {
     }
     const t = v.pick(cx, cy);
     if (!t) return null;
+    // (delve) the square a hero or a monster stands on means them
+    if (s.dv && inBounds(s.map, t.x, t.y) && s.isVisible(t.x, t.y)) {
+      const hm = s.dv.heroAt(t.x, t.y);
+      if (hm) return { kind: 'hero', m: hm, x: t.x, y: t.y };
+      const mm = s.dv.memberAt(t.x, t.y);
+      if (mm) return { kind: 'monster', e: s.dv.entityOf(mm.gid), mem: mm.mem, gid: mm.gid, x: t.x, y: t.y };
+    }
     if (!inBounds(s.map, t.x, t.y)) {
       // beyond the edge of a town: leave that way
       const m = s.map;
@@ -157,7 +168,7 @@ export class Explorer {
     return (x, y) => {
       if (!inBounds(map, x, y)) return false;
       const t = terrain(getTile(map, x, y));
-      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk && !charmWay(s, t)) return false; // (charms) wading, climbing
       if (s.visible && map.lighting === 'dark' && !map.explored[y * map.w + x] && !known?.has(x + ',' + y)) return false;
       if (s.blockingAt(x, y)) return false;
       const goal = x === goalX && y === goalY;
@@ -209,9 +220,13 @@ export class Explorer {
         return { goal: this.besideGoal(e), arrive: bump(e), track: e, tone: e.hostile ? 'attack' : 'talk' };
       }
       case 'monster': case 'event': case 'sign': {
+        // (delve) one monster of a band: walk up to it (it may move: follow it) and strike
+        if (tg.mem) return { goal: this.besideGoal(tg.mem, false), arrive: bump(tg.mem), track: tg.e, tone: 'attack' };
         const e = tg.e;
         return { goal: this.besideGoal(e, false), arrive: bump(e), track: e, tone: tg.kind === 'monster' ? 'attack' : 'use' };
       }
+      // (delve) a hero: send them on alone (or, the one walking, wait a turn)
+      case 'hero': return { here: true, arrive: () => (tg.m === s.dv?.actor() ? s.wait() : s.dv?.select(tg.m)), tone: 'self' };
       case 'ship': {
         const e = tg.e;
         if (s.state.vehicle) return null;
@@ -248,7 +263,7 @@ export class Explorer {
           const out = x === 0 ? [-1, 0] : x === map.w - 1 ? [1, 0] : y === 0 ? [0, -1] : [0, 1];
           return { goal: (gx, gy) => gx === x && gy === y, gx: x, gy: y, arrive: () => s.move(out[0], out[1]), tone: 'enter', leave: true };
         }
-        const ok = s.state.vehicle ? t.water && !t.deck : t.walk;
+        const ok = s.state.vehicle ? t.water && !t.deck : t.walk || !!charmWay(s, t); // (charms) wading, climbing
         if (!ok && s.state.vehicle && t.walk) return { goal: this.besideGoal({ x, y }, false), arrive: bump({ x, y }), tone: 'walk', ashore: true };
         if (!ok) return null;
         const stairs = (t.key === 'stairs_up' || t.key === 'stairs_down') && (map.exit || map.entities.some((e) => e.type === 'portal' && e.x === x && e.y === y));
@@ -267,7 +282,8 @@ export class Explorer {
     const token = {};
     ui.autoPath = token;
     const mapId = s.map.id;
-    const foes = () => s.map.entities.filter((e) => e.type === 'monster' && !e.passive && s.isVisible(e.x, e.y));
+    // (delve) in a battleground, the nearest monster in sight of each band
+    const foes = () => (s.dv ? s.dv.visibleFoes() : s.map.entities.filter((e) => e.type === 'monster' && !e.passive && s.isVisible(e.x, e.y)));
     const known = new Set(foes().map((e) => e.id));
     let stuck = 0, steps = 0, arrived = false;
     try {
@@ -290,7 +306,7 @@ export class Explorer {
         }
         // stop when trouble shows up (but not for the foe we are going for)
         if (steps > 0) {
-          const near = foes().find((e) => e !== plan.track && (!known.has(e.id) && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 7 || Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 2));
+          const near = foes().find((e) => e.id !== plan.track?.id && (!known.has(e.id) && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 7 || Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 2));
           if (near) {
             const d = byId(s.game.monsters, near.monster);
             s.log(`You stop: ${d ? (d.boss ? d.name : d.plural || d.name) : 'something'} ahead!`, 'warn');
@@ -380,12 +396,17 @@ export class Explorer {
         return { title: tg.m.name, sub: `Level ${tg.m.level} ${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · leads your company`, act: 'Click to wait a turn', tone: 'self' };
       case 'companion':
         return { title: tg.m.name, sub: `Level ${tg.m.level} ${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · your companion`, act: 'Click for their sheet', tone: 'self' };
+      case 'hero': {
+        const walking = tg.m === s.dv?.actor(), alone = !!s.dv?.selected();
+        const what = walking ? (alone ? 'walking alone' : 'leads your company') : alone ? 'waiting here' : 'with the company';
+        return { title: tg.m.name, sub: `Level ${tg.m.level} ${raceOf(g, tg.m).name} ${classOf(g, tg.m).name} · ${what}`, act: walking ? 'Click to wait a turn' : `Click to send ${tg.m.name} on alone`, tone: 'self' };
+      }
       case 'npc': {
         const i = this.npcInfo(tg.e);
         if (tg.e.hostile) return { ...i, act: reach ? `Click to confront${far}` : noWay, tone };
         return { ...i, act: reach ? `Click to talk${far}` : noWay, tone };
       }
-      case 'monster': return { ...this.monsterInfo(tg.e), act: reach ? `Click to attack${far}` : noWay, tone };
+      case 'monster': return { ...(tg.mem ? s.dv.memberInfo(tg.gid, tg.mem) : this.monsterInfo(tg.e)), act: reach ? `Click to attack${far}` : noWay, tone };
       case 'event': {
         const e = tg.e;
         return { title: eventLabel(e), sub: EVENT_KINDS[e.kind] && e.name ? EVENT_KINDS[e.kind].label : '', act: reach ? `Click to visit${far}` : noWay, tone };
@@ -457,7 +478,8 @@ export class Explorer {
     const tone = info?.tone || 'none';
     v.renderer.domElement.style.cursor = CURSORS[tone === 'self' ? 'use' : tone] || 'default';
     // glow round a figure, a frame round a square
-    const ent = tg.kind === 'party' ? 'party' : tg.kind === 'companion' ? 'party:' + (tg.m.id || tg.m.name) : tg.e && v.hasEntity(tg.e.id) ? tg.e.id : null;
+    const ent = tg.kind === 'party' ? 'party' : tg.kind === 'companion' ? 'party:' + (tg.m.id || tg.m.name) : tg.kind === 'hero' ? 'hero:' + (tg.m.id || tg.m.name)
+      : tg.mem ? `dv:${tg.gid}:${s.dv.groups[tg.gid]?.m.indexOf(tg.mem)}` : tg.e && v.hasEntity(tg.e.id) ? tg.e.id : null;
     v.hoverGlow.set(ent, TONE_COLOR[tone] || TONE_COLOR.walk);
     if (!ent && tg.kind !== 'building') v.showCursor(tg.x, tg.y, tone === 'none' ? 0x9a9a9a : 0xffffff);
     else v.showCursor(null);
@@ -561,8 +583,12 @@ export class Explorer {
       const x = p.x + dx, y = p.y + dy;
       if (!inBounds(map, x, y)) continue;
       const t = terrain(getTile(map, x, y));
+      // (delve) a monster of a band beside whoever walks
+      const mem = s.dv?.blockerAt(x, y);
+      if (mem && s.isVisible(x, y)) { const i = s.dv.memberInfo(mem.gid, mem.mem); acts.push({ kind: 'attack', icon: 'attack', label: `Attack the ${i.title.replace('★ ', '')}${s.dv.groups[mem.gid]?.aware ? '' : ' (unaware)'}`, run: step(x, y), pri: 1 }); }
       for (const e of map.entities) {
         if (e.x !== x || e.y !== y || seen.has(e)) continue;
+        if (e.type === 'monster' && s.dv) continue;
         if (e.type === 'monster' && s.isVisible(x, y)) { const i = this.monsterInfo(e); acts.push({ kind: 'attack', icon: 'attack', label: `Attack ${i.title}`, run: step(x, y), pri: 1 }); }
         else if (e.type === 'event') acts.push({ kind: 'use', icon: 'star', label: `Visit ${eventLabel(e)}`, run: step(x, y), pri: 1 });
         else if (e.type === 'sign') acts.push({ kind: 'use', icon: 'sign', label: 'Read the sign', run: step(x, y), pri: 3 });
@@ -650,7 +676,7 @@ export class Explorer {
   // ------------------------------------------------------------ marks over heads
   refreshMarkers() {
     const s = this.s, v = this.view;
-    if (!s.map || s.battle) return;
+    if (!s.map || s.battle) { if (s.dv && s.battle) s.dv.refreshMarkers(); return; }
     const ids = new Set();
     for (const e of s.map.entities) {
       if (e.type !== 'npc' || !v.hasEntity(e.id)) continue;
@@ -660,6 +686,7 @@ export class Explorer {
       v.setMarker(e.id, mk, !s.visible || !!s.map.explored[e.y * s.map.w + e.x]);
       ids.add(e.id);
     }
+    s.dv?.refreshMarkers(ids); // (delve) Zz over monsters that have not noticed anyone
     v.markers.retain(ids);
   }
 }

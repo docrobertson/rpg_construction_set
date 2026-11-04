@@ -263,7 +263,7 @@ export class View {
     if (!b.list.length) return;
     // the party's building stands open; in the editor (no party), the one
     // under the cursor
-    const party = this.entities.get('party');
+    const party = this.partyFigure();
     const inside = party ? b.at(party.x, party.y) : -1;
     const cursor = !party && this.cursor.visible && this._cursorTile ? b.at(this._cursorTile.x, this._cursorTile.y) : -1;
     b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null, exp: this.visOn ? this.expCur : null });
@@ -609,6 +609,10 @@ export class View {
   }
   setMarker(id, kind, always) { this.markers.set(id, kind, always); }
 
+  // The company's figure: the party, or (in a dungeon battleground, where every
+  // hero stands alone) the hero the light and the view are anchored on
+  partyFigure() { return this.entities.get('party') || (this.anchorId ? this.entities.get(this.anchorId) : null) || null; }
+
   // The figure under the pointer (screen space, so a click on a head counts),
   // nearest the camera first; filter(entity) can rule some out
   pickEntity(clientX, clientY, filter) {
@@ -850,7 +854,7 @@ export class View {
       const p = e.root.position;
       add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
     };
-    const party = this.entities.get('party');
+    const party = this.partyFigure();
     if (party && party.root.visible) {
       // one clear window over the whole company: the box round every figure's
       // feet and head on screen, cut from the northernmost of them forward
@@ -871,6 +875,15 @@ export class View {
       n = 1;
     }
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
+    // (delve) heroes on squares of their own each get a window, and in a
+    // battle on the dungeon floor so do the foes nearest the camera
+    if (this.cutAlways) for (const id of this.cutAlways) { const e = this.entities.get(id); if (e && e !== party && !this.cutFocus.has(id)) ent(e); }
+    if (this.fieldBattle) {
+      const r = this.rig;
+      const foes = [...this.entities.entries()].filter(([id, e]) => id.startsWith('dv:') && e.root.visible && !this.cutFocus.has(id))
+        .map(([, e]) => [Math.hypot(e.root.position.x - r.x, e.root.position.z - r.z), e]).sort((a, b) => a[0] - b[0]);
+      for (const [, e] of foes) { if (n >= cuts.length) break; ent(e, -8); }
+    }
     // points of interest near the company: nothing tall in front hides them
     if (party && this.map?.type === 'world') {
       const px = party.root.position.x, pz = party.root.position.z;
@@ -915,6 +928,17 @@ export class View {
       const dark = this.lighting === 'dark';
       shared.uParty.value.set(p.x, p.z, (dark ? 4.2 : 3.8) * (torch ? 1.55 : 1), L.party * (torch ? 1.35 : 0.85));
     } else shared.uParty.value.set(0, 0, 0, 0);
+    // (delve) heroes on squares of their own, away from the torch: a dim pool each
+    let k = 0;
+    if (this.cutAlways && L.party > 0) {
+      const pools = shared.uPools.value;
+      for (const id of this.cutAlways) {
+        const e = this.entities.get(id);
+        if (!e || e === party || !e.root.visible || k >= pools.length) continue;
+        pools[k++].set(e.root.position.x, e.root.position.z, this.lighting === 'dark' ? 4.2 : 3.8, L.party * 0.9); // (as a company with no torch)
+      }
+    }
+    shared.uPoolN.value = k;
   }
 
   // ---- overlays ----

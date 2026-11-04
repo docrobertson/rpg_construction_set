@@ -47,6 +47,9 @@ export class Battle {
     this.killedIds = [];
     this.loot = [];
     this.over = false;
+    // (delve) a battle on the live map where the company stands: opts.field
+    // brings the map, the figures on it and what the dungeon decides
+    this.field = opts.field || null;
     ensureCombatData(this.game);
     this.fx = new BattleFx(this.view);
   }
@@ -55,9 +58,13 @@ export class Battle {
   // Hooks for what heroes carry (charms and the like): the session answers
   // battleHook(kind, battle, ...) for 'start' (after setup), 'turn' (a unit's
   // turn begins; return true to make it lose the turn), 'hit' (attacker,
-  // target, damage dealt), 'hurt' (target, damage, by) and 'end' (outcome).
+  // target, damage dealt), 'hurt' (target, damage, by) and 'end' (outcome);
+  // (delve) 'join' (the foes that joined a battle on the dungeon floor).
   hook(kind, ...a) { try { return this.s.battleHook?.(kind, this, ...a); } catch (e) { console.error(e); return null; } }
-  emit(type, data) { this.s.ui?.combatEvent?.(type, data, this); }
+  emit(type, data) {
+    if (type === 'moved' && this.field?.moved) this.field.moved(data);
+    this.s.ui?.combatEvent?.(type, data, this);
+  }
 
   // ------------------------------------------------------------ setup
   unit(base) {
@@ -65,6 +72,7 @@ export class Battle {
   }
 
   setup() {
+    if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
     // sea monsters that strike at a party on the shore need water to fight from
@@ -115,15 +123,114 @@ export class Battle {
     this.log(`Battle! You face ${names.join(' and ')}.`, 'bad');
   }
 
-  spawnEnemy(def) {
-    const spot = this.enemySpot(def);
+  spawnEnemy(def, near = null) {
+    const spot = this.field ? this.fieldSpot(near || this.enemies.find((e) => this.alive(e)), def) : this.enemySpot(def);
     if (!spot) return null;
     const hp = Math.max(1, roll(def.hp || '2d8'));
     const u = this.unit({ id: 'en_' + this.units.length, side: 'enemy', def, name: def.name, x: spot[0], y: spot[1], hp, maxHp: hp, buffs: [], face: [0, 1] });
     u.init = 8 + (def.level || 1) + (def.speed > 1 ? 3 : 0) + (def.init || 0) + rng.int(1, 6);
+    if (this.field && near) u.gid = near.gid;
     this.units.push(u);
     this.view.addEntity(u.id, def.look || { kind: 'blob' }, u.x, u.y, { ring: 0xd03030, facing: [0, 1], scale: def.boss ? 1.15 : 1 });
     return u;
+  }
+
+  // ------------------------------------------------------------ the field (delve)
+  // A battle fought where the company stands: the live map is the field, and
+  // the heroes and foes are the figures already standing on it
+  setupField() {
+    const F = this.field, v = this.view;
+    this.arena = F.map;
+    for (const hh of F.heroes) {
+      const m = hh.m;
+      if (m.status === 'dead') continue;
+      const u = this.unit({ id: hh.id, side: 'party', member: m, name: m.name, x: hh.x, y: hh.y, sleep: m.status === 'asleep' ? 2 : 0, face: hh.face || [0, -1] });
+      m.buffs = [];
+      u.init = (m.dex || 10) + rng.int(1, 6) + perkCount(m, 'alert') * 4;
+      this.units.push(u);
+      if (!v.hasEntity(u.id)) v.addEntity(u.id, charLook(this.game, m), u.x, u.y, { ring: 0xffd040 });
+      else v.setRing(u.id, 0xffd040);
+    }
+    for (const f of F.foes) this.addFoe(f);
+    this.retag();
+    const counts = {};
+    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
+    this.log(`Battle! You face ${this.facing(Object.entries(counts).map(([id, n]) => ({ id, n })))}.`, 'bad');
+  }
+
+  // "3 goblins and a giant spider"
+  facing(list) {
+    return list.map((g) => {
+      const d = byId(this.game.monsters, g.id);
+      return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
+    }).filter(Boolean).join(' and ');
+  }
+
+  // a foe already standing on the field (its figure is taken over as it is)
+  addFoe(f) {
+    const def = f.def;
+    const u = this.unit({ id: f.id, side: 'enemy', def, name: def.name, x: f.x, y: f.y, hp: f.hp, maxHp: f.maxHp, buffs: [], face: f.face || [0, 1], gid: f.gid, mem: f.mem });
+    u.init = 8 + (def.level || 1) + (def.speed > 1 ? 3 : 0) + (def.init || 0) + rng.int(1, 6);
+    this.units.push(u);
+    const v = this.view;
+    if (!v.hasEntity(u.id)) v.addEntity(u.id, def.look || { kind: 'blob' }, u.x, u.y, { ring: 0xd03030, scale: def.boss ? 1.15 : 1 });
+    else v.setRing(u.id, 0xd03030);
+    v.setEntityVisible(u.id, true);
+    return u;
+  }
+
+  // Bands that notice the fight join it: they take their first turn next round
+  join(foes, text) {
+    const added = foes.filter((f) => !this.units.some((u) => u.id === f.id)).map((f) => this.addFoe(f));
+    if (!added.length) return [];
+    this.retag();
+    if (text) this.log(text, 'bad');
+    this.hook('join', added); // (what heroes carry may answer newcomers too)
+    for (const u of added) this.fx.number(u.x, u.y, 'Joins the fight!', 'info', '#ff9070');
+    this.emit('update');
+    return added;
+  }
+
+  // tell several foes of one kind apart (letters stay with whoever had them)
+  retag() {
+    const byDef = {};
+    for (const e of this.enemies) (byDef[e.def.id] ||= []).push(e);
+    for (const list of Object.values(byDef)) {
+      if (list.length < 2) continue;
+      const used = new Set(list.map((e) => e.tag).filter(Boolean));
+      let c = 0;
+      for (const e of list) {
+        if (e.tag) continue;
+        while (used.has(String.fromCharCode(65 + c))) c++;
+        e.tag = String.fromCharCode(65 + c);
+        used.add(e.tag);
+      }
+    }
+  }
+
+  // a free square beside `near` for a foe called into the fight
+  fieldSpot(near, def) {
+    if (!near) return null;
+    for (let r = 1; r <= 4; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = near.x + dx, y = near.y + dy;
+      if (this.walkable(x, y, { def, side: 'enemy' }) && this.lineClear(near, { x, y })) return [x, y];
+    }
+    return null;
+  }
+
+  // a hero steps onto the way out (stairs, a passage) and is gone from the fight
+  async escape(u, x, y, exit) {
+    u.face = [Math.sign(x - u.x), Math.sign(y - u.y)];
+    u.x = x; u.y = y;
+    await this.view.moveEntity(u.id, x, y, 0.15);
+    u.fled = true;
+    u.exit = exit;
+    this.log(`${u.name} escapes ${exit.name || 'the battle'}!`, 'warn');
+    this.fx.number(x, y, 'Escapes!', 'info');
+    this.view.removeEntity(u.id);
+    this.emit('update');
+    return true;
   }
 
   // A boss brought low enough enters its second phase: it calls its kin to
@@ -141,7 +248,7 @@ export class Battle {
       if (!ad) continue;
       const n = rng.int(Math.max(0, a.min ?? 1), Math.max(a.min ?? 1, a.max ?? a.min ?? 1));
       for (let k = 0; k < n; k++) {
-        const e = this.spawnEnemy(ad);
+        const e = this.spawnEnemy(ad, u);
         if (!e) break;
         e.summoner = u; // they fall with the boss
         const kin = this.enemies.filter((x) => x.def.id === ad.id);
@@ -199,11 +306,15 @@ export class Battle {
     return this.groundOk(x, y, unit) && !this.unitAt(x, y);
   }
 
+  // (delve) a square of the field holding something that is not in the fight
+  fieldBlocked(x, y, unit) { return !!this.field?.blocked?.(x, y, unit); }
+
   // can this unit stand on the terrain here (ignoring who else is there)?
   groundOk(x, y, unit) {
     if (!inBounds(this.arena, x, y)) return false;
     const t = terrain(getTile(this.arena, x, y));
     const def = unit && unit.def;
+    if (this.field && this.fieldBlocked(x, y, unit)) return false;
     if (def?.swim) return !!t.water;
     if (!t.walk) return !!(def?.fly && t.water);
     return true;
@@ -348,34 +459,56 @@ export class Battle {
   async run() {
     this.setup();
     this.s.ui.combatStart(this);
-    await this.s.app.fade(false, 250);
+    if (!this.field) await this.s.app.fade(false, 250);
     this.emit('start');
+    // (delve) foes caught unawares: every hero has a turn before the first round
+    if (this.opts.surprise) {
+      this.round = 0;
+      this.surprise = true;
+      const first = this.opts.striker;
+      this.emit('surprise');
+      const order = this.partyUnits.filter((u) => this.alive(u)).sort((a, b) => (b.member === first) - (a.member === first) || b.init - a.init);
+      const res = await this.playRound(order);
+      this.surprise = false;
+      if (res) return res;
+      this.round = 1;
+    }
     for (;;) {
-      this.order = this.units.filter((u) => this.alive(u)).sort((a, b) => b.init - a.init || (a.side === 'party' ? -1 : 1));
-      this.emit('round', this.round);
-      for (this.turnIdx = 0; this.turnIdx < this.order.length; this.turnIdx++) {
-        const u = this.order[this.turnIdx];
-        if (!this.alive(u)) continue;
-        if (u.side === 'party' && u.member.status === 'dead') { u.dead = true; continue; }
-        this.current = u;
-        u.reacted = false;
-        this.emit('turn', u);
-        const skip = await this.startTurn(u);
-        if (this.aborted) return { outcome: 'aborted' };
-        let end = this.checkEnd();
-        if (end) return this.finish(end);
-        if (!skip && this.alive(u)) {
-          if (u.side === 'party') await this.heroTurn(u);
-          else await this.monsterTurn(u);
-        }
-        if (this.aborted) return { outcome: 'aborted' };
-        this.endTurn(u);
-        this.current = null;
-        end = this.checkEnd();
-        if (end) return this.finish(end);
-      }
+      const res = await this.playRound(this.units.filter((u) => this.alive(u)).sort((a, b) => b.init - a.init || (a.side === 'party' ? -1 : 1)));
+      if (res) return res;
       this.round++;
     }
+  }
+
+  // Everyone in `order` takes a turn; returns the battle's result once it is over
+  async playRound(order) {
+    this.order = order;
+    this.emit('round', this.round);
+    for (this.turnIdx = 0; this.turnIdx < this.order.length; this.turnIdx++) {
+      const u = this.order[this.turnIdx];
+      if (!this.alive(u)) continue;
+      if (u.side === 'party' && u.member.status === 'dead') { u.dead = true; continue; }
+      this.current = u;
+      u.reacted = false;
+      this.emit('turn', u);
+      const skip = await this.startTurn(u);
+      if (this.aborted) return { outcome: 'aborted' };
+      let end = this.checkEnd();
+      if (end) return this.finish(end);
+      if (!skip && this.alive(u)) {
+        if (u.side === 'party') await this.heroTurn(u);
+        else await this.monsterTurn(u);
+      }
+      if (this.aborted) return { outcome: 'aborted' };
+      this.endTurn(u);
+      this.current = null;
+      // (delve) bands that notice the fight now join it next round
+      if (this.field?.afterTurn) await this.field.afterTurn(this, u);
+      if (this.aborted) return { outcome: 'aborted' };
+      end = this.checkEnd();
+      if (end) return this.finish(end);
+    }
+    return null;
   }
 
   // the player left play mid-fight (quit or load): stop taking turns and take
@@ -562,6 +695,7 @@ export class Battle {
     return this.perform(async (u) => {
       const nx = u.x + dx, ny = u.y + dy;
       if (!inBounds(this.arena, nx, ny)) {
+        if (this.field) { sfx('bump'); return false; }
         if (!(await this.provoke(u, nx, ny))) return true;
         u.fled = true;
         this.log(`${u.name} flees the battle!`, 'warn');
@@ -585,6 +719,8 @@ export class Battle {
       }
       if (!this.walkable(nx, ny, u)) { sfx('bump'); return false; }
       if (!(await this.provoke(u, nx, ny))) return true;
+      const exit = this.field?.exitAt?.(nx, ny);
+      if (exit) return this.escape(u, nx, ny, exit);
       u.x = nx; u.y = ny;
       u.face = [dx, dy];
       u.moves--;
@@ -602,6 +738,8 @@ export class Battle {
       if (!path || path.length - 1 > (u.moves || 0)) { sfx('bump'); return false; }
       for (const [px, py] of path.slice(1)) {
         if (!(await this.provoke(u, px, py))) return true;
+        const exit = this.field?.exitAt?.(px, py);
+        if (exit) return this.escape(u, px, py, exit);
         u.face = [px - u.x, py - u.y];
         u.x = px; u.y = py;
         u.moves--;
@@ -628,6 +766,8 @@ export class Battle {
         if (occ && occ.side !== u.side) continue;
         const n = { x: nx, y: ny, d: c.d + 1, from: c, ally: !!occ };
         out.set(k, n);
+        // (delve) the way out ends a walk: a hero who reaches it escapes
+        if (this.field && u.side === 'party' && this.field.exitAt?.(nx, ny)) { n.exit = true; continue; }
         queue.push(n);
       }
     }
@@ -1043,7 +1183,7 @@ export class Battle {
       case 'tile': {
         const tiles = [];
         const r = ab.range ?? 1;
-        for (let y = 0; y < this.arena.h; y++) for (let x = 0; x < this.arena.w; x++) {
+        for (let y = Math.max(0, u.y - r); y <= Math.min(this.arena.h - 1, u.y + r); y++) for (let x = Math.max(0, u.x - r); x <= Math.min(this.arena.w - 1, u.x + r); x++) {
           if (cheb(u, { x, y }) > r) continue;
           if (ab.move === 'teleport' ? (x !== u.x || y !== u.y) && this.walkable(x, y, u) : true) tiles.push({ x, y });
         }
@@ -1331,7 +1471,8 @@ export class Battle {
   // a stolen key), found on the fallen
   dropCarried() {
     const inv = this.s.party.inventory;
-    for (const it of this.opts.source?.loot || []) {
+    const srcs = this.field ? this.field.carried?.(this) || [] : [this.opts.source];
+    for (const it of srcs.flatMap((src) => src?.loot || [])) {
       const def = byId(this.game.items, it.id);
       if (!def) continue;
       inv[def.id] = (inv[def.id] || 0) + (it.n || 1);
@@ -1525,9 +1666,22 @@ export class Battle {
   async monsterTurn(m) {
     await this.view.wait(0.1);
     const actions = m.def.speed > 1 ? 2 : 1;
+    const x0 = m.x, y0 = m.y;
     for (let a = 0; a < actions && !this.aborted && this.alive(m) && !this.checkEnd(); a++) {
       // a fast monster's second action is a short lunge, not another full charge
       await this.monsterAct(m, a === 0 ? this.movesFor(m) : Math.min(1, this.movesFor(m)), a > 0);
+    }
+    // (delve) on a big field a foe that can find no way to anyone (a locked door,
+    // deep water) gives up after a few turns, so the battle cannot stall
+    if (this.field && this.alive(m)) {
+      const stuck = m.x === x0 && m.y === y0 && !this.helpless(m)
+        && !this.foesOf(m).some((f) => (cheb(f, m) <= 6 && this.lineClear(f, m)) || this.distField(f, m).has(`${m.x},${m.y}`));
+      m.stuck = stuck ? (m.stuck || 0) + 1 : 0;
+      if (m.stuck >= 3) {
+        m.fled = true;
+        this.log(`${this.The(m)} can find no way to you and gives up the fight.`);
+        this.emit('update');
+      }
     }
     await this.view.wait(0.05);
   }
@@ -1693,8 +1847,10 @@ export class Battle {
       if (!this.alive(m)) return;
       if (!(await this.provoke(m, x, y))) return;
       m.face = [x - m.x, y - m.y];
+      // (delve) a foe moving out in the dark, where no hero sees it, is not waited on
+      const unseen = this.field && m.side === 'enemy' && !this.field.visible?.(m.x, m.y) && !this.field.visible?.(x, y);
       m.x = x; m.y = y;
-      await this.view.moveEntity(m.id, x, y, speed);
+      await this.view.moveEntity(m.id, x, y, unseen ? 0.02 : speed);
     }
   }
 
@@ -1744,6 +1900,7 @@ export class Battle {
   }
 
   async flee(m, steps) {
+    if (this.field) return this.fieldFlee(m, steps);
     for (let i = 0; i < steps && this.alive(m); i++) {
       if (m.x === 0 || m.y === 0 || m.x === ARENA_W - 1 || m.y === ARENA_H - 1) {
         m.fled = true;
@@ -1764,6 +1921,32 @@ export class Battle {
       }
       if (!best) return;
       await this.walkPath(m, [best], 0.13);
+    }
+  }
+
+  // (delve) on a dungeon floor there is no edge to run off: a foe runs from
+  // the heroes, and once none of them is near or can see it, it slips away
+  // into the dark (to lurk where it stopped)
+  async fieldFlee(m, steps) {
+    for (let i = 0; i < steps && this.alive(m); i++) {
+      const foes = this.foesOf(m);
+      if (!foes.length) return;
+      const near = (p) => Math.min(...foes.map((f) => cheb(f, p)));
+      let best = null, bs = near(m);
+      for (const [dx, dy] of DIR4) {
+        const nx = m.x + dx, ny = m.y + dy;
+        if (!this.walkable(nx, ny, m)) continue;
+        const sc = near({ x: nx, y: ny });
+        if (sc > bs) { bs = sc; best = [nx, ny]; }
+      }
+      if (!best) break; // cornered
+      await this.walkPath(m, [best], 0.13);
+    }
+    if (this.alive(m) && this.foesOf(m).every((f) => cheb(f, m) > 5 || !this.lineClear(f, m))) {
+      m.fled = true;
+      this.log(`${this.The(m)} slips away into the dark.`);
+      this.fx.number(m.x, m.y, 'Flees!', 'info');
+      this.emit('update');
     }
   }
 

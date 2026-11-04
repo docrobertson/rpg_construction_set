@@ -22,6 +22,10 @@ export const shared = {
   uLightOn: { value: 0 },
   // carried light around the party: x, z, radius, strength
   uParty: { value: new THREE.Vector4(0, 0, 0, 0) },
+  // (delve) in a dungeon battleground each hero away from the torch has a dim
+  // pool of their own (x, z, radius, strength), up to 6
+  uPools: { value: Array.from({ length: 6 }, () => new THREE.Vector4()) },
+  uPoolN: { value: 0 },
   // cutaway circles: frag x, frag y, radius (px), world z of the focus (up to
   // 12: in battle every combatant gets one, so no tree hides a fighter)
   uCut: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
@@ -45,6 +49,8 @@ const COMMON_FRAG = `
   uniform vec4 uLightRect;
   uniform float uLightOn;
   uniform vec4 uParty;
+  uniform vec4 uPools[6];
+  uniform int uPoolN;
   uniform vec4 uCut[12];
   uniform float uCutY[12];
   uniform int uCutN;
@@ -63,11 +69,16 @@ const COMMON_FRAG = `
   float fxBayer(vec2 a) { return fxBayer2(0.5 * a) * 0.25 + fxBayer2(a) + 0.03; }
   // warm light pools: the map's light texture plus the party's own torch
   vec3 fxLight() {
-    if (uFx < 0.5 || (uLightOn <= 0.0 && uParty.w <= 0.0)) return vec3(0.0);
+    if (uFx < 0.5 || (uLightOn <= 0.0 && uParty.w <= 0.0 && uPoolN == 0)) return vec3(0.0);
     float fl = 0.86 + 0.08 * sin(uTime * 9.3 + vWorldPos.x * 2.1) + 0.06 * sin(uTime * 6.1 + vWorldPos.z * 2.7);
     vec3 L = texture2D(uLightTex, (vWorldPos.xz - uLightRect.xy) / uLightRect.zw).rgb * uLightOn;
     float pd = length(vWorldPos.xz - uParty.xy);
     float pl = uParty.w * smoothstep(uParty.z, uParty.z * 0.15, pd);
+    for (int i = 0; i < 6; i++) {
+      if (i >= uPoolN) break;
+      vec4 q = uPools[i];
+      pl = max(pl, q.w * smoothstep(q.z, q.z * 0.15, length(vWorldPos.xz - q.xy)));
+    }
     return (L * 2.0 + vec3(1.0, 0.66, 0.36) * pl) * fl;
   }
 `;
