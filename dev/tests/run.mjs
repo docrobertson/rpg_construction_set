@@ -18,10 +18,12 @@ import fs from 'node:fs';
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEV = path.resolve(HERE, '..');
 const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places',
-  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
+  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
 
 // what each part of the source can break (paths relative to dev/src)
 const RULES = [
+  [/^(render|data)\/containers\.js$|^ui\/editor\/containerFields\.js$/, ['containers']],
+  [/^render\/landmarks\.js$|^world\/countryside\.js$/, ['landmarks']],
   [/^render\/fx\.js$/, ['combat', 'features']],
   [/^render\//, ['explore', 'places']],
   [/^game\/combat\.js$|^ui\/combatHud\.js$/, ['combat', 'features', 'deep', 'regressions', 'delve', 'charms']],
