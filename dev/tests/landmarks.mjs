@@ -156,7 +156,9 @@ const TPL = JSON.parse(JSON.stringify(E.EVENT_TEMPLATES));
 const play = async (game) => {
   await ev(async (g) => {
     const app = window.__app;
-    app.playGame(g === 'sample' ? app.sample : app.editor.game, { quick: true, noSave: true });
+    // (a copy of the sample: this suite clears a meadow on it)
+    const copy = (x) => JSON.parse(JSON.stringify(x, (k, v) => (v instanceof Uint8Array ? { u8: Array.from(v) } : v)), (k, v) => (v && v.u8 ? Uint8Array.from(v.u8) : v));
+    app.playGame(g === 'sample' ? copy(app.sample) : app.editor.game, { quick: true, noSave: true });
     for (let i = 0; i < 100; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 100)); }
     await new Promise((r) => setTimeout(r, 300));
   }, game);
@@ -271,7 +273,7 @@ const lay = (rows) => ev(([rows]) => {
     const sp = row.length > 5 ? 2.4 : 2.8;
     v.addEntity(`lm${ri}_${i}`, look, at.x + Math.round((i - (row.length - 1) / 2) * sp), at.y - 6 + ri * 4, {});
   }));
-  v.setPitch(52); v.rig.minDist = 1; v.setZoom(14, true); v.focus(at.x, at.y - 4, true);
+  v.setPitch(52); v.rig.minDist = 1; v.setZoom(15, true); v.focus(at.x, at.y - 4, true);
 }, [rows]);
 const looks = (kinds) => kinds.map((k) => E.eventLook({ kind: k }));
 const byGroup = (g) => NEW_KINDS.filter((k) => E.EVENT_KINDS[k].group === g);
