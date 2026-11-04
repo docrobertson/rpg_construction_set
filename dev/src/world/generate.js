@@ -6,6 +6,7 @@ import { fbm } from '../core/noise.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { uid } from '../core/util.js';
 import { eventFromTemplate } from '../game/events.js';
+import { fitWildCache, fitCache, DUNGEON_CACHES } from '../data/containers.js';
 import { generateHarbour } from './harbour.js';
 
 const def = (id) => terrain(id);
@@ -401,6 +402,8 @@ export function scatterWonders(map, seed, opt = {}) {
       const tpl = kind === 'shrine' ? rng.pick(shrines) : kind;
       const e = { ...eventFromTemplate(tpl), id: opt.ids ? `${opt.ids}_${n}` : uid('ev'), x, y };
       if (kind === 'lore') { const [name, text] = rng.pick(WORLD_LORE); Object.assign(e, { name, text }); }
+      // (containers) a cache fits its ground: a hollow log in the woods, a cairn on the hills
+      if (kind === 'cache') fitWildCache(e, def(getTile(map, x, y)).key);
       // a farm has its fields about it
       if (kind === 'farm') for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [2, -1], [2, 0]]) if (grassy(x + dx, y + dy) && !map.entities.some((o) => o.x === x + dx && o.y === y + dy)) setTile(map, x + dx, y + dy, T.fields);
       map.entities.push(e);
@@ -1251,7 +1254,9 @@ export function generateDungeon(opt = {}) {
       const s = spots.splice(r2.int(0, spots.length - 1), 1)[0];
       if (s) map.entities.push({ ...eventFromTemplate(tpl), id: opt.seed != null ? `ev_${opt.seed}_${tpl}${n ? '_' + n : ''}` : uid('ev'), x: s.x, y: s.y, ...extra });
     };
-    const extraFor = (tpl) => (tpl === 'lore' ? { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) } : tpl === 'cache' ? { name: 'Loose Flagstone' } : { name: 'Forgotten Shrine' });
+    // (containers) a planned dungeon's cache suits its style: bones in a cave, a loose stone in a fortress wall
+    const styled = (c) => { const ev = fitCache(eventFromTemplate('cache'), c); return { name: ev.name, text: ev.text, choices: ev.choices }; };
+    const extraFor = (tpl) => (tpl === 'lore' ? { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) } : tpl === 'cache' ? (DUNGEON_CACHES[P?.style] ? styled(DUNGEON_CACHES[P.style]) : { name: 'Loose Flagstone' }) : { name: 'Forgotten Shrine' });
     if (!P) {
       if (spots.length) pick('lore', { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) });
       if (spots.length) pick('cache', { name: 'Loose Flagstone' });

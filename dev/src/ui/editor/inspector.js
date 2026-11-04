@@ -10,6 +10,8 @@ import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
 import { isBattleground } from '../../game/delve.js';
 import { isHoard } from '../../game/charms.js';
+import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.js';
+import { containerLookFields } from './containerFields.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -174,9 +176,17 @@ export function inspectEntity(ed, ent, container) {
       ], (k) => { if (k === 'monster') ed.lastMonster = ent.monster; changed(); if (k === 'monster') { ed.refreshEntities(); } }));
       break;
     }
-    case 'chest':
-      container.appendChild(head('Treasure chest'));
+    case 'chest': {
+      // (containers) a chest may be drawn as something else, and called by name
+      const auto = (o) => {
+        const k = chestLook({ ...o, look: null }, ed.map, isHoard(ed.map, o)).kind;
+        return { kind: k, why: o.name && containerLookFor(o.name) ? 'from its name' : k !== 'chest' ? 'as this dungeon keeps its treasure' : '' };
+      };
+      const lookName = CONTAINERS[chestLook(ent, ed.map, isHoard(ed.map, ent)).kind]?.label;
+      container.appendChild(head(ent.name || 'Treasure chest', lookName && lookName !== 'Treasure chest' ? lookName : ''));
       container.appendChild(buildForm(ent, [
+        { key: 'name', label: 'Name', type: 'text', placeholder: 'Overturned Cart', hint: 'Shown when pointed at, and in what opening it says: "You search the Overturned Cart…". A name such as "Hollow Oak" or "Old Cairn" also picks its look.' },
+        ...containerLookFields(auto, { hint: 'What the treasure is found in. The words follow: you lift a loose flagstone, rummage through sacks, search a fallen adventurer.' }),
         { key: 'gold', label: 'Gold', type: 'dice', placeholder: '3d20 or 50' },
         { key: 'items', label: 'Items', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]) },
         { key: 'locked', label: 'Locked (needs a key or a burglar)', type: 'check' },
@@ -189,6 +199,7 @@ export function inspectEntity(ed, ent, container) {
         { key: 'hoard', label: 'A hoard: also holds a charm, chosen for the company when opened', type: 'check', get: (o) => isHoard(ed.map, o), hint: 'A dungeon\'s final chest is one unless unticked.' },
       ], changed));
       break;
+    }
     case 'treasure': {
       container.appendChild(head('Buried treasure', `at ${ent.x}, ${ent.y}`));
       if (ent.bonus === undefined) ent.bonus = true; // (the game treats a missing one as on)

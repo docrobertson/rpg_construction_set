@@ -30,7 +30,8 @@ import { forageFind, lootTag, restoresPool, poolWords, poolName } from './magic.
 import { buyShip } from './ships.js';
 import { Delve, isBattleground } from './delve.js';
 // (charms) what heroes wear: battle hooks, and the ways and paces it opens
-import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen } from './charms.js';
+import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen, isHoard } from './charms.js';
+import { chestLook, containerWords } from '../data/containers.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -295,7 +296,7 @@ export class PlaySession {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid', race: 'human' };
       case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
-      case 'chest': return { kind: 'chest' };
+      case 'chest': return this.chestLook(e);
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
@@ -303,6 +304,10 @@ export class PlaySession {
       default: return null;
     }
   }
+
+  // what a chest is drawn as (a cart, a loose flagstone…), and its words
+  chestLook(e) { return chestLook(e, this.map, isHoard(this.map, e)); }
+  chestWords(e) { return containerWords(e, this.chestLook(e).kind); }
 
   spawnVisuals() {
     this.view.clearEntities();
@@ -1021,12 +1026,14 @@ export class PlaySession {
   async openChest(chest) {
     const st = this.state;
     if (chest.sealed && !charmOpens(this, chest)) return; // (charms) a seal of magic
+    // (what it says follows what it looks like: "You lift the loose flagstone…")
+    const W = this.chestWords(chest);
     if (chest.locked) {
       const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick') && (this.dv?.near(m, 2) ?? true));
       const key = this.game.items.find((it) => it.type === 'key' && this.party.inventory[it.id] > 0);
-      if (picker) this.log(`${picker.name} picks the chest's lock.`);
-      else if (key) { this.party.inventory[key.id]--; this.log(`You open the chest with a ${key.name}.`); }
-      else if (!charmOpens(this, chest)) { this.log('The chest is locked.'); return; }
+      if (picker) this.log(`${picker.name} picks ${W.the}'s lock.`);
+      else if (key) { this.party.inventory[key.id]--; this.log(`You open ${W.the} with a ${key.name}.`); }
+      else if (!charmOpens(this, chest)) { this.log(W.locked); return; }
     }
     if (chest.trap) {
       const burglar = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick') && (this.dv?.near(m, 2) ?? true));
@@ -1048,7 +1055,7 @@ export class PlaySession {
     got.push(...charmHoard(this, chest)); // (charms) a dungeon's hoard holds a charm
     sfx('gold');
     this.view.burst(chest.x, chest.y, 0xffd040, 14, { up: 2, speed: 0.8 });
-    this.log(got.length ? `The chest holds: ${got.join(', ')}.` : 'The chest is empty.', 'good');
+    this.log(got.length ? W.opened(got.join(', ')) : W.empty(), 'good');
     this.removeEntity(chest);
     if (chest.flag) this.party.flags[chest.flag] = true;
     checkQuests(this);
@@ -1911,7 +1918,7 @@ export class PlaySession {
           parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
         }
         else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
-        else if (e.type === 'chest') parts.push('a chest');
+        else if (e.type === 'chest') parts.push(this.chestWords(e).a);
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');
         else if (e.type === 'event') parts.push(eventLabel(e));

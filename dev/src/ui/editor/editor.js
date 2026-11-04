@@ -22,6 +22,8 @@ import { analyzeCampaign } from '../../game/checklist.js';
 import { editorHelp } from './help.js';
 import { findAnything } from './find.js';
 import { eventLook } from '../../game/events.js';
+import { chestLook } from '../../data/containers.js';
+import { isHoard } from '../../game/charms.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
@@ -694,7 +696,7 @@ export class Editor {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid' };
       case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
-      case 'chest': return { kind: 'chest' };
+      case 'chest': return chestLook(e, this.map, isHoard(this.map, e)); // (a cart, a loose flagstone…)
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : { kind: 'marker', color: 0x60a0ff };

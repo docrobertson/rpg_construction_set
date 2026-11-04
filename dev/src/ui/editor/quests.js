@@ -8,6 +8,8 @@ import { GOAL_TYPES, describeGoal } from '../../game/quests.js';
 import { chapterList, roman } from '../../game/story.js';
 import { EVENT_TEMPLATES, EVENT_KINDS, BLESSINGS, REQS, eventFromTemplate } from '../../game/events.js';
 import { questProblems } from '../../game/checklist.js';
+import { cacheLook, isContainer } from '../../data/containers.js';
+import { containerLookFields } from './containerFields.js';
 
 const npcOptions = (game, emptyLabel) => () => {
   const out = emptyLabel ? [['', emptyLabel]] : [];
@@ -254,6 +256,9 @@ export function eventFields(game) {
   return [
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]), rerender: true },
+    // (containers) a hidden cache drawn as what it is: a cart, a loose flagstone…
+    ...containerLookFields((o) => { const k = cacheLook(o)?.kind; return { kind: k || 'chest', why: k ? 'from its name or description' : '' }; },
+      { label: 'Drawn as', show: (o) => o.kind === 'cache' || isContainer(o.look?.kind), hint: 'What the cache is found in. Automatic picks it from the name or description ("Overturned Cart", "beneath a loose flagstone").' }),
     { key: 'text', label: 'Description', type: 'textarea', rows: 4, hint: 'Shown when the party bumps into it.' },
     { key: 'repeat', label: 'Can be used', type: 'select', options: [['once', 'Once (then it is gone)'], ['daily', 'Once a day'], ['always', 'Any time']], rerender: true },
     { key: 'cooldown', label: 'Turns between uses', type: 'number', min: 10, show: (o) => o.repeat === 'daily', hint: 'A day is 300 turns.' },

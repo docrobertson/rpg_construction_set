@@ -16,6 +16,7 @@ import { applyReward, startQuest, isActive, isDone, checkQuests } from './quests
 import { roll, rng } from '../core/rng.js';
 import { deepClone } from '../core/util.js';
 import { MODEL_KINDS } from '../render/models.js';
+import { cacheLook } from '../data/containers.js';
 import { DAY_LEN } from './session.js';
 import { carriedMaps, findSpot, isDug } from './treasure.js';
 import { getMap } from '../data/schema.js';
@@ -75,7 +76,8 @@ export function eventLook(e, map = null) {
     case 'lore': return has('lorestone') ? { kind: 'lorestone' } : { kind: 'sign', color: 0x8a8c96 };
     case 'well': return has('well') ? { kind: 'well' } : { kind: 'marker', color: 0x50a0ff };
     case 'lodge': return { kind: 'lodge' };
-    case 'cache': return { kind: 'chest', color: 0x6a5a3a };
+    // (a cache is drawn as what its name or description says: a cart, a loose flagstone…)
+    case 'cache': return cacheLook(e) || { kind: 'chest', color: 0x6a5a3a };
     // (the bigger curiosities are drawn larger than their square, like sites)
     case 'farm': return { kind: 'farmstead', scale: 1.4 };
     case 'arena': return { kind: 'arena', scale: 1.5 };

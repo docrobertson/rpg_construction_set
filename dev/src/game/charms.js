@@ -505,15 +505,17 @@ export function charmCalms(session, e) {
 // that will not open says why. Returns true when it opens.
 export function charmOpens(session, thing = null) {
   const x = wornBy(session, 'unseal');
+  // (a chest is called what it looks like: the strongbox, the sarcophagus…)
+  const W = thing?.type === 'chest' && session.chestWords ? session.chestWords(thing) : null;
   if (!x) {
     if (thing?.sealed) {
-      session.log(thing.sealedText || `${thing.type === 'chest' ? 'The chest' : 'The way'} is sealed by a spell: no key or pick will open it.`, 'warn');
+      session.log(thing.sealedText || (W ? W.sealed : `${thing.type === 'chest' ? 'The chest' : 'The way'} is sealed by a spell: no key or pick will open it.`), 'warn');
       session.tip?.('sealed', 'A seal of magic opens only to magic: a charm of opening (such as a Ring of Opening) worn by someone in the company.');
       sfx('bump');
     }
     return false;
   }
-  const what = thing?.type === 'chest' ? 'the chest' : thing?.type === 'portal' ? 'the way' : 'the lock';
+  const what = W ? W.the : thing?.type === 'chest' ? 'the chest' : thing?.type === 'portal' ? 'the way' : 'the lock';
   session.log(thing?.sealed ? `${x.m.name}'s ${x.it.name} flares — the seal on ${what} breaks!` : `${x.m.name}'s ${x.it.name} glows, and ${what} clicks open.`, 'magic');
   if (thing) { thing.sealed = false; thing.locked = false; }
   sfx('spell');

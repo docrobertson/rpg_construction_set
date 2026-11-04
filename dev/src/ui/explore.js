@@ -412,7 +412,11 @@ export class Explorer {
         return { title: eventLabel(e), sub: EVENT_KINDS[e.kind] && e.name ? EVENT_KINDS[e.kind].label : '', act: reach ? `Click to visit${far}` : noWay, tone };
       }
       case 'sign': return { title: 'A signpost', sub: tg.e.text ? `“${String(tg.e.text).slice(0, 48)}${String(tg.e.text).length > 48 ? '…' : ''}”` : '', act: reach ? `Click to read${far}` : noWay, tone };
-      case 'chest': return { title: 'A chest', sub: tg.e.locked ? 'locked' : '', act: reach ? `Click to open${far}` : noWay, tone };
+      case 'chest': {
+        // called what it looks like: "An overturned cart · Click to search"
+        const w = s.chestWords(tg.e);
+        return { title: w.title, sub: tg.e.locked ? 'locked' : '', act: reach ? `Click to ${w.verb}${far}` : noWay, tone };
+      }
       case 'ship': {
         const title = tg.e.name ? `The ${tg.e.name}` : 'A ship';
         return s.state.vehicle ? { title, tone: 'none' } : { title, sub: 'sail the seas', act: reach ? `Click to board${far}` : noWay, tone };
@@ -592,7 +596,7 @@ export class Explorer {
         if (e.type === 'monster' && s.isVisible(x, y)) { const i = this.monsterInfo(e); acts.push({ kind: 'attack', icon: 'attack', label: `Attack ${i.title}`, run: step(x, y), pri: 1 }); }
         else if (e.type === 'event') acts.push({ kind: 'use', icon: 'star', label: `Visit ${eventLabel(e)}`, run: step(x, y), pri: 1 });
         else if (e.type === 'sign') acts.push({ kind: 'use', icon: 'sign', label: 'Read the sign', run: step(x, y), pri: 3 });
-        else if (e.type === 'chest' && !ship) acts.push({ kind: 'use', icon: 'chest', label: 'Open the chest', run: step(x, y), pri: 1 });
+        else if (e.type === 'chest' && !ship) acts.push({ kind: 'use', icon: 'chest', label: s.chestWords(e).act, run: step(x, y), pri: 1 });
         else if (e.type === 'ship' && !ship) acts.push({ kind: 'enter', icon: 'ship', label: 'Board the ship', run: step(x, y), pri: 2 });
         else if (e.type === 'portal' && !ship) {
           const dest = getMap(g, e.target?.map);

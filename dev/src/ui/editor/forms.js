@@ -1,5 +1,5 @@
 // A small declarative form builder used by the editor's inspectors.
-// Field spec: { key: 'a.b', label, type, options, hint, show(obj), min, max, step, placeholder, get(obj), put(obj, v) }
+// Field spec: { key: 'a.b', label, type, options, empty, hint, show(obj), min, max, step, placeholder, get(obj), put(obj, v) }
 // types: text, textarea, number, dice, check, select, color, multicheck, statmods, itemlist, list, ids, info
 import { h, hex, unhex } from '../dom.js';
 import { STATS } from '../../data/defaults.js';
@@ -71,7 +71,8 @@ function fieldInput(obj, f, changed) {
     }
     case 'select': {
       const el = h('select');
-      if (f.empty !== undefined) el.appendChild(h('option', { value: '' }, f.empty));
+      // (f.empty may be a function of the object: "Automatic — a cart")
+      if (f.empty !== undefined) el.appendChild(h('option', { value: '' }, typeof f.empty === 'function' ? f.empty(obj) : f.empty));
       for (const [v, label] of optList(f.options)) el.appendChild(h('option', { value: String(v) }, label));
       const opts0 = optList(f.options);
       el.value = val == null ? (f.empty !== undefined ? '' : String(opts0[0]?.[0] ?? '')) : String(val);
