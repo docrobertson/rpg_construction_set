@@ -36,7 +36,7 @@ const openSheet = (cls) => ev((cls) => { const ui = window.__app.playUI; const m
 check('roster shows a portrait for every hero', await ev(() => [...document.querySelectorAll('.pcard .pc-pic img')].filter((i) => i.src.startsWith('data:image/png')).length === window.__app.session.party.members.length));
 check('leader is marked', await ev(() => document.querySelector('.pcard')?.classList.contains('leader') && !!document.querySelector('.pcard .pc-lead')));
 await openSheet(null);
-check('character sheet pops over with four slots', (await ev(() => !document.querySelector('.hero-pop').hidden && document.querySelectorAll('.hero-pop .slot select').length)) === 4);
+check('character sheet pops over with five slots (the fifth for a charm)', (await ev(() => !document.querySelector('.hero-pop').hidden && document.querySelectorAll('.hero-pop .slot select').length)) === 5);
 await page.keyboard.press('Escape');
 check('Esc closes the pop-over', await ev(() => document.querySelector('.hero-pop').hidden));
 

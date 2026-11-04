@@ -2,6 +2,7 @@
 // conditions. Drawn on a 24×24 grid in currentColor so CSS can tint them;
 // chunky shapes that still read at 14 px.
 import { magicalOf } from '../game/rules.js';
+import { CHARM_KIND_ICONS } from '../data/defaults.js';
 
 const S = (d, w = 2) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
 const F = (d) => `<path d="${d}"/>`;
@@ -111,6 +112,33 @@ const ICONS = {
   mushroom: F('M12 3C6.4 3 2.4 6.7 2.4 11.2h19.2C21.6 6.7 17.6 3 12 3z') + F('M9.4 11.2h5.2l.9 8.4a2 2 0 01-2 2.3h-3a2 2 0 01-2-2.3z') + '<circle cx="8" cy="7.6" r="1.4" fill="#fff9"/><circle cx="14.6" cy="6" r="1.1" fill="#fff9"/><circle cx="17" cy="9" r=".9" fill="#fff9"/>',
   thread: F('M5.5 2.5h13V5h-13zM5.5 19h13v2.5h-13z') + F('M8 5h8v14H8z') + '<path d="M8 8.5l8 2M8 12l8 2M8 15.5l8 2" stroke="#0006" stroke-width="1.2" fill="none"/>',
   bark: F('M6 2.6c3.2 1 8.8 1 12 0v18.8c-3.2 1-8.8 1-12 0z') + '<path d="M9.2 4.5c.6 3-.8 5 .2 8s-.4 5 .1 7.5M14.6 4.5c-.6 2.6.9 4.6-.1 7.6s.5 4.8 0 7.4" stroke="#0007" stroke-width="1.3" fill="none" stroke-linecap="round"/>',
+  // ---- charms: rings, amulets, horns and other trinkets worn for their magic
+  ring: '<circle cx="12" cy="14.6" r="6.3" fill="none" stroke="currentColor" stroke-width="2.8"/>' + F('M8.6 3.2h6.8l1.8 2.7L12 10.4 6.8 5.9z') + '<path d="M8.6 3.2l3.4 7.2 3.4-7.2M6.8 5.9h10.4" stroke="#0006" stroke-width="1" fill="none"/>',
+  starring: '<circle cx="12" cy="14.6" r="6.3" fill="none" stroke="currentColor" stroke-width="2.8"/>' + F('M12 1.4l1.4 3.1 3.4.4-2.5 2.3.7 3.4-3-1.7-3 1.7.7-3.4-2.5-2.3 3.4-.4z'),
+  keyring: '<circle cx="9" cy="14.5" r="6" fill="none" stroke="currentColor" stroke-width="2.6"/>' + '<circle cx="15.6" cy="6.4" r="3.4"/><circle cx="15.6" cy="6.4" r="1.3" fill="#000a"/>' + F('M17.4 8.6l4 4-1.4 1.4-1-1-1 1-1.3-1.3 1-1-1.7-1.7z'),
+  torc: S('M6.2 16.8A8 8 0 1117.8 16.8', 3.2) + '<circle cx="6.2" cy="17.4" r="2.5"/><circle cx="17.8" cy="17.4" r="2.5"/>',
+  amulet: S('M5.5 2.5c0 5.5 2.8 9.4 6.5 10.2M18.5 2.5c0 5.5-2.8 9.4-6.5 10.2', 1.5) + '<circle cx="12" cy="16.6" r="5.4"/><circle cx="12" cy="16.6" r="2.4" fill="#0007"/><circle cx="11.2" cy="15.8" r=".8" fill="#fff8"/>',
+  brooch: S('M2.5 18.5L21.5 5.5', 1.6) + '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3.6" fill="#0006"/><circle cx="12" cy="12" r="1.8"/>',
+  horn: F('M2 7.6c6.6-.2 11.6 2 15.2 6.4l3-2.2.8 8.2-8.1-1 2.3-2.2C12.4 13 7.9 11.4 2 11.4z') + '<path d="M7 7.9v3.7M11 9v3.6" stroke="#0007" stroke-width="1.4" fill="none"/>',
+  stone: F('M4.4 10.2c1.4-4.3 6.2-6.2 10.6-5.3 4.6.9 7 4.7 6 8.8-1 4.1-5.2 6.6-9.8 6.1-4.8-.5-8.2-4.8-6.8-9.6z') + '<path d="M8 9.2c1.2-1.6 3-2.2 4.8-2" stroke="#fff7" stroke-width="1.5" fill="none" stroke-linecap="round"/>',
+  sunstone: F('M6.4 11.6c.9-3 4.1-4.4 7.2-3.8 3.1.6 4.8 3.3 4.1 6.1-.7 2.8-3.6 4.6-6.8 4.2-3.3-.4-5.5-3.3-4.5-6.5z') + S('M12 1.8v2.6M4.2 5.2l1.8 1.8M19.8 5.2L18 7M2 12.5h2.4M19.6 12.5H22', 1.8),
+  moonstone: F('M4.4 10.2c1.4-4.3 6.2-6.2 10.6-5.3 4.6.9 7 4.7 6 8.8-1 4.1-5.2 6.6-9.8 6.1-4.8-.5-8.2-4.8-6.8-9.6z') + '<path d="M13.6 8.2a4.6 4.6 0 103.6 6.4 3.6 3.6 0 01-3.6-6.4z" fill="#0007"/>',
+  acorn: F('M4.4 9.6c0-3.6 3.4-6 7.6-6s7.6 2.4 7.6 6z') + S('M12 3.6c0-1.1.6-1.9 1.8-2.2', 1.6) + F('M6.2 10.6h11.6c0 5.8-2.6 9.6-5.8 11.4-3.2-1.8-5.8-5.6-5.8-11.4z') + '<path d="M6 7.6h12" stroke="#0006" stroke-width="1.2" fill="none"/>',
+  whistle: F('M1.8 9.4h15.4l4.8-1.8v8.8l-4.8-1.8H1.8z') + '<circle cx="6.4" cy="12" r="1.3" fill="#000a"/><circle cx="10.4" cy="12" r="1.3" fill="#000a"/><circle cx="14.2" cy="12" r="1.3" fill="#000a"/>',
+  feather: F('M20.2 2.4c-7.4.4-13.4 5.6-14.6 13.6l-2.4 5 1.4.7 2.5-4.7c7.8-.8 12.9-6.6 13.1-14.6z') + '<path d="M17.6 5.2C13.2 8.4 9.6 12.4 6.8 17M14.2 6.2l.8 3.4M11.4 9l1.2 3M9 12.3l1.4 2.4" stroke="#0007" stroke-width="1.2" fill="none" stroke-linecap="round"/>',
+  bell: F('M12 2.4a1.5 1.5 0 011.5 1.5v.7c3.1.8 4.9 3.6 4.9 7v4.1l2 2.3v1.5H3.6V17.9l2-2.3v-4.1c0-3.4 1.8-6.2 4.9-7v-.7A1.5 1.5 0 0112 2.4z') + '<circle cx="12" cy="21.1" r="1.8"/>',
+  lantern: F('M9 1.8h6v2.2H9z') + F('M6.6 4.8h10.8l1 3.2v9.2l-1 3.2H6.6l-1-3.2V8z') + '<rect x="8.6" y="8.4" width="6.8" height="8.4" rx="1.2" fill="#fff8"/><path d="M12 9.6c1 1.6 1.8 2.6 1.8 4a1.8 1.8 0 01-3.6 0c0-1.4.8-2.4 1.8-4z" fill="#0006"/>',
+  phial: F('M10 1.8h4v2h-.8v3.6c3 1 5 3.8 5 7.1a6.2 6.2 0 01-12.4 0c0-3.3 2-6.1 5-7.1V3.8H10z') + '<circle cx="12" cy="14.6" r="3" fill="#fff9"/>' + S('M12 9.4v-1M16.2 11.2l.8-.6M7.8 11.2l-.8-.6', 1.2),
+  shell: F('M12 2.6C6.4 2.6 2.4 7 2.4 12.2L7 19h10l4.6-6.8C21.6 7 17.6 2.6 12 2.6z') + '<path d="M12 4v14M8.4 5l2 13M15.6 5l-2 13M5 8.4l4.2 10M19 8.4l-4.2 10" stroke="#0006" stroke-width="1.1" fill="none"/>' + F('M9.6 19h4.8v2.6H9.6z'),
+  orb: '<circle cx="12" cy="10" r="7.6"/><path d="M8.2 7.4a4.6 4.6 0 013.4-2.2" stroke="#fff9" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M13 6.5l-2.6 4h3l-2.4 4.2" stroke="#0007" stroke-width="1.3" fill="none" stroke-linejoin="round"/>' + F('M6.6 18.4h10.8l1.6 3.4H5z'),
+  tooth: S('M3 3.4c4 1.6 14 1.6 18 0', 1.5) + F('M6.4 4.6c3.6.8 7.6.8 11.2 0-.4 6.8-2.6 12.6-5.6 17-3-4.4-5.2-10.2-5.6-17z') + '<path d="M10 7.5c.2 3.2 1 6.2 2 8.2" stroke="#fff6" stroke-width="1.3" fill="none" stroke-linecap="round"/>',
+  mirror: '<ellipse cx="12" cy="9" rx="6.6" ry="7.2"/><ellipse cx="12" cy="9" rx="4.4" ry="5" fill="#fff6"/>' + F('M10.7 15.6h2.6v6.6h-2.6z') + '<path d="M10 6.8a3 3 0 012.2-1.8" stroke="#fffb" stroke-width="1.3" fill="none" stroke-linecap="round"/>',
+  pipe: S('M2 8.6l11 5.2', 2.6) + F('M12.4 9.2h8v5.4a4 4 0 01-8 0z') + S('M17.8 6.6c-1.2-1.4.8-2.4-.2-4.2', 1.4) + '<path d="M13.6 10.6h5.6" stroke="#0007" stroke-width="1.2" fill="none"/>',
+  rod: S('M12 22V12.2M12 12.2L5.4 2.4M12 12.2l6.6-9.8', 2.6) + F('M7.6 7.8c-2-.2-3.6.8-4.2 2.4 1.9.3 3.4-.5 4.2-2.4zM16.4 7.8c2-.2 3.6.8 4.2 2.4-1.9.3-3.4-.5-4.2-2.4z'),
+  paw: '<circle cx="12" cy="15.6" r="4.8"/><circle cx="5.6" cy="10.6" r="2.2"/><circle cx="9.2" cy="6.4" r="2.2"/><circle cx="14.8" cy="6.4" r="2.2"/><circle cx="18.4" cy="10.6" r="2.2"/>',
+  mask: F('M2.2 7.8c3.2-1.6 6.4-1.6 9.8 1 3.4-2.6 6.6-2.6 9.8-1 0 5.4-2.6 9-6.2 9-2.1 0-2.6-1.6-3.6-1.6s-1.5 1.6-3.6 1.6c-3.6 0-6.2-3.6-6.2-9z') + '<ellipse cx="7.6" cy="11.4" rx="2.3" ry="1.5" fill="#000b"/><ellipse cx="16.4" cy="11.4" rx="2.3" ry="1.5" fill="#000b"/>',
+  scale: F('M12 2.4c5.2 2.6 8.2 6.6 8.2 11.2a8.2 8.2 0 01-16.4 0c0-4.6 3-8.6 8.2-11.2z') + '<path d="M12 5v15.6M7.2 9.6c1.6 1.4 3.2 2.1 4.8 2.1s3.2-.7 4.8-2.1M6 14.2c2 1.6 4 2.4 6 2.4s4-.8 6-2.4" stroke="#0006" stroke-width="1.2" fill="none"/>',
+  pouch: F('M8.4 5.2h7.2l-1.4 2.6c3.6 1.6 6.2 5 6.2 8.6 0 3.6-3.6 5.6-8.4 5.6s-8.4-2-8.4-5.6c0-3.6 2.6-7 6.2-8.6z') + S('M7.2 3.6h9.6', 1.8) + '<path d="M9.6 8.2c1.6.6 3.2.6 4.8 0" stroke="#0007" stroke-width="1.3" fill="none"/>',
 };
 
 export const ICON_NAMES = Object.keys(ICONS);
@@ -153,6 +181,7 @@ export function itemIcon(it) {
     case 'key': return ['key', 'goldish'];
     case 'quest': return ['gem', 'quest'];
     case 'map': return ['map', 'paper'];
+    case 'charm': return [ICONS[it.icon] ? it.icon : CHARM_KIND_ICONS[it.kind] || 'ring', 'charm'];
     default: return ['star', 'plain'];
   }
 }

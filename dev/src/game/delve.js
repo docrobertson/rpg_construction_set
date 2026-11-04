@@ -25,6 +25,7 @@ import { Battle } from './combat.js';
 import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { confirmDialog } from '../ui/dom.js';
+import { charmWay, charmCalms, companyEffects } from './charms.js';
 
 // A map is fought over like this when the designer says so, or (unsaid) when
 // it is a dungeon: caves, crypts, towers, fortresses, the deeper levels
@@ -74,7 +75,8 @@ export class Delve {
   init(x, y, fresh) {
     const map = this.map;
     const ents = map.entities.filter((e) => e.type === 'monster');
-    const live = new Set(ents.map((e) => e.id));
+    // (a band hidden from mortal eyes is still there, unseen: see charms hideUnseen)
+    const live = new Set([...ents, ...(map.unseen || [])].map((e) => e.id));
     for (const [gid, g] of Object.entries(this.groups)) {
       // a band the designer has since taken away, or a stray fight that never finished
       if (!live.has(gid) || g.temp) { delete this.groups[gid]; continue; }
@@ -149,8 +151,8 @@ export class Delve {
   }
 
   // a band that turned up while the company was here (a wandering one)
-  addGroup(e) {
-    const g = this.populate(e, null, null, true); // (out of everyone's sight)
+  addGroup(e, hidden = true) {
+    const g = this.populate(e, null, null, hidden); // (a wandering band turns up out of everyone's sight)
     if (!g.m.length) { delete this.groups[e.id]; this.s.removeEntity(e, false); return; }
     this.spawnGroup(e.id);
     this.applyVis(this.s.visible);
@@ -180,6 +182,7 @@ export class Delve {
     if (!inBounds(this.map, x, y)) return false;
     const t = terrain(getTile(this.map, x, y));
     if (def?.swim) return !!t.water && !t.deck;
+    if (!t.walk && !def && charmWay(this.s, t)) return true; // (charms) wading, climbing: the company follows
     if (!t.walk) return !!(def?.fly && t.water);
     return !(t.dmg && !def?.fly) && !(t.water && !t.deck && !def?.fly);
   }
@@ -237,7 +240,7 @@ export class Delve {
     const t = terrain(getTile(this.map, x, y));
     const stairs = t.key === 'stairs_up' || t.key === 'stairs_down';
     if (portal) {
-      if (portal.requires && !this.s.hasItem(portal.requires)) return null;
+      if ((portal.requires && !this.s.hasItem(portal.requires)) || portal.sealed) return null;
       const name = stairs ? (t.key === 'stairs_up' ? 'up the stairs' : 'down the stairs') : `through ${portal.label ? 'the ' + portal.label.toLowerCase() : 'the passage'}`;
       return { portal, name, x, y };
     }
@@ -411,12 +414,18 @@ export class Delve {
     const base = s.sightRadius();
     const L = s.currentLighting();
     const torch = this.bearer() === m;
+    let out = base;
     if (L === 'dark') {
       const halls = this.map.type === 'town' || this.map.type === 'castle' ? 2.5 : 0;
-      return { sight: base.sight, light: (torch ? 6.5 : 2.6) + halls + (hasTrait(this.game, m, 'darkSight') ? 1.2 : 0) };
+      out = { sight: base.sight, light: (torch ? 6.5 : 2.6) + halls + (hasTrait(this.game, m, 'darkSight') ? 1.2 : 0) };
+    } else if (L === 'night') out = { sight: base.sight, light: (torch ? 8 : 5) + (hasTrait(this.game, m, 'keenSight') || hasTrait(this.game, m, 'darkSight') ? 1 : 0) };
+    // (charms) keener eyes and a charm's own light, for the one who wears it
+    const mine = companyEffects(s).filter((x) => x.m === m && x.e.type === 'sight');
+    if (mine.length) {
+      const far = Math.max(0, ...mine.map((x) => +x.e.power || 0)), lamp = Math.max(0, ...mine.map((x) => +x.e.light || 0));
+      out = { sight: out.sight + far, light: out.light < 50 ? out.light + lamp * (torch ? 0.35 : 1) : out.light };
     }
-    if (L === 'night') return { sight: base.sight, light: (torch ? 8 : 5) + (hasTrait(this.game, m, 'keenSight') || hasTrait(this.game, m, 'darkSight') ? 1 : 0) };
-    return base;
+    return out;
   }
 
   // everything any hero can see
@@ -644,7 +653,7 @@ export class Delve {
     const out = [];
     const list = (heroes || this.alive()).filter((m) => m.status !== 'dead' && !this.away(m));
     for (const [gid, g] of Object.entries(this.groups)) {
-      if (g.aware || this.entityOf(gid)?.passive) continue;
+      if (g.aware || this.entityOf(gid)?.passive || charmCalms(this.s, this.entityOf(gid))) continue; // (charms) a calmed beast lets them pass
       let hero = null;
       for (const mm of this.living(g)) {
         for (const m of list) {
@@ -805,7 +814,7 @@ export class Delve {
     const heard = [];
     if (u && b.alive(u)) {
       for (const [gid, g] of Object.entries(this.groups)) {
-        if (g.aware || found.some((f) => f.gid === gid) || this.entityOf(gid)?.passive) continue;
+        if (g.aware || found.some((f) => f.gid === gid) || this.entityOf(gid)?.passive || charmCalms(this.s, this.entityOf(gid))) continue;
         if (this.living(g).some((mm) => cheb(mm, u) <= 3 && hasLOS(this.map, mm.x, mm.y, u.x, u.y)) && rng.chance(0.35)) heard.push(gid);
       }
     }

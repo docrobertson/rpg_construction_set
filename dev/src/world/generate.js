@@ -1474,6 +1474,13 @@ export function nameNpcs(map, game, seed = 1) {
   }
 }
 
+// charms a shop keeps: up to n of those that pass, cheapest first, never a unique one
+const SAGE_CHARMS = ['orb', 'mirror', 'feather', 'lantern', 'ring', 'amulet'];
+function curios(items, pass, n) {
+  return items.filter((it) => it.type === 'charm' && !it.unique && (it.price || 0) > 0 && !(it.only?.races?.length || it.only?.classes?.length) && pass(it))
+    .sort((a, b) => (a.price || 0) - (b.price || 0)).slice(0, n).map((it) => it.id);
+}
+
 // What a shop sells unless the designer says otherwise: ordinary gear only.
 // The finest arms and armour are left for quests, hoards and hand-picked shops.
 export function defaultStock(game, kind) {
@@ -1484,8 +1491,11 @@ export function defaultStock(game, kind) {
     case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 130).map((it) => it.id);
     case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
-    case 'scrolls': return items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id);
-    case 'mixed': return items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id);
+    // sages keep a few curios of magic beside their scrolls, a trading post a
+    // few humble charms; a curio-seller (kind 'charms') all but the legends
+    case 'scrolls': return [...items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id), ...curios(items, (it) => ['uncommon', 'rare'].includes(it.rarity) && SAGE_CHARMS.includes(it.kind) && (it.price || 0) <= 450, 4)];
+    case 'mixed': return [...items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id), ...curios(items, (it) => it.rarity === 'common' && (it.price || 0) <= 80, 4)];
+    case 'charms': return curios(items, (it) => it.rarity !== 'legendary' && (it.price || 0) <= 700, 12);
     default: return [];
   }
 }

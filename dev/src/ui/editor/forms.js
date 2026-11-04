@@ -1,5 +1,5 @@
 // A small declarative form builder used by the editor's inspectors.
-// Field spec: { key: 'a.b', label, type, options, hint, show(obj), min, max, step, placeholder }
+// Field spec: { key: 'a.b', label, type, options, hint, show(obj), min, max, step, placeholder, get(obj), put(obj, v) }
 // types: text, textarea, number, dice, check, select, color, multicheck, statmods, itemlist, list, ids, info
 import { h, hex, unhex } from '../dom.js';
 import { STATS } from '../../data/defaults.js';
@@ -47,8 +47,10 @@ export function buildForm(obj, fields, onChange, opts = {}) {
 }
 
 function fieldInput(obj, f, changed) {
-  const val = getPath(obj, f.key);
-  const set = (v, structural) => { setPath(obj, f.key, v); changed(f.key, structural || f.rerender); };
+  // (f.get / f.put: a field that reads or writes more than one value, e.g. a
+  // tick that adds or removes a whole sub-object)
+  const val = f.get ? f.get(obj) : getPath(obj, f.key);
+  const set = (v, structural) => { if (f.put) f.put(obj, v); else setPath(obj, f.key, v); changed(f.key, structural || f.rerender); };
   switch (f.type) {
     case 'textarea': {
       const el = h('textarea', { rows: f.rows || 3, placeholder: f.placeholder || '' });

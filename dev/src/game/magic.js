@@ -3,7 +3,8 @@
 // into a spellbook, and rangers foraging for herbs on the road.
 import { MAGIC_SYSTEMS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { casting, knownSpells, itemOf, createCharacter, maxMp, magicalOf } from './rules.js';
+import { casting, knownSpells, itemOf, createCharacter, maxMp, magicalOf, canEquip, onlyWords } from './rules.js';
+import { charmForage } from './charms.js';
 
 const STYLE_ICONS = { book: 'book', prayer: 'sun', song: 'note', runes: 'rune', herbs: 'herb' };
 
@@ -107,6 +108,11 @@ export function scrollUse(game, members, item) {
 
 // A short note after a reagent, herb or scroll in a loot line: " (for Thrar)"
 export function lootTag(game, members, item) {
+  // a charm: who could wear it (or who it is for)
+  if (item?.type === 'charm') {
+    const who = members.filter((m) => m.status !== 'dead' && canEquip(game, m, item).ok);
+    return who.length ? ' (✦ charm)' : ` (✦ charm — ${(item.onlyText || onlyWords(game, item) || 'no one here can wear it').replace(/^Only/, 'only')})`;
+  }
   const mg = magicalOf(item);
   if (mg) return ` (✦ magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''})`;
   if (item?.type === 'reagent') {
@@ -136,7 +142,7 @@ export function forageFind(game, members, inv, ground, rng) {
     const mine = herbs.filter((it) => (inv[it.id] || 0) < FORAGE_CAP
       && (game.spells || []).some((sp) => schools.includes(sp.system) && (sp.reagents || []).includes(it.id)));
     const forager = (m.perks || []).includes('forager');
-    if (!mine.length || !rng.chance(FORAGE_CHANCE * (forager ? 2 : 1))) continue;
+    if (!mine.length || !rng.chance(FORAGE_CHANCE * (forager ? 2 : 1) * (1 + charmForage(game, members)))) continue; // (charms) a forager's charm
     const it = rng.pick(mine);
     const n = Math.min(FORAGE_CAP - (inv[it.id] || 0), (rng.chance(0.35) ? 2 : 1) + (forager ? 1 : 0));
     inv[it.id] = (inv[it.id] || 0) + n;

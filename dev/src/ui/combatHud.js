@@ -4,7 +4,7 @@
 // and damage, move paths and warnings). Also the victory screen and the
 // choice of talents on levelling up.
 import { h, clear, modal } from './dom.js';
-import { icon } from './icons.js';
+import { icon, itemTile } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
@@ -318,8 +318,9 @@ export class CombatHud {
       const tags = [ab.free ? 'Free action' : null, ab.perBattle ? 'Once per battle' : ab.cooldown ? `Cooldown ${ab.cooldown}` : null].filter(Boolean).join(' · ');
       add({
         icon: ab.icon, name: ab.name, key: special ? 'Q' : String(i + 1), color: ab.fx, special, off: !can.ok, cd: can.cd,
-        sub: can.ok ? (ab.free ? 'Free action' : special ? '1 per battle' : 'Ready') : can.short, why: can.why,
-        tip: `${ab.desc}${tags ? `\n${tags}` : ''}`,
+        sub: can.ok ? (ab.free ? 'Free action' : special || ab.perBattle ? '1 per battle' : 'Ready') : can.short, why: can.why,
+        tip: `${ab.desc}${tags ? `\n${tags}` : ''}${ab.itemName ? `\nFrom the ${ab.itemName} ${u.name} wears` : ''}`,
+        item: ab.fromItem ? g.items.find((x) => x.id === ab.fromItem) : null, // (charms) the badge of the piece it comes from
         onClick: () => this.beginAbility(ab),
         onHover: (on) => this.previewArea(on ? ab : null),
       });
@@ -357,8 +358,9 @@ export class CombatHud {
   button(o) {
     // the icon with its key beneath it on the left; the name (two lines if it
     // must) and what stands in the way on the right, so nothing is cut short
-    const el = h('button.cbt-btn' + (o.off ? '.off' : '') + (o.special ? '.special' : ''),
-      h('span.cb-side', h('span.cb-ico', icon(o.icon)), h('span.cb-key', o.key), o.cd ? h('span.cb-cd', String(o.cd)) : null),
+    const el = h('button.cbt-btn' + (o.off ? '.off' : '') + (o.special ? '.special' : '') + (o.item ? '.from-item' : ''),
+      h('span.cb-side', h('span.cb-ico', icon(o.icon)), h('span.cb-key', o.key), o.cd ? h('span.cb-cd', String(o.cd)) : null,
+        o.item ? itemTile(o.item, 'cb-item') : null),
       h('span.cb-text', h('span.cb-name', o.name), h('span.cb-sub', o.sub || '')));
     if (o.color != null) el.style.setProperty('--accent', hexCss(o.color));
     el.addEventListener('click', () => {
@@ -836,9 +838,9 @@ export function sheetAbilities(ui, m, onChange) {
       const key = isSp ? 'Q' : String(++n);
       const state = bu ? b.canUseAbility(bu, ab) : null;
       const tags = [ab.free ? 'free action' : null, ab.perBattle ? 'once per battle' : ab.cooldown ? `cooldown ${ab.cooldown}` : null].filter(Boolean).join(', ');
-      wrap.appendChild(h('div.sa-row' + (isSp ? '.special' : '') + (state && !state.ok ? '.off' : ''), { style: { '--accent': hexCss(ab.fx) } },
+      wrap.appendChild(h('div.sa-row' + (isSp ? '.special' : '') + (state && !state.ok ? '.off' : '') + (ab.itemName ? '.from-item' : ''), { style: { '--accent': hexCss(ab.fx) } },
         h('span.sa-ico', icon(ab.icon)),
-        h('div', h('b', ab.name), h('span.sa-tag', ` ${key} · ${tags}${state && !state.ok ? ' — ' + state.short : ''}`), h('p', ab.desc))));
+        h('div', h('b', ab.name), h('span.sa-tag', ` ${key} · ${tags}${ab.itemName ? `${tags ? ' · ' : ''}from the ${ab.itemName}` : ''}${state && !state.ok ? ' — ' + state.short : ''}`), h('p', ab.desc))));
     }
   }
   // what is still to come, so each level has something to look forward to

@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -77,6 +77,7 @@ export function newGame(opts = {}) {
   }
   world.name = 'The World';
   game.maps.push(world);
+  game.settings.charmsV = CHARMS_V; // (born with charms: nothing to migrate)
   game.settings.start = findStart(world);
   return game;
 }
@@ -159,6 +160,7 @@ export function migrateGame(game) {
   ensure('items', ITEMS);
   ensure('spells', SPELLS);
   ensure('monsters', MONSTERS);
+  migrateCharms(game);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   migrateMagic(game);
   // classes from before class specials existed get their default one
@@ -172,6 +174,22 @@ export function migrateGame(game) {
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// Charms came later (a fifth equipment slot and the trinkets worn in it).
+// Older games gain the built-in charms once, and their enchanted arms and
+// armour the small magic of the same vocabulary (unless the designer gave
+// them some). Heroes gain the empty slot as they load (rules.js); a dungeon's
+// hoard holds a charm with no marking needed (game/charms.js isHoard).
+export const CHARMS_V = 1;
+export function migrateCharms(game) {
+  if ((game.settings.charmsV || 0) >= CHARMS_V) return;
+  game.settings.charmsV = CHARMS_V;
+  for (const d of ITEMS) if (d.type === 'charm' && !game.items.some((x) => x.id === d.id)) game.items.push(deepClone(d));
+  for (const [id, magic] of Object.entries(GEAR_MAGIC)) {
+    const it = game.items.find((x) => x.id === id);
+    if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
+  }
 }
 
 // Magic was reworked (MAGIC_V 2): every school got a look of its own, rangers

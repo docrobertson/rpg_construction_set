@@ -1,5 +1,5 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES, RARITIES } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
 import { roll, RNG, hashString } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
@@ -14,6 +14,8 @@ export function itemOf(game, id) { return id ? byId(game.items, id) : null; }
 // item's data. Returns { color: '#rrggbb', notes: ['+2 to hit', ...] } or null.
 const MAGIC_GOLD = 0xffd56a;
 export function magicalOf(it) {
+  // charms are magic by nature: their rarity's colour
+  if (it?.type === 'charm') return { color: RARITIES[it.rarity]?.color || '#c8b8ff', notes: [], charm: true };
   if (!it || !['weapon', 'armor', 'shield'].includes(it.type)) return null;
   if (it.magical === false || (it.magical !== true && it.glow == null)) return null;
   const notes = [];
@@ -48,7 +50,7 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
     level,
     xp: XP_TABLE[level] || 0,
     status: 'ok',
-    equip: { weapon: null, ranged: null, armor: null, shield: null },
+    equip: { weapon: null, ranged: null, armor: null, shield: null, charm: null },
     points: 0,
     buffs: [],
     look: look || {},
@@ -65,7 +67,7 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
 export function maxHp(game, c) {
   const k = classOf(game, c), r = raceOf(game, c);
   const per = Math.ceil((k.hpLevel || 6) * 0.6) + Math.floor(Math.max(-1, mod(c.str)) / 2) + Math.sign(r.hp || 0);
-  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5);
+  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5 + wornBonus(game, c, 'hp'));
 }
 
 // --- talents chosen on levelling up
@@ -156,7 +158,9 @@ export function abilityLevel(k, id) {
   return i <= 0 ? 1 : 1 + i * 2;
 }
 
-// abilities in hand, in class order (all = include those not yet learned)
+// abilities in hand, in class order (all = include those not yet learned);
+// what the hero wears may add a battle action of its own (a charm's, or a
+// magic staff's), listed after the class skills and before the ★ special
 export function heroAbilities(game, c, all = false) {
   const k = classOf(game, c);
   ensureCombatData(game);
@@ -164,6 +168,12 @@ export function heroAbilities(game, c, all = false) {
   for (const id of [...(k.skills || []), k.special]) {
     const a = abilityOf(game, id);
     if (a && !out.includes(a) && (all || (c.level || 1) >= abilityLevel(k, id))) out.push(a);
+  }
+  const worn = wornAbilities(game, c).filter((a) => !out.includes(a));
+  if (worn.length) {
+    const sp = abilityOf(game, k.special);
+    const i = sp ? out.indexOf(sp) : -1;
+    out.splice(i >= 0 ? i : out.length, 0, ...worn);
   }
   return out;
 }
@@ -195,7 +205,7 @@ export function maxMp(game, c) {
     const statMod = Math.max(0, mod(c[ci.sys.stat] || 10));
     best = Math.max(best, Math.floor(3 + ci.castLevel * (2 + statMod * 0.5)));
   }
-  return best > 0 ? best + perkCount(c, 'arcane') * 4 : 0;
+  return best > 0 ? best + perkCount(c, 'arcane') * 4 + wornBonus(game, c, 'mp') : 0;
 }
 
 // Spells within reach of the caster's power, lowest first; a novice knows
@@ -253,19 +263,44 @@ export function payForSpell(c, sp, inventory) {
 }
 
 // --- equipment
-// Heroes carry a hand weapon for melee and, separately, a bow, crossbow or sling.
-export const EQUIP_SLOTS = ['weapon', 'ranged', 'armor', 'shield'];
-export const SLOT_NAMES = { weapon: 'Weapon', ranged: 'Ranged', armor: 'Armour', shield: 'Shield' };
+// Heroes carry a hand weapon for melee and, separately, a bow, crossbow or
+// sling; and one charm (a ring, an amulet, a horn...), whose magic works only
+// while it is worn. A charm in the pack sleeps.
+export const EQUIP_SLOTS = ['weapon', 'ranged', 'armor', 'shield', 'charm'];
+export const SLOT_NAMES = { weapon: 'Weapon', ranged: 'Ranged', armor: 'Armour', shield: 'Shield', charm: 'Charm' };
 
 export function slotFor(item) {
   if (!item) return null;
   if (item.type === 'weapon') return (item.range || 1) > 1 ? 'ranged' : 'weapon';
   if (item.type === 'armor' || item.type === 'shield') return item.type;
+  if (item.type === 'charm') return 'charm';
   return null;
+}
+
+// Who may wear a piece: its `only` lists races and/or classes (empty = any).
+// { ok, why } — why in the item's own words (onlyText) when it has them.
+export function wearRule(game, c, it) {
+  const races = (it?.only?.races || []).filter(Boolean), classes = (it?.only?.classes || []).filter(Boolean);
+  if ((!races.length || races.includes(c.race)) && (!classes.length || classes.includes(c.cls))) return { ok: true };
+  return { ok: false, why: `${it.onlyText || onlyWords(game, it)}.` };
+}
+
+// "Only a dwarf can wear it", "Only a wizard or a cleric can wear it"
+export function onlyWords(game, it) {
+  const names = (list, ids) => ids.map((id) => (byId(list || [], id)?.name || id).toLowerCase());
+  const an = (w) => `${/^[aeiou]/i.test(w) ? 'an' : 'a'} ${w}`;
+  const or = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} or ${a[a.length - 1]}` : a[0] || '');
+  const races = names(game.races, it?.only?.races || []), classes = names(game.classes, it?.only?.classes || []);
+  if (!races.length && !classes.length) return '';
+  const who = races.length && classes.length ? `${an(or(races))} ${or(classes)}` : or((races.length ? races : classes).map(an));
+  return `Only ${who} can wear it`;
 }
 
 export function canEquip(game, c, item) {
   if (!item) return { ok: false, why: 'Nothing to equip.' };
+  const rule = wearRule(game, c, item);
+  if (!rule.ok) return rule;
+  if (item.type === 'charm') return { ok: true, slot: 'charm' };
   const k = classOf(game, c);
   if (item.type === 'weapon') {
     if (k.weapons && k.weapons.length && !k.weapons.includes(item.wkind)) return { ok: false, why: `A ${k.name} cannot wield that.` };
@@ -289,6 +324,7 @@ export function canEquip(game, c, item) {
 export function equipItem(game, c, item, inv) {
   const ok = canEquip(game, c, item);
   if (!ok.ok) return ok;
+  const was = poolsOf(game, c);
   const old = c.equip[ok.slot];
   if (old) inv[old] = (inv[old] || 0) + 1;
   inv[item.id] = Math.max(0, (inv[item.id] || 0) - 1);
@@ -297,14 +333,77 @@ export function equipItem(game, c, item, inv) {
     inv[c.equip.shield] = (inv[c.equip.shield] || 0) + 1;
     c.equip.shield = null;
   }
+  keepPools(game, c, was);
   return ok;
 }
 
-export function unequip(c, slot, inv) {
+// game: when given, health and mana follow a charm of health or mana taken off
+export function unequip(c, slot, inv, game = null) {
   const id = c.equip[slot];
   if (!id) return;
+  const was = game ? poolsOf(game, c) : null;
   inv[id] = (inv[id] || 0) + 1;
   c.equip[slot] = null;
+  if (game) keepPools(game, c, was);
+}
+
+// a piece that raises (or lowers) maximum health or mana moves the current
+// value with it, as a talent does, so taking it off and on again gains nothing
+const poolsOf = (game, c) => ({ hp: maxHp(game, c), mp: maxMp(game, c) });
+function keepPools(game, c, was) {
+  if (!was || c.status === 'dead' || c.hp == null) return;
+  c.hp = Math.max(1, Math.min(maxHp(game, c), c.hp + maxHp(game, c) - was.hp));
+  c.mp = Math.max(0, Math.min(maxMp(game, c), (c.mp || 0) + maxMp(game, c) - was.mp));
+}
+
+// ---- what a hero wears works for them (charms, and enchanted arms and
+// armour with effects of their own; see game/charms.js for the vocabulary)
+// The pieces worn whose magic is awake: [{ it, slot }] (a piece its wearer
+// may not wear, after the designer changed it, sleeps like one in the pack)
+export function wornItems(game, c) {
+  const out = [];
+  if (!c?.equip) return out;
+  for (const slot of EQUIP_SLOTS) {
+    const it = itemOf(game, c.equip[slot]);
+    if (it && slotFor(it) === slot && wearRule(game, c, it).ok) out.push({ it, slot });
+  }
+  return out;
+}
+
+// every effect worn: [{ e, it, slot }]
+export function wornEffects(game, c) {
+  const out = [];
+  for (const { it, slot } of wornItems(game, c)) for (const e of Array.isArray(it.effects) ? it.effects : []) if (e && e.type) out.push({ e, it, slot });
+  return out;
+}
+
+// the sum of a steady bonus worn (stat: hit, dmg, ac, moves, init, crit, hp, mp)
+export function wornBonus(game, c, stat) {
+  if (!c?.equip || !game?.items) return 0;
+  let n = 0;
+  for (const { e } of wornEffects(game, c)) if (e.type === 'bonus' && e.stat === stat) n += +e.power || 0;
+  return n;
+}
+
+// A battle action a worn piece grants: its `ability` (the ability schema of
+// data/defaults.js) as an ability of its own, id 'item_<item id>', marked with
+// the item it comes from. The same object comes back while the data is
+// unchanged, so lists of abilities can be compared.
+const ITEM_ABILITIES = new WeakMap();
+export function itemAbility(it) {
+  if (!it || !it.ability || typeof it.ability !== 'object') return null;
+  const sig = `${it.id}|${it.name}|${it.icon}|${JSON.stringify(it.ability)}`;
+  const had = ITEM_ABILITIES.get(it);
+  if (had && had.sig === sig) return had.ab;
+  const ab = { icon: it.icon || 'star', target: 'self', fx: it.tint ?? 0xffe080, ...deepClone(it.ability), id: `item_${it.id}`, fromItem: it.id, itemName: it.name };
+  ab.name = ab.name || it.name;
+  ab.desc = ab.desc || `A power of the ${it.name}.`;
+  ITEM_ABILITIES.set(it, { sig, ab });
+  return ab;
+}
+
+export function wornAbilities(game, c) {
+  return wornItems(game, c).map(({ it }) => itemAbility(it)).filter(Boolean);
 }
 
 // Put a class's starting kit on a new hero; anything that doesn't fit goes to the pack
@@ -320,7 +419,8 @@ export function equipKit(game, c, ids, inv) {
 
 // Older saves kept bows in the weapon slot and had no attribute points
 export function normalizeMember(game, c, inv) {
-  c.equip = { weapon: null, ranged: null, armor: null, shield: null, ...(c.equip || {}) };
+  // (heroes from before charms gain an empty charm slot)
+  c.equip = { weapon: null, ranged: null, armor: null, shield: null, charm: null, ...(c.equip || {}) };
   const w = itemOf(game, c.equip.weapon);
   if (w && slotFor(w) === 'ranged') {
     if (!c.equip.ranged) c.equip.ranged = w.id;
@@ -358,6 +458,7 @@ export function combatMoves(game, c) {
   if ((c.dex || 10) >= 16) n++;
   if (perkCount(c, 'fleet')) n++;
   if (itemOf(game, c.equip?.armor)?.weight === 'plate') n--;
+  n += wornBonus(game, c, 'moves');
   return Math.max(1, n);
 }
 
@@ -370,14 +471,14 @@ export function buffTotal(c, kind) {
 export function attackBonus(game, c, w = weaponOf(game, c)) {
   const k = classOf(game, c);
   const stat = isRanged(w) || w.wkind === 'dagger' ? c.dex : c.str;
-  let b = Math.floor(c.level * (k.hitRate ?? 0.75)) + mod(stat) + (w.hit || 0) + buffTotal(c, 'bless') + perkCount(c, 'precise');
+  let b = Math.floor(c.level * (k.hitRate ?? 0.75)) + mod(stat) + (w.hit || 0) + buffTotal(c, 'bless') + perkCount(c, 'precise') + wornBonus(game, c, 'hit');
   if (w.wkind === 'bow' && hasTrait(game, c, 'keenSight')) b += 1;
   return b;
 }
 
 export function armorClass(game, c) {
   const a = itemOf(game, c.equip.armor), s = itemOf(game, c.equip.shield);
-  let ac = 10 + (a?.ac || 0) + (s?.ac || 0) + mod(c.dex) + buffTotal(c, 'shield') + perkCount(c, 'guard');
+  let ac = 10 + (a?.ac || 0) + (s?.ac || 0) + mod(c.dex) + buffTotal(c, 'shield') + perkCount(c, 'guard') + wornBonus(game, c, 'ac');
   if (hasAbility(game, c, 'layHands') && c.hp < maxHp(game, c) / 2) ac += 2;
   return ac;
 }
@@ -389,10 +490,11 @@ export function damageRoll(game, c, w = weaponOf(game, c)) {
 
 // the flat part of a weapon's damage (for previews: dice range plus this)
 export function damageBonus(game, c, w = weaponOf(game, c)) {
-  return !isRanged(w) ? mod(c.str) + perkCount(c, 'brutal') * 2 : Math.floor(mod(c.dex) / 2) + perkCount(c, 'marksman');
+  return (!isRanged(w) ? mod(c.str) + perkCount(c, 'brutal') * 2 : Math.floor(mod(c.dex) / 2) + perkCount(c, 'marksman')) + wornBonus(game, c, 'dmg');
 }
 
-export function critRange(game, c) { return (hasAbility(game, c, 'backstab') ? 18 : 20) - (perkCount(c, 'deadly') ? 1 : 0); }
+// the lowest roll of the die that is a critical hit (never below 15)
+export function critRange(game, c) { return Math.max(15, (hasAbility(game, c, 'backstab') ? 18 : 20) - (perkCount(c, 'deadly') ? 1 : 0) - wornBonus(game, c, 'crit')); }
 
 // --- experience
 export function xpForLevel(l) { return XP_TABLE[Math.min(l, MAX_LEVEL)] ?? Infinity; }
@@ -401,6 +503,9 @@ export function gainXp(game, c, amount) {
   if (c.status === 'dead') return [];
   let a = amount;
   if (hasTrait(game, c, 'versatile')) a = Math.round(a * 1.1);
+  // a charm of learning (spoils: xp) worn by this hero
+  const keen = wornEffects(game, c).reduce((t, { e }) => t + (e.type === 'spoils' ? +e.xp || 0 : 0), 0);
+  if (keen > 0) a = Math.round(a * (1 + Math.min(1, keen)));
   c.xp += a;
   const gained = [];
   while (c.level < MAX_LEVEL && c.xp >= xpForLevel(c.level + 1)) {

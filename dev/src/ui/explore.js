@@ -15,6 +15,7 @@ import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
 import { markerGlyph } from '../render/markers.js';
 import { digOptions } from '../game/treasure.js';
+import { charmWay } from '../game/charms.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -167,7 +168,7 @@ export class Explorer {
     return (x, y) => {
       if (!inBounds(map, x, y)) return false;
       const t = terrain(getTile(map, x, y));
-      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk && !charmWay(s, t)) return false; // (charms) wading, climbing
       if (s.visible && map.lighting === 'dark' && !map.explored[y * map.w + x] && !known?.has(x + ',' + y)) return false;
       if (s.blockingAt(x, y)) return false;
       const goal = x === goalX && y === goalY;
@@ -262,7 +263,7 @@ export class Explorer {
           const out = x === 0 ? [-1, 0] : x === map.w - 1 ? [1, 0] : y === 0 ? [0, -1] : [0, 1];
           return { goal: (gx, gy) => gx === x && gy === y, gx: x, gy: y, arrive: () => s.move(out[0], out[1]), tone: 'enter', leave: true };
         }
-        const ok = s.state.vehicle ? t.water && !t.deck : t.walk;
+        const ok = s.state.vehicle ? t.water && !t.deck : t.walk || !!charmWay(s, t); // (charms) wading, climbing
         if (!ok && s.state.vehicle && t.walk) return { goal: this.besideGoal({ x, y }, false), arrive: bump({ x, y }), tone: 'walk', ashore: true };
         if (!ok) return null;
         const stairs = (t.key === 'stairs_up' || t.key === 'stairs_down') && (map.exit || map.entities.some((e) => e.type === 'portal' && e.x === x && e.y === y));
