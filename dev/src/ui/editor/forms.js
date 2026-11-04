@@ -19,7 +19,8 @@ export function setPath(obj, path, value) {
   else o[keys[keys.length - 1]] = value;
 }
 
-const optList = (options) => (typeof options === 'function' ? options() : options || []).map((o) => (Array.isArray(o) ? o : typeof o === 'object' ? [o.id, o.name ?? o.label ?? o.id] : [o, o]));
+// (an options function is handed the object being edited)
+const optList = (options, obj) => (typeof options === 'function' ? options(obj) : options || []).map((o) => (Array.isArray(o) ? o : typeof o === 'object' ? [o.id, o.name ?? o.label ?? o.id] : [o, o]));
 
 export function buildForm(obj, fields, onChange, opts = {}) {
   const root = h('div.form');
@@ -73,8 +74,8 @@ function fieldInput(obj, f, changed) {
       const el = h('select');
       // (f.empty may be a function of the object: "Automatic — a cart")
       if (f.empty !== undefined) el.appendChild(h('option', { value: '' }, typeof f.empty === 'function' ? f.empty(obj) : f.empty));
-      for (const [v, label] of optList(f.options)) el.appendChild(h('option', { value: String(v) }, label));
-      const opts0 = optList(f.options);
+      for (const [v, label] of optList(f.options, obj)) el.appendChild(h('option', { value: String(v) }, label));
+      const opts0 = optList(f.options, obj);
       el.value = val == null ? (f.empty !== undefined ? '' : String(opts0[0]?.[0] ?? '')) : String(val);
       el.addEventListener('change', () => {
         let v = el.value;

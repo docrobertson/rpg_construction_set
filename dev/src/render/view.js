@@ -29,7 +29,9 @@ const LIGHTING = {
 };
 const WORLD_FIGURE = 0.78;
 const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
-for (const k of Object.keys(CONTAINER_BUILDERS)) WORLD_POI.add(k); // (the other things treasure is found in)
+// the other things treasure is found in are drawn larger too, like a chest
+// (WORLD_POI may be a set of kinds or a map of kind → scale)
+for (const k of Object.keys(CONTAINER_BUILDERS)) { if (WORLD_POI instanceof Set) WORLD_POI.add(k); else WORLD_POI[k] = 1.6; }
 const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {

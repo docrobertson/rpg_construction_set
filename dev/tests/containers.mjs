@@ -303,6 +303,14 @@ r = await ev(async () => {
   ed.select(ed.map.entities.find((e) => e.kind === 'shrine'));
   await new Promise((res) => setTimeout(res, 200));
   out.shrine = !!field('Drawn as');
+  // a chest given some other model by hand (a campfire) shows it, and keeps it
+  const heron = ed.map.entities.find((e) => e.id === 'chest_heron');
+  heron.look = { kind: 'campfire' };
+  ed.select(heron);
+  await new Promise((res) => setTimeout(res, 200));
+  const sel4 = field('Looks like')?.querySelector('select');
+  out.other = [sel4?.value, sel4?.selectedOptions[0]?.textContent, ed.entityLook(heron).kind];
+  delete heron.look;
   ed.select(chest);
   return out;
 });
@@ -310,6 +318,7 @@ check('the chest inspector offers a "Looks like" list of every container, automa
 check('choosing one writes look.kind and redraws it; a name is kept', r.look?.kind === 'hollowlog' && r.name === 'Hollow Oak' && r.drawn === 'hollowlog' && r.colour, r);
 check('a hidden cache\'s "Drawn as" list starts at what its name calls for, and writes look.kind', /^Automatic — overturned cart/.test(r.cartAuto) && r.cartLook?.kind === 'barrels' && r.cartDrawn === 'barrels' && r.cartBack, r);
 check('other points of interest show no such list', !r.shrine, r.shrine);
+check('a chest drawn by hand as some other model (a campfire) shows it in the list', r.other[0] === 'campfire' && /Other: campfire/.test(r.other[1]) && r.other[2] === 'campfire', r.other);
 await wait(500);
 await ev(() => { const el = [...document.querySelectorAll('.field-label')].find((e) => e.textContent === 'Looks like'); el?.scrollIntoView({ block: 'center' }); });
 await wait(400);
