@@ -53,7 +53,7 @@ Beside the steps: **World Data** (races, classes, items, spells, monsters and th
 | Tab / G (dungeons) | One hero walks alone / all together | Stairs up (dungeons) | Flee |
 | X (dungeons) | Leave a cleared dungeon at once | | |
 
-Click a hero in the Company panel to pop out their sheet and change their gear; the first hero leads the company.
+Click a hero in the Company panel to pop out their sheet and change their gear; the first hero leads the company. When something needs a hero (who drinks the draught, on whom a spell goes, who casts), the Company panel lights up whoever it can go to and says why not of the rest: click a card or press their number. In battle, click the hero on the field (or their card); a fallen hero's body lies where they fell, to be raised there.
 
 On a trackpad, pinch to zoom (or hold Option ⌥ or Command ⌘ and scroll — handy on a Magic Mouse) and slide two fingers to look around (in play, a little way from the company). In the construction set: two-finger slide, right-drag or WASD to pan, pinch or mouse wheel to zoom, Ctrl+Z / Ctrl+Y to undo/redo, Ctrl+K to find anything. Press **?** in the editor for help with the step you are on.
 

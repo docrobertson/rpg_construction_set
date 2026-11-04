@@ -769,6 +769,28 @@ export class View {
     });
   }
 
+  // A fallen hero topples and lies where they fell (to be raised there, or
+  // carried off when the battle ends); their ring fades to a faint mark
+  fallAnim(id) {
+    const e = this.entities.get(id);
+    if (!e) return Promise.resolve();
+    e.idle = false;
+    e.model.scale.set(1, 1, 1);
+    const ring = e.root.userData.ring, y0 = e.root.position.y;
+    // (toppled about the feet, then slid so the body lies across its own square)
+    const half = (e.info.height || 0.8) * e.scale * 0.45;
+    if (e.hpBar) { e.hpBar.el.remove(); e.hpBar = null; }
+    return new Promise((resolve) => {
+      this.tween(0.5, (k) => {
+        const q = 1 - (1 - k) * (1 - k);
+        e.leanG.rotation.z = q * 1.5;
+        e.leanG.position.x = q * half;
+        e.root.position.y = y0 - q * 0.04;
+        if (ring) ring.material.opacity = 0.9 - q * 0.6;
+      }, resolve);
+    });
+  }
+
   setHpBar(id, frac) {
     const e = this.entities.get(id);
     if (!e) return;

@@ -10,7 +10,7 @@ import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
-import { perkText, heroSchool, poolName, restoresPool } from '../game/magic.js';
+import { perkText, heroSchool, poolName, noNeed } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 
 const hexCss = (n) => '#' + ((n ?? 0xe8c069) >>> 0).toString(16).padStart(6, '0');
@@ -658,6 +658,9 @@ export class CombatHud {
     if (ui.targeting) {
       if (e.key === 'Tab') { e.preventDefault(); ui.cycleTarget(e.shiftKey ? -1 : 1); return; }
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'f' || e.key === 'F') { e.preventDefault(); ui.confirmTarget(); return; }
+      // (choosing a hero: their number on the Company panel picks them, as out of battle)
+      const n = parseInt(e.key, 10), hero = ui.targeting.ally && n >= 1 ? this.s.party.members[n - 1] : null;
+      if (hero) { e.preventDefault(); ui.pickCard(hero); return; }
       if (dir) {
         e.preventDefault();
         const c = ui.targeting.cursor || { x: b.active.x, y: b.active.y };
@@ -701,7 +704,7 @@ export class CombatHud {
     if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
     const tg = b.abilityTargets(u, ab);
     if (tg.kind === 'enemy' || tg.kind === 'ally') {
-      this.ui.startTargeting({ units: tg.units, label: ab.name, color: ab.fx ?? 0xffc030, ab, onPick: (t) => b.actAbility(ab, b.unitAt(t.x, t.y), u) });
+      this.ui.startTargeting({ units: tg.units, ally: tg.kind === 'ally', label: ab.name, color: ab.fx ?? 0xffc030, ab, onPick: (t) => b.actAbility(ab, b.unitAt(t.x, t.y), u) });
     } else if (tg.kind === 'tile') {
       this.ui.startTargeting({ tiles: tg.tiles, label: ab.name, color: ab.fx ?? 0xb090ff, ab, onPick: (t) => b.actAbility(ab, { x: t.x, y: t.y }, u) });
     } else b.actAbility(ab, null, u);
@@ -728,10 +731,11 @@ export class CombatHud {
       ui.startTargeting({ tiles, label: `${spell.name} (area)`, color: spell.fx, onPick: (t) => b.actCast(spell, { x: t.x, y: t.y }, u) });
       this.view.setHighlights(tiles.filter((c) => b.unitAt(c.x, c.y)?.side === 'enemy'), spell.fx || 0xffc030, 0.45);
     } else if (spell.target === 'ally') {
-      const ts = b.spellTargets(u, spell);
-      if (!ts.length) { this.s.log(spell.effect === 'revive' ? 'No one has fallen.' : 'No one to target.', 'warn'); return; }
-      const pick = await ui.chooseFrom(`${spell.name} — on whom?`, targetChoices(this.game, ts, spell.effect));
-      if (pick) b.actCast(spell, pick, u);
+      // (on a hero where they stand, or where their body lies)
+      const why = (m) => noNeed(this.game, spell.effect, m);
+      const ts = b.spellTargets(u, spell).filter((t) => !why(t.member));
+      if (!ts.length) { this.s.log(spell.effect === 'revive' ? 'No one has fallen here.' : `No one needs ${spell.name} now.`, 'warn'); sfx('error'); return; }
+      ui.pickAlly(spell.name, ts, why, spell.fx, (t) => b.actCast(spell, t, u));
     } else {
       b.actCast(spell, null, u);
     }
@@ -743,12 +747,12 @@ export class CombatHud {
     const u = b.active, ui = this.ui;
     const items = b.combatItems();
     if (!items.length) { this.s.log('You have nothing useful to hand.', 'warn'); return; }
-    const inv = this.s.party.inventory;
-    const item = await ui.chooseFrom('Use which item?', items.map((it) => ({ label: `${it.name} ×${inv[it.id]}`, sub: it.desc, value: it })));
-    if (!item) return;
-    const ts = b.partyUnits.filter((p) => (item.effect === 'revive' ? p.dead && !p.fled : b.alive(p)));
-    const tgt = await ui.chooseFrom(`${item.name} — on whom?`, targetChoices(this.game, ts, item.effect, item));
-    if (tgt) b.actUse(item, tgt, u);
+    const item = await ui.chooseFrom('Use which item?', ui.itemOptions(items));
+    if (!item || b.active !== u || this.s.battle !== b) return;
+    const why = (m) => noNeed(this.game, item.effect, m, item);
+    const ts = b.partyUnits.filter((p) => !p.fled && (item.effect === 'revive' ? p.dead : b.alive(p)) && !why(p.member));
+    if (!ts.length) { this.s.log(item.effect === 'revive' ? 'No one has fallen here.' : `No one needs the ${item.name} now.`, 'warn'); sfx('error'); return; }
+    ui.pickAlly(item.name, ts, why, 0x70e070, (t) => b.actUse(item, t, u));
   }
 
   // ------------------------------------------------------------ after the battle
@@ -795,23 +799,6 @@ export class CombatHud {
     clear(slot);
     slot.appendChild(perkPicker(this.ui, m, () => this.fillPerks(slot, m)));
   }
-}
-
-// Whom a draught, tonic, feather or healing spell can go to: anyone, but those
-// it would be wasted on are greyed out with the reason, and the hurt come first
-function targetChoices(game, units, effect, item = null) {
-  const opt = (t) => {
-    const m = t.member, mh = maxHp(game, m), mm = maxMp(game, m);
-    let why = '';
-    if (effect === 'heal' && !t.dead && m.hp >= mh) why = 'Already at full health';
-    else if (effect === 'mp' && !mm) why = 'Has no spell points';
-    // (a candle renews Faith, not a sorcerer's mana)
-    else if (effect === 'mp' && item && !restoresPool(game, item, m)) why = `Not for ${poolName(game, m)}`;
-    else if (effect === 'mp' && m.mp >= mm) why = `${poolName(game, m)} already full`;
-    else if (effect === 'cure' && m.status !== 'poisoned') why = 'Not poisoned';
-    return { label: `${t.name} (${m.hp}/${mh} HP${t.dead ? ', fallen' : ''})`, tag: why || null, sub: why ? null : effect === 'heal' ? `Missing ${mh - m.hp} health` : null, value: t, disabled: !!why, why, need: m.hp / Math.max(1, mh) };
-  };
-  return units.map(opt).sort((a, b) => a.disabled - b.disabled || a.need - b.need);
 }
 
 // The choice of talent for a hero with one pending (or a note of what was learned)

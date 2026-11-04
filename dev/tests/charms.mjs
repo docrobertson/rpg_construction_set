@@ -254,6 +254,26 @@ await shot('charms_swap_card');
 await page.mouse.move(5, 5);
 await closeModals();
 
+// ---- putting things on from a long pack keeps the list where it was
+r = await ev(async () => {
+  const s = window.__app.session, inv = s.party.inventory;
+  for (const it of s.game.items.filter((i) => ['weapon', 'armor', 'shield', 'charm'].includes(i.type)).slice(0, 40)) inv[it.id] = 1;
+  s.ui.openParty();
+  await new Promise((res) => setTimeout(res, 200));
+  const list = document.querySelector('.party-modal .inv');
+  list.scrollTop = list.scrollHeight;
+  await new Promise((res) => setTimeout(res, 50));
+  const before = list.scrollTop, tall = list.scrollHeight > list.clientHeight + 200;
+  const btns = [...list.querySelectorAll('button.cmp:not(.copy)')];
+  const btn = btns[btns.length - 1];
+  btn?.click();
+  await new Promise((res) => setTimeout(res, 200));
+  const after = document.querySelector('.party-modal .inv');
+  return { tall, before, after: after?.scrollTop, rebuilt: after !== list, open: !!document.querySelector('.party-modal'), clicked: !!btn };
+});
+check('putting a piece on from the pack keeps the list scrolled where it was', r.tall && r.clicked && r.open && r.before > 100 && Math.abs(r.after - r.before) < 90, r);
+await closeModals();
+
 // ---- battle: a blessing at the start, a charm's action on the bar
 await ev(() => {
   const s = window.__app.session, g = s.game;

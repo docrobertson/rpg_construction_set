@@ -322,7 +322,7 @@ r = await ev(async () => {
 });
 check('a fallen hero comes with a word on raising the dead', r.dead === 'dead' && r.tip, r);
 
-// ---- the field heal target list greys out the hale
+// ---- a draught in the field: the Company panel asks who drinks it, and greys out the hale
 r = await ev(async () => {
   const s = window.__app.session;
   for (const m of s.party.members) { m.status = 'ok'; m.hp = 999; }
@@ -331,12 +331,53 @@ r = await ev(async () => {
   const it = s.game.items.find((i) => i.id === 'healing_draught');
   const p = s.ui.fieldUseItem(it);
   await new Promise((res) => setTimeout(res, 300));
-  const opts = [...document.querySelectorAll('.choose-modal .choose-item')].map((b) => ({ dis: b.classList.contains('disabled'), text: b.textContent }));
-  document.querySelector('.choose-modal .choose-item:not(.disabled)')?.click();
+  const cards = [...document.querySelectorAll('.hud-party .pcard')].map((c) => ({ ok: c.classList.contains('pick-ok'), no: c.classList.contains('pick-no'), why: c.querySelector('.pc-why')?.textContent || '' }));
+  const modal = !!document.querySelector('.choose-modal');
+  document.querySelector('.hud-party .pcard.pick-no')?.click(); // (no: the hale are not chosen)
+  const stillPicking = !!s.ui.picking;
+  document.querySelector('.hud-party .pcard.pick-ok')?.click();
   await p;
-  return { opts, left: s.party.inventory.healing_draught };
+  return { cards, modal, stillPicking, left: s.party.inventory.healing_draught, bar: !!document.querySelector('.pick-bar') };
 });
-check('field draught list greys out heroes at full health', r.opts.filter((o) => o.dis).length === 3 && r.left === 1, r);
+check('a field draught is given from the Company panel, the hale greyed out with the reason', !r.modal && r.cards.filter((c) => c.no && /full health/.test(c.why)).length === 3
+  && r.cards.filter((c) => c.ok).length === 1 && r.stillPicking && r.left === 1 && !r.bar, r);
+
+// ---- in battle a hero is chosen where they stand, or lie: a fallen hero's body
+// stays on the field, and a feather given by clicking their card raises them there
+r = await ev(async () => {
+  const s = window.__app.session, sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  for (const m of s.party.members) { m.status = 'ok'; m.hp = 20; }
+  s.party.inventory.phoenix_feather = 1;
+  s.engage({ id: 'x_bodies', monster: 'goblin', count: '3', roaming: true });
+  for (let i = 0; i < 300 && !(s.battle?.active?.side === 'party' && !s.battle.acting); i++) await sleep(100);
+  const b = s.battle, u = b?.active;
+  if (!u) return { battle: false };
+  const mate = b.partyUnits.find((x) => x !== u && b.alive(x));
+  await b.kill(mate);
+  const at = { x: mate.x, y: mate.y }, body = window.__app.view.hasEntity(mate.id);
+  s.ui.chud.useItem();
+  await sleep(250);
+  const modal = !!document.querySelector('.choose-modal');
+  [...document.querySelectorAll('.choose-modal .choose-item')].find((x) => /Phoenix/.test(x.textContent))?.click();
+  await sleep(250);
+  const tg = s.ui.targeting ? { ally: !!s.ui.targeting.ally, units: s.ui.targeting.units.map((x) => x.id) } : null;
+  const card = document.querySelectorAll('.hud-party .pcard')[s.party.members.indexOf(mate.member)];
+  const lit = card?.classList.contains('pick-ok');
+  card?.click();
+  for (let i = 0; i < 50 && (b.acting || mate.dead); i++) await sleep(100);
+  const out = { battle: true, body, modal, tg, lit, mate: mate.id, raised: !mate.dead && mate.member.status === 'ok', same: mate.x === at.x && mate.y === at.y };
+  // (then the foes fall, and the battle ends as battles do)
+  for (const e of b.enemies) if (b.alive(e)) await b.kill(e);
+  b.actPass();
+  for (let i = 0; i < 80 && s.battle; i++) await sleep(100);
+  out.ended = !s.battle;
+  for (let i = 0; i < 40 && (document.querySelector('.modal-back') || s.mode !== 'explore' || s.transitioning); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await sleep(150); }
+  out.mode = s.mode;
+  return out;
+});
+check('a fallen hero\'s body stays on the battlefield', r.battle && r.body, r);
+check('a feather in battle is given by clicking the hero (their card or figure), not from a list', r.modal && r.tg?.ally && r.tg.units.includes(r.mate) && r.lit, r);
+check('the fallen hero rises where their body lay', r.raised && r.same && r.ended, r);
 
 // ---- rotating the company: rest at the inn, call back, a quest companion's offer
 r = await ev(async () => {

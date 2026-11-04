@@ -3,7 +3,7 @@
 // into a spellbook, and rangers foraging for herbs on the road.
 import { MAGIC_SYSTEMS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { casting, knownSpells, itemOf, createCharacter, maxMp, magicalOf, canEquip, onlyWords } from './rules.js';
+import { casting, knownSpells, itemOf, createCharacter, maxHp, maxMp, magicalOf, canEquip, onlyWords } from './rules.js';
 import { charmForage } from './charms.js';
 
 const STYLE_ICONS = { book: 'book', prayer: 'sun', song: 'note', runes: 'rune', herbs: 'herb' };
@@ -41,6 +41,21 @@ export function restoresPool(game, item, c) {
   if (!item?.pool?.length) return true;
   const sch = manaSchool(game, c);
   return !!sch && item.pool.includes(sch.sys.id);
+}
+
+// Why a draught, a tonic, a feather or a spell of that effect cannot go to
+// this hero (null: it can). One answer for every way of choosing a hero.
+export function noNeed(game, effect, c, item = null) {
+  if (effect === 'revive') return c.status === 'dead' ? null : 'not fallen';
+  if (c.status === 'dead') return 'fallen';
+  if (effect === 'heal') return c.hp >= maxHp(game, c) ? 'already at full health' : null;
+  if (effect === 'mp') {
+    if (maxMp(game, c) <= 0) return item?.pool?.length ? `has no ${poolWords(game, item)}` : 'has no mana';
+    if (item && !restoresPool(game, item, c)) return `not for ${poolName(game, c)}`;
+    return c.mp >= maxMp(game, c) ? `${poolName(game, c)} already full` : null;
+  }
+  if (effect === 'cure') return c.status !== 'poisoned' ? 'not poisoned' : null;
+  return null;
 }
 
 // "mana", "Faith" or "mana or Faith": what a restoring item refills

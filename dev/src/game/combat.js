@@ -630,6 +630,8 @@ export class Battle {
   async finish(outcome) {
     this.over = true;
     this.hook('end', outcome);
+    // (on the live map the fallen are carried off with the company)
+    if (this.field) for (const u of this.partyUnits) if (u.dead) this.view.removeEntity(u.id);
     for (const u of this.units) if (u.charging) this.cancelWindup(u);
     const members = this.s.party.members;
     for (const m of members) {
@@ -1069,7 +1071,9 @@ export class Battle {
     }
     this.emit('death', t);
     this.fx.death(t.x, t.y, t.def?.undead ? 0xd8d8c8 : 0xb8a890);
-    await this.view.dieAnim(t.id);
+    // (a hero's body stays where they fell, to be raised there)
+    if (t.side === 'party') await this.view.fallAnim(t.id);
+    else await this.view.dieAnim(t.id);
     // a boss's summoned kin do not fight on without it (no dull mop-up rounds)
     const adds = t.side === 'enemy' ? this.enemies.filter((e) => e.summoner === t && this.alive(e)) : [];
     if (adds.length) {
@@ -1625,9 +1629,10 @@ export class Battle {
     const m = u.member;
     m.status = 'ok';
     m.hp = Math.max(1, Math.floor(maxHp(this.game, m) / 3));
+    // they rise where their body lies, unless someone stands on it now
+    const [x, y] = this.freeSpot([u.x, u.y]);
     u.dead = false;
     u.st = {};
-    const [x, y] = this.freeSpot([u.x, u.y]);
     u.x = x; u.y = y;
     this.view.addEntity(u.id, charLook(this.game, m), x, y, { ring: 0xffd040, facing: [x < ARENA_W / 2 ? 1 : -1, 0.45] });
     this.view.sparkle(x, y, 0xffffff, 26);

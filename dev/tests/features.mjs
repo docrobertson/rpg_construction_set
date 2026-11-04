@@ -236,8 +236,12 @@ const odds = await ev(() => {
   const gob = b.enemies.find((e) => b.alive(e) && e.def.id === 'goblin');
   const spot = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: u.x + dx, y: u.y + dy })).find((c) => b.walkable(c.x, c.y, gob));
   gob.x = spot.x; gob.y = spot.y; b.view.placeEntity(gob.id, gob.x, gob.y);
+  // (the odds alone, with no friend near the goblin: the ranks stand close)
+  const others = b.partyUnits.filter((p) => p !== u && b.alive(p));
+  for (const o of others) o.dead = true;
   const plain = b.preview(u, gob);
-  const mate = b.partyUnits.find((p) => p !== u && b.alive(p));
+  for (const o of others) o.dead = false;
+  const mate = others[0];
   const fs = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: gob.x + dx, y: gob.y + dy })).find((c) => b.walkable(c.x, c.y, mate));
   mate.x = fs.x; mate.y = fs.y; b.view.placeEntity(mate.id, mate.x, mate.y);
   const flanked = b.preview(u, gob);

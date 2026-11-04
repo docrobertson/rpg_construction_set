@@ -2213,3 +2213,18 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .sw-lines li.lose::before { content: '−'; color: #ff8a6a; font-weight: 700; }
 .sw-plain { font: italic 11.5px var(--font-ui); color: var(--muted); }
 .sw-foot { font: italic 11px var(--font-ui); color: var(--muted); text-align: right; }
+
+/* choosing a hero (who drinks it, who casts, on whom): the Company panel asks */
+.pick-bar { display: flex; align-items: center; gap: 8px; margin: 0 9px 7px 11px; padding: 6px 6px 6px 11px; border-radius: 8px;
+  font: 600 13px/1.25 var(--font-ui); color: #fff3d0; background: linear-gradient(rgba(90,150,70,.35), rgba(50,90,40,.3)); box-shadow: inset 0 0 0 1px rgba(140,230,110,.6), 0 0 14px rgba(120,220,90,.25); }
+.pick-bar .pk-title { flex: 1; min-width: 0; }
+.pick-bar .pk-x { flex: none; padding: 1px 8px; font-size: 13px; }
+.hud-side.picking .pcard { transition: opacity .15s, filter .15s; }
+.pcard.pick-ok { box-shadow: inset 0 0 0 2px #8ee070, 0 0 14px rgba(130,230,100,.45); }
+.pcard.pick-ok:hover { box-shadow: inset 0 0 0 2px #c4ffa8, 0 0 20px rgba(150,250,120,.7); background: linear-gradient(90deg, rgba(140,230,110,.16), rgba(140,230,110,.03)), var(--leather); }
+.pcard.pick-no { opacity: .5; filter: grayscale(.6); cursor: not-allowed; }
+.pcard.pick-no.dead { opacity: .45; }
+.pcard .pc-key { position: absolute; top: 5px; right: 7px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
+  font: 700 11px var(--font-ui); color: #10200a; background: #9ee880; box-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.pcard .pc-why { position: absolute; right: 7px; top: 6px; max-width: 58%; padding: 1px 7px; border-radius: 8px; font: italic 600 10.5px var(--font-ui); color: #ffd8c8; background: rgba(20,12,6,.85); text-align: right; }
+.pcard.pick-ok .pc-lead, .pcard.pick-no .pc-lead, .pcard.pick-no .pc-status { visibility: hidden; }
