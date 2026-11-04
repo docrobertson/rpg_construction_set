@@ -324,6 +324,7 @@ export function canEquip(game, c, item) {
 export function equipItem(game, c, item, inv) {
   const ok = canEquip(game, c, item);
   if (!ok.ok) return ok;
+  const was = poolsOf(game, c);
   const old = c.equip[ok.slot];
   if (old) inv[old] = (inv[old] || 0) + 1;
   inv[item.id] = Math.max(0, (inv[item.id] || 0) - 1);
@@ -332,17 +333,27 @@ export function equipItem(game, c, item, inv) {
     inv[c.equip.shield] = (inv[c.equip.shield] || 0) + 1;
     c.equip.shield = null;
   }
-  if (c.status !== 'dead' && c.hp != null) recompute(game, c); // (a charm of health taken off)
+  keepPools(game, c, was);
   return ok;
 }
 
-// game: when given, health and mana are kept within what is left
+// game: when given, health and mana follow a charm of health or mana taken off
 export function unequip(c, slot, inv, game = null) {
   const id = c.equip[slot];
   if (!id) return;
+  const was = game ? poolsOf(game, c) : null;
   inv[id] = (inv[id] || 0) + 1;
   c.equip[slot] = null;
-  if (game && c.status !== 'dead' && c.hp != null) recompute(game, c);
+  if (game) keepPools(game, c, was);
+}
+
+// a piece that raises (or lowers) maximum health or mana moves the current
+// value with it, as a talent does, so taking it off and on again gains nothing
+const poolsOf = (game, c) => ({ hp: maxHp(game, c), mp: maxMp(game, c) });
+function keepPools(game, c, was) {
+  if (!was || c.status === 'dead' || c.hp == null) return;
+  c.hp = Math.max(1, Math.min(maxHp(game, c), c.hp + maxHp(game, c) - was.hp));
+  c.mp = Math.max(0, Math.min(maxMp(game, c), (c.mp || 0) + maxMp(game, c) - was.mp));
 }
 
 // ---- what a hero wears works for them (charms, and enchanted arms and

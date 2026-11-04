@@ -1034,7 +1034,8 @@ export class PlayUI {
         for (const it of owned) {
           const price = this.priceOf(it, npc, true);
           const magic = magicNote(g, s.party.members, it);
-          list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : ''),
+          list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
+            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : null },
             itemTile(it),
             h('div.sr-main', h('div.sr-name', itemName(it), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
               magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),

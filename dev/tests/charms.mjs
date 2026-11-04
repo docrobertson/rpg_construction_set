@@ -156,6 +156,62 @@ check('without the charm the shallows are closed', r.spot && r.without.x === r.s
 check('with the Selkie\'s Shell worn the company wades into the shallows', r.withShell.x === r.spot.x + 1 && r.withShell.t === 'shallows' && r.withShell.took >= 1, r);
 check('taken off, the way closes again', r.again.x === r.spot.x, r);
 
+// ---- more ways: climbing to the Dragon's Eyrie, Fennick's seal on Hammerdeep's vault, an elven cache unseen by mortal eyes
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game, inv = s.party.inventory, terrain = window.__travel.terrain;
+  const [a, b, c] = s.party.members;
+  const world = g.maps.find((m) => m.type === 'world');
+  const out = {};
+  const eyrie = world.entities.find((e) => e.id === 'chest_eyrie');
+  await s.enterMap(world.id, eyrie.x, eyrie.y + 3, { instant: true });
+  await s.move(0, -1);
+  out.climbBlocked = s.state.pos.y === eyrie.y + 3;
+  a.equip.charm = 'goatfoot_amulet';
+  for (let k = 0; k < 3; k++) await s.move(0, -1);
+  out.eyrie = { y: s.state.pos.y, want: eyrie.y, gem: inv.dragons_eye || 0 };
+  a.equip.charm = null;
+  const deep = g.maps.find((m) => m.name === 'Hammerdeep');
+  const vault = deep.entities.find((e) => e.id === 'chest_vault');
+  let stand = null;
+  for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+    const x = vault.x + dx, y = vault.y + dy, t = terrain(deep.tiles[y * deep.w + x]);
+    if (t.walk && !t.door && !deep.entities.some((e) => e.x === x && e.y === y)) { stand = { x, y, dx: -dx, dy: -dy }; break; }
+  }
+  await s.enterMap(deep.id, stand.x, stand.y, { instant: true });
+  await s.move(stand.dx, stand.dy);
+  out.sealed = { heart: inv.heart_of_the_mountain || 0, there: s.map.entities.some((e) => e.id === 'chest_vault') };
+  await s.enterMap(deep.id, stand.x, stand.y, { instant: true });
+  b.equip.charm = 'ring_of_opening';
+  await s.move(stand.dx, stand.dy);
+  out.opened = { heart: inv.heart_of_the_mountain || 0, there: s.map.entities.some((e) => e.id === 'chest_vault') };
+  b.equip.charm = null;
+  const cache = world.entities.find((e) => e.id === 'chest_elfcache');
+  await s.enterMap(world.id, cache.x, cache.y + 2, { instant: true });
+  out.unseen = !s.map.entities.some((e) => e.id === 'chest_elfcache');
+  await s.wait();
+  out.stillUnseen = !s.map.entities.some((e) => e.id === 'chest_elfcache');
+  c.equip.charm = 'owl_feather';
+  await s.wait();
+  const p = s.state.pos;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const t = terrain(s.map.tiles[(p.y + dy) * s.map.w + p.x + dx]); if (t.walk && !t.water && !t.feature) { await s.move(dx, dy); break; } }
+  out.seen = s.map.entities.some((e) => e.id === 'chest_elfcache');
+  c.equip.charm = null;
+  // a charm of health moves the hero's health with it, on and off
+  const w = s.party.members.find((m) => m.cls === 'warrior');
+  w.hp = window.__charms.maxHp(g, w) - 3;
+  const hp0 = w.hp;
+  inv.shieldwall_torc = 1;
+  window.__charms.equipItem(g, w, g.items.find((i) => i.id === 'shieldwall_torc'), inv);
+  out.hp = { on: w.hp - hp0 };
+  window.__charms.unequip(w, 'charm', inv, g);
+  out.hp.off = w.hp - hp0;
+  return out;
+});
+check('mountains are closed until a charm of climbing is worn; the Dragon\'s Eyrie lies beyond', r.climbBlocked && r.eyrie.y === r.eyrie.want && r.eyrie.gem === 1, r);
+check('a sealed vault refuses keys and picks, and opens to the Ring of Opening', r.sealed.heart === 0 && r.sealed.there && r.opened.heart === 1 && !r.opened.there, r);
+check('a thing hidden from mortal eyes appears only to true sight', r.unseen && r.stillUnseen && r.seen, r);
+check('a charm of health raises the wearer\'s health, and taking it off lowers it again', r.hp.on === 6 && r.hp.off === 0, r);
+
 // ---- a shop with charms (the sample's curio-seller), for a look
 r = await ev(async () => {
   const s = window.__app.session, g = s.game;

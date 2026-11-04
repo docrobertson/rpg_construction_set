@@ -445,7 +445,7 @@ function addCharms(game, w) {
       kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
       kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
     ],
-    shop: { kind: 'charms', stock: ['lucky_acorn', 'tin_whistle', 'gull_feather', 'rabbit_foot', 'worry_stone', 'copper_bangle', 'glowworm_jar', 'honeycake_tin', 'shepherds_bell', 'hazel_twig', 'thieves_penny', 'nettle_ring', 'selkie_shell', 'merchants_brooch', 'owl_feather'], priceMod: 1 },
+    shop: { kind: 'charms', stock: ['lucky_acorn', 'tin_whistle', 'gull_feather', 'rabbit_foot', 'worry_stone', 'copper_bangle', 'glowworm_jar', 'honeycake_tin', 'shepherds_bell', 'hazel_twig', 'thieves_penny', 'thunder_egg', 'menders_pendant', 'nettle_ring', 'selkie_shell', 'merchants_brooch', 'owl_feather'], priceMod: 1 },
     rumour: 'There\'s an old woman on the quay at Gullhaven sells charms. Selkie shells and the like. My cousin swears by his lucky acorn.',
   });
   // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
@@ -454,6 +454,7 @@ function addCharms(game, w) {
   sell(deep?.entities.find((e) => e.shop?.kind === 'armor'), 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc');
   sell(deep?.entities.find((e) => e.shop?.kind === 'weapons'), 'forgespark_amulet');
   sell(npc('npc_pell'), 'lucky_acorn', 'giants_hobnail', 'honeycake_tin');
+  sell(npc('npc_nim'), 'fox_ring'); // (a thief's ring, from a thief)
   sell(mapNamed('Lindaleth')?.entities.find((e) => e.shop?.kind === 'reagents'), 'wildwood_whistle', 'hawk_eye');
   sell(mapNamed('Brookend')?.entities.find((e) => e.shop?.kind === 'provisions'), 'honeycake_tin', 'hearth_stone');
 
