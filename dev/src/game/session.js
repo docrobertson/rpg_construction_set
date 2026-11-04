@@ -945,7 +945,7 @@ export class PlaySession {
       if (burglar && rng.chance(0.75)) this.log(`${burglar.name} disarms a trap!`, 'good');
       else {
         this.log('A trap! Poison needles!', 'bad');
-        for (const m of partyAlive(this.party)) if (rng.chance(0.5) && !hasTrait(this.game, m, 'poisonResist')) m.status = 'poisoned';
+        for (const m of partyAlive(this.party)) if ((this.dv?.near(m, 1) ?? true) && rng.chance(0.5) && !hasTrait(this.game, m, 'poisonResist')) m.status = 'poisoned';
       }
     }
     const gold = chest.gold ? roll(chest.gold) : 0;
