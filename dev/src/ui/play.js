@@ -30,7 +30,7 @@ import { fillVellum, inkEdges } from './vellum.js';
 import { showTreasureMap, treasureCircles, drawTreasureCircles } from './treasureMap.js';
 import { isDug } from '../game/treasure.js';
 import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
-import { reagentUse, scrollUse, canCopy, copyScroll, hasBook } from '../game/magic.js';
+import { reagentUse, scrollUse, canCopy, copyScroll, hasBook, restoresPool, poolWords, poolName } from '../game/magic.js';
 import { heroKey } from '../game/delve.js';
 
 const MOVE_KEYS = {
@@ -738,7 +738,7 @@ export class PlayUI {
   handleHover(e) {
     const b = this.s.battle;
     if (b) {
-      const t = this.view.pick(e.clientX, e.clientY);
+      const t = this.battleTile(e.clientX, e.clientY);
       if (!t) { this.view.showCursor(null); return; }
       const u = b.unitAt(t.x, t.y);
       this.hoverEl.textContent = u ? `${b.label(u)}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}` : '';
@@ -761,7 +761,7 @@ export class PlayUI {
     this.press = null;
     if (this.gestures?.active) return;
     const b = this.s.battle;
-    if (b) { const t = this.view.pick(e.clientX, e.clientY); if (t) this.combatClick(t); return; }
+    if (b) { const t = this.battleTile(e.clientX, e.clientY); if (t) this.combatClick(t); return; }
     if (this.s.mode !== 'explore') return;
     if (this.pendingDir) {
       const t = this.view.pick(e.clientX, e.clientY);
@@ -788,6 +788,25 @@ export class PlayUI {
   // ------------------------------------------------------------ combat input (the battle HUD does the work)
   combatKey(e, dir) { this.chud.key(e, dir); }
   combatClick(t) { this.chud.click(t); }
+
+  // The square a battle click or hover means. A foe is picked by its body,
+  // not only by the ground at its feet: a tall monster's head, or one half
+  // hidden behind the top of a cave wall, can be clicked. Where figures
+  // overlap, the one nearer the camera is in front and takes the click (a
+  // great beast hides whoever stands behind it). An ally's figure counts only
+  // while choosing whom to heal or bless, so the ground behind a friend can
+  // still be walked to.
+  battleTile(cx, cy) {
+    const b = this.s.battle, v = this.view;
+    const want = new Set((this.targeting?.units || []).map((u) => u.id));
+    const id = v.pickEntity(cx, cy, (en) => {
+      const u = b.units.find((x) => x.id === en.id);
+      return !!u && b.alive(u) && (u.side === 'enemy' || want.has(u.id));
+    });
+    const u = id && b.units.find((x) => x.id === id);
+    if (u) return { x: u.x, y: u.y };
+    return v.pick(cx, cy);
+  }
   combatEvent(type, data) { this.chud.event(type, data); }
 
   combatStart() {
@@ -1324,8 +1343,8 @@ export class PlayUI {
     if (['heal', 'cure', 'mp', 'revive'].includes(it.effect)) {
       const g = this.s.game;
       const ms = this.s.party.members.filter((m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
-      if (ms.length && ms.every((m) => needFor(g, it.effect, m))) { this.s.log(`No one needs the ${it.name} right now (${needFor(g, it.effect, ms[0])}).`, 'warn'); sfx('error'); return; }
-      target = await this.chooseMember(`${it.name} — for whom?`, (m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(g, it.effect, m));
+      if (ms.length && ms.every((m) => needFor(g, it.effect, m, it))) { this.s.log(`No one needs the ${it.name} right now (${needFor(g, it.effect, ms[0], it)}).`, 'warn'); sfx('error'); return; }
+      target = await this.chooseMember(`${it.name} — for whom?`, (m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(g, it.effect, m, it));
       if (!target) return;
     }
     this.s.useItemField(it, target);
@@ -1700,7 +1719,7 @@ export function itemUse(g, it) {
   switch (it.effect) {
     case 'heal': return `Drink to heal one hero (${it.power || '2d8'} health)`;
     case 'cure': return 'Cures one hero of poison';
-    case 'mp': return `Restores one hero's mana (${it.power || '2d6'})`;
+    case 'mp': return `Restores one hero's ${poolWords(g, it)} (${it.power || '2d6'})`;
     case 'revive': return 'Brings a fallen hero back to life';
     case 'light': return 'Light it to see in dark halls and caves';
     case 'food': return `Food for the road (+${parseInt(it.power, 10) || 25})`;
@@ -1727,9 +1746,13 @@ function magicNote(g, members, it) {
 }
 
 // Why a hero would gain nothing from a heal / cure / mana (null if they would)
-function needFor(g, effect, m) {
+function needFor(g, effect, m, item = null) {
   if (effect === 'heal') return m.hp >= maxHp(g, m) ? 'already at full health' : null;
-  if (effect === 'mp') return maxMp(g, m) <= 0 ? 'has no mana' : m.mp >= maxMp(g, m) ? 'mana already full' : null;
+  if (effect === 'mp') {
+    if (maxMp(g, m) <= 0) return item?.pool?.length ? `has no ${poolWords(g, item)}` : 'has no mana';
+    if (item && !restoresPool(g, item, m)) return `not for ${poolName(g, m)}`;
+    return m.mp >= maxMp(g, m) ? `${poolName(g, m)} already full` : null;
+  }
   if (effect === 'cure') return m.status !== 'poisoned' ? 'not poisoned' : null;
   return null;
 }

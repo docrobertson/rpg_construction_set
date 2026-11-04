@@ -26,7 +26,7 @@ import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from '
 import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
 import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
-import { forageFind, lootTag } from './magic.js';
+import { forageFind, lootTag, restoresPool, poolWords, poolName } from './magic.js';
 import { buyShip } from './ships.js';
 import { Delve, isBattleground } from './delve.js';
 // (charms) what heroes wear: battle hooks, and the ways and paces it opens
@@ -1686,9 +1686,10 @@ export class PlaySession {
         this.log(`${target.name} is cured.`, 'good'); consume(); break;
       case 'mp': {
         if (!target) return false;
+        if (!restoresPool(this.game, item, target)) { this.log(`The ${item.name} does nothing for ${target.name}: it renews ${poolWords(this.game, item)}.`, 'warn'); return false; }
         const amt = roll(item.power || '2d6');
         target.mp = Math.min(maxMp(this.game, target), target.mp + amt);
-        this.log(`${target.name} regains ${amt} mana.`, 'good'); consume(); break;
+        this.log(`${target.name} regains ${amt} ${poolName(this.game, target).toLowerCase()}.`, 'good'); consume(); break;
       }
       case 'revive':
         if (!target || target.status !== 'dead') { this.log('Only the fallen can be revived.'); return false; }

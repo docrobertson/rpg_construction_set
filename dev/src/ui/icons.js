@@ -175,7 +175,7 @@ export function itemIcon(it) {
     case 'weapon': return [WEAPON_ICONS[it.wkind] || ((it.range || 1) > 1 ? 'bow' : 'sword'), 'steel'];
     case 'armor': return it.weight === 'cloth' ? ['robe', 'cloth'] : ['armor', it.weight === 'leather' ? 'leather' : 'steel'];
     case 'shield': return ['shield', 'steel'];
-    case 'consumable': return [EFFECT_ICONS[it.effect] || 'potion', EFFECT_TONES[it.effect] || 'paper'];
+    case 'consumable': return [it.icon || EFFECT_ICONS[it.effect] || 'potion', it.tint || EFFECT_TONES[it.effect] || 'paper'];
     case 'reagent': return [it.icon || 'herb', 'herb'];
     case 'scroll': return ['scroll', 'paper'];
     case 'key': return ['key', 'goldish'];

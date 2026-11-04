@@ -10,7 +10,7 @@ import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
-import { perkText, heroSchool, poolName } from '../game/magic.js';
+import { perkText, heroSchool, poolName, restoresPool } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 
 const hexCss = (n) => '#' + ((n ?? 0xe8c069) >>> 0).toString(16).padStart(6, '0');
@@ -747,7 +747,7 @@ export class CombatHud {
     const item = await ui.chooseFrom('Use which item?', items.map((it) => ({ label: `${it.name} ×${inv[it.id]}`, sub: it.desc, value: it })));
     if (!item) return;
     const ts = b.partyUnits.filter((p) => (item.effect === 'revive' ? p.dead && !p.fled : b.alive(p)));
-    const tgt = await ui.chooseFrom(`${item.name} — on whom?`, targetChoices(this.game, ts, item.effect));
+    const tgt = await ui.chooseFrom(`${item.name} — on whom?`, targetChoices(this.game, ts, item.effect, item));
     if (tgt) b.actUse(item, tgt, u);
   }
 
@@ -799,12 +799,15 @@ export class CombatHud {
 
 // Whom a draught, tonic, feather or healing spell can go to: anyone, but those
 // it would be wasted on are greyed out with the reason, and the hurt come first
-function targetChoices(game, units, effect) {
+function targetChoices(game, units, effect, item = null) {
   const opt = (t) => {
     const m = t.member, mh = maxHp(game, m), mm = maxMp(game, m);
     let why = '';
     if (effect === 'heal' && !t.dead && m.hp >= mh) why = 'Already at full health';
-    else if (effect === 'mp' && m.mp >= mm) why = mm ? 'Mana already full' : 'Has no mana';
+    else if (effect === 'mp' && !mm) why = 'Has no spell points';
+    // (a candle renews Faith, not a sorcerer's mana)
+    else if (effect === 'mp' && item && !restoresPool(game, item, m)) why = `Not for ${poolName(game, m)}`;
+    else if (effect === 'mp' && m.mp >= mm) why = `${poolName(game, m)} already full`;
     else if (effect === 'cure' && m.status !== 'poisoned') why = 'Not poisoned';
     return { label: `${t.name} (${m.hp}/${mh} HP${t.dead ? ', fallen' : ''})`, tag: why || null, sub: why ? null : effect === 'heal' ? `Missing ${mh - m.hp} health` : null, value: t, disabled: !!why, why, need: m.hp / Math.max(1, mh) };
   };

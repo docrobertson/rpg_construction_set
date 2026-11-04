@@ -34,6 +34,21 @@ export function manaSchool(game, c) { return schoolLook(casting(game, c).find((c
 // "Mana", "Faith", "Voice": what this hero's spell points are called
 export function poolName(game, c) { return manaSchool(game, c)?.resName || 'Mana'; }
 
+// Does a restoring item (effect 'mp') work for this hero? Each names the
+// schools whose pool it refills (item.pool); one that names none (an older
+// game's) refills any
+export function restoresPool(game, item, c) {
+  if (!item?.pool?.length) return true;
+  const sch = manaSchool(game, c);
+  return !!sch && item.pool.includes(sch.sys.id);
+}
+
+// "mana", "Faith" or "mana or Faith": what a restoring item refills
+export function poolWords(game, item) {
+  if (!item?.pool?.length) return 'mana';
+  return item.pool.map((id) => (game.magic || []).find((m) => m.id === id)?.resName || id).join(' or ');
+}
+
 // A talent as this hero sees it: the deeper-pool talent is named for the
 // pool they actually draw on (a cleric's Faith, a minstrel's Voice)
 const POOL_TALENT = { Mana: 'Deep Well', Faith: 'Deep Faith', Voice: 'Strong Voice' };

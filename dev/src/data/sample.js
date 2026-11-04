@@ -662,7 +662,7 @@ function placeWonders(game, w, { barrow, fortress, tower, village }) {
     lookExtra: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x8a2a2a, cape: 0x5a3a1a },
     greeting: 'Pell\'s Peerless Provisions! Rare goods from four kingdoms! Wouldst thou BUY?',
     job: 'I walk the roads with the finest goods in Eldmark. Prices are fair — mostly. Ask to BUY.',
-    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
+    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'votive_candle', 'larks_honey', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
     keywords: [kw('RUMOURS', 'They say a troll has claimed the Eldwater bridge. Pays to be clever with trolls — or rich.')],
     rumour: 'Pell the pedlar walks the great road. He sells things you won\'t find in any shop.',
   });
@@ -1060,7 +1060,7 @@ function dressCastle(game, map) {
     greeting: 'Provisions for the King\'s champions? Thou\'lt not march far on an empty belly.',
     job: 'I keep the castle stores: FOOD, torches and draughts. Wouldst thou BUY?',
     keywords: [kw('FOOD', 'Rations, waybread, salt pork. Every hero eats a ration each twenty paces or so in the wild — more than folk expect. Stock up before the road.')],
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'iron_key'] },
+    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'votive_candle', 'larks_honey', 'iron_key'] },
   });
   nameNpcs(map, game, 2);
   const smith = map.entities.find((x) => x.shop?.kind === 'weapons');
@@ -1114,7 +1114,7 @@ function dressElves(game, map) {
     lookExtra: { body: 0x8ab06a, robe: true, trim: 0xf0e0b0 },
     greeting: 'Thou lookest hungry. Elven waybread keeps for a month and fills a soldier for a day.',
     job: 'I bake the waybread of Lindaleth, and keep a few draughts besides. Wouldst thou BUY?',
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'torch'] },
+    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'votive_candle', 'larks_honey', 'torch'] },
   });
   nameNpcs(map, game, 3);
   const singer = addNpc(map, 12, 22, {

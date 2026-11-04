@@ -521,7 +521,12 @@ export const ITEMS = [
   { id: 'healing_draught', name: 'Healing Draught', type: 'consumable', effect: 'heal', power: '2d8+2', price: 25, combat: true, desc: 'A bitter green draught that knits wounds.' },
   { id: 'greater_draught', name: 'Greater Draught', type: 'consumable', effect: 'heal', power: '4d8+6', price: 70, combat: true, desc: 'A potent restorative.' },
   { id: 'antidote', name: 'Antidote', type: 'consumable', effect: 'cure', price: 15, combat: true, desc: 'Draws poison from the blood.' },
-  { id: 'mana_tonic', name: 'Mana Tonic', type: 'consumable', effect: 'mp', power: '2d6+2', price: 45, combat: true, desc: 'Restores magical energy.' },
+  // (each refills one kind of pool: a sorcerer's mana is not a cleric's faith)
+  { id: 'mana_tonic', name: 'Mana Tonic', type: 'consumable', effect: 'mp', pool: ['arcane'], power: '2d6+2', price: 45, combat: true, desc: 'A blue, fizzing draught that refills a sorcerer\'s mana.' },
+  { id: 'votive_candle', name: 'Votive Candle', type: 'consumable', effect: 'mp', pool: ['divine'], power: '2d6+2', price: 45, combat: true, icon: 'torch', tint: 'fire',
+    desc: 'A blessed beeswax candle. Lit and prayed over, it renews a cleric\'s or paladin\'s Faith.' },
+  { id: 'larks_honey', name: 'Lark\'s Honey', type: 'consumable', effect: 'mp', pool: ['song'], power: '2d6+2', price: 45, combat: true, icon: 'drop', tint: 'food',
+    desc: 'Wild honey from the meadows where larks nest. A spoonful soothes the throat and brings back an elven singer\'s Voice.' },
   { id: 'phoenix_feather', name: 'Phoenix Feather', type: 'consumable', effect: 'revive', price: 300, combat: true, desc: 'Brings a fallen companion back from the brink.' },
   { id: 'torch', name: 'Torch', type: 'consumable', effect: 'light', power: '100', price: 3, combat: false, desc: 'Pitch-soaked; lights the dark places for a while.' },
   { id: 'rations', name: 'Rations (x25)', type: 'consumable', effect: 'food', power: '25', price: 20, combat: false, desc: 'Waybread, salt meat and dried apples. Adds 25 food.' },

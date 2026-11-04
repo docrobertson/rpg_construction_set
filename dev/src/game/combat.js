@@ -16,7 +16,7 @@ import {
   perkCount, mod, classOf, levelUpNote,
 } from './rules.js';
 import { sfx } from '../core/sound.js';
-import { lootTag } from './magic.js';
+import { lootTag, restoresPool, poolWords } from './magic.js';
 import { BattleFx } from '../render/fx.js';
 
 const PARTY_SPOTS = [[6, 7], [5, 7], [7, 7], [4, 7], [8, 7], [6, 8], [5, 8], [7, 8]];
@@ -1636,6 +1636,7 @@ export class Battle {
         break;
       case 'mp':
         if (!tm) return false;
+        if (!restoresPool(this.game, item, tm)) { this.log(`The ${item.name} does nothing for ${tm.name}: it renews ${poolWords(this.game, item)}.`, 'warn'); return false; }
         inv[item.id]--;
         tm.mp = Math.min(maxMp(this.game, tm), tm.mp + roll(item.power || '2d6'));
         this.fx.healFx(target.x, target.y, 0x80a0ff);

@@ -517,14 +517,22 @@ export class Delve {
       const more = this.freeSquares(to.x, to.y, fol.length + 6, (px, py) => !used.has(sq(px, py)) && this.walkable(px, py) && !this.memberAt(px, py) && !this.entityBlocks(px, py) && !terrain(getTile(this.map, px, py)).door, (px, py) => this.heroPass(px, py));
       for (const p of more) { if (slots.length >= fol.length) break; if (!used.has(sq(p.x, p.y))) { slots.push(p); used.add(sq(p.x, p.y)); } }
     }
-    const order = bumped && bumped !== lead ? [bumped, ...fol.filter((m) => m !== bumped)] : fol;
+    // Front to back by how far each must walk to the leader: the nearest takes
+    // the square just behind them, the next the one behind that, so each
+    // steps where the one ahead stood. (In roster order, a hero at the back
+    // of a corridor was given the front square, found the way blocked by the
+    // others, and stayed put — falling further behind with every step.)
+    const reach = this.stepsFrom(to);
+    const away = (m) => { const q = this.pos(m); return reach.get(sq(q.x, q.y)) ?? 999; };
+    const byNear = [...fol].sort((a, b) => away(a) - away(b));
+    const order = bumped && bumped !== lead ? [bumped, ...byNear.filter((m) => m !== bumped)] : byNear;
     const claimed = new Set();
     const finals = new Set([sq(to.x, to.y)]);
     const where = new Map(fol.map((m) => [m, this.pos(m)]));
     const done = new Set();
     for (const m of order) {
       const at = where.get(m);
-      let idx = fol.indexOf(m);
+      let idx = byNear.indexOf(m);
       if (idx >= slots.length || claimed.has(idx)) idx = slots.findIndex((_, i) => !claimed.has(i));
       const goal = idx >= 0 ? slots[idx] : null;
       if (idx >= 0) claimed.add(idx);
@@ -532,7 +540,8 @@ export class Delve {
       const block = new Set(finals);
       for (const o of order) if (o !== m && !done.has(o)) { const q = where.get(o); block.add(sq(q.x, q.y)); }
       let path = (goal && (goal.x !== at.x || goal.y !== at.y) ? this.pathFor(at, goal, block) : null) || [];
-      path = path.slice(0, 2);
+      // a straggler hurries: three squares to the others' two
+      path = path.slice(0, path.length > 3 ? 3 : 2);
       while (path.length && block.has(sq(path[path.length - 1][0], path[path.length - 1][1]))) path.pop();
       let end = path.length ? { x: path[path.length - 1][0], y: path[path.length - 1][1] } : at;
       // whoever the leader stepped onto changes places with them
@@ -546,6 +555,23 @@ export class Delve {
         (async () => { for (const [px, py] of path) await this.view.moveEntity(id, px, py, dur, hop); })();
       }
     }
+  }
+
+  // walking steps from a square to every square near it (heroes ignored)
+  stepsFrom(p, max = 40) {
+    const d = new Map([[sq(p.x, p.y), 0]]);
+    const q = [[p.x, p.y]];
+    for (let i = 0; i < q.length; i++) {
+      const [x, y] = q[i], k = d.get(sq(x, y));
+      if (k >= max) continue;
+      for (const [dx, dy] of DIR4) {
+        const nx = x + dx, ny = y + dy, nk = sq(nx, ny);
+        if (d.has(nk) || !this.heroPass(nx, ny)) continue;
+        d.set(nk, k + 1);
+        q.push([nx, ny]);
+      }
+    }
+    return d;
   }
 
   // up to 30 squares of breadth-first search for a hero from a to b, avoiding `block`

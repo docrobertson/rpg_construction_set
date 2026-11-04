@@ -78,6 +78,7 @@ export function newGame(opts = {}) {
   world.name = 'The World';
   game.maps.push(world);
   game.settings.charmsV = CHARMS_V; // (born with charms: nothing to migrate)
+  game.settings.poolsV = 1;
   game.settings.start = findStart(world);
   return game;
 }
@@ -161,6 +162,7 @@ export function migrateGame(game) {
   ensure('spells', SPELLS);
   ensure('monsters', MONSTERS);
   migrateCharms(game);
+  migratePools(game);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   migrateMagic(game);
   // classes from before class specials existed get their default one
@@ -189,6 +191,24 @@ export function migrateCharms(game) {
   for (const [id, magic] of Object.entries(GEAR_MAGIC)) {
     const it = game.items.find((x) => x.id === id);
     if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
+  }
+}
+
+// Restoring draughts once refilled any pool, so a cleric drank Mana Tonic for
+// Faith. Now each names the pool it refills; older games learn which the
+// built-in tonic is and gain a candle for Faith and honey for Voice, stocked
+// wherever the tonic is sold. (A designer's own draughts, naming none, still
+// refill any pool.)
+export function migratePools(game) {
+  if (game.settings.poolsV >= 1) return;
+  game.settings.poolsV = 1;
+  const tonic = game.items.find((x) => x.id === 'mana_tonic');
+  if (tonic && tonic.effect === 'mp' && tonic.pool === undefined) tonic.pool = ['arcane'];
+  const fresh = ITEMS.filter((d) => (d.id === 'votive_candle' || d.id === 'larks_honey') && !game.items.some((x) => x.id === d.id));
+  for (const d of fresh) game.items.push(deepClone(d));
+  for (const m of game.maps) for (const e of m.entities || []) {
+    const st = e.shop?.stock;
+    if (Array.isArray(st) && st.includes('mana_tonic')) for (const d of fresh) if (!st.includes(d.id)) st.push(d.id);
   }
 }
 
