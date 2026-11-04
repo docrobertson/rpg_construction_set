@@ -5,6 +5,7 @@ import { createMaterials, shared, silhouetteMaterial } from './materials.js';
 import { TerrainView, WATER_Y, LAVA_Y } from './terrainView.js';
 import { BuildingsView } from './houses.js';
 import { makeModel } from './models.js';
+import { CONTAINER_BUILDERS } from './containers.js';
 import { Followers } from './followers.js';
 import { HeadMarkers, PathPreview, HoverGlow } from './markers.js';
 import { terrain } from '../data/terrain.js';
@@ -28,6 +29,7 @@ const LIGHTING = {
 };
 const WORLD_FIGURE = 0.78;
 const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
+for (const k of Object.keys(CONTAINER_BUILDERS)) WORLD_POI.add(k); // (the other things treasure is found in)
 const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {
