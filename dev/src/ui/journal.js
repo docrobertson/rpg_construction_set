@@ -9,7 +9,7 @@ import {
   activeQuests, doneQuests, trackedQuest, currentStage, questState, stageLine, stageLineHere, guidance, questPins, onTalk, offersFrom, startQuest, npcMarker,
   goalTarget, pinQuest, isPinned, greetingFor,
 } from '../game/quests.js';
-import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS, visibleChoices, applyEffects } from '../game/events.js';
+import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS, EVENT_DOTS, eventDot, visibleChoices, applyEffects } from '../game/events.js';
 import { shipDeal } from '../game/dialog.js';
 import { terrain } from '../data/terrain.js';
 import { getTile } from '../world/map.js';
@@ -218,10 +218,10 @@ export class QuestUI {
       for (const e of map.entities) {
         if (e.type !== 'event' || (s.visible && !map.explored[e.y * map.w + e.x])) continue;
         if (terrain(getTile(map, e.x, e.y)).feature) continue; // (on a site square: the site shows it)
-        const known = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' };
-        const c = known[e.kind] || '#d0a0ff';
-        shown.events.add(known[e.kind] ? e.kind : 'other');
-        ctx.fillStyle = c;
+        // (coloured by group: farms and mills, ruins and graves...)
+        const dot = eventDot(e);
+        shown.events.add(dot);
+        ctx.fillStyle = EVENT_DOTS[dot][0];
         ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.arc(e.x * scale + scale / 2, e.y * scale + scale / 2, Math.max(2, scale * 0.6), 0, Math.PI * 2);
