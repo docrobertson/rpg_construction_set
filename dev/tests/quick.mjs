@@ -95,6 +95,18 @@ r = await ev(async () => {
 });
 check('a battle begins with its HUD', r.battle && r.hud, r);
 
+// every tune parses (bars add up) and plays something, not too loud
+r = await ev(async () => {
+  const out = {};
+  for (const mood of Object.keys(window.__music.SONGS)) {
+    const d = (await window.__music.renderSong(mood, 3, 8000)).getChannelData(0);
+    let peak = 0; for (const x of d) peak = Math.max(peak, Math.abs(x));
+    out[mood] = +peak.toFixed(3);
+  }
+  return out;
+});
+check('every tune plays, none too loud', Object.keys(r).length >= 5 && Object.values(r).every((p) => p > 0.02 && p < 0.9), r);
+
 check('no page errors', !errors.length, errors.slice(0, 5));
 await browser.close();
 console.log(fails ? `${fails} FAILED` : 'quick: all passed');
