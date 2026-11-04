@@ -9,7 +9,7 @@ import {
 import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
-import { ensureCombatData } from '../../game/rules.js';
+import { ensureCombatData, classSkills, SPECIAL_LEVEL } from '../../game/rules.js';
 import { ICON_NAMES } from '../icons.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 
@@ -39,6 +39,10 @@ const abilityFields = () => [
   { key: 'radius', label: 'Radius', type: 'number', min: 0, max: 4, show: (o) => ['nearbyFoes', 'nearbyAllies', 'tile'].includes(o.target) },
   { key: 'count', label: 'Number of foes', type: 'number', min: 1, max: 6, show: (o) => o.target === 'multi' },
   { key: 'move', label: 'Movement', type: 'select', empty: '— none —', nullable: true, options: [['teleport', 'Teleport to the chosen square'], ['beside', 'Appear beside the target'], ['charge', 'Charge at the target']] },
+  { key: 'others', label: 'Only companions (not the user)', type: 'check', show: (o) => o.target === 'ally' },
+  { key: 'revive', label: 'Raises a companion fallen in this battle (heals the share below)', type: 'check', show: (o) => o.target === 'ally' },
+  { key: 'chain', label: 'Leaps on to more foes', type: 'number', min: 0, max: 6, show: (o) => o.target === 'enemy', hint: 'Each leap goes from the last foe struck to the nearest one not yet struck' },
+  { key: 'chainRange', label: 'Leap distance (squares)', type: 'number', min: 1, max: 6, show: (o) => o.target === 'enemy' && o.chain > 0 },
   { type: 'section', label: 'Effect' },
   { key: 'attack', label: 'Weapon attack', type: 'select', empty: '— no attack roll —', nullable: true, options: [['melee', 'Melee weapon'], ['ranged', 'Ranged weapon']], rerender: true },
   { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => !!o.attack },
@@ -47,7 +51,10 @@ const abilityFields = () => [
   { key: 'autoCrit', label: 'Always a critical hit', type: 'check', show: (o) => !!o.attack },
   { key: 'ignoreCover', label: 'Ignores cover', type: 'check', show: (o) => o.attack === 'ranged' },
   { key: 'needs', label: 'Needs a ranged weapon', type: 'select', empty: '— nothing —', nullable: true, options: [['ranged', 'A bow, crossbow or sling']] },
+  { key: 'execute', label: 'Finishing blow below this share of health', type: 'number', step: 0.05, min: 0, max: 1, show: (o) => !!o.attack, hint: 'Against a foe this badly hurt it cannot miss and deals double damage (0.34 = a third)' },
+  { key: 'thrown', label: 'Thrown missile (damage dice)', type: 'dice', placeholder: '1d4', show: (o) => !o.attack, hint: 'Rolls to hit with Dexterity, like a shot, but needs no bow (a knife, a bottle)' },
   { key: 'damage', label: 'Sure damage (no roll to hit)', type: 'dice', placeholder: '1d8', show: (o) => !o.attack },
+  { key: 'undeadOnly', label: 'Its damage harms only the undead', type: 'check', show: (o) => !!o.damage },
   { key: 'heal', label: 'Healing', type: 'dice', placeholder: '1d6+1' },
   { key: 'healPct', label: 'Heal a share of health', type: 'number', step: 0.05, min: 0, max: 1 },
   { key: 'stat', label: 'Adds the modifier of', type: 'select', empty: '— none —', nullable: true, options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'For damage and healing; monsters add half their level' },
@@ -55,7 +62,20 @@ const abilityFields = () => [
   { key: 'lifesteal', label: 'Heals the user for this share of damage', type: 'number', step: 0.05, min: 0, max: 1 },
   { key: 'cure', label: 'Cures poison', type: 'check' },
   { key: 'knockback', label: 'Knock back (squares)', type: 'number', min: 0, max: 4 },
+  { key: 'pull', label: 'Drag towards the user (squares)', type: 'number', min: 0, max: 6 },
+  { key: 'steal', label: 'Lifts the foe\'s purse (its gold, once per foe)', type: 'check', show: (o) => o.target === 'enemy' },
+  { key: 'addMoves', label: 'More squares of movement this turn', type: 'number', min: 0, max: 8 },
+  { key: 'extraTurn', label: 'The companion takes an extra turn straight after', type: 'check', show: (o) => o.target === 'ally' },
   statusList(),
+  { type: 'section', label: 'Calls a creature, or marks the ground' },
+  { key: 'summon', label: 'Calls into the fight', type: 'select', empty: '— nothing —', nullable: true, rerender: true, options: () => (abilityGame?.monsters || []).map((m) => [m.id, m.name]),
+    hint: 'A monster that fights on the user\'s side, on the chosen square (Affects: tile). It grows a little stronger with the caller\'s level.' },
+  { key: 'summonName', label: 'Called', type: 'text', placeholder: 'Spirit Wolf', show: (o) => !!o.summon },
+  { key: 'summonTint', label: 'Tinted', type: 'color', nullable: true, show: (o) => !!o.summon },
+  { key: 'place', label: 'Marks the ground', type: 'select', empty: '— no —', nullable: true, rerender: true,
+    options: [['trap', 'Trap: the first foe to step on the square suffers the ability'], ['zone', 'Zone: harms foes and mends friends who start a turn there or walk in']],
+    hint: 'Aimed at a square (Affects: tile) or round the user (Affects: self). Radius sets its size.' },
+  { key: 'lasts', label: 'Lasts (turns of the creature, rounds of the mark)', type: 'number', min: 1, max: 12, show: (o) => !!(o.summon || o.place) },
   { type: 'section', label: 'Use' },
   { key: 'cooldown', label: 'Cooldown (turns)', type: 'number', min: 0, max: 10 },
   { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
@@ -111,8 +131,12 @@ const ITEM_GROUPS = { weapon: 'Weapons', armor: 'Armour & shields', shield: 'Arm
 
 const WEAPON_MODELS = ['sword', 'greatsword', 'axe', 'hammer', 'mace', 'club', 'staff', 'spear', 'dagger', 'bow', 'crossbow', 'sling'];
 
+// (the game whose monsters an ability can call: set by categories())
+let abilityGame = null;
+
 export function categories(game) {
   ensureCombatData(game);
+  abilityGame = game;
   const abilities = () => game.abilities.map((a) => [a.id, `${a.name}${a.special ? ' ★' : ''}${a.monster ? ' (monster)' : ''}`]);
   const items = () => game.items.map((i) => [i.id, i.name]);
   const systems = () => game.magic.map((m) => [m.id, m.name]);
@@ -152,8 +176,15 @@ export function categories(game) {
         { key: 'armor', label: 'Heaviest armour', type: 'select', options: ARMOR_WEIGHTS },
         { key: 'shields', label: 'Can use shields', type: 'check' },
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
-        { key: 'skills', label: 'Battle skills (keys 1, 2…)', type: 'ids', options: abilities, hint: 'Defined under Abilities. Most have a cooldown; free actions do not end the turn.' },
+        { key: 'skills', label: 'Battle skills, and the level each is learned at', type: 'list', fields: [
+          { key: 'id', label: 'Skill', type: 'select', options: abilities },
+          { key: 'level', label: 'Learned at level', type: 'number', min: 1, max: 20 },
+        ], inline: true, get: (o) => { if ((o.skills || []).some((x) => typeof x === 'string')) o.skills = classSkills(o); return o.skills; },
+          rowLabel: (r) => `${game.abilities.find((a) => a.id === r.id)?.name || r.id || 'Skill'} — level ${r.level || 1}`,
+          newRow: () => ({ id: game.abilities.find((a) => !a.monster && !a.special && !a.general)?.id, level: 5 }), addLabel: '+ Add skill',
+          hint: 'Defined under Abilities. They go on the battle bar (keys 1–9) as the hero reaches each level; the built-in callings learn theirs at 1, 3, 5, 7 and 9.' },
         { key: 'special', label: 'Battle special (key Q)', type: 'select', empty: '— none —', nullable: true, options: abilities, hint: 'Usually a once-per-battle ability (★).' },
+        { key: 'specialLevel', label: 'Special learned at level', type: 'number', min: 1, max: 20, placeholder: String(SPECIAL_LEVEL), nullable: true, show: (o) => !!o.special, hint: `Empty: level ${SPECIAL_LEVEL}` },
         { key: 'talents', label: 'Talent tree', type: 'select', empty: '— guess from the skills —', nullable: true, options: Object.entries(TALENT_TREES), hint: 'On each level-up a hero picks one of three talents, mostly from this tree.' },
         { key: 'primary', label: 'Favoured attributes', type: 'multicheck', options: STATS.map((s) => [s, STAT_NAMES[s]]), hint: 'Suggested when creating a hero. Players spend a point per level themselves.' },
         { key: 'start', label: 'Starting equipment', type: 'ids', options: items },
@@ -307,12 +338,15 @@ export function categories(game) {
     },
     abilities: {
       label: 'Abilities', icon: '💥', list: game.abilities,
-      group: (a) => (a.monster ? 'Monster abilities' : a.special ? 'Class specials ★' : 'Class skills'),
+      group: (a) => (a.monster ? 'Monster abilities' : a.special ? 'Class specials ★' : a.general ? 'Battle arts (any calling)' : 'Class skills'),
       blank: () => ({ name: 'New Ability', icon: 'star', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 2, statuses: [], vfx: 'slash', fx: 0xffe080, desc: '' }),
       fields: [
         ...abilityFields().slice(0, 3),
         { key: 'special', label: 'A class special (★, key Q)', type: 'check' },
         { key: 'monster', label: 'Monster ability (hidden from class lists)', type: 'check' },
+        { key: 'general', label: 'A battle art: any hero may learn it', type: 'check', rerender: true, show: (o) => !o.monster && !o.special,
+          hint: 'On every second level one of the three talents on offer is a battle art the hero does not know yet.' },
+        { key: 'level', label: 'Offered from level', type: 'number', min: 2, max: 20, placeholder: '2', show: (o) => !!o.general },
         ...abilityFields().slice(3),
       ],
     },

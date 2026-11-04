@@ -836,7 +836,7 @@ export class Delve {
     this.blocks = null;
     this.s.updateVisibility();
     if (this.s.peaceful) return;
-    const found = u?.side === 'party' && b.alive(u) ? this.notices([u.member]) : [];
+    const found = u?.member && b.alive(u) ? this.notices([u.member]) : [];
     const heard = [];
     if (u && b.alive(u)) {
       for (const [gid, g] of Object.entries(this.groups)) {
@@ -852,7 +852,7 @@ export class Delve {
   onMoved(u) {
     this.s.updateVisibility();
     const b = this.battle;
-    if (!b || this.s.peaceful || u?.side !== 'party' || !b.alive(u)) return;
+    if (!b || this.s.peaceful || !u?.member || !b.alive(u)) return;
     for (const f of this.notices([u.member])) this.join(b, f.gid, `${this.groupName(f.gid)} ${this.plural(f.gid) ? 'notice' : 'notices'} ${f.hero.name} and ${this.plural(f.gid) ? 'join' : 'joins'} the fight!`);
   }
 
@@ -958,7 +958,7 @@ export class Delve {
     let exit = null;
     const won = res.outcome === 'victory';
     for (const u of b.units) {
-      if (u.side !== 'party') continue;
+      if (u.side !== 'party' || !u.member) continue; // (a creature a hero called is gone with the fight)
       const m = u.member, key = heroKey(m);
       if (m.status === 'dead' || u.dead) { delete this.data.heroes[key]; continue; }
       if (u.fled) {

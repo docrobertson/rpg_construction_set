@@ -12,6 +12,7 @@ import { isBattleground } from '../../game/delve.js';
 import { isHoard } from '../../game/charms.js';
 import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.js';
 import { containerLookFields } from './containerFields.js';
+import { battleArts } from '../../game/rules.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -146,6 +147,8 @@ export function inspectEntity(ed, ent, container) {
           { key: 'recruit.cls', label: 'Joins as', type: 'select', options: () => game.classes.map((c) => [c.id, c.name]) },
           { key: 'recruit.race', label: 'Race', type: 'select', options: () => game.races.map((r) => [r.id, r.name]) },
           { key: 'recruit.level', label: 'Level', type: 'number', min: 1, max: 20 },
+          { key: 'recruit.arts', label: 'Knows these battle arts', type: 'multicheck', options: () => battleArts(game).map((a) => [a.id, a.name]),
+            hint: 'Skills any calling can learn (Abilities → battle arts); the rest come with their class and level' },
           { key: 'recruit.joinText', label: 'Says on joining', type: 'text' },
           { key: 'recruit.after', label: 'Joins after quest', type: 'select', options: () => [['', '— any time —'], ...(game.quests || []).map((q) => [q.id, q.name])], hint: 'Only once this quest is done; they ask to join as it ends' },
           { key: 'recruit.offerText', label: 'Says when offering', type: 'text', show: (o) => !!o.recruit?.after },

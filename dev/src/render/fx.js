@@ -508,6 +508,39 @@ export class BattleFx {
     return handle;
   }
 
+  // A mark that lies on the ground a while: a zone's softly tinted squares
+  // (hallowed ground, caltrops), or a rune trap's glowing circle. Returns a
+  // handle with remove(), like danger().
+  ground(tiles, color = 0xffe080, kind = 'zone') {
+    const trap = kind === 'trap';
+    const ms = [];
+    // (a zone is a soft glowing pool, not squares: it must not look like the
+    // blue and amber squares of a move)
+    for (const t of tiles) {
+      if (trap) {
+        ms.push(this.decal('ring', color, 0.92, t.x, t.y, 0.9, true));
+        ms.push(this.decal('star', color, 0.62, t.x, t.y, 0.75, true));
+      } else {
+        ms.push(this.decal('glow', color, 1.55, t.x, t.y, 0.42, true));
+        ms.push(this.decal('star', color, 0.42, t.x, t.y, 0.5, true));
+      }
+    }
+    let on = true;
+    const t0 = performance.now();
+    const base = ms.map((m) => m.material.opacity);
+    const pulse = () => {
+      if (!on) return;
+      const k = 0.78 + Math.sin((performance.now() - t0) / (trap ? 420 : 600)) * 0.22;
+      ms.forEach((m, i) => { m.material.opacity = base[i] * k; });
+      for (let i = 1; i < ms.length; i += 2) ms[i].rotation.z = (performance.now() - t0) / (trap ? 2400 : 5000);
+      this.view.tween(0.08, () => {}, pulse);
+    };
+    pulse();
+    const handle = { tiles, remove: () => { on = false; for (const m of ms) this.drop(m); this.loops.delete(handle); } };
+    this.loops.add(handle);
+    return handle;
+  }
+
   clear() {
     for (const l of [...this.loops]) l.remove();
     for (const o of [...this.objs]) this.drop(o);

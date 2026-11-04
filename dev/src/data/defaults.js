@@ -36,6 +36,16 @@ export const CLASS_ABILITIES = {
 //   move     teleport (to the chosen tile) | beside (appear next to the target) | charge (rush at it)
 //   cooldown rounds before it can be used again; perBattle limits uses; free keeps the turn going
 //   windup   the blow lands a turn later on whoever still stands in the marked squares
+// and, for the skills heroes learn as they rise (game/combat.js has the rules):
+//   others   an ally ability that cannot be aimed at the user; revive raises a companion fallen this battle
+//   thrown   dice of a thrown missile (rolls to hit with Dexterity, no bow needed)
+//   pull     squares the target is dragged towards the user; chain/chainRange: leaps to more foes
+//   execute  below this share of health the target is struck surely, for double damage
+//   steal    lifts the foe's purse (once each); addMoves: more squares this turn; extraTurn: an ally acts next
+//   summon   a monster id called to the chosen square for `lasts` turns (summonName, summonTint)
+//   place    trap (the first foe to step on the square suffers the ability) | zone (the squares
+//            harm foes and mend friends who start a turn there or walk in) for `lasts` rounds
+//   general  a battle art any hero may learn, offered among the talents from `level` on
 export const ABILITIES = [
   // Warrior
   { id: 'shield_bash', name: 'Shield Bash', icon: 'bash', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 3, knockback: 1,
@@ -94,6 +104,84 @@ export const ABILITIES = [
     desc: 'Free action. Carve a ward on yourself or a companion within 3: +3 armour for two rounds.' },
   { id: 'earthshaker', name: 'Earthshaker', icon: 'quake', special: true, target: 'nearbyFoes', radius: 1, damage: '1d8', stat: 'str', perBattle: 1, statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'earth', fx: 0x9a8a70,
     desc: 'Once per battle. Slam the ground: every foe around you takes 1d8 + Strength and is stunned.' },
+  // ---- skills learned later (levels 5, 7 and 9 of each calling)
+  // Warrior
+  { id: 'shield_wall', name: 'Shield Wall', icon: 'shield', target: 'ally', range: 1, others: true, cooldown: 4, vfx: 'impact', fx: 0xa8c8ff,
+    statuses: [{ id: 'guarded', rounds: 2 }, { id: 'shielded', rounds: 2, power: 2, self: true }],
+    desc: 'Plant your shield beside a companion: for two rounds the blows aimed at them strike you instead, and you gain +2 armour.' },
+  { id: 'riposte', name: 'Riposte', icon: 'sword', target: 'self', cooldown: 4, vfx: 'slash', fx: 0xffd0a0,
+    statuses: [{ id: 'riposte', rounds: 2, self: true }, { id: 'shielded', rounds: 2, power: 1, self: true }],
+    desc: 'Take a fencer\'s stance for two rounds (+1 armour): every foe that swings at you in melee, hit or miss, is struck back at once.' },
+  { id: 'finishing_blow', name: 'Finishing Blow', icon: 'axe', target: 'enemy', range: 1, attack: 'melee', mult: 1, execute: 0.34, cooldown: 3, vfx: 'impact', fx: 0xff7050,
+    desc: 'A brutal blow. Against a foe at a third of its health or less it cannot miss and deals double damage.' },
+  // Ranger
+  { id: 'hunters_mark', name: 'Hunter\'s Mark', icon: 'aim', target: 'enemy', range: 8, free: true, cooldown: 4, vfx: 'arrow', fx: 0xff9a7a,
+    statuses: [{ id: 'marked', rounds: 3, power: 2 }], desc: 'Free action. Mark a foe in sight: for three rounds every attack on it, by anyone, is +2 to hit and +2 damage.' },
+  { id: 'spirit_wolf', name: 'Spirit Wolf', icon: 'paw', target: 'tile', range: 2, summon: 'wolf', summonName: 'Spirit Wolf', summonTint: 0xa8d4f0, lasts: 4, perBattle: 1, vfx: 'arcane', fx: 0x9fd8ff,
+    desc: 'Once per battle. Call a spirit wolf of the old woods to an open square within 2: it fights beside the company for four turns, then fades.' },
+  { id: 'arrowstorm', name: 'Arrowstorm', icon: 'volley', target: 'tile', range: 8, radius: 1, attack: 'ranged', mult: 1, needs: 'ranged', cooldown: 4, vfx: 'arrow', fx: 0xfff0b0,
+    desc: 'Loose a storm of arrows over a 3×3 patch within range: one shot at every foe standing there.' },
+  // Wizard
+  { id: 'arc_lightning', name: 'Arc Lightning', icon: 'sparkle', target: 'enemy', range: 6, damage: '1d8', stat: 'int', chain: 2, chainRange: 2, cooldown: 3, vfx: 'shock', fx: 0xa8d4ff,
+    statuses: [{ id: 'stunned', rounds: 1, chance: 0.15 }], desc: 'Lightning strikes a foe and leaps on to two more, each within 2 squares of the last (1d8 + Intellect each; it may stun).' },
+  { id: 'arcane_grasp', name: 'Arcane Grasp', icon: 'hands', target: 'enemy', range: 6, pull: 3, damage: '1d4', stat: 'int', cooldown: 3, vfx: 'arcane', fx: 0xc0a0ff,
+    statuses: [{ id: 'rooted', rounds: 1 }], desc: 'An unseen hand drags a foe up to three squares towards you (1d4 + Intellect) and holds it there for a turn.' },
+  { id: 'meteor', name: 'Falling Star', icon: 'fire', target: 'tile', range: 7, radius: 1, windup: true, damage: '4d6', stat: 'int', perBattle: 1, vfx: 'fire', fx: 0xff8030,
+    statuses: [{ id: 'burning', rounds: 2 }], desc: 'Once per battle. Call down a star on a 3×3 patch within 7: it lands at the start of your next turn (4d6 + Intellect, and fire). Foes may flee the mark!' },
+  // Cleric
+  { id: 'hallowed_ground', name: 'Hallowed Ground', icon: 'cross', target: 'self', radius: 1, place: 'zone', lasts: 3, heal: '1d4', damage: '1d6', stat: 'wis', undeadOnly: true, cooldown: 5, vfx: 'holy', fx: 0xfff0a0,
+    desc: 'Bless the ground around you for three rounds: companions who start a turn there or step in heal 1d4 + Wisdom; the undead burn for 1d6 + Wisdom.' },
+  { id: 'sanctuary', name: 'Sanctuary', icon: 'sun', target: 'ally', range: 4, cooldown: 5, vfx: 'holy', fx: 0xfff4c0,
+    statuses: [{ id: 'sanctuary', rounds: 2 }], desc: 'Wrap yourself or a companion within 4 in holy light: for two rounds no foe can strike or aim at them — unless they strike first.' },
+  { id: 'breath_of_life', name: 'Breath of Life', icon: 'heart', target: 'ally', range: 3, revive: true, healPct: 0.34, perBattle: 1, vfx: 'heal', fx: 0xfff0c0,
+    desc: 'Once per battle. Call back a companion who has fallen in this battle, within 3 squares: they rise with a third of their health.' },
+  // Burglar
+  { id: 'filch', name: 'Filch', icon: 'pouch', target: 'enemy', range: 1, steal: true, free: true, cooldown: 2, vfx: 'smoke', fx: 0xffd060,
+    desc: 'Free action. Lift the purse of a foe beside you: its gold is yours, there and then (each foe has but the one purse).' },
+  { id: 'caltrops', name: 'Caltrops', icon: 'claw', target: 'tile', range: 4, radius: 1, place: 'zone', lasts: 3, damage: '1d4', cooldown: 4, vfx: 'smoke', fx: 0xc8c0a8,
+    statuses: [{ id: 'slowed', rounds: 1 }], desc: 'Scatter iron caltrops over a 3×3 patch within 4 for three rounds: foes who start a turn there or walk in take 1d4 and are slowed.' },
+  { id: 'fan_of_knives', name: 'Fan of Knives', icon: 'dagger', target: 'nearbyFoes', radius: 2, thrown: '1d6', cooldown: 4, vfx: 'slash', fx: 0xd8e0ec,
+    desc: 'Spin and loose a fan of knives: a throw at every foe within 2 squares (1d6 + half Dexterity each, rolled to hit).' },
+  // Paladin
+  { id: 'holy_charge', name: 'Holy Charge', icon: 'paladin', target: 'enemy', range: 5, move: 'charge', attack: 'melee', mult: 1, bonus: '1d6', knockback: 1, cooldown: 4, vfx: 'holy', fx: 0xffe080,
+    desc: 'Charge up to 5 squares at a foe and strike it with holy fury: +1d6 damage, and it is driven back a square.' },
+  { id: 'aura_of_courage', name: 'Aura of Courage', icon: 'banner', target: 'nearbyAllies', radius: 2, cooldown: 5, vfx: 'holy', fx: 0xffe8a0,
+    statuses: [{ id: 'warded', rounds: 3 }, { id: 'shielded', rounds: 3, power: 1 }], desc: 'You and every companion within 2 gain +1 armour and a ward that turns aside the next stun, sleep, fear or curse (three rounds).' },
+  { id: 'shield_of_dawn', name: 'Shield of Dawn', icon: 'sun', target: 'nearbyAllies', radius: 2, perBattle: 1, vfx: 'holy', fx: 0xffd870,
+    statuses: [{ id: 'deathward', rounds: 2 }], desc: 'Once per battle. For two rounds no companion within 2 can fall: a blow that would fell them leaves them at 1 health instead (once each).' },
+  // Minstrel
+  { id: 'lullaby', name: 'Lullaby', icon: 'sleep', target: 'nearbyFoes', radius: 2, cooldown: 5, vfx: 'song', fx: 0xb0a0ff,
+    statuses: [{ id: 'asleep', rounds: 2, chance: 0.5 }], desc: 'A drowsy air: each foe within 2 may nod off (one in two) for two turns, until struck.' },
+  { id: 'discord', name: 'Song of Discord', icon: 'note', target: 'enemy', range: 5, cooldown: 4, vfx: 'song', fx: 0xe090ff,
+    statuses: [{ id: 'charmed', rounds: 1 }], desc: 'A maddening tune: a foe within 5 turns on its own side for its next turn (a great foe may shake it off).' },
+  { id: 'encore', name: 'Encore', icon: 'star', target: 'ally', range: 5, others: true, extraTurn: true, perBattle: 1, vfx: 'song', fx: 0xffd870,
+    desc: 'Once per battle. Strike up a reel: a companion within 5 takes an extra turn straight after yours.' },
+  // Runesmith
+  { id: 'rune_trap', name: 'Rune Trap', icon: 'rune', target: 'tile', range: 4, radius: 0, place: 'trap', lasts: 6, damage: '2d6', stat: 'int', cooldown: 3, vfx: 'shock', fx: 0x5ee8ff,
+    statuses: [{ id: 'stunned', rounds: 1 }], desc: 'Carve a hidden rune on an empty square within 4 (it waits six rounds): the first foe to step on it takes 2d6 + Intellect and is stunned.' },
+  { id: 'lodestone', name: 'Lodestone Rune', icon: 'stone', target: 'nearbyFoes', radius: 3, pull: 2, cooldown: 4, vfx: 'shock', fx: 0x9ab8ff,
+    desc: 'A rune of iron-hunger: every foe within 3 is dragged two squares towards you. (Then let the hammer fall.)' },
+  { id: 'stone_warden', name: 'Stone Warden', icon: 'anvil', target: 'tile', range: 1, summon: 'stone_warden', lasts: 5, perBattle: 1, vfx: 'earth', fx: 0x5ee8ff,
+    desc: 'Once per battle. Wake a rune-carved warden of stone on a square beside you: for five turns it fights at your side and bellows foes away from your friends.' },
+  // ---- battle arts: any hero may learn them, offered among the talents
+  { id: 'second_wind', name: 'Second Wind', icon: 'heart', general: true, level: 2, target: 'self', healPct: 0.3, perBattle: 1, free: true, vfx: 'heal', fx: 0x9fe8b8,
+    desc: 'Free action, once per battle. Catch your breath: heal three tenths of your health.' },
+  { id: 'first_aid', name: 'First Aid', icon: 'hands', general: true, level: 2, target: 'ally', range: 1, heal: '1d6+2', cure: true, cooldown: 4, vfx: 'heal', fx: 0x9fe8b8,
+    desc: 'Bind your own wounds or those of a companion beside you: heal 1d6+2 and draw out poison.' },
+  { id: 'dash', name: 'Dash', icon: 'boot', general: true, level: 2, target: 'self', addMoves: 3, free: true, cooldown: 3, vfx: 'smoke', fx: 0xd8d0b8,
+    desc: 'Free action. Sprint: three more squares of movement this turn.' },
+  { id: 'throw_knife', name: 'Throw Knife', icon: 'dagger', general: true, level: 2, target: 'enemy', range: 4, thrown: '1d4', cooldown: 2, vfx: 'slash', fx: 0xd8e0ec,
+    desc: 'Hurl a knife at a foe up to 4 squares away: rolled to hit with Dexterity, 1d4 + half Dexterity. No bow needed.' },
+  { id: 'shove', name: 'Shove', icon: 'bash', general: true, level: 2, target: 'enemy', range: 1, knockback: 2, free: true, cooldown: 3, vfx: 'impact', fx: 0xe8d0a0,
+    desc: 'Free action. Shove a foe beside you two squares back — into a wall or another foe, and it takes a knock.' },
+  { id: 'steady_aim', name: 'Steady Aim', icon: 'eye', general: true, level: 4, target: 'self', free: true, cooldown: 2, vfx: 'arcane', fx: 0xffe8a0,
+    statuses: [{ id: 'focused', rounds: 1, power: 4, self: true }], desc: 'Free action. Take a breath and steady your hand: your next attack is +4 to hit and ignores cover.' },
+  { id: 'hold_the_line', name: 'Hold the Line', icon: 'shield', general: true, level: 4, target: 'nearbyAllies', radius: 1, cooldown: 4, vfx: 'shout', fx: 0x90b8ff,
+    statuses: [{ id: 'shielded', rounds: 2, power: 2 }], desc: 'Close ranks: you and every companion beside you gain +2 armour for two rounds.' },
+  { id: 'disengage', name: 'Disengage', icon: 'flee', general: true, level: 4, target: 'self', free: true, cooldown: 3, vfx: 'smoke', fx: 0xb8f0d0,
+    statuses: [{ id: 'nimble', rounds: 1, self: true }], desc: 'Free action. Watch your footing: this turn you slip away from foes without giving them free strikes.' },
+  { id: 'battle_cry', name: 'Battle Cry', icon: 'shout', general: true, level: 6, target: 'nearbyAllies', radius: 3, cooldown: 5, vfx: 'shout', fx: 0xffb050,
+    statuses: [{ id: 'blessed', rounds: 2, power: 2 }], desc: 'A roar that stirs the blood: you and every companion within 3 are +2 to hit for two rounds.' },
   // Monsters
   { id: 'pounce', name: 'Pounce', icon: 'claw', monster: true, target: 'enemy', range: 5, move: 'charge', attack: 'melee', mult: 1, cooldown: 3,
     statuses: [{ id: 'stunned', rounds: 1, chance: 0.35 }], vfx: 'impact', fx: 0xd0c0a0, desc: 'Leaps on a foe up to 5 squares away and may knock it down.' },
@@ -139,6 +227,15 @@ export const STATUS_EFFECTS = {
   // (charms) quick feet, and a ward that turns aside the next curse
   hasted: { name: 'Hasted', icon: 'boot', color: '#9ff0d0', desc: 'Moves further each turn (its strength in squares).' },
   warded: { name: 'Warded', icon: 'rune', color: '#c8dcff', desc: 'The next stun, sleep, fear or curse slides off it.' },
+  // (skills learned later)
+  guarded: { name: 'Guarded', icon: 'shield', color: '#a8c8ff', desc: 'A companion beside it takes the blows meant for it.' },
+  riposte: { name: 'Riposte', icon: 'sword', color: '#ffd0a0', desc: 'Strikes back at once at any foe that swings at it in melee (once a round).' },
+  marked: { name: 'Marked', icon: 'aim', color: '#ff9a7a', bad: true, desc: 'Every attack on it is more accurate and harder-hitting (+2 to hit, +2 damage).' },
+  focused: { name: 'Steady', icon: 'eye', color: '#ffe8a0', desc: 'Its next attack is more accurate and ignores cover.' },
+  sanctuary: { name: 'Sanctuary', icon: 'sun', color: '#fff0b0', desc: 'No foe can strike or aim at it — until it strikes first.' },
+  charmed: { name: 'Bewildered', icon: 'note', color: '#e090ff', bad: true, desc: 'Turns on its own side.' },
+  deathward: { name: 'Dawn-shielded', icon: 'sun', color: '#ffd870', desc: 'A blow that would fell it leaves it at 1 health instead (once).' },
+  nimble: { name: 'Nimble', icon: 'boot', color: '#b8f0d0', desc: 'Slips away from foes without giving them free strikes.' },
 };
 
 // Bosses can have a second phase: below phaseAt of their health they call
@@ -238,38 +335,41 @@ export const RACES = [
     look: { race: 'hobbit', skin: 0xf0c4a0 } },
 ];
 
+// skills: [{ id, level }] — each class skill and the level it is learned at (a
+// plain id is learned at 1, 3, 5… by its place in the list, as older games had it)
+const learn = (id, level) => ({ id, level });
 export const CLASSES = [
   { id: 'warrior', talents: 'fighter', name: 'Warrior', desc: 'A master of arms and armour, the shield-wall of any fellowship.',
     hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], armor: 'plate', shields: true,
-    abilities: ['cleave'], special: 'whirlwind', skills: ['shield_bash', 'taunt'], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
+    abilities: ['cleave'], special: 'whirlwind', skills: [learn('shield_bash', 1), learn('taunt', 3), learn('shield_wall', 5), learn('riposte', 7), learn('finishing_blow', 9)], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
     look: { body: 0xa8302a, hat: 'helm', hatColor: 0x8c94a0, wings: true, helmTrim: 0xd8a83a, weapon: 'sword', shield: 0x9a6a30, pauldrons: 'plate', cape: 0x6a1c1a, pose: 'raise' } },
   { id: 'ranger', talents: 'archer', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow. Gathers herbs on the road and brews remedies from them.',
     hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
-    abilities: ['tracker'], special: 'volley', skills: ['aimed_shot', 'pinning_shot'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
+    abilities: ['tracker'], special: 'volley', skills: [learn('aimed_shot', 1), learn('pinning_shot', 3), learn('hunters_mark', 5), learn('spirit_wolf', 7), learn('arrowstorm', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
     look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
   { id: 'wizard', talents: 'caster', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
     requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], armor: 'cloth', shields: false,
-    abilities: [], special: 'blink', skills: ['firebolt', 'frost_nova'], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
+    abilities: [], special: 'blink', skills: [learn('firebolt', 1), learn('frost_nova', 3), learn('arc_lightning', 5), learn('arcane_grasp', 7), learn('meteor', 9)], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
     look: { body: 0x3446a8, robe: true, hat: 'wizard', hatColor: 0x3446a8, trim: 0xe2b24a, weapon: 'staff', pose: 'cast' } },
   { id: 'cleric', talents: 'healer', name: 'Cleric', desc: 'A servant of the Powers, healer of wounds and scourge of the restless dead.',
     requires: 'divine', hpBase: 12, hpLevel: 6, hitRate: 0.6, magic: [{ system: 'divine', rate: 1 }], weapons: ['blunt', 'staff', 'sling'], armor: 'chain', shields: true,
-    abilities: [], special: 'mending', skills: ['healing_word', 'smite'], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
+    abilities: [], special: 'mending', skills: [learn('healing_word', 1), learn('smite', 3), learn('hallowed_ground', 5), learn('sanctuary', 7), learn('breath_of_life', 9)], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
     look: { body: 0xe6dcc4, robe: true, trim: 0xd8a83a, weapon: 'mace', shield: 0x8a5a32, mantle: 0xa87828 } },
   { id: 'burglar', talents: 'rogue', name: 'Burglar', desc: 'Quick of hand and quiet of foot. Picks locks, finds traps, and strikes from the shadows.',
     hpBase: 10, hpLevel: 5, hitRate: 0.75, magic: [], weapons: ['dagger', 'blade', 'sling', 'bow'], armor: 'leather', shields: false,
-    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: ['poison_blade', 'smoke_bomb'], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
+    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: [learn('poison_blade', 1), learn('smoke_bomb', 3), learn('filch', 5), learn('caltrops', 7), learn('fan_of_knives', 9)], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
     look: { body: 0x5a5448, hat: 'hood', hatColor: 0x3e3a44, weapon: 'dagger', offhand: 'dagger', cape: 0x3e3a44, scarf: 0xb03a2a } },
   { id: 'paladin', talents: 'fighter', name: 'Paladin', desc: 'A holy knight sworn to a cause, mighty in arms and gifted with a little Prayer.',
     requires: null, hpBase: 15, hpLevel: 7, hitRate: 0.9, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'greatblade', 'blunt', 'spear', 'axe'], armor: 'plate', shields: true,
-    abilities: ['layHands'], special: 'rally', skills: ['holy_strike', 'lay_on_hands'], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
+    abilities: ['layHands'], special: 'rally', skills: [learn('holy_strike', 1), learn('lay_on_hands', 3), learn('holy_charge', 5), learn('aura_of_courage', 7), learn('shield_of_dawn', 9)], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
     look: { body: 0xd8d8e0, armor: 'plate', hat: 'helm', plume: 0xc03030, weapon: 'sword', shield: 0xcdd2da, cape: 0x2a4a9a } },
   { id: 'minstrel', talents: 'caster', name: 'Minstrel', desc: 'A singer of the old lays whose songs of power hearten friends and dismay foes.',
     requires: 'song', hpBase: 10, hpLevel: 5, hitRate: 0.65, magic: [{ system: 'song', rate: 1 }], weapons: ['blade', 'dagger', 'bow', 'sling'], armor: 'leather', shields: false,
-    abilities: [], special: 'dazzle', skills: ['cutting_words', 'inspire'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
+    abilities: [], special: 'dazzle', skills: [learn('cutting_words', 1), learn('inspire', 3), learn('lullaby', 5), learn('discord', 7), learn('encore', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
     look: { body: 0x9a3a8a, hat: 'cap', hatColor: 0x7a2a6a, weapon: 'sword', cape: 0xd8a83a, back: 'lute', pose: 'hip' } },
   { id: 'runesmith', talents: 'caster', name: 'Runesmith', desc: 'A forge-priest of the dwarves who carves runes of power, fuelled by rare reagents.',
     requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], armor: 'chain', shields: true,
-    abilities: [], special: 'earthshaker', skills: ['thunder_hammer', 'ward_rune'], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
+    abilities: [], special: 'earthshaker', skills: [learn('thunder_hammer', 1), learn('ward_rune', 3), learn('rune_trap', 5), learn('lodestone', 7), learn('stone_warden', 9)], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
     // slate and steel with glowing cyan runes: never mistaken for the white-and-gold cleric
     look: { body: 0x3e5a78, armor: 'chain', hat: 'helm', hatColor: 0x8e9cae, weapon: 'hammer', shield: 0x4a5c70, runes: 0x5ee8ff } },
 ];
@@ -673,6 +773,11 @@ export const MONSTERS = [
   { id: 'shadow_lord', name: 'The Shadow Lord', plural: 'Shadow Lords', level: 10, hp: '36d8+50', ac: 17, hit: 12, dmg: '2d10+8', undead: true, sleepImmune: true, xp: 1000, gold: '50d10', habitat: [], group: [1, 1], spells: ['drain_life', 'fireball'], castChance: 0.35, boss: true, ai: 'boss', abilities: ['dark_wave'], escort: [{ id: 'barrow_wight', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'barrow_wight', min: 2, max: 2 }], phaseText: 'The Shadow Lord cries out in a dead tongue, and the dead rise to his call!',
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
+  // called into battle by a runesmith's skill, never met in the wild (no habitat)
+  { id: 'stone_warden', name: 'Stone Warden', plural: 'Stone Wardens', level: 4, hp: '6d10+12', ac: 16, hit: 5, dmg: '1d8+3', xp: 0, gold: '0', habitat: [], group: [1, 1], ai: 'brute', moves: 3,
+    abilities: ['taunt'], sleepImmune: true, poisonImmune: true,
+    look: L({ race: 'dwarf', body: 0x8c8a82, skin: 0xa8a294, beard: 0x7a776e, armor: 'plate', hat: 'helm', hatColor: 0x8c8a82, weapon: 'hammer', shield: 0x7a786e, runes: 0x5ee8ff, eyes: 0x5ee8ff, scale: 1.1 }),
+    desc: 'A dwarf-shaped guardian of rune-carved granite, woken for a little while by a runesmith\'s craft.' },
 ];
 
 // ---------------------------------------------------------------- travel

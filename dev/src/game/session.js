@@ -8,7 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember, growStat,
+  equipKit, normalizeMember, growStat, abilityOf,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -1551,6 +1551,8 @@ export class PlaySession {
     // seasoned companions arrive with the attributes their years have grown
     for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
+    // battle arts the companion already knows (learned, as it were, on even levels)
+    c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
     // they keep their own face and hair; the class dresses them
     c.look = {};
