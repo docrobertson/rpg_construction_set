@@ -299,7 +299,7 @@ export class PlaySession {
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
-      case 'event': return eventLook(e);
+      case 'event': return eventLook(e, this.map);
       default: return null;
     }
   }

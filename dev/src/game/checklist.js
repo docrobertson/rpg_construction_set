@@ -19,7 +19,7 @@ import { placesOf } from '../world/places.js';
 import { ROLE_TEXT } from '../world/generate.js';
 import { chapterList, questsInChapter, questSpans, walkStory } from './story.js';
 import { GOAL_TYPES } from './quests.js';
-import { mooringFor } from './ships.js';
+import { mooringFor, sellsShip } from './ships.js';
 
 export const AREAS = [
   ['campaign', 'Campaign'], ['land', 'Land'], ['places', 'Places'], ['story', 'Story'], ['map', 'Details'], ['test', 'Test'],
@@ -232,13 +232,12 @@ export function reachability(game) {
           if (a?.type !== 'teleport' || !maps.get(a.map)) continue;
           for (const c of near) for (const t of arrive(maps.get(a.map), +a.x || 0, +a.y || 0, false)) addWay(key(c), t);
         }
-        if (e.role === 'shipwright') {
-          const spot = mooringFor(game, e);
-          if (spot) {
-            const sc = patches(spot.map).sea[spot.y * spot.map.w + spot.x];
-            if (sc >= 0) for (const c of near) addWay(key(c), ['sea', spot.map.id, sc]);
-          }
-        }
+      }
+      // a shipwright, or a shipyard on the map, puts a ship on the water
+      if (sellsShip(e)) {
+        const spot = mooringFor(game, e);
+        const sc = spot ? patches(spot.map).sea[spot.y * spot.map.w + spot.x] : -1;
+        if (sc >= 0) for (const c of patchesAt(m, Pm, e.x, e.y)) addWay(key(c), ['sea', spot.map.id, sc]);
       }
     }
     // the edges of a town, and stairs with nothing on them, lead back out

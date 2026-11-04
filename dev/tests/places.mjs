@@ -1,4 +1,4 @@
-// Places to visit: Hob's farmstead, buying a ship at Gullhaven, the Red Pit's
+// Places to visit: Hob's farmstead, the shipyard at Gullhaven, the Red Pit's
 // ladder of bouts, the fortune-teller, the fairy ring, the lighthouse, the
 // smugglers' cove and its hoard, and the same places in generated worlds and
 // in the editor's site tools (each check prints PASS/FAIL).
@@ -61,34 +61,55 @@ check('Hob\'s farmstead is a homestead (farm kind, cottage-and-yard look)', r.ki
 // (terrain ids: meadow 3, sand 10, fields 26)
 check('the farmstead stands on meadow among fields, with no sand round it', r.here === 3 && r.around.filter((t) => t === 26).length >= 5 && !r.around.includes(10), r);
 
-// ---- the shipwright: too poor, then a ship bought and moored at the quay
-r = await ev(async () => {
-  const s = window.__app.session, g = s.game;
-  const haven = g.maps.find((m) => m.name === 'Gullhaven');
-  const wright = haven.entities.find((e) => e.role === 'shipwright');
-  await s.enterMap(haven.id, haven.entry.x, haven.entry.y, { instant: true });
-  const live = s.map.entities.find((e) => e.id === wright.id);
-  s.party.gold = 200;
-  const poor = s.say(live, 'BUY');
-  const pitch = s.say(live, 'SHIP');
-  s.party.gold = 600;
-  const bought = s.say(live, 'BUY');
-  const after = s.party.gold;
-  const again = s.say(live, 'BUY');
-  const w = g.maps[0];
-  const added = (s.state.maps[w.id]?.added || []).filter((e) => e.type === 'ship');
-  return { poorText: poor.text, poorGold: 200, pitch: pitch.text, bought: bought.text, note: bought.note, after, againGold: s.party.gold, again: again.text, added, wright: { x: wright.ship?.x, y: wright.ship?.y } };
+// ---- the shipyard at Gullhaven: a simple place on the map; too poor, then a
+// ship built and moored at the quay
+const yardChoice = () => ev(() => {
+  const btn = [...document.querySelectorAll('.event-modal .choose-item')].find((b) => /Gull/.test(b.textContent));
+  return btn && { text: btn.textContent, off: btn.classList.contains('disabled') };
 });
-check('the shipwright tells of his ship and her price', /450 gold/.test(r.pitch) && /BUY/.test(r.pitch), r.pitch);
-check('a company too poor is turned away', /not a copper less/.test(r.poorText), r.poorText);
-check('buying the ship takes 450 gold', r.after === 150, r);
-check('the bought ship is moored at the quay on the world map', r.added.length === 1 && r.added[0].x === r.wright.x && r.added[0].y === r.wright.y, r.added);
-check('a ship is sold only once', r.againGold === 150 && /thine already/.test(r.again), r);
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game, w = g.maps[0];
+  const yard = w.entities.find((e) => e.id === 'ev_gullhaven');
+  const town = g.maps.some((m) => m.name === 'Gullhaven');
+  const portal = w.entities.some((e) => e.type === 'portal' && e.label === 'Gullhaven');
+  if (s.map.id !== w.id) await s.enterMap(w.id, yard.x + 1, yard.y + 1, { instant: true });
+  s.party.gold = 200;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === yard.id));
+  await new Promise((res) => setTimeout(res, 200));
+  return { yard: yard && { kind: yard.kind, x: yard.x, y: yard.y, tile: w.tiles[yard.y * w.w + yard.x], mooring: [yard.ship?.x, yard.ship?.y] }, town, portal, text: document.querySelector('.event-modal .ev-text')?.textContent };
+});
+const poor = await yardChoice();
+check('Gullhaven is a simple place on the map: a shipyard on the harbour square, no town to enter', r.yard?.kind === 'shipyard' && r.yard.tile === 27 && !r.town && !r.portal, r);
+check('the shipyard offers to build the Gull for 450 gold', /Four hundred and fifty gold/.test(r.text) && /450/.test(poor?.text || ''), { text: r.text, poor });
+check('a company too poor cannot have her built', poor?.off && /Costs 450 gold/.test(poor.text), poor);
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session, w = s.game.maps[0];
+  s.party.gold = 600;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === 'ev_gullhaven'));
+  await new Promise((res) => setTimeout(res, 200));
+  [...document.querySelectorAll('.event-modal .choose-item')].find((b) => /Gull/.test(b.textContent))?.click();
+  await new Promise((res) => setTimeout(res, 200));
+  const said = document.querySelector('.event-modal .ev-text')?.textContent;
+  const added = (s.state.maps[w.id]?.added || []).filter((e) => e.type === 'ship');
+  const live = s.map.entities.filter((e) => e.type === 'ship');
+  return { said, gold: s.party.gold, added, live: live.map((e) => e.id) };
+});
+check('having her built takes 450 gold', r.gold === 150, r);
+check('the new ship is moored at the quay on the world map', r.added.length === 1 && r.added[0].x === 19 && r.added[0].y === 45 && r.live.includes('ship_npc_halloran') && /Gull is thine/.test(r.said), r);
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === 'ev_gullhaven'));
+  await new Promise((res) => setTimeout(res, 200));
+  return { gold: s.party.gold };
+});
+const again = await yardChoice();
+check('a ship is built only once', r.gold === 150 && again?.off && /yours already/.test(again.text), { r, again });
+await closeModals();
 
 r = await ev(async () => {
   const s = window.__app.session, g = s.game, w = g.maps[0];
-  await s.leaveMap?.();
-  for (let i = 0; i < 40 && (s.transitioning || s.map.id !== w.id); i++) await new Promise((res) => setTimeout(res, 100));
   const ship = s.map.entities.find((e) => e.type === 'ship');
   if (!ship) return { onWorld: s.map.id === w.id, ship: null };
   // step aboard from the quay beside her
@@ -106,7 +127,7 @@ r = await ev(async () => {
   const sailed = { ...s.state.pos };
   return { onWorld: s.map.id === w.id, ship: { x: ship.x, y: ship.y, name: ship.name }, boarded, at, sailed, vehicle: s.state.vehicle };
 });
-check('leaving Gullhaven, the company finds its ship and can board her', r.onWorld && r.boarded && r.vehicle?.id === 'ship_npc_halloran', r);
+check('the company can board its new ship', r.onWorld && r.boarded && r.vehicle?.id === 'ship_npc_halloran', r);
 check('the bought ship sails', r.sailed.x === r.at.x - 1, r);
 
 // the ship stays where she was left, after the map is built afresh (a reload)

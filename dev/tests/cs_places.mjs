@@ -49,14 +49,14 @@ const game = buildSampleGame();
 const byName = (n) => game.maps.find((m) => m.name === n);
 const kindOf = (m) => P.placesOf(game).find((p) => p.map === m)?.kind;
 {
-  const plans = Object.fromEntries(['Westhold', 'Caer Aldon', 'Lindaleth', 'Hammerdeep', 'Brookend', 'Gullhaven', 'Grimholt Barrow', 'Dol Garoth', 'Tower of the Hermit', 'Smugglers\' Cove'].map((n) => [n, P.planOf(byName(n), kindOf(byName(n)))]));
+  const plans = Object.fromEntries(['Westhold', 'Caer Aldon', 'Lindaleth', 'Hammerdeep', 'Brookend', 'Grimholt Barrow', 'Dol Garoth', 'Tower of the Hermit', 'Smugglers\' Cove'].map((n) => [n, P.planOf(byName(n), kindOf(byName(n)))]));
   const w = plans.Westhold;
   check('Westhold is seen as a walled town with an inn, tavern, temple and four shops', w.style === 'town' && w.walls === 'stone' && w.gates.length === 4
     && ['inn', 'tavern', 'healer', 'weapons', 'armor', 'provisions', 'reagents'].every((k) => w.buildings[k] === 1) && w.homes >= 3 && w.guards === 2 && w.folk >= 3, w);
   const c = plans['Caer Aldon'];
   check('Caer Aldon is seen as a castle with its keep, a sage, a south gate and four guards', c.style === 'castle' && c.buildings.lord === 1 && c.buildings.sage === 1 && c.guards === 4 && c.gates.join() === 's', c);
   check('Lindaleth is an elven hall in a ring of trees, Hammerdeep a dwarf hold with its king', plans.Lindaleth.style === 'elfhall' && plans.Lindaleth.walls === 'trees' && plans.Hammerdeep.style === 'dwarfgate' && plans.Hammerdeep.buildings.lord === 1, [plans.Lindaleth.walls, plans.Hammerdeep.buildings]);
-  check('Brookend is a village behind a palisade; Gullhaven a harbour with its shipyard', plans.Brookend.style === 'village' && plans.Brookend.walls === 'palisade' && plans.Gullhaven.style === 'harbour' && plans.Gullhaven.buildings.shipwright === 1, [plans.Brookend.walls, plans.Gullhaven.style]);
+  check('Brookend is a village behind a palisade', plans.Brookend.style === 'village' && plans.Brookend.walls === 'palisade', plans.Brookend.walls);
   const b = plans['Grimholt Barrow'];
   check('Grimholt is a cave with the Hollow King and the Rune-Key in its hoard', b.style === 'cave' && b.boss === 'hollow_king' && b.treasure.items.some((i) => i.id === 'rune_key') && b.rooms >= 6 && b.monsters.length >= 2 && b.counts.giant_rat === '4-6', b);
   check('Dol Garoth is a fortress with the Shadow Lord; the cove has Black Maddoc', plans['Dol Garoth'].style === 'fortress' && plans['Dol Garoth'].boss === 'shadow_lord' && plans['Smugglers\' Cove'].style === 'seacave' && plans['Smugglers\' Cove'].boss === 'black_maddoc', [plans['Dol Garoth'].boss, plans['Smugglers\' Cove'].boss]);
@@ -241,7 +241,7 @@ await wait(1200);
 await page.locator('.ed-step', { hasText: 'Places' }).click();
 await wait(700);
 let r = await ev(() => ({ entries: document.querySelectorAll('.pl-entry').length, groups: [...document.querySelectorAll('.pl-list .entry-group')].map((e) => e.textContent), places: window.__app.editor.places ? 1 : 0, counters: document.querySelectorAll('.pl-count').length }));
-check('the Places step lists the places in groups, with a designer', r.entries >= 10 && r.groups.length >= 3 && r.counters > 10, r);
+check('the Places step lists the places in groups, with a designer', r.entries >= 9 && r.groups.length >= 3 && r.counters > 10, r);
 await page.locator('.pl-entry', { hasText: 'Westhold' }).click();
 await wait(900);
 r = await ev(() => { const ed = window.__app.editor; return { title: document.querySelector('.pl-name')?.value, view: ed.view.map?.name, previewing: ed.previewing, people: document.querySelectorAll('.pl-person').length }; });

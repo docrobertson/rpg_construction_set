@@ -228,6 +228,7 @@ export function choiceFields(game) {
     { key: 'effects.reveal', label: 'Reveals the land around (tiles)', type: 'number', min: 0, show: (c) => !c.leave },
     { key: 'effects.fortune', label: 'A fortune: shows an unfound place, a hoard or a great beast', type: 'check', show: (c) => !c.leave },
     { key: 'effects.fairy', label: 'Fairy magic (something unpredictable)', type: 'select', options: [['wild', 'Wild: good or mischief'], ['kind', 'Kind: only good things']], empty: '— none —', nullable: true, show: (c) => !c.leave },
+    { key: 'effects.ship', label: 'Builds and sells the ship (her name and price are set above)', type: 'check', show: (c) => !c.leave },
     { key: 'effects.fight', label: 'Then fight', type: 'select', options: monsterOpts(game), empty: '— no fight —', nullable: true, show: (c) => !c.leave, rerender: true },
     { key: 'effects.count', label: 'How many', type: 'text', placeholder: '1 or 2-4', show: (c) => !c.leave && !!c.effects?.fight },
     { type: 'section', label: 'Prize for winning the fight', show: (c) => !c.leave && !!c.effects?.fight },
@@ -247,13 +248,22 @@ export function choiceFields(game) {
   ];
 }
 
+const sellsShipHere = (o) => o.kind === 'shipyard' || (o.choices || []).some((c) => c.effects?.ship);
+
 export function eventFields(game) {
   return [
     { key: 'name', label: 'Name', type: 'text' },
-    { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]) },
+    { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]), rerender: true },
     { key: 'text', label: 'Description', type: 'textarea', rows: 4, hint: 'Shown when the party bumps into it.' },
     { key: 'repeat', label: 'Can be used', type: 'select', options: [['once', 'Once (then it is gone)'], ['daily', 'Once a day'], ['always', 'Any time']], rerender: true },
     { key: 'cooldown', label: 'Turns between uses', type: 'number', min: 10, show: (o) => o.repeat === 'daily', hint: 'A day is 300 turns.' },
+    // a shipyard sells a ship: a choice that "builds and sells the ship" pays for her
+    { type: 'section', label: 'The ship for sale', show: sellsShipHere },
+    { type: 'info', label: 'Once paid for, she is moored in the nearest open water beside this place (or at the square below), ready to board. Each ship is sold once.', show: sellsShipHere },
+    { key: 'ship.name', label: 'Ship\'s name', type: 'text', placeholder: 'Seahorse', show: sellsShipHere },
+    { key: 'ship.price', label: 'Price (gold)', type: 'number', min: 0, placeholder: '450', show: sellsShipHere },
+    { key: 'ship.x', label: 'Moored at X (world map)', type: 'number', nullable: true, show: sellsShipHere, hint: 'Blank: beside this place.' },
+    { key: 'ship.y', label: 'Moored at Y (world map)', type: 'number', nullable: true, show: sellsShipHere },
     { type: 'section', label: 'Choices' },
     { key: 'choices', label: 'Choices', type: 'list', wide: true, fields: choiceFields(game), rowLabel: (c, i) => `${i + 1}. ${c.label || '(choice)'}`, newRow: () => ({ label: 'Do something', text: '', effects: {} }), addLabel: '+ Add choice' },
   ];

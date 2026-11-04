@@ -5,6 +5,8 @@
 // where repeat is 'once' (gone after a choice is made), 'daily' or 'always',
 // and a choice is { label, req: {type, value}, cost: {gold, item, n}, chance,
 // text, effects, failText, failEffects, win, hideFlag, lockedText, leave }.
+// A shipyard sells a ship (e.ship, as a shipwright's) through a choice whose
+// effects say { ship: true }.
 // `win` is a prize paid only if the fight the choice starts is won; a choice
 // whose hideFlag is set is no longer offered (a bout already won). In flag
 // names {id} stands for the event's own id, so two fighting pits keep apart.
@@ -19,6 +21,8 @@ import { carriedMaps, findSpot, isDug } from './treasure.js';
 import { getMap } from '../data/schema.js';
 import { terrain } from '../data/terrain.js';
 import { getTile, inBounds } from '../world/map.js';
+import { buyShip, shipBought } from './ships.js';
+import { shipDeal } from './dialog.js';
 
 export const EVENT_KINDS = {
   shrine: { label: 'Shrine', icon: '⛩' },
@@ -34,6 +38,7 @@ export const EVENT_KINDS = {
   fortune: { label: 'Fortune-teller', icon: '🔮' },
   fairy: { label: 'Fairy ring', icon: '🍄' },
   lighthouse: { label: 'Lighthouse', icon: '🗼' },
+  shipyard: { label: 'Shipyard', icon: '⚓' },
   other: { label: 'Something', icon: '❔' },
 };
 
@@ -59,9 +64,12 @@ export const REQS = {
 
 // ------------------------------------------------------------ looks
 const has = (k) => MODEL_KINDS.includes(k);
-export function eventLook(e) {
+// (map: where it stands; a shipyard on a harbour square is drawn by the
+// harbour itself, quay, slipway and all, and needs no model of its own)
+export function eventLook(e, map = null) {
   if (e.look && e.look.kind) return e.look;
   switch (e.kind) {
+    case 'shipyard': return map && inBounds(map, e.x, e.y) && terrain(getTile(map, e.x, e.y)).key === 'harbour' ? null : { kind: 'ship', scale: 0.8 };
     case 'shrine': return has('shrine') ? { kind: 'shrine', glow: e.glow ?? 0xffd870 } : { kind: 'waygate', glow: e.glow ?? 0xffd870, scale: 0.7 };
     case 'campfire': return { kind: 'campfire' };
     case 'lore': return has('lorestone') ? { kind: 'lorestone' } : { kind: 'sign', color: 0x8a8c96 };
@@ -126,6 +134,12 @@ export function choiceState(session, c, e = null) {
   if (ok && ci && (p.inventory[ci] || 0) < cn) { ok = false; why = `Needs ${byId(session.game.items, ci)?.name || ci}`; }
   const cf = parseInt(c.cost?.food, 10) || 0;
   if (ok && cf && p.food < cf) { ok = false; why = `Needs ${cf} food`; }
+  // a ship is built once, and paid for in full
+  if (ok && c.effects?.ship && e) {
+    const deal = shipDeal(e);
+    if (shipBought(session, e)) { ok = false; why = `The ${deal.name} is yours already`; }
+    else if (p.gold < deal.price) { ok = false; why = `Costs ${deal.price} gold`; }
+  }
   return { ok, why, tag: r.tag, who: r.who };
 }
 
@@ -155,8 +169,8 @@ export function resolveChoice(session, e, c) {
   // the prize waits on the fight's outcome
   if (res.fight && success && c.win) res.fight.win = c.win;
   st.poi[e.id] = st.turn || 0;
-  res.text = [text, res.vision, res.fairyText].filter(Boolean).join(' ');
-  res.success = success;
+  res.text = [text, res.vision, res.fairyText, res.shipText].filter(Boolean).join(' ');
+  res.success = success && !res.shipFailed;
   res.remove = e.repeat === 'once' || !e.repeat ? fx?.keep !== true : false;
   checkQuests(session);
   return res;
@@ -227,6 +241,12 @@ export function applyEffects(session, e, fx) {
   if (fx.fairy) fairyMagic(session, e, fx.fairy === 'kind', res);
   if (fx.quest) startQuest(session, fx.quest);
   if (fx.fight) res.fight = { monster: fx.fight, count: String(fx.count || '1') };
+  if (fx.ship) {
+    const r = {};
+    if (buyShip(session, e, r, { quiet: true })) got.push(r.note);
+    else res.shipFailed = true;
+    res.shipText = r.text;
+  }
   return res;
 }
 
@@ -528,6 +548,12 @@ Object.assign(EVENT_TEMPLATES, {
       ch('Share the keeper\'s supper', 'Fish stew and hard biscuit, and sea-stories until the lamp needs trimming.', { heal: '2d6', food: 10 }, { cost: { gold: 5 } }),
       leave('Back down to the shore'),
     ],
+  },
+  shipyard: {
+    kind: 'shipyard', name: 'Shipyard', repeat: 'always',
+    text: 'A slipway runs down into the water, and on it stands a new hull, her oak ribs still pale from the saw. The shipwright wipes the tar from his hands. "Come about a ship? Say the word and my lads will finish her for thee."',
+    ship: { name: 'Seahorse', price: 450 },
+    choices: [ch('Have a ship built', '', { ship: true }), leave('Walk on')],
   },
 });
 

@@ -698,7 +698,7 @@ export class Editor {
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : { kind: 'marker', color: 0x60a0ff };
-      case 'event': return eventLook(e);
+      case 'event': return eventLook(e, this.map) || { kind: 'marker', color: 0x60c0ff }; // (a shipyard drawn by its harbour)
       case 'treasure': return { kind: 'marker', color: 0xd03020 };
       default: return { kind: 'marker' };
     }

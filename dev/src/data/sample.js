@@ -218,6 +218,7 @@ function buildSample() {
   hideTreasures(game, w, westhold);
   addPlaces(game, w);
   addCharms(game, w);
+  harbourYard(game, w);
   return game;
 }
 
@@ -287,7 +288,8 @@ function hideTreasures(game, w, westhold) {
 }
 
 // The places added for sailors and wanderers: Hob's farmstead made a proper
-// homestead, the shipyard at Gullhaven where a ship is bought, the
+// homestead, the shipyard at Gullhaven where a ship is bought (made a simple
+// place on the map at the end: harbourYard), the
 // smugglers' sea cave on the western skerry (reached only by ship) and the
 // chart to their hoard on the far north-eastern isle, the lighthouse on Gull
 // Point, the Red Pit by Brookend, a fortune-teller's caravan and a fairy ring.
@@ -404,7 +406,7 @@ function addPlaces(game, w) {
   w.entities = w.entities.filter((e) => e.id !== 'ship_westhold');
 }
 
-// Charms, the fifth slot: who sells them (Pelagia's curios at Gullhaven, the
+// Charms, the fifth slot: who sells them (Pelagia's curios in Westhold, the
 // sage, the dwarves, Pell on the road), who gives them (quest rewards, the
 // great foes' spoils, the hoards), and four places only a worn charm opens:
 // the islet in the Heron Mere (wading the shallows), the Dragon's Eyrie in the
@@ -428,10 +430,8 @@ function addCharms(game, w) {
   Object.assign(item('fallen_hauberk'), { effects: [{ type: 'resist', status: 'afraid', chance: 1 }] });
   Object.assign(item('brakkas_cleaver'), { effects: [{ type: 'onStart', status: 'enraged', rounds: 2, who: 'self' }] });
 
-  // --- Pelagia's curios, on the quay at Gullhaven
-  const haven = mapNamed('Gullhaven');
-  const wright = npc('npc_halloran') || { x: 11, y: 8 };
-  addNpc(haven, wright.x + 4, wright.y + 3, {
+  // --- Pelagia's curios, in Westhold's square: a few charms, and dear
+  addNpc(mapNamed('Westhold'), 21, 22, {
     id: 'npc_pelagia', name: 'Pelagia', race: 'human', role: 'merchant', wander: 1, desc: 'a weathered old woman behind a tray of shells, charms and curios',
     lookExtra: { body: 0x4a6a7a, robe: true, hat: 'hood', hatColor: 0x2a4a5a, cape: 0x6a4a7a, hair: 0xd8d8d0 },
     greeting: 'Charms, dearies! Lucky acorns, selkie shells, owl feathers — every one of them true.',
@@ -445,8 +445,8 @@ function addCharms(game, w) {
       kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
       kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
     ],
-    shop: { kind: 'charms', stock: ['lucky_acorn', 'tin_whistle', 'gull_feather', 'rabbit_foot', 'worry_stone', 'copper_bangle', 'glowworm_jar', 'honeycake_tin', 'shepherds_bell', 'hazel_twig', 'thieves_penny', 'thunder_egg', 'menders_pendant', 'nettle_ring', 'selkie_shell', 'merchants_brooch', 'owl_feather'], priceMod: 1 },
-    rumour: 'There\'s an old woman on the quay at Gullhaven sells charms. Selkie shells and the like. My cousin swears by his lucky acorn.',
+    shop: { kind: 'charms', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'gull_feather', 'hazel_twig', 'selkie_shell', 'thunder_egg', 'owl_feather'], priceMod: 1.25 },
+    rumour: 'There\'s an old woman in the square sells charms. Selkie shells and the like — dear, mind. My cousin swears by his lucky acorn.',
   });
   // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
   sell(npc('npc_merek'), 'star_ring', 'warding_mirror', 'owl_feather');
@@ -538,6 +538,28 @@ function addCharms(game, w) {
   const ith = npc('npc_ithilwen');
   if (ith) ith.keywords.push(kw('PHIAL', 'Light caught from the first dawn. We hid it in the wood, south-west of this glade, where no mortal eye can find it. An owl\'s eye is not mortal, mind.'));
   if (ith) ith.keywords.find((k) => k.key === 'LIGHT').afterText = 'Holy prayers and the light of the stars — those are thy weapons against him. And the PHIAL, if thou canst find it.';
+}
+
+// Gullhaven made a simple place on the map: no town to walk about, just the
+// quay and the yard, where Master Halloran builds a ship for whoever can pay.
+// (Its old town is still built first and then taken away, so everything made
+// after it keeps its id in old saves; a ship bought there is the same ship.)
+function harbourYard(game, w) {
+  const haven = game.maps.find((m) => m.name === 'Gullhaven');
+  if (!haven) return;
+  game.maps = game.maps.filter((m) => m !== haven);
+  const gate = w.entities.find((e) => e.type === 'portal' && e.target?.map === haven.id);
+  w.entities = w.entities.filter((e) => e !== gate);
+  w.entities.push({
+    id: 'ev_gullhaven', type: 'event', kind: 'shipyard', name: 'Gullhaven', x: gate?.x ?? 20, y: gate?.y ?? 45, repeat: 'always',
+    text: 'Gullhaven is a quay, a slipway and a tarred shed, with a gull on every post. On the slipway stands a new hull, her oak ribs still pale from the saw. Master Halloran the shipwright wipes the tar from his hands. "Come about a ship? The Gull wants only her mast and sails. Four hundred and fifty gold, and my lads will float her and moor her at the quay."',
+    ship: { id: 'ship_npc_halloran', name: 'Gull', price: 450, x: 19, y: 45 },
+    choices: [
+      { label: 'Have the Gull built', text: '', effects: { ship: true } },
+      { label: 'Ask about the sea', text: '"The black rock far out west? Smugglers, they say: Black Maddoc\'s lot. No honest captain goes there. And Old Gulper the serpent is why I\'ve a ship to sell at all — no fisherman will buy one while he\'s out there. Old Fenn at the Gull Point light, up the shore, knows the sea better than anyone."' },
+      { label: 'Walk on', leave: true },
+    ],
+  });
 }
 
 function dressHaven(game, map) {

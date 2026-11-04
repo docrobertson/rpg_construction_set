@@ -1,6 +1,6 @@
-// Buying a ship from a shipwright: the gold changes hands and the new ship is
-// moored on the world map beside the yard (or where the shipwright's `ship.x/y`
-// says), ready to board when the company comes out.
+// Buying a ship from a shipwright (or a shipyard on the map): the gold changes
+// hands and the new ship is moored on the world map beside the yard (or where
+// the seller's `ship.x/y` says), ready to board when the company comes out.
 import { terrain } from '../data/terrain.js';
 import { getTile, inBounds } from '../world/map.js';
 import { worldMap } from '../data/schema.js';
@@ -40,10 +40,14 @@ export function mooringFor(game, npc, entities = null) {
   return null;
 }
 
-export const shipBought = (session, npc) => !!session.party.flags[`_ship_${npc.id}`];
+export const shipBought = (session, npc) => !!session.party.flags[`_${shipDeal(npc).id}`];
+
+// Who sells a ship: a shipwright, or a place with a choice that builds one
+export const sellsShip = (e) => e?.role === 'shipwright' || (e?.type === 'event' && (e.choices || []).some((c) => c.effects?.ship));
 
 // The BUY action: returns false (and says why) when no sale is made
-export function buyShip(session, npc, res) {
+// (opts.quiet: the caller writes the log line)
+export function buyShip(session, npc, res, opts = {}) {
   const deal = shipDeal(npc);
   const p = session.party;
   if (shipBought(session, npc)) { res.text = deal.soldText; return false; }
@@ -57,8 +61,8 @@ export function buyShip(session, npc, res) {
   const spot = mooringFor(session.game, npc, live ? live.entities : session.buildLiveMap(world.id)?.entities);
   if (!spot) { res.text = 'I\'ve a ship, but nowhere to float her! (There is no open water by the yard.)'; return false; }
   p.gold -= deal.price;
-  p.flags[`_ship_${npc.id}`] = true;
-  const ship = { id: `ship_${npc.id}`, type: 'ship', x: spot.x, y: spot.y, name: deal.name };
+  p.flags[`_${deal.id}`] = true;
+  const ship = { id: deal.id, type: 'ship', x: spot.x, y: spot.y, name: deal.name };
   const ms = session.mapState(world.id);
   (ms.added ||= []).push(ship);
   if (live) {
@@ -68,7 +72,7 @@ export function buyShip(session, npc, res) {
   res.text = `Done! ${deal.price} gold, and the ${deal.name} is thine. My lads have warped her round to the quay: she lies moored and ready, just outside the yard. Fair winds!`;
   res.note = `Paid ${deal.price} gold. The ${deal.name} is moored outside the yard.`;
   res.ship = ship;
-  session.log(`You buy the ${deal.name} for ${deal.price} gold. She is moored at the quay, ready to board.`, 'loot');
+  if (!opts.quiet) session.log(`You buy the ${deal.name} for ${deal.price} gold. She is moored at the quay, ready to board.`, 'loot');
   sfx('gold');
   session.autosave?.();
   return true;

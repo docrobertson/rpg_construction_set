@@ -331,12 +331,13 @@ function resisted(b, t, id) {
   return false;
 }
 
-// Now and then a fallen band leaves a charm; a great foe often does, and a finer one
+// Once in a while a fallen band leaves a charm; a great foe more often, and a
+// finer one (rare enough that finding one feels like something)
 function battleLoot(session, b, power, give) {
   const g = b.game;
   if (g.settings.loot === false || typeof give !== 'function') return;
   const bosses = b.killedIds.map((id) => byId(g.monsters, id)).filter((d) => d?.boss);
-  const chance = bosses.length ? 0.55 : Math.min(0.14, 0.025 + power * 0.006);
+  const chance = bosses.length ? 0.4 : Math.min(0.09, 0.015 + power * 0.004);
   if (!rng.chance(chance)) return;
   const lvl = Math.max(partyLevel(session.party), ...bosses.map((d) => d.level || 1));
   // worth no more than the gear such a fight leaves (see Battle.dropLoot): legends are found, not looted

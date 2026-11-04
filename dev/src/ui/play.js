@@ -516,6 +516,7 @@ export class PlayUI {
     // points of interest seen so far
     for (const e of map.entities) {
       if (e.type !== 'event' || (vis && !explored[e.y * map.w + e.x])) continue;
+      if (terrain(getTile(map, e.x, e.y)).feature) continue; // (a shipyard on its harbour: the site square says enough)
       if (e.x < ox - 1 || e.y < oy - 1 || e.x > ox + span || e.y > oy + span) continue;
       ctx.fillStyle = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' }[e.kind] || '#d0a0ff';
       ctx.strokeStyle = '#000';

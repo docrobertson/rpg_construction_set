@@ -13,13 +13,24 @@ import { DIR4 } from '../core/util.js';
 import {
   attackBonus, armorClass, damageRoll, damageBonus, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
   canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf, combatMoves, heroAbilities, abilityOf, ensureCombatData,
-  perkCount, mod, classOf, levelUpNote,
+  perkCount, mod, classOf, levelUpNote, magicalOf,
 } from './rules.js';
+import { hasMagic } from './charms.js';
 import { sfx } from '../core/sound.js';
 import { lootTag, restoresPool, poolWords } from './magic.js';
 import { BattleFx } from '../render/fx.js';
 
-const PARTY_SPOTS = [[6, 7], [5, 7], [7, 7], [4, 7], [8, 7], [6, 8], [5, 8], [7, 8]];
+// The company's opening order: the first half of the roster in the front
+// rank, a square apart, and the rest a step behind, each in a gap of the rank
+// ahead (then at its ends), so the back rank can step up or shoot past
+export function partySpots(n) {
+  const front = Math.ceil(n / 2);
+  const f = Array.from({ length: front }, (_, i) => 6 + (i - (front - 1) / 2) * 2);
+  const gaps = f.slice(1).map((x, i) => (x + f[i]) / 2);
+  const back = [...gaps, f[f.length - 1] + 1, f[0] - 1].slice(0, n - front).sort((a, b) => a - b);
+  const fit = (x) => Math.max(0, Math.min(ARENA_W - 1, x));
+  return [...f.map((x) => [fit(x), 7]), ...back.map((x) => [fit(x), 8])];
+}
 const fxHex = (n) => '#' + ((n ?? 0xffffff) >>> 0).toString(16).padStart(6, '0');
 const cheb = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 const LEGACY = { stunned: 'stun', asleep: 'sleep', afraid: 'fear' };
@@ -93,11 +104,11 @@ export class Battle {
     // leave room for the turn-order strip along the top
     v.frameArea(0, 0, ARENA_W, ARENA_H, { left: 8, right: 8, top: 74, bottom: 8 });
     v.rig.dist *= 1.6; // settle in from above
-    // party
-    let i = 0;
-    for (const m of this.s.party.members) {
-      if (m.status === 'dead') continue;
-      const [x, y] = this.freeSpot(PARTY_SPOTS[i++] || [6, 8], 'party');
+    // party: the first half of the roster in front, the rest a step behind
+    const heroes = this.s.party.members.filter((m) => m.status !== 'dead');
+    const spots = partySpots(heroes.length);
+    for (const [i, m] of heroes.entries()) {
+      const [x, y] = this.freeSpot(spots[i], 'party');
       const u = this.unit({ id: 'pu_' + m.id, side: 'party', member: m, name: m.name, x, y, sleep: m.status === 'asleep' ? 2 : 0, face: [0, -1] });
       m.buffs = [];
       u.init = (m.dex || 10) + rng.int(1, 6) + perkCount(m, 'alert') * 4;
@@ -1472,7 +1483,8 @@ export class Battle {
     const bossLevel = Math.max(0, ...this.killedIds.map((id) => byId(this.game.monsters, id)).filter((d) => d?.boss).map((d) => d.level || 1));
     const budget = 30 + power * 20 + bossLevel * 30;
     const gear = this.game.items.filter((it) => ['weapon', 'armor', 'shield'].includes(it.type) && !it.noLoot && !it.unique && (it.price || 0) <= budget && (it.price || 0) >= budget * 0.12);
-    if (gear.length) give(rng.weighted(gear, (it) => 1 + (it.price || 0) / 50), boss ? 'The great foe leaves behind' : 'You claim');
+    // (enchanted pieces turn up half as often as plain ones)
+    if (gear.length) give(rng.weighted(gear, (it) => (1 + (it.price || 0) / 50) * (magicalOf(it) || hasMagic(it) ? 0.5 : 1)), boss ? 'The great foe leaves behind' : 'You claim');
   }
 
   // What a placed band was carrying (its map entity's loot: a treasure map,
