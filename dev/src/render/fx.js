@@ -514,11 +514,16 @@ export class BattleFx {
   ground(tiles, color = 0xffe080, kind = 'zone') {
     const trap = kind === 'trap';
     const ms = [];
+    // (a zone is a soft glowing pool, not squares: it must not look like the
+    // blue and amber squares of a move)
     for (const t of tiles) {
       if (trap) {
         ms.push(this.decal('ring', color, 0.92, t.x, t.y, 0.9, true));
         ms.push(this.decal('star', color, 0.62, t.x, t.y, 0.75, true));
-      } else ms.push(this.decal('tile', color, 0.94, t.x, t.y, 0.5, false));
+      } else {
+        ms.push(this.decal('glow', color, 1.55, t.x, t.y, 0.42, true));
+        ms.push(this.decal('star', color, 0.42, t.x, t.y, 0.5, true));
+      }
     }
     let on = true;
     const t0 = performance.now();
@@ -527,7 +532,7 @@ export class BattleFx {
       if (!on) return;
       const k = 0.78 + Math.sin((performance.now() - t0) / (trap ? 420 : 600)) * 0.22;
       ms.forEach((m, i) => { m.material.opacity = base[i] * k; });
-      if (trap) for (let i = 1; i < ms.length; i += 2) ms[i].rotation.z = (performance.now() - t0) / 2400;
+      for (let i = 1; i < ms.length; i += 2) ms[i].rotation.z = (performance.now() - t0) / (trap ? 2400 : 5000);
       this.view.tween(0.08, () => {}, pulse);
     };
     pulse();

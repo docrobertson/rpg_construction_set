@@ -599,8 +599,12 @@ export class CombatHud {
     if (tg.areaKey === key) return;
     tg.areaKey = key;
     const col = tg.color || 0xffc030;
-    const cells = tg.tiles.map((c) => ({ ...c, color: col }));
-    if (t) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) cells.push({ x: t.x + dx, y: t.y + dy, color: 0xfff4c8 });
+    // (the squares it can be aimed at go dim while the pointer shows where it would land)
+    const dim = t ? [16, 8, 0].reduce((n, sh) => n | (Math.round(((col >> sh) & 255) * 0.35) << sh), 0) : col;
+    const area = [];
+    if (t) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) area.push({ x: t.x + dx, y: t.y + dy, color: 0xfff8e0 });
+    const inArea = new Set(area.map((c) => `${c.x},${c.y}`));
+    const cells = [...tg.tiles.filter((c) => !inArea.has(`${c.x},${c.y}`)).map((c) => ({ ...c, color: dim })), ...area];
     this.view.setHighlights(cells, col, 0.4);
   }
 

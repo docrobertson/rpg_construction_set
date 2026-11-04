@@ -814,12 +814,27 @@ const sheet = await ev(async () => {
   ui.selectHero(m);
   await new Promise((r) => setTimeout(r, 200));
   const t = document.querySelector('.hero-pop')?.textContent || '';
+  document.querySelector('.hero-pop .sheet-abil')?.scrollIntoView({ block: 'start' });
   return { learned: /learned at level 5/.test(t), art: /Battle art/i.test(t), later: /Still to learn/.test(t) };
 });
 check('the hero sheet lists the battle art, what is still to come and when', sheet.learned && sheet.art && sheet.later, sheet);
 await shot('skills-sheet');
 await page.keyboard.press('Escape');
 await closeModals();
+
+// a companion can join already knowing battle arts (the designer ticks them on the person)
+const joined = await ev(() => {
+  const s = window.__app.session, g = s.game, S = window.__skills;
+  const npc = { id: 'test_joiner', type: 'npc', name: 'Sir Testwick', x: s.state.pos.x, y: s.state.pos.y, look: { race: 'human' }, recruit: { cls: 'paladin', race: 'human', level: 5, arts: ['dash', 'first_aid', 'no_such_art'] } };
+  s.map.entities.push(npc);
+  const why = s.recruit(npc);
+  const m = s.party.members.find((x) => x.name === 'Sir Testwick');
+  const out = { why, arts: m?.arts.map((a) => `${a.id}@${a.level}`), bar: m ? S.heroAbilities(g, m).map((a) => a.id) : [] };
+  if (m) s.party.members.splice(s.party.members.indexOf(m), 1);
+  s.refreshPartyVisual?.();
+  return out;
+});
+check('a companion joins knowing the battle arts the designer gave them', !joined.why && joined.arts?.join() === 'dash@2,first_aid@4' && joined.bar.includes('holy_charge') && joined.bar.includes('first_aid'), joined);
 
 // ------------------------------------------------------------ a fight on a dungeon floor
 const field = await ev(async () => {
@@ -880,6 +895,7 @@ if (ed) {
     const input = rows[2]?.querySelectorAll('input[type=number]')[0];
     if (input) { input.value = '6'; input.dispatchEvent(new Event('input')); }
     const k = g.classes[0];
+    field?.scrollIntoView({ block: 'start' });
     return { opened: true, heads, level: k.skills[2]?.level, special: !!document.querySelector('.form input[placeholder="2"]') };
   });
   await page.screenshot({ path: `${OUT}/skills-editor-class.png` });
@@ -890,6 +906,7 @@ if (ed) {
     btn?.click();
     await new Promise((r) => setTimeout(r, 200));
     const labels = [...document.querySelectorAll('.form .field-label')].map((l) => l.textContent);
+    [...document.querySelectorAll('.form .form-section')].find((x) => /Calls a creature/.test(x.textContent))?.scrollIntoView({ block: 'start' });
     const groups = [...document.querySelectorAll('.entry-list .entry-group')].map((x) => x.textContent);
     return { labels, groups };
   });

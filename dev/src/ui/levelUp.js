@@ -5,7 +5,7 @@
 import { h, clear, modal, anyModal } from './dom.js';
 import { portrait } from '../render/portrait.js';
 import { STAT_NAMES } from '../data/defaults.js';
-import { newAtLevel, charLook, classOf, raceOf, maxHp, maxMp, talentTree, lockedAbilities } from '../game/rules.js';
+import { newAtLevel, charLook, classOf, raceOf, maxHp, maxMp, talentTree, lockedAbilities, perkChoices } from '../game/rules.js';
 import { TALENT_TREES } from '../data/defaults.js';
 import { perkPicker } from './combatHud.js';
 import { sfx } from '../core/sound.js';
@@ -72,7 +72,9 @@ export class LevelUpCard {
     };
     for (const m of heroes) rows.appendChild(row(m));
     sfx('level');
-    this.entry = modal(h('div.lvl', h('p.lvl-intro', heroes.length > 1 ? 'Your company grows stronger. Each hero may learn a new talent:' : `${heroes[0].name} grows stronger and may learn a new talent:`), rows), {
+    // (on even levels a battle art is on offer too)
+    const what = heroes.some((m) => perkChoices(g, m).some((p) => p.art)) ? 'a new talent or a battle art' : 'a new talent';
+    this.entry = modal(h('div.lvl', h('p.lvl-intro', heroes.length > 1 ? `Your company grows stronger. Each hero may learn ${what}:` : `${heroes[0].name} grows stronger and may learn ${what}:`), rows), {
       title: 'Level up!', icon: 'up', cls: 'levelup-modal',
       buttons: [{ label: 'Done', primary: true }],
       onClose: () => { this.entry = null; if (!this.dead) ui.refresh(); },
