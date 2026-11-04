@@ -16,6 +16,7 @@ import { applyReward, startQuest, isActive, isDone, checkQuests } from './quests
 import { roll, rng } from '../core/rng.js';
 import { deepClone } from '../core/util.js';
 import { MODEL_KINDS } from '../render/models.js';
+import { siteScale } from '../render/landmarks.js';
 import { DAY_LEN } from './session.js';
 import { carriedMaps, findSpot, isDug } from './treasure.js';
 import { getMap } from '../data/schema.js';
@@ -115,8 +116,10 @@ const LANDMARK_LOOKS = {
 // harbour itself, quay, slipway and all, and needs no model of its own)
 export function eventLook(e, map = null) {
   if (e.look && e.look.kind) return e.look;
+  // (the world map draws a landmark larger by its kind; in a town it is
+  // drawn to stand among the houses)
   const l = LANDMARK_LOOKS[e.kind];
-  if (l) return has(l.kind) ? { ...l } : { kind: 'marker', color: 0xc080ff };
+  if (l) return !has(l.kind) ? { kind: 'marker', color: 0xc080ff } : map && map.type !== 'world' ? { ...l, scale: siteScale(l.kind) } : { ...l };
   switch (e.kind) {
     case 'shipyard': return map && inBounds(map, e.x, e.y) && terrain(getTile(map, e.x, e.y)).key === 'harbour' ? null : { kind: 'ship', scale: 0.8 };
     case 'shrine': return has('shrine') ? { kind: 'shrine', glow: e.glow ?? 0xffd870 } : { kind: 'waygate', glow: e.glow ?? 0xffd870, scale: 0.7 };

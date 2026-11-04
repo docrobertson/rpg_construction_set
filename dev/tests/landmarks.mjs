@@ -221,16 +221,18 @@ check('...and after dark it is offered', watch.found && !watch.off && /eyes shin
 for (let i = 0; i < 40 && !(await ev(() => !!window.__app.session.battle)); i++) await wait(150);
 r = await ev(() => { const s = window.__app.session; return { battle: !!s.battle, bell0: s.party.inventory.shepherds_bell || 0 }; });
 // (won at a stroke: the fight itself is not what this suite is about) the
-// foes fall, and the hero whose turn it is ends it
-for (let k = 0; k < 40 && (await ev(() => !!window.__app.session.battle)); k++) {
-  await ev(async () => { const b = window.__app.session.battle; for (const e of b?.enemies || []) if (b.alive(e)) { e.hp = 1; await b.damage(e, 5, {}); } });
-  await page.keyboard.press('Space');
-  await wait(300);
+// foes fall, the hero whose turn it is ends it, and the company is back on
+// the road with the prize
+const state = () => ev(() => { const s = window.__app.session; return { battle: !!s.battle, mode: s.mode, bell: s.party.inventory.shepherds_bell || 0 }; });
+for (let k = 0, st = await state(); k < 80 && !(st.mode === 'explore' && !st.battle && st.bell > r.bell0); k++, st = await state()) {
+  if (st.battle) {
+    await ev(async () => { const b = window.__app.session.battle; for (const e of b?.enemies || []) if (b.alive(e)) { e.hp = 1; await b.damage(e, 5, {}); } });
+    await page.keyboard.press('Space');
+  } else await closeModals();
+  await wait(250);
 }
-await closeModals();
-await wait(600);
-await closeModals();
-r = { ...r, ...(await ev(() => { const s = window.__app.session; return { bell: s.party.inventory.shepherds_bell || 0, flag: Object.keys(s.party.flags).filter((f) => /_wolves$/.test(f)), mode: s.mode }; })) };
+await wait(400);
+r = { ...r, ...(await ev(() => { const s = window.__app.session; return { bell: s.party.inventory.shepherds_bell || 0, flag: Object.keys(s.party.flags).filter((f) => /_wolves$/.test(f)), mode: s.mode, log: [...document.querySelectorAll('.hud-log .log-line')].slice(-4).map((x) => x.textContent) }; })) };
 check('the wolves come, and seeing them off earns the shepherd\'s bell', r.battle && r.bell === r.bell0 + 1 && r.flag.length === 1, r);
 c = await choose(id, 'watch');
 await closeModals();
@@ -394,12 +396,13 @@ await ev(async ([tpls]) => {
   const s = window.__app.session, m = s.game.maps.find((x) => x.name === 'Brookend');
   // open green squares inside the palisade, clear of everyone, nearest the middle first
   const green = (x, y) => [2, 3, 55].includes(m.tiles[y * m.w + x]);
-  const open = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!green(x + dx, y + dy)) return false; return !m.entities.some((e) => Math.abs(e.x - x) <= 2 && Math.abs(e.y - y) <= 2); };
+  const open = (x, y) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dy]) => green(x + dx, y + dy)) && !m.entities.some((e) => Math.abs(e.x - x) <= 1 && Math.abs(e.y - y) <= 1);
   const cx = Math.floor(m.w / 2), cy = Math.floor(m.h / 2), spots = [];
   const order = [];
   for (let y = 2; y < m.h - 2; y++) for (let x = 2; x < m.w - 2; x++) order.push({ x, y, d: Math.hypot(x - cx, y - cy) });
   order.sort((a, b) => a.d - b.d);
-  for (const p of order) if (spots.length < 3 && open(p.x, p.y) && spots.every((q) => Math.abs(q.x - p.x) + Math.abs(q.y - p.y) > 3)) spots.push(p);
+  // (close together, so one view shows them all)
+  for (const p of order) if (spots.length < 3 && open(p.x, p.y) && spots.every((q) => Math.abs(q.x - p.x) + Math.abs(q.y - p.y) > 3) && (!spots.length || Math.abs(spots[0].x - p.x) + Math.abs(spots[0].y - p.y) <= 10)) spots.push(p);
   tpls.forEach((t, i) => { if (spots[i]) m.entities.push({ ...t, type: 'event', id: 'lm_town_' + i, x: spots[i].x, y: spots[i].y }); });
   window.__lm.town = spots;
   const mx = Math.round(spots.reduce((t, p) => t + p.x, 0) / spots.length), my = Math.round(spots.reduce((t, p) => t + p.y, 0) / spots.length);
@@ -410,8 +413,8 @@ await ev(async ([tpls]) => {
 }, [[TPL.windmill, TPL.chapel, TPL.apiary]]);
 await wait(1800);
 await shot('in-town');
-r = await ev(() => { const s = window.__app.session; return [...s.view.entities.values()].filter((e) => /^lm_town_/.test(e.id)).map((e) => +e.scale.toFixed(2)); });
-check('in a town the landmarks stand at the size they were built (one square)', r.length >= 2 && r.every((k) => k === 1), r);
+r = await ev(() => { const s = window.__app.session; return [...s.view.entities.values()].filter((e) => /^lm_town_/.test(e.id)).map((e) => ({ kind: e.info && e.model.userData.info && e.id, h: +(e.info.height * e.scale).toFixed(2) })); });
+check('in a town the landmarks stand among the houses: the windmill and chapel as tall as a house', r.length === 3 && r[0].h > 2 && r[1].h > 1.8, r);
 
 check('no errors in the page', !errors.length, errors.slice(0, 5));
 await browser.close();

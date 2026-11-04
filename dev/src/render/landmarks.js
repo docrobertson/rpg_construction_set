@@ -1121,6 +1121,12 @@ export const LANDMARK_WORLD_SCALE = {
   graveyard: 1.35, gibbet: 1.4, woodcamp: 1.35, quarry: 1.45, statue: 1.45, dragonbones: 1.45, wreck: 1.45, watchtower: 1.4,
 };
 
+// ...and in a town (or anywhere else off the world map), where they stand
+// among houses and folk drawn larger than a square: the buildings up to the
+// height of a house, the rest a little over their square
+export const LANDMARK_SITE_SCALE = { windmill: 1.8, watermill: 1.6, chapel: 1.8, watchtower: 1.8, burntfarm: 1.5 };
+export const siteScale = (kind) => LANDMARK_SITE_SCALE[kind] ?? 1.3;
+
 // The parts that turn: a model of their own set on the landmark at `at`
 // (in the landmark's own units), spun about `axis` at `speed` (radians a
 // second). null for a ruin, whose sails turn no more.
