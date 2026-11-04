@@ -104,6 +104,7 @@ export class CombatHud {
   event(type, data) {
     if (!this.root) return;
     if (type === 'turn') {
+      this.follow(); // (delve: the view goes to whoever acts at once, not on the next frame)
       this.showBanner(data);
       this.renderStrip();
       this.refreshPlates();
@@ -162,7 +163,7 @@ export class CombatHud {
     this.root.appendChild(el);
     this.surpriseEl = el;
     this.frame(false);
-    setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); if (this.surpriseEl === el) this.surpriseEl = null; }, 600); }, 2600);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); if (this.surpriseEl === el) this.surpriseEl = null; }, 600); }, 3400);
   }
 
   // ------------------------------------------------------------ initiative strip

@@ -496,6 +496,10 @@ export class Delve {
     for (const [tx, ty] of this.data.trail) trail.push({ x: tx, y: ty });
     const seen = new Set([sq(to.x, to.y)]);
     trail = trail.filter((p) => { const k = sq(p.x, p.y); if (seen.has(k) || !this.heroPass(p.x, p.y)) return false; seen.add(k); return true; }).slice(0, 10);
+    // only footsteps that still lead back from where the leader stands (not
+    // those from before a fight or a jump elsewhere)
+    let last = to;
+    trail = trail.filter((p) => { const ok = last && Math.abs(p.x - last.x) + Math.abs(p.y - last.y) === 1; last = ok ? p : null; return ok; });
     this.data.trail = trail.map((p) => [p.x, p.y]);
     // squares to stand on: the leader's footsteps, then the nearest open ground
     const slots = trail.slice(0, fol.length);
@@ -697,6 +701,9 @@ export class Delve {
       s.log(`${hero.name} falls on ${this.groupName(found[0].gid, false)} before ${this.plural(found[0].gid) ? 'they know' : 'it knows'} anyone is there!`, 'good');
     } else if (!ambush && found.some((f) => f.came)) surprise = rng.chance(this.surpriseChance(found));
     if (surprise) s.log(`Caught unawares! ${this.groupName(found[0].gid)} ${this.plural(found[0].gid) ? 'are' : 'is'} surprised: every hero has a free turn before the foe can act.`, 'good');
+    // the view goes to where it starts: the hero seen (or striking) and the foe
+    const q = this.pos(hero), foe = this.living(this.groups[found[0].gid])[0];
+    if (foe) s.camFocus(Math.round((q.x + foe.x) / 2), Math.round((q.y + foe.y) / 2));
     return this.fight(found.map((f) => f.gid), { surprise, striker: strike ? hero : null });
   }
 
@@ -956,6 +963,7 @@ export class Delve {
       else if (g.temp && !won) this.removeGroup(gid);
     }
     if (!this.data.sel || !this.alive().some((m) => heroKey(m) === this.data.sel)) this.data.sel = null;
+    this.data.trail = []; // (everyone stands where the fight left them)
     this.syncPos();
     return exit;
   }

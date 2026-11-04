@@ -530,6 +530,22 @@ await shot('dv-06-corridor-battle');
 check('a battle can be fought in a corridor of the dungeon', corridor.ok, corridor);
 await ev(() => window.__win());
 
+// --- defeat on the dungeon floor is the end, as ever
+const lost = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  s.engage({ id: 'amb_doom', monster: 'goblin', count: '2', roaming: true });
+  const u = await window.__heroTurn(20000);
+  const b = s.battle;
+  if (!u || !b) return { noBattle: true };
+  for (const p of b.partyUnits) if (b.alive(p)) await b.damage(p, 999, {});
+  await b.actPass();
+  for (let i = 0; i < 200 && s.mode !== 'gameover'; i++) await sleep(30);
+  await sleep(300);
+  return { mode: s.mode, modal: [...document.querySelectorAll('.modal-title, .modal h2, .modal-head')].map((x) => x.textContent).join('|'), dv: !!dv };
+});
+check('defeat on the dungeon floor ends in the game-over window as ever', lost.mode === 'gameover' && /Darkness Falls/.test(lost.modal), lost);
+
 console.log(JSON.stringify(errors.slice(0, 5)));
 await browser.close();
 if (errors.length) { console.log('FAIL page errors'); fails.push('page errors'); }

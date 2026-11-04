@@ -2130,12 +2130,12 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .emark.dv-mark.alert .em-bob { animation: dv-pop .5s ease-out; }
 @keyframes dv-pop { 0% { transform: scale(.3) translateY(8px); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
 /* the surprise banner, under the turn strip */
-.dv-surprise { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 22px 9px; border-radius: 10px; pointer-events: none; white-space: nowrap;
+.dv-surprise { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex; flex-direction: row; align-items: baseline; gap: 10px;
+  padding: 5px 16px 6px; border-radius: 9px; pointer-events: none; white-space: nowrap;
   background: linear-gradient(rgba(20,40,16,.92), rgba(10,24,8,.9)); border: 1px solid #7fbf5a; box-shadow: 0 0 24px rgba(120,220,90,.35), 0 6px 18px rgba(0,0,0,.6);
   animation: dv-surprise-in .45s cubic-bezier(.2,1.4,.4,1); transition: opacity .5s, transform .5s; }
-.dv-surprise b { font: 600 24px var(--font-title); letter-spacing: 1px; color: #c8ff9a; text-shadow: 0 2px 0 #000, 0 0 14px rgba(140,255,100,.5); }
-.dv-surprise span { font: 13px var(--font-ui); color: #e0f0c8; }
+.dv-surprise b { font: 600 20px var(--font-title); letter-spacing: 1px; color: #c8ff9a; text-shadow: 0 2px 0 #000, 0 0 14px rgba(140,255,100,.5); }
+.dv-surprise span { font: 13px var(--font-ui); color: #e0f0c8; opacity: .9; }
 .dv-surprise.out { opacity: 0; transform: translateX(-50%) translateY(-8px); }
 @keyframes dv-surprise-in { from { opacity: 0; transform: translateX(-50%) scale(.7); } }
 .cbt-round.dv-free { color: #b8ff8a; }
