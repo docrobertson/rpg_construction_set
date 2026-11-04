@@ -1086,16 +1086,17 @@ export class PlayUI {
       // a charm is no better or worse than another, only different: say who may wear it
       if (it.type === 'charm') {
         const free = can.filter((m) => !m.equip?.charm);
-        return h('div.sr-cmp', h('span.cmp.' + (free.length ? 'up' : 'swap'), { title: can.map((m) => `${m.name}: ${compareText(g, m, it).text}`).join('\n') },
+        return h('div.sr-cmp', h('span.cmp.' + (free.length ? 'up' : 'swap'), { title: can.map((m) => tradeoffTip(g, m, it, `${m.name}: ${compareText(g, m, it).text}`)).join('\n\n') },
           cmpArrow({ cls: free.length ? 'up' : 'swap' }), can.length === who.length ? 'Anyone in your company can wear it' : `${can.map((m) => m.name).join(', ')} can wear it`,
-          free.length && free.length < can.length ? ` (${free.map((m) => m.name).join(', ')} wear${free.length === 1 ? 's' : ''} none)` : ''));
+          free.length && free.length < can.length ? ` (${free.map((m) => m.name).join(', ')} wear${free.length === 1 ? 's' : ''} none)` : ''),
+          ...can.map((m) => tradeoffLine(g, m, it)).filter(Boolean));
       }
       return h('div.sr-cmp', ...can.map((m) => {
         const c = compareText(g, m, it);
         const cur = itemOf(g, m.equip[slotFor(it)]);
-        return h('span.cmp.' + c.cls, { title: `${m.name} now has ${cur ? `${cur.name} (${itemStats(cur)})` : 'nothing'} as ${SLOT_NAMES[slotFor(it)].toLowerCase()}` },
-          cmpArrow(c), `${m.name} ${c.text}`);
-      }));
+        return h('span.cmp.' + c.cls, { title: tradeoffTip(g, m, it, `${m.name} now has ${cur ? `${cur.name} (${itemStats(cur)})` : 'nothing'} as ${SLOT_NAMES[slotFor(it)].toLowerCase()}`) },
+          cmpArrow(c), `${m.name} ${c.text}`, tradeoff(g, m, it).lose.length ? h('span.cmp-lose', ' ⚠') : null);
+      }), ...can.map((m) => tradeoffLine(g, m, it)).filter(Boolean));
     };
     const render = () => {
       const scroller = body.parentElement;
@@ -1293,10 +1294,11 @@ export class PlayUI {
         const who = slot ? heroes.filter((x) => canEquip(g, x, it).ok) : [];
         const chips = !slot ? [] : who.length ? who.map((x) => {
           const c = compareText(g, x, it);
-          return h('button.cmp.' + c.cls, {
-            title: `${x.name}: ${c.text}. Click to put it on ${x.name}`,
+          const t = tradeoff(g, x, it);
+          return h('button.cmp.' + c.cls + (t.lose.length ? '.loses' : ''), {
+            title: tradeoffTip(g, x, it, `${x.name}: ${c.text}. Click to put it on ${x.name}.`),
             onclick: () => this.equipFromPack(x, it, { stay: true }),
-          }, cmpArrow(c), `${x.name} ${c.text}`);
+          }, cmpArrow(c), `${x.name} ${c.text}`, t.lose.length ? h('span.cmp-lose', { title: 'Gives up some magic: see below' }, ' ⚠') : null);
         }) : [h('span.cmp.none', noOneText(g, it))];
         // reagents and herbs say plainly who burns them; scrolls offer to be
         // copied into each spellbook-keeper's book
@@ -1323,7 +1325,9 @@ export class PlayUI {
             use ? h('span.inv-use', use) : null,
             // a scroll's copy buttons already say who can copy it
             magic && !(it.type === 'scroll' && chips.length) ? h('span.cmp.use.' + magic.cls, magic.text) : null,
-            ...chips));
+            ...chips,
+            // what each would give up by putting it on: the magic of the piece it replaces
+            ...who.map((x) => tradeoffLine(g, x, it)).filter(Boolean)));
         if (it.type === 'consumable' && !s.battle) {
           row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
         }
@@ -1620,6 +1624,49 @@ const RARITY_NAMES = Object.fromEntries(Object.entries(RARITIES).map(([k, v]) =>
 // the colours journal.js draws points of interest in, for the map key
 const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
 
+
+// What a piece's magic does, line by line (its effects, then its battle action)
+function magicLines(g, it) {
+  if (!it || !(hasMagic(it) || it.type === 'charm')) return [];
+  const ci = charmInfo(g, it);
+  const out = [...(ci?.lines || [])];
+  if (ci?.ability) out.push(`${ci.ability.name} (battle action${ci.ability.tags ? ', ' + ci.ability.tags : ''})`);
+  return out;
+}
+
+// What a hero gains and gives up by wearing `it` instead of what they have
+// now: the magic of each piece compared line by line (a two-handed weapon
+// also takes the shield off, and its magic with it)
+function tradeoff(g, m, it) {
+  const slot = slotFor(it);
+  const cur = slot ? itemOf(g, m.equip[slot]) : null;
+  if (!slot || cur?.id === it.id) return { cur, gain: [], lose: [] };
+  const had = magicLines(g, cur).map((l) => ({ l, from: cur }));
+  const sh = it.twoHanded && slot === 'weapon' ? itemOf(g, m.equip.shield) : null;
+  if (sh) had.push(...magicLines(g, sh).map((l) => ({ l, from: sh })));
+  const got = magicLines(g, it);
+  return { cur, gain: got.filter((l) => !had.some((x) => x.l === l)), lose: had.filter((x) => !got.includes(x.l)) };
+}
+
+// One line saying what a swap costs a hero (null when it costs no magic)
+function tradeoffLine(g, m, it) {
+  const t = tradeoff(g, m, it);
+  if (!t.lose.length) return null;
+  const by = new Map();
+  for (const { l, from } of t.lose) (by.get(from) || by.set(from, []).get(from)).push(l);
+  const losing = [...by.entries()].map(([from, ls]) => [h('b', `the ${from.name}`), `: ${ls.join('; ')}`]);
+  return h('div.tradeoff', h('i.to-ico', { html: iconSvg('warn') }),
+    h('span', h('b.to-who', m.name), ' would give up ', ...losing.flatMap((x, i) => (i ? [' and ', ...x] : x))));
+}
+
+// The full swap, for a chip's tooltip
+function tradeoffTip(g, m, it, head) {
+  const t = tradeoff(g, m, it);
+  const out = [head];
+  if (t.gain.length) out.push(`Gains: ${t.gain.join('; ')}`);
+  if (t.lose.length) out.push(`Gives up: ${t.lose.map((x) => `${x.l} (${x.from.name})`).join('; ')}`);
+  return out.join('\n');
+}
 
 // how an item compares with what a hero already has in that slot
 function compareText(g, m, it) {

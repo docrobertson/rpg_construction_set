@@ -2190,3 +2190,13 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
   background: linear-gradient(rgba(36,27,16,.94), rgba(20,14,8,.92)); box-shadow: inset 0 0 0 1px #5fbf40, 0 0 12px rgba(110,220,70,.4), 0 4px 14px rgba(0,0,0,.5); }
 .dv-out.alone { top: calc(var(--hud-top) + 10px); }
 .dv-out[hidden] { display: none; }
+
+/* what a swap gives up: the magic of the piece it replaces */
+.tradeoff { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; margin-top: 3px; padding: 3px 8px; border-radius: 6px;
+  font: 12px/1.35 var(--font-ui); color: #f0d8b8; background: rgba(200,120,60,.12); border-left: 2px solid rgba(230,150,80,.7); white-space: normal; }
+.tradeoff .to-ico { flex: none; color: #f0a860; display: inline-flex; margin-top: 1px; }
+.tradeoff .to-ico svg { width: 13px; height: 13px; }
+.tradeoff b { color: #ffe6c0; font-weight: 600; }
+.tradeoff .to-gain { color: #b8f4a8; }
+.cmp .cmp-lose { color: #f0a860; margin-left: 1px; }
+.inv-name .tradeoff { width: 100%; }
