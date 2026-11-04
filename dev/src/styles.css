@@ -916,6 +916,23 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .cbt-bar.waiting { align-items: center; justify-content: center; gap: 10px; border: 1px dashed #4a3a24; border-radius: 8px; background: rgba(0,0,0,.18); }
 .cbt-waiting { display: flex; flex-direction: column; align-items: center; gap: 10px; font: italic 16px var(--font-display); color: #e8c0a8; }
 .cbt-waiting .cbt-help { margin: 0; font-style: normal; }
+/* a hero with many skills: three rows of slimmer buttons, the key tucked on the icon */
+.cbt-bar.dense { gap: 3px; }
+.cbt-btns.dense { gap: 3px 4px; }
+.cbt-btns.dense .cbt-btn { gap: 6px; padding: 2px 4px 2px 5px; border-radius: 6px; }
+.cbt-btns.dense .cb-side { gap: 0; }
+.cbt-btns.dense .cb-ico { width: 25px; height: 25px; font-size: 15px; }
+.cbt-btns.dense .cb-key { position: absolute; right: -7px; bottom: -5px; font-size: 8.5px; line-height: 10px; padding: 0 2px; z-index: 1; }
+.cbt-btns.dense .cb-cd { width: 25px; height: 25px; margin-left: -12.5px; font-size: 13px; }
+.cbt-btns.dense .cb-text { gap: 1px; }
+.cbt-btns.dense .cb-name { font-size: 12px; line-height: 1.06; }
+.cbt-btns.dense .cb-sub { font-size: 9.5px; line-height: 1.1; -webkit-line-clamp: 1; display: block; white-space: nowrap; text-overflow: ellipsis; }
+.cbt-btns.dense .cbt-btn.special .cb-name::before { font-size: 10px; }
+.cbt-btns.dense .cb-item { right: -9px; bottom: 6px; width: 15px; height: 15px; }
+/* a creature a hero called into the fight */
+.cbt-chip.pet { border-color: #7fd8ff; background: radial-gradient(ellipse at 50% 35%, #2a4a5a, #0b141a 80%); }
+.cbt-chip.pet .ch-hp i { background: linear-gradient(#a8ecff, #3a9ac8); }
+.tc-unit.pet .tc-sub { color: #9fd8ff; }
 
 /* hover cards */
 .cbt-tip { position: fixed; z-index: 40; max-width: 290px; min-width: 170px; padding: 8px 10px 9px; pointer-events: none;
@@ -1009,6 +1026,15 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .perk b { font: 14px var(--font-display); color: #fff3d8; }
 .perk > span:last-child { font: 11px/1.3 var(--font-ui); color: var(--muted); }
 .perk-done { margin-top: 5px; font: 12px var(--font-ui); color: #b8f0b0; }
+/* a battle art among the talents: a new skill for the battle bar */
+.perk.art { border-color: color-mix(in srgb, var(--accent, #e8c069) 65%, #6b5530); background: linear-gradient(#3c3020, #22180e);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #e8c069) 22%, transparent); }
+.perk.art .pk-ico { color: var(--accent, var(--gold)); }
+.perk .pk-art { font: italic 11px var(--font-ui); color: var(--gold); }
+.sa-row.art { background: linear-gradient(90deg, rgba(232,192,105,.09), rgba(0,0,0,.22)); }
+.sheet-abil .sub.sa-later { font-size: 12px; color: var(--muted); }
+.sa-arts { margin: 6px 0 2px; font: 11.5px/1.35 var(--font-ui); color: var(--muted); }
+.sa-arts .ico { color: var(--gold); }
 .pc-pts.perk { background: linear-gradient(#ffe08a, #e0a840); padding: 0 3px; font-size: 10px; line-height: 14px; display: inline-flex; align-items: center; flex: none; }
 
 /* a victory where several heroes level up: two columns and compact talent
@@ -1247,6 +1273,7 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .lvl-gains { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 3px 0 2px; font: 12px var(--font-ui); color: #d8c8a8; }
 .lvl-pts { color: #ffe060; }
 .lvl-tree { color: #a9d4f0; }
+.lvl-next { color: var(--muted); font-style: italic; }
 @media (min-width: 640px) { .levelup-modal .pp-opts { grid-template-columns: repeat(3, 1fr); } }
 /* ================================================================== */
 /* ---------- quest flow & editor UX (round three, flow stream) ---------- */

@@ -9,7 +9,7 @@ import { STATUS_EFFECTS } from '../data/defaults.js';
 import { generateArena, ARENA_W, ARENA_H, bresenham } from '../world/generate.js';
 import { getTile, inBounds } from '../world/map.js';
 import { rng, roll, parseDice } from '../core/rng.js';
-import { DIR4 } from '../core/util.js';
+import { DIR4, deepClone } from '../core/util.js';
 import {
   attackBonus, armorClass, damageRoll, damageBonus, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
   canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf, combatMoves, heroAbilities, abilityOf, ensureCombatData,
@@ -36,6 +36,15 @@ const cheb = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 const LEGACY = { stunned: 'stun', asleep: 'sleep', afraid: 'fear' };
 // the blow a foe gets in when someone breaks away from it
 const FREE_STRIKE = { id: '_free', name: 'Free strike', attack: 'melee' };
+// the blow a riposting fighter answers with
+const RIPOSTE = { id: '_riposte', name: 'Riposte', attack: 'melee', fx: 0xffd0a0 };
+// "1d6+2" with n more: a called creature fights at its caller's level
+function plusDice(dice, n) {
+  if (!n) return dice || '1d4';
+  const d = parseDice(dice || '1d4');
+  const b = d.b + n;
+  return d.d ? `${d.n}d${d.d}${b ? (b > 0 ? '+' : '') + b : ''}` : String(b);
+}
 
 export class Battle {
   constructor(session, enemies, style, opts = {}) {
@@ -61,6 +70,9 @@ export class Battle {
     // (delve) a battle on the live map where the company stands: opts.field
     // brings the map, the figures on it and what the dungeon decides
     this.field = opts.field || null;
+    // runes and caltrops on the ground (traps and zones: see placeMark)
+    this.marks = [];
+    this.petN = 0;
     ensureCombatData(this.game);
     this.fx = new BattleFx(this.view);
   }
@@ -300,15 +312,17 @@ export class Battle {
   }
 
   // ------------------------------------------------------------ queries
-  get partyUnits() { return this.units.filter((u) => u.side === 'party'); }
+  // the heroes (allies called into the fight fight on their side, but are no heroes: see pets)
+  get partyUnits() { return this.units.filter((u) => u.side === 'party' && u.member); }
+  get pets() { return this.units.filter((u) => u.pet); }
   get enemies() { return this.units.filter((u) => u.side === 'enemy'); }
   alive(u) { return !!u && !u.dead && !u.fled; }
-  hpOf(u) { return u.side === 'party' ? u.member.hp : u.hp; }
-  maxHpOf(u) { return u.side === 'party' ? maxHp(this.game, u.member) : u.maxHp; }
+  hpOf(u) { return u.member ? u.member.hp : u.hp; }
+  maxHpOf(u) { return u.member ? maxHp(this.game, u.member) : u.maxHp; }
   foesOf(u) { return this.units.filter((x) => x.side !== u.side && this.alive(x)); }
   friendsOf(u) { return this.units.filter((x) => x.side === u.side && this.alive(x)); }
   label(u) { return u.tag ? `${u.name} ${u.tag}` : u.name; }
-  the(u) { return u.side === 'enemy' && !u.def?.boss ? `the ${this.label(u)}` : this.label(u); }
+  the(u) { return !u.member && !u.def?.boss ? `the ${this.label(u)}` : this.label(u); }
   The(u) { const t = this.the(u); return t[0].toUpperCase() + t.slice(1); }
 
   unitAt(x, y) { return this.units.find((u) => this.alive(u) && u.x === x && u.y === y); }
@@ -384,11 +398,13 @@ export class Battle {
   // ------------------------------------------------------------ conditions
   has(u, id) {
     if (LEGACY[id]) return u[LEGACY[id]] > 0;
-    if (id === 'poisoned' && u.side === 'party' && u.member.status === 'poisoned') return true;
+    if (id === 'poisoned' && u.member?.status === 'poisoned') return true;
     return !!u.st[id];
   }
   power(u, id) { return u.st[id]?.power || 0; }
   helpless(u) { return u.sleep > 0 || u.stun > 0; }
+  // foes cannot see or aim at it: hidden in smoke, or in a sanctuary
+  unseen(u) { return !!(u.st.hidden || u.st.sanctuary); }
 
   // Every condition on a unit, for the HUD: [{ id, rounds, power, def }]
   statusList(u) {
@@ -396,7 +412,7 @@ export class Battle {
     if (u.stun > 0) out.push({ id: 'stunned', rounds: u.stun });
     if (u.sleep > 0) out.push({ id: 'asleep', rounds: u.sleep });
     if (u.fear > 0) out.push({ id: 'afraid', rounds: u.fear });
-    if (u.side === 'party' && u.member.status === 'poisoned') out.push({ id: 'poisoned', rounds: null });
+    if (u.member?.status === 'poisoned') out.push({ id: 'poisoned', rounds: null });
     // (a rage that lasts the whole battle shows no count)
     for (const [id, s] of Object.entries(u.st)) out.push({ id, rounds: s.rounds >= 99 ? null : s.rounds, power: s.power });
     return out.map((s) => ({ ...s, def: STATUS_EFFECTS[s.id] || { name: s.id, icon: 'star', color: '#fff' } }));
@@ -404,11 +420,13 @@ export class Battle {
 
   resists(t, id) {
     if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
-    const iron = t.side === 'party' && perkCount(t.member, 'iron_will');
-    const stout = t.side === 'party' && hasTrait(this.game, t.member, 'stout');
+    const iron = !!t.member && perkCount(t.member, 'iron_will');
+    const stout = !!t.member && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
     if (id === 'asleep') return iron || t.def?.sleepImmune || t.def?.undead || (stout && rng.chance(0.5));
     if (id === 'afraid') return iron || t.def?.boss || (stout && rng.chance(0.5));
+    // (a hero's mind is the player's: only monsters and called creatures turn on their own)
+    if (id === 'charmed') return !!t.member || (t.def?.boss && rng.chance(0.5));
     return false;
   }
 
@@ -420,8 +438,8 @@ export class Battle {
     if (LEGACY[id]) {
       const k = LEGACY[id];
       t[k] = Math.max(t[k] || 0, rounds);
-      if (id === 'asleep' && t.side === 'party' && t.member.status === 'ok') t.member.status = 'asleep';
-    } else if (id === 'poisoned' && t.side === 'party') {
+      if (id === 'asleep' && t.member?.status === 'ok') t.member.status = 'asleep';
+    } else if (id === 'poisoned' && t.member) {
       // heroes stay poisoned after the battle until cured
       const m = t.member;
       if (m.status !== 'ok' && m.status !== 'asleep') return false;
@@ -445,13 +463,13 @@ export class Battle {
   }
 
   acOf(u) {
-    let ac = u.side === 'party' ? armorClass(this.game, u.member) : (u.def.ac || 10);
-    if (u.side !== 'party') for (const b of u.buffs || []) if (b.kind === 'shield') ac += b.power;
+    let ac = u.member ? armorClass(this.game, u.member) : (u.def.ac || 10);
+    if (!u.member) for (const b of u.buffs || []) if (b.kind === 'shield') ac += b.power;
     return ac + this.power(u, 'shielded');
   }
 
   movesFor(u) {
-    let n = u.side === 'party' ? combatMoves(this.game, u.member) : (u.def.moves ?? 4);
+    let n = u.member ? combatMoves(this.game, u.member) : (u.def.moves ?? 4);
     if (this.has(u, 'rooted')) return 0;
     n += this.power(u, 'hasted'); // (charms) quick feet
     if (this.has(u, 'slowed')) n = Math.ceil(n / 2);
@@ -460,7 +478,7 @@ export class Battle {
 
   statMod(u, stat) {
     if (!stat) return 0;
-    if (u.side === 'party') return Math.max(0, mod(u.member[stat] || 10));
+    if (u.member) return Math.max(0, mod(u.member[stat] || 10));
     return Math.floor((u.def.level || 1) / 2);
   }
 
@@ -494,11 +512,12 @@ export class Battle {
   // Everyone in `order` takes a turn; returns the battle's result once it is over
   async playRound(order) {
     this.order = order;
+    this.tickMarks();
     this.emit('round', this.round);
     for (this.turnIdx = 0; this.turnIdx < this.order.length; this.turnIdx++) {
       const u = this.order[this.turnIdx];
       if (!this.alive(u)) continue;
-      if (u.side === 'party' && u.member.status === 'dead') { u.dead = true; continue; }
+      if (u.member?.status === 'dead') { u.dead = true; continue; }
       this.current = u;
       u.reacted = false;
       this.emit('turn', u);
@@ -507,7 +526,7 @@ export class Battle {
       let end = this.checkEnd();
       if (end) return this.finish(end);
       if (!skip && this.alive(u)) {
-        if (u.side === 'party') await this.heroTurn(u);
+        if (u.member) await this.heroTurn(u);
         else await this.monsterTurn(u);
       }
       if (this.aborted) return { outcome: 'aborted' };
@@ -553,7 +572,7 @@ export class Battle {
     if (await this.hook('turn', u)) return true;
     if (!this.alive(u)) return true;
     // legacy buffs from older saves
-    const buffs = u.side === 'party' ? u.member.buffs : u.buffs;
+    const buffs = u.member ? u.member.buffs : u.buffs;
     if (buffs) {
       for (const b of buffs) b.rounds--;
       const keep = buffs.filter((b) => b.rounds > 0);
@@ -575,12 +594,15 @@ export class Battle {
       await this.damage(u, u.st.poisoned.power || 2, { dot: 'poisoned', quiet: true });
       if (!this.alive(u)) return true;
     }
-    if (u.side === 'party' && u.member.status === 'poisoned') {
+    if (u.member?.status === 'poisoned') {
       await this.damage(u, rng.int(1, 2), { dot: 'poisoned', quiet: true });
       if (!this.alive(u)) return true;
     }
+    // hallowed ground, caltrops: what the ground underfoot does
+    await this.zoneTouch(u);
+    if (!this.alive(u)) return true;
     if (u.charging && (u.stun > 0 || u.sleep > 0)) {
-      this.log(`${this.The(u)} is interrupted — its ${u.charging.ab.name} comes to nothing!`, 'good');
+      this.log(`${this.The(u)} is interrupted — ${u.member ? 'the' : 'its'} ${u.charging.ab.name} comes to nothing!`, u.member ? 'bad' : 'good');
       this.fx.number(u.x, u.y, 'Interrupted!', 'info', '#9fe09f');
       this.cancelWindup(u);
     }
@@ -595,14 +617,16 @@ export class Battle {
       this.fx.number(u.x, u.y, 'Zzz', 'status', STATUS_EFFECTS.asleep.color);
       if (u.sleep === 0) {
         this.log(`${this.The(u)} wakes up.`);
-        if (u.side === 'party' && u.member.status === 'asleep') u.member.status = 'ok';
+        if (u.member?.status === 'asleep') u.member.status = 'ok';
       }
       await this.view.wait(0.2);
       return true;
     }
+    // a telegraphed blow lands; a monster spends its turn on it, a hero's
+    // falling star lands at the start of the turn and the hero still acts
     if (u.charging) {
       await this.releaseWindup(u);
-      return true;
+      if (!u.member || !this.alive(u)) return true;
     }
     return false;
   }
@@ -614,6 +638,8 @@ export class Battle {
       if (--s.rounds <= 0) delete u.st[id];
     }
     for (const k of Object.keys(u.cd)) if (u.cd[k] > 0) u.cd[k]--;
+    // a called creature stays for so many of its own turns
+    if (u.pet && this.alive(u) && --u.ttl <= 0) this.dismiss(u);
     this.emit('update');
   }
 
@@ -633,6 +659,10 @@ export class Battle {
     // (on the live map the fallen are carried off with the company)
     if (this.field) for (const u of this.partyUnits) if (u.dead) this.view.removeEntity(u.id);
     for (const u of this.units) if (u.charging) this.cancelWindup(u);
+    // called creatures go back where they came from; runes and caltrops fade
+    for (const u of this.pets) this.view.removeEntity(u.id);
+    for (const mk of this.marks) mk.decal?.remove();
+    this.marks = [];
     const members = this.s.party.members;
     for (const m of members) {
       m.buffs = [];
@@ -645,7 +675,8 @@ export class Battle {
       // a big company shares the glory, but not so thinly that it stops being fun
       const share = alive.length ? Math.ceil(this.xp / Math.sqrt(alive.length)) : 0;
       this.s.party.gold += this.gold;
-      summary.gold = this.gold;
+      // (gold filched from purses during the fight is already in the pack)
+      summary.gold = this.gold + (this.filched || 0);
       summary.xp = share;
       // the fallen learn from the fight too (half), so a hero raised later is
       // not left ever further behind; they level up with their next gain
@@ -740,6 +771,8 @@ export class Battle {
       sfx('step');
       await this.view.moveEntity(u.id, nx, ny, 0.13);
       this.emit('moved', u);
+      await this.stepOn(u);
+      if (!this.alive(u)) return true;
       return this.turnDone(u);
     });
   }
@@ -758,6 +791,8 @@ export class Battle {
         u.moves--;
         sfx('step');
         await this.view.moveEntity(u.id, px, py, 0.12);
+        await this.stepOn(u);
+        if (!this.alive(u)) return true;
       }
       this.emit('moved', u);
       return this.turnDone(u);
@@ -780,7 +815,7 @@ export class Battle {
         const n = { x: nx, y: ny, d: c.d + 1, from: c, ally: !!occ };
         out.set(k, n);
         // (delve) the way out ends a walk: a hero who reaches it escapes
-        if (this.field && u.side === 'party' && this.field.exitAt?.(nx, ny)) { n.exit = true; continue; }
+        if (this.field && u.member && this.field.exitAt?.(nx, ny)) { n.exit = true; continue; }
         queue.push(n);
       }
     }
@@ -797,7 +832,7 @@ export class Battle {
 
   // Foes that would get a free strike if u stepped from where it stands to (x,y)
   provokers(u, x, y, from = u) {
-    if (this.has(u, 'hidden')) return [];
+    if (this.has(u, 'hidden') || this.has(u, 'nimble') || this.has(u, 'sanctuary')) return [];
     return this.foesOf(u).filter((f) => !f.reacted && !this.helpless(f) && !(f.fear > 0) && !f.charging
       && cheb(f, from) <= 1 && cheb(f, { x, y }) > 1);
   }
@@ -807,7 +842,7 @@ export class Battle {
     for (const f of this.provokers(u, x, y)) {
       if (!this.alive(u)) return false;
       f.reacted = true;
-      this.log(`${this.The(f)} strikes at ${this.the(u)} as ${u.side === 'party' ? 'they break' : 'it breaks'} away!`, u.side === 'party' ? 'bad' : 'good');
+      this.log(`${this.The(f)} strikes at ${this.the(u)} as ${u.member ? 'they break' : 'it breaks'} away!`, u.side === 'party' ? 'bad' : 'good');
       this.fx.number(f.x, f.y, 'Free strike!', 'info', '#ffd070');
       await this.strike(f, u, { ab: FREE_STRIKE });
     }
@@ -860,14 +895,14 @@ export class Battle {
   // used, further away the bow, crossbow or sling.
   canAttack(u, t) {
     if (!t || t.side === u.side || !this.alive(t)) return false;
-    if (u.side === 'enemy' && this.has(t, 'hidden')) return false;
+    if (u.side === 'enemy' && this.unseen(t)) return false;
     if (this.adjacent(u, t)) return true;
     const range = this.weaponRange(u);
     return range > 1 && this.dist(u, t) <= range && this.lineClear(u, t);
   }
 
   weaponRange(u) {
-    if (u.side === 'party') {
+    if (u.member) {
       const r = rangedOf(this.game, u.member);
       return r ? (r.range || 1) + perkCount(u.member, 'marksman') : 1;
     }
@@ -882,7 +917,7 @@ export class Battle {
 
   async attack(u, t) {
     if (!this.canAttack(u, t)) {
-      if (u.side === 'party') {
+      if (u.member) {
         this.log(rangedOf(this.game, u.member) ? 'Out of range or no clear shot.' : 'Too far away — move adjacent to strike, or carry a bow.', 'warn');
         sfx('error');
       }
@@ -896,9 +931,9 @@ export class Battle {
   // What u strikes t with, and how it rolls
   strikeKit(u, t, ab) {
     const adj = this.adjacent(u, t);
-    if (u.side === 'party') {
+    if (u.member) {
       const m = u.member;
-      const w = ab?.attack === 'ranged' ? rangedOf(this.game, m) : ab?.attack === 'melee' ? weaponOf(this.game, m) : this.weaponFor(u, t);
+      const w = ab?.thrown ? this.thrownWeapon(ab) : ab?.attack === 'ranged' ? rangedOf(this.game, m) : ab?.attack === 'melee' ? weaponOf(this.game, m) : this.weaponFor(u, t);
       if (!w) return null;
       const ranged = (w.range || 1) > 1;
       const d = parseDice(w.dmg || '1d2'), b = damageBonus(this.game, m, w);
@@ -908,13 +943,18 @@ export class Battle {
       };
     }
     const def = u.def;
-    const ranged = (def.range || 1) > 1 && !adj && ab?.attack !== 'melee';
-    const d = parseDice(def.dmg || '1d4');
+    const ranged = !!ab?.thrown || ((def.range || 1) > 1 && !adj && ab?.attack !== 'melee');
+    const dmg = ab?.thrown || def.dmg || '1d4';
+    const d = parseDice(dmg);
     return {
-      w: null, ranged, hit: def.hit || 0, critMin: 20, name: ranged ? 'missile' : 'blow',
-      min: Math.max(1, d.n + d.b), max: Math.max(1, d.n * d.d + d.b), roll: () => Math.max(1, roll(def.dmg || '1d4')),
+      w: ab?.thrown ? this.thrownWeapon(ab) : null, ranged, hit: def.hit || 0, critMin: 20, name: ab?.thrown ? ab.name : ranged ? 'missile' : 'blow',
+      min: Math.max(1, d.n + d.b), max: Math.max(1, d.n * d.d + d.b), roll: () => Math.max(1, roll(dmg)),
     };
   }
+
+  // a knife or a bottle thrown by hand: a missile of the skill's own dice,
+  // aimed with Dexterity like any shot, needing no bow
+  thrownWeapon(ab) { return { id: null, name: ab.name, dmg: ab.thrown, hit: 0, range: Math.max(2, ab.range || ab.radius || 4), wkind: 'thrown', thrown: true }; }
 
   // Situational modifiers, with a note for each so the player can see why
   strikeMods(u, t, kit, ab) {
@@ -925,22 +965,28 @@ export class Battle {
     if (this.has(u, 'weakened')) { hit -= 2; notes.push('Weakened −2'); }
     if (this.has(u, 'enraged')) { hit += 2; mult *= 1.25; notes.push('Enraged +2, ×1.25 dmg'); }
     if (ab?.hit) { hit += ab.hit; notes.push(`${ab.name} +${ab.hit}`); }
-    if (t.side === 'party' && hasTrait(this.game, t.member, 'lucky')) { hit -= 2; notes.push('Lucky −2'); }
+    const steady = this.power(u, 'focused');
+    if (steady) { hit += steady; notes.push(`Steady +${steady}`); }
+    const mark = this.has(t, 'marked') ? this.power(t, 'marked') || 2 : 0;
+    if (mark) { hit += mark; notes.push(`Marked +${mark}, +${mark} dmg`); }
+    if (t.member && hasTrait(this.game, t.member, 'lucky')) { hit -= 2; notes.push('Lucky −2'); }
     if (!kit.ranged) {
       if (this.friendsOf(u).some((f) => f !== u && this.adjacent(f, t) && !this.helpless(f))) { hit += 2; notes.push('Flanking +2'); }
       const hidden = this.has(u, 'hidden');
       if (hidden || this.behind(u, t)) {
-        const stab = u.side === 'party' && hasAbility(this.game, u.member, 'backstab');
+        const stab = !!u.member && hasAbility(this.game, u.member, 'backstab');
         hit += hidden ? 4 : 2;
         mult *= stab ? 2 : 1.5;
         notes.push(hidden ? 'Unseen +4' : 'From behind +2', stab ? 'Backstab ×2 dmg' : 'Rear ×1.5 dmg');
       }
     } else {
-      if (!ab?.ignoreCover && this.inCover(t, u)) { hit -= 3; notes.push('Cover −3'); }
+      if (!ab?.ignoreCover && !steady && this.inCover(t, u)) { hit -= 3; notes.push('Cover −3'); }
       if (this.foesOf(u).some((f) => this.adjacent(f, u) && !this.helpless(f))) { hit -= 4; notes.push('Engaged −4'); }
     }
     if (this.helpless(t)) { auto = true; notes.push('Helpless: sure hit'); }
-    return { hit, mult, auto, crit: !!ab?.autoCrit, notes };
+    // a finishing blow on a badly wounded foe
+    if (ab?.execute && this.hpOf(t) <= this.maxHpOf(t) * ab.execute) { auto = true; mult *= 2; notes.push('Wounded: sure hit, ×2 dmg'); }
+    return { hit, mult, auto, crit: !!ab?.autoCrit, notes, mark };
   }
 
   hitChance(bonus, ac, critMin, auto) {
@@ -953,7 +999,9 @@ export class Battle {
   // What would happen if u used ab (or its plain attack) on t: odds, damage, notes
   preview(u, t, ab = null) {
     if (!t) return null;
-    if (ab && !ab.attack) {
+    if (ab?.revive) return { heal: true, lo: Math.ceil(this.maxHpOf(t) * (ab.healPct || 0.33)), hi: Math.ceil(this.maxHpOf(t) * (ab.healPct || 0.33)), notes: ['Rises again'] };
+    if (ab?.steal) { const d = parseDice(t.def?.gold || '0'); return { effect: true, notes: [t.robbed ? 'Purse already taken' : `Purse: ${d.n + d.b}–${d.n * d.d + d.b} gold`] }; }
+    if (ab && !ab.attack && !ab.thrown) {
       const sm = this.statMod(u, ab.stat);
       if (ab.damage && t.side !== u.side) {
         const d = parseDice(ab.damage);
@@ -974,16 +1022,18 @@ export class Battle {
     let lo = Math.max(1, Math.round((kit.min - weak) * k)), hi = Math.max(1, Math.round((kit.max - weak) * k));
     if (ab?.bonus) { const d = parseDice(ab.bonus); lo += d.n + d.b; hi += d.n * d.d + d.b; }
     if (ab?.undeadBonus && t.def?.undead) { lo *= ab.undeadBonus; hi *= ab.undeadBonus; }
+    lo += md.mark; hi += md.mark;
     if (md.crit) { lo *= 2; hi *= 2; md.notes.push('Certain critical'); }
     return { chance, lo, hi, crit: md.crit ? 1 : Math.max(0, (21 - kit.critMin) / 20), notes: md.notes, ranged: kit.ranged, weapon: kit.name };
   }
 
   async shoot(from, to, kit, ab) {
     const w = kit.w;
-    const kind = w?.wkind === 'sling' ? 'stone' : w?.wkind === 'crossbow' ? 'bolt' : 'arrow';
+    const kind = w?.wkind === 'sling' ? 'stone' : w?.wkind === 'crossbow' || w?.thrown ? 'bolt' : 'arrow';
     sfx('shoot');
     const glow = w?.glow ?? (ab?.vfx === 'arrow' && ab?.fx != null && ab.id !== '_free' ? ab.fx : undefined);
-    const opts = from.side === 'enemy' ? { fletch: 0x2a2a2a, shaft: 0x4a3a2a } : { kind, glow };
+    // (a thrown knife: a short dark grip and a bright blade, no feathers)
+    const opts = w?.thrown ? { kind, shaft: 0x4a3020, head: 0xeef2f8, fletch: 0x6a4a30, speed: 13 } : from.side === 'enemy' ? { fletch: 0x2a2a2a, shaft: 0x4a3a2a } : { kind, glow };
     await this.fx.shot(from, to, opts);
   }
 
@@ -991,6 +1041,7 @@ export class Battle {
   // attacks, weapon skills, monsters and free strikes alike.
   async strike(u, t, opts = {}) {
     const ab = opts.ab;
+    t = await this.guardFor(u, t);
     const kit = this.strikeKit(u, t, ab);
     if (!kit || !this.alive(t)) return { hit: false };
     this.faceTo(u, t);
@@ -1004,17 +1055,20 @@ export class Battle {
     const crit = md.crit || d20 >= kit.critMin;
     const hit = md.auto || crit || (d20 !== 1 && d20 + kit.hit + md.hit >= this.acOf(t));
     if (this.has(u, 'hidden')) this.removeStatus(u, 'hidden');
+    if (this.has(u, 'sanctuary')) this.removeStatus(u, 'sanctuary');
+    if (this.has(u, 'focused')) this.removeStatus(u, 'focused');
     if (!hit) {
       this.fx.miss(t);
       sfx('miss');
       this.log(`${this.The(u)} misses ${this.the(t)}.`);
+      await this.riposte(u, t, kit);
       return { hit: false };
     }
     let dmg = kit.roll() - (this.has(u, 'weakened') ? 2 : 0);
-    dmg = Math.max(1, Math.round(dmg * md.mult * (ab?.mult ?? 1)));
+    dmg = Math.max(1, Math.round(dmg * md.mult * (ab?.mult ?? 1))) + md.mark;
     if (ab?.bonus) dmg += roll(ab.bonus);
     if (ab?.undeadBonus && t.def?.undead) dmg *= ab.undeadBonus;
-    if (u.side === 'party') {
+    if (u.member) {
       if (hasAbility(this.game, u.member, 'cleave') && this.hpOf(t) < this.maxHpOf(t) / 2) dmg += 2;
       if (kit.w?.id === 'runeblade' && (t.def?.undead || t.def?.boss)) dmg += 4;
     }
@@ -1025,13 +1079,44 @@ export class Battle {
     await this.damage(t, dmg, { crit, by: u, from: u });
     if (this.alive(t) && u.side === 'enemy' && t.side === 'party' && u.def.poison && rng.chance(u.def.poison)) this.addStatus(t, 'poisoned', 3, 2, u);
     if (ab?.lifesteal && this.alive(u)) this.heal(u, Math.max(1, Math.round(dmg * ab.lifesteal)));
+    await this.riposte(u, t, kit);
     return { hit: true, dmg, crit };
+  }
+
+  // Shield Wall: a guardian standing beside the one struck at takes the blow
+  async guardFor(u, t) {
+    const g = t?.st?.guarded?.src;
+    if (!g || g === t || g === u || !this.alive(g) || !this.alive(t) || g.side !== t.side || u.side === t.side || cheb(g, t) > 1) return t;
+    this.log(`${this.label(g)} steps in front of ${this.the(t)} and takes the blow!`, t.side === 'party' ? 'good' : 'bad');
+    this.fx.number(g.x, g.y, 'Guards!', 'info', '#a8c8ff');
+    this.fx.ring(g.x, g.y, 0xa8c8ff, 0.2, 0.8, 0.35);
+    return g;
+  }
+
+  // Riposte: a fighter in the stance strikes back at whoever swung at it
+  // in melee, hit or miss (once a round, like a free strike)
+  async riposte(u, t, kit) {
+    if (kit.ranged || !this.has(t, 'riposte') || t.reacted || !this.alive(t) || !this.alive(u) || this.helpless(t) || !this.adjacent(u, t) || u.side === t.side) return;
+    t.reacted = true;
+    this.log(`${this.label(t)} answers with a riposte!`, t.side === 'party' ? 'good' : 'bad');
+    this.fx.number(t.x, t.y, 'Riposte!', 'info', '#ffd0a0');
+    await this.strike(t, u, { ab: RIPOSTE });
   }
 
   async damage(t, dmg, opts = {}) {
     if (!this.alive(t)) return;
     if (t.sleep > 0 && dmg > 0) t.sleep = 0;
-    if (t.side === 'party') {
+    // whoever harms a foe leaves the sanctuary's light
+    const by = opts.by || (opts.from?.side ? opts.from : null);
+    if (by && by !== t && by.side !== t.side && by.st?.sanctuary) this.removeStatus(by, 'sanctuary');
+    // Shield of Dawn: a blow that would fell it leaves it standing, once
+    if (t.st.deathward && dmg >= this.hpOf(t) && this.hpOf(t) > 0) {
+      dmg = this.hpOf(t) - 1;
+      this.removeStatus(t, 'deathward');
+      this.log(`The light of dawn holds ${this.the(t)} up — still standing!`, t.side === 'party' ? 'good' : 'bad');
+      this.fx.callout(t.x, t.y, 'Saved!', 0xffd870);
+    }
+    if (t.member) {
       t.member.hp -= dmg;
       if (t.member.status === 'asleep') t.member.status = 'ok';
     } else t.hp -= dmg;
@@ -1056,15 +1141,19 @@ export class Battle {
   async kill(t) {
     t.dead = true;
     if (t.charging) this.cancelWindup(t);
-    if (t.side === 'party') {
+    if (t.member) {
       t.member.hp = 0;
       t.member.status = 'dead';
       this.log(`${t.name} has fallen!`, 'bad');
       this.s.tip?.('death', 'The fallen stay down after the battle until they are raised: a healer in any town can RAISE them for gold, or use a Phoenix Feather, or a Raise Dead prayer or Rune of Life once your casters are strong enough.');
       sfx('die');
+    } else if (t.pet) {
+      // (a called creature is no foe slain: no experience, no spoils)
+      this.log(`${this.The(t)} is struck down and fades away!`, t.side === 'party' ? 'bad' : 'good');
+      sfx('die');
     } else {
       this.xp += t.def.xp || 0;
-      this.gold += Math.max(0, roll(t.def.gold || '0'));
+      if (!t.robbed) this.gold += Math.max(0, roll(t.def.gold || '0'));
       this.killedIds.push(t.def.id);
       this.log(`${this.The(t)} is slain!`, 'good');
       sfx('die');
@@ -1072,8 +1161,9 @@ export class Battle {
     this.emit('death', t);
     this.fx.death(t.x, t.y, t.def?.undead ? 0xd8d8c8 : 0xb8a890);
     // (a hero's body stays where they fell, to be raised there)
-    if (t.side === 'party') await this.view.fallAnim(t.id);
+    if (t.member) await this.view.fallAnim(t.id);
     else await this.view.dieAnim(t.id);
+    if (t.pet) this.view.removeEntity(t.id);
     // a boss's summoned kin do not fight on without it (no dull mop-up rounds)
     const adds = t.side === 'enemy' ? this.enemies.filter((e) => e.summoner === t && this.alive(e)) : [];
     if (adds.length) {
@@ -1086,9 +1176,9 @@ export class Battle {
   // what was actually restored, so a full-health hero shows "Full", not "+23"
   heal(u, amt, by = null) {
     if (!this.alive(u)) return 0;
-    if (by?.side === 'party') amt += perkCount(by.member, 'mender') * 3;
+    if (by?.member) amt += perkCount(by.member, 'mender') * 3;
     const before = this.hpOf(u);
-    if (u.side !== 'party') u.hp = Math.min(u.maxHp, u.hp + amt);
+    if (!u.member) u.hp = Math.min(u.maxHp, u.hp + amt);
     else u.member.hp = Math.min(maxHp(this.game, u.member), u.member.hp + amt);
     const got = Math.max(0, this.hpOf(u) - before);
     this.fx.number(u.x, u.y, got > 0 ? '+' + got : 'Full', got > 0 ? 'heal' : 'info');
@@ -1118,9 +1208,34 @@ export class Battle {
       }
       t.x = nx; t.y = ny;
       await this.view.moveEntity(t.id, nx, ny, 0.11, 0.12);
+      await this.stepOn(t);
     }
+    if (!this.alive(t)) return;
     t.face = [-dx, -dy];
     this.view.face(t.id, -dx, -dy);
+    this.emit('moved', t);
+  }
+
+  // Drag t up to n squares towards u, a square at a time, until it stands
+  // beside u or something is in the way. Returns the squares it moved.
+  async pull(u, t, n) {
+    let moved = 0;
+    for (let i = 0; i < n && this.alive(t) && !this.adjacent(u, t); i++) {
+      let best = null, bd = Math.abs(t.x - u.x) + Math.abs(t.y - u.y);
+      for (const [dx, dy] of DIR4) {
+        const x = t.x + dx, y = t.y + dy;
+        if (!this.walkable(x, y, t)) continue;
+        const d = Math.abs(x - u.x) + Math.abs(y - u.y);
+        if (d < bd) { bd = d; best = { x, y }; }
+      }
+      if (!best) break;
+      t.x = best.x; t.y = best.y;
+      moved++;
+      await this.view.moveEntity(t.id, t.x, t.y, 0.1, 0.06);
+      await this.stepOn(t);
+    }
+    if (moved && this.alive(t)) { this.faceTo(t, u); this.emit('moved', t); }
+    return moved;
   }
 
   async teleport(u, x, y) {
@@ -1130,15 +1245,154 @@ export class Battle {
     await this.view.moveEntity(u.id, x, y, 0.08, 0.3);
     this.fx.blink(x, y);
     this.emit('moved', u);
+    await this.stepOn(u);
+  }
+
+  // ------------------------------------------------------------ the ground: traps and zones
+  // A rune trap waits on its square for the first foe to step there; a zone
+  // (hallowed ground, caltrops) works on whoever starts a turn in it or walks
+  // in, once a round each: it mends friends of its maker and harms foes.
+  placeMark(u, ab, target) {
+    const c = ab.target === 'tile' && target ? { x: target.x, y: target.y } : { x: u.x, y: u.y };
+    const trap = ab.place === 'trap';
+    const r = ab.radius ?? (trap ? 0 : 1);
+    const tiles = [];
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const x = c.x + dx, y = c.y + dy;
+      if (inBounds(this.arena, x, y) && this.groundOk(x, y, null)) tiles.push({ x, y });
+    }
+    if (!tiles.length) return null;
+    const mk = { kind: trap ? 'trap' : 'zone', ab, owner: u, side: u.side, center: c, tiles, until: this.round + Math.max(1, ab.lasts || 3), hit: new Map() };
+    mk.decal = this.fx.ground?.(tiles, ab.fx ?? 0xffe080, mk.kind) || null;
+    this.marks.push(mk);
+    const n = Math.max(1, ab.lasts || 3);
+    this.log(trap ? `${u.name} carves ${ab.name} into the ground — it waits ${n} rounds for a foe to step there.` : `${ab.name} covers the ground for ${n} round${n > 1 ? 's' : ''}.`, 'magic');
+    this.emit('update');
+    return mk;
+  }
+
+  removeMark(mk) {
+    mk.decal?.remove();
+    this.marks = this.marks.filter((x) => x !== mk);
+    this.emit('update');
+  }
+
+  // marks run out at the start of a round
+  tickMarks() {
+    for (const mk of [...this.marks]) if (this.round >= mk.until) this.removeMark(mk);
+  }
+
+  // the marks on a square: [{ kind, ab, owner, side, ... }]
+  marksAt(x, y) { return this.marks.filter((mk) => mk.tiles.some((c) => c.x === x && c.y === y)); }
+
+  // t has just come to stand on its square: a foe's trap springs, a zone works
+  async stepOn(t) {
+    if (!this.marks.length || !this.alive(t)) return;
+    const trap = this.marks.find((mk) => mk.kind === 'trap' && mk.side !== t.side && mk.tiles.some((c) => c.x === t.x && c.y === t.y));
+    if (trap) {
+      this.removeMark(trap);
+      const ab = trap.ab, col = ab.fx ?? 0xffe080;
+      this.log(`${this.The(t)} steps on ${trap.owner.member ? `${trap.owner.name}'s ` : 'a '}${ab.name}!`, t.side === 'party' ? 'bad' : 'good');
+      this.fx.callout(t.x, t.y, ab.name, col);
+      sfx('crit');
+      this.view.shake?.(0.12, 0.25);
+      this.fx.nova(t.x, t.y, 1, col, ab.vfx === 'fire' || ab.vfx === 'earth' ? ab.vfx : 'frost');
+      if (ab.vfx === 'shock') this.fx.shock(t.x, t.y, col);
+      await this.view.wait(0.15);
+      const hit = this.foesOf(trap.owner).filter((f) => trap.tiles.some((c) => cheb(c, f) <= 0) || f === t);
+      for (const f of hit) await this.touch(trap.owner, ab, f, { sure: true });
+    }
+    await this.zoneTouch(t);
+  }
+
+  async zoneTouch(t) {
+    for (const mk of [...this.marks]) {
+      if (mk.kind !== 'zone' || !this.alive(t) || mk.hit.get(t.id) === this.round || !mk.tiles.some((c) => c.x === t.x && c.y === t.y)) continue;
+      const ab = mk.ab, friend = t.side === mk.side;
+      if (friend ? !(ab.heal || ab.healPct) || this.hpOf(t) >= this.maxHpOf(t) : !(ab.damage || ab.statuses?.length) || (ab.undeadOnly && !t.def?.undead)) continue;
+      mk.hit.set(t.id, this.round);
+      this.fx.splash(t.x, t.y, ab.fx ?? 0xffffff, friend ? 'holy' : 'arcane');
+      await this.touch(mk.owner, ab, t, { sure: true, zone: true });
+    }
+  }
+
+  // ------------------------------------------------------------ called creatures
+  // A summoned creature fights on its caller's side for a few of its own
+  // turns: a monster of the realm (ab.summon), named and tinted as the skill
+  // says, a little stronger for a stronger caller. The battle's AI moves it.
+  summonBase(ab) { return ab?.summon ? byId(this.game.monsters, ab.summon) || null : null; }
+
+  async summon(u, ab, at) {
+    const base = this.summonBase(ab);
+    if (!base || !at || !this.walkable(at.x, at.y, { def: base, side: u.side })) return null;
+    const lv = u.member?.level || u.def?.level || 1;
+    const look = deepClone(base.look || { kind: 'blob' });
+    if (ab.summonTint != null) { look.color = ab.summonTint; if (look.kind === 'humanoid') look.body = ab.summonTint; look.eyes = look.eyes ?? 0xb8f4ff; }
+    const def = {
+      ...deepClone(base), name: ab.summonName || base.name, plural: ab.summonName || base.plural, look, level: Math.max(base.level || 1, lv),
+      hit: (base.hit || 0) + Math.floor(lv / 3), dmg: plusDice(base.dmg, Math.floor(lv / 3)), xp: 0, gold: '0', fleeAt: 0, boss: false, phaseAt: 0, ai: base.ai === 'coward' ? 'brute' : base.ai,
+    };
+    const hp = Math.max(1, roll(base.hp || '2d8') + lv * 2);
+    const pet = this.unit({ id: `pet_${++this.petN}_${u.id}`, side: u.side, pet: true, owner: u, def, name: def.name, x: at.x, y: at.y, hp, maxHp: hp, buffs: [], face: u.face || [0, -1], ttl: Math.max(1, ab.lasts || 3) });
+    pet.init = (u.init || 10) - 0.5;
+    this.units.push(pet);
+    // it acts straight after its caller, and from then on in turn
+    const i = this.order.indexOf(u);
+    if (i >= 0) this.order.splice(i + 1, 0, pet);
+    this.view.addEntity(pet.id, look, at.x, at.y, { ring: 0x7fd8ff, facing: pet.face, scale: look.scale || 1 });
+    this.fx.blink(at.x, at.y, ab.fx ?? 0x9fd8ff);
+    this.view.sparkle(at.x, at.y, ab.fx ?? 0x9fd8ff, 22);
+    this.fx.ring(at.x, at.y, ab.fx ?? 0x9fd8ff, 0.2, 1.2, 0.5);
+    this.log(`${this.label(u)} calls ${/^[aeiou]/i.test(def.name) ? 'an' : 'a'} ${def.name} into the fight (for ${pet.ttl} turns)!`, u.side === 'party' ? 'good' : 'bad');
+    this.emit('update');
+    await this.view.wait(0.2);
+    return pet;
+  }
+
+  // a called creature's time is up
+  dismiss(u) {
+    u.fled = true;
+    u.gone = true;
+    this.log(`${this.The(u)} fades away.`);
+    this.fx.blink(u.x, u.y, 0x9fd8ff);
+    this.view.sparkle(u.x, u.y, 0x9fd8ff, 14);
+    this.view.removeEntity(u.id);
+    this.emit('update');
+  }
+
+  // Encore: t takes a turn straight after the one acting now
+  grantTurn(t) {
+    if (!this.alive(t) || t === this.current) return false;
+    this.order.splice(this.turnIdx + 1, 0, t);
+    this.log(`${this.label(t)} gets an extra turn!`, t.side === 'party' ? 'good' : 'bad');
+    this.fx.callout(t.x, t.y, 'Extra turn!', 0xffd870);
+    this.emit('update');
+    return true;
+  }
+
+  // a foe's purse: does it carry one, and is it still there?
+  hasPurse(t) { const d = parseDice(t.def?.gold || '0'); return !t.robbed && !t.member && d.n * d.d + d.b > 0; }
+
+  filch(u, t) {
+    if (!this.hasPurse(t)) { this.log(`${this.The(t)} has nothing worth taking.`, 'warn'); return 0; }
+    t.robbed = true;
+    const n = Math.max(0, roll(t.def.gold));
+    if (!n) { this.log(`${u.name} lifts ${this.the(t)}'s purse — it is empty!`); this.fx.number(t.x, t.y, 'Empty purse', 'info'); return 0; }
+    if (u.member) { this.s.party.gold += n; this.filched = (this.filched || 0) + n; }
+    this.log(`${this.label(u)} lifts ${n} gold from ${this.the(t)}'s purse!`, 'loot');
+    this.fx.number(t.x, t.y, `+${n} gold`, 'info', '#ffd060');
+    sfx('gold');
+    this.s.ui.refresh?.();
+    return n;
   }
 
   // ------------------------------------------------------------ abilities
   abilitiesOf(u) {
-    if (u.side === 'party') return heroAbilities(this.game, u.member);
+    if (u.member) return heroAbilities(this.game, u.member);
     return (u.def.abilities || []).map((id) => abilityOf(this.game, id)).filter(Boolean);
   }
 
-  isSpecial(u, ab) { return u.side === 'party' && classOf(this.game, u.member).special === ab.id; }
+  isSpecial(u, ab) { return !!u.member && classOf(this.game, u.member).special === ab.id; }
 
   abilityRange(u, ab) {
     if (ab.attack === 'ranged') return Math.min(ab.range || 99, this.weaponRange(u));
@@ -1174,7 +1428,7 @@ export class Battle {
 
   // Who or where an ability can be aimed: { kind: enemy|ally|tile|none, units, tiles }
   abilityTargets(u, ab) {
-    const foes = this.foesOf(u).filter((f) => u.side === 'party' || !this.has(f, 'hidden'));
+    const foes = this.foesOf(u).filter((f) => u.side === 'party' || !this.unseen(f));
     const friends = this.friendsOf(u);
     switch (ab.target) {
       case 'enemy': {
@@ -1186,21 +1440,31 @@ export class Battle {
           const r = this.abilityRange(u, ab);
           units = foes.filter((e) => this.dist(u, e) <= r && this.lineClear(u, e));
         }
+        if (ab.steal) units = units.filter((e) => this.hasPurse(e));
         return { kind: 'enemy', units };
       }
       case 'ally': {
         const r = ab.range ?? 1;
-        let units = friends.filter((p) => p === u || (r <= 1 ? this.adjacent(u, p) : this.dist(u, p) <= r));
+        const near = (p) => (r <= 1 ? this.adjacent(u, p) : this.dist(u, p) <= r);
+        // (raising the fallen: a companion's body within reach)
+        if (ab.revive) return { kind: 'ally', units: this.partyUnits.filter((p) => p.dead && !p.fled && p.member.status === 'dead' && p !== u && cheb(u, p) <= Math.max(1, r)) };
+        let units = friends.filter((p) => (p === u ? !ab.others : near(p)));
         // a pure heal is no use on someone at full health
         if ((ab.heal || ab.healPct) && !ab.statuses?.length) units = this.wounded(units, ab.cure);
         return { kind: 'ally', units };
       }
       case 'tile': {
         const tiles = [];
-        const r = ab.range ?? 1;
+        const r = ab.attack === 'ranged' ? this.abilityRange(u, ab) : ab.range ?? 1;
+        const base = this.summonBase(ab);
         for (let y = Math.max(0, u.y - r); y <= Math.min(this.arena.h - 1, u.y + r); y++) for (let x = Math.max(0, u.x - r); x <= Math.min(this.arena.w - 1, u.x + r); x++) {
           if (cheb(u, { x, y }) > r) continue;
-          if (ab.move === 'teleport' ? (x !== u.x || y !== u.y) && this.walkable(x, y, u) : true) tiles.push({ x, y });
+          const self = x === u.x && y === u.y;
+          let ok = true;
+          if (ab.move === 'teleport') ok = !self && this.walkable(x, y, u);
+          else if (ab.summon) ok = !!base && !self && this.walkable(x, y, { def: base, side: u.side });
+          else if (ab.place === 'trap') ok = !self && this.walkable(x, y, null);
+          if (ok) tiles.push({ x, y });
         }
         return { kind: 'tile', tiles };
       }
@@ -1211,12 +1475,24 @@ export class Battle {
 
   // Everyone an ability will touch
   affected(u, ab, target) {
-    const foes = this.foesOf(u).filter((f) => u.side === 'party' || !this.has(f, 'hidden'));
+    const foes = this.foesOf(u).filter((f) => u.side === 'party' || !this.unseen(f));
     const friends = this.friendsOf(u);
     const r = ab.radius ?? 1;
     switch (ab.target) {
-      case 'enemy': case 'ally': return target ? [target] : [];
-      case 'self': return [u];
+      case 'enemy': case 'ally': {
+        if (!target) return [];
+        if (!ab.chain || target.side === u.side) return [target];
+        // a chain leaps on from the last one struck to the nearest foe not yet struck
+        const out = [target];
+        for (let i = 0; i < ab.chain; i++) {
+          const last = out[out.length - 1];
+          const next = foes.filter((f) => !out.includes(f) && cheb(f, last) <= (ab.chainRange || 2) && this.lineClear(last, f)).sort((a, b) => cheb(a, last) - cheb(b, last))[0];
+          if (!next) break;
+          out.push(next);
+        }
+        return out;
+      }
+      case 'self': return ab.place ? [] : [u];
       case 'adjacentFoes': return foes.filter((f) => this.adjacent(u, f));
       case 'nearbyFoes': return foes.filter((f) => cheb(u, f) <= r);
       case 'nearbyAllies': return friends.filter((f) => cheb(u, f) <= r);
@@ -1226,7 +1502,7 @@ export class Battle {
         const range = this.abilityRange(u, ab);
         return foes.filter((e) => cheb(u, e) <= range && this.lineClear(u, e)).sort((a, b) => this.hpOf(a) - this.hpOf(b)).slice(0, ab.count || 3);
       }
-      case 'tile': return target && ab.move !== 'teleport' ? foes.filter((f) => cheb(f, target) <= (ab.radius ?? 0)) : [];
+      case 'tile': return target && ab.move !== 'teleport' && !ab.place && !ab.summon ? foes.filter((f) => cheb(f, target) <= (ab.radius ?? 0)) : [];
       default: return [];
     }
   }
@@ -1238,22 +1514,36 @@ export class Battle {
     if (ab.perBattle && used >= ab.perBattle) return { ok: false, why: `${ab.name} has already been used this battle.`, short: 'Used' };
     const cd = u.cd[ab.id] || 0;
     if (cd > 0) return { ok: false, why: `${ab.name} is recovering: ready in ${cd} turn${cd > 1 ? 's' : ''}.`, short: `Ready in ${cd}`, cd };
-    if (ab.needs === 'ranged' && u.side === 'party' && !rangedOf(this.game, u.member)) return { ok: false, why: `${ab.name} needs a bow, crossbow or sling.`, short: 'Needs a bow' };
-    if (ab.move === 'charge' && this.has(u, 'rooted')) return { ok: false, why: 'Pinned in place.', short: 'Pinned' };
+    if (ab.needs === 'ranged' && u.member && !rangedOf(this.game, u.member)) return { ok: false, why: `${ab.name} needs a bow, crossbow or sling.`, short: 'Needs a bow' };
+    if ((ab.move === 'charge' || ab.addMoves) && this.has(u, 'rooted')) return { ok: false, why: 'Pinned in place.', short: 'Pinned' };
+    if (ab.summon) {
+      if (!this.summonBase(ab)) return { ok: false, why: `Nothing answers the call: there is no “${ab.summon}” in this realm.`, short: 'Nothing answers' };
+      if (this.pets.some((p) => p.owner === u && this.alive(p) && p.def.id === ab.summon)) return { ok: false, why: `${u.name}'s ${this.summonBase(ab).name} is still in the fight.`, short: 'Still here' };
+    }
+    if (ab.target === 'self' && (ab.heal || ab.healPct) && !ab.statuses?.length && !this.wounded([u], ab.cure).length) {
+      return { ok: false, why: `${u.name} is unhurt — save it for when it counts.`, short: 'Unhurt' };
+    }
     const tg = this.abilityTargets(u, ab);
     const melee = ab.attack === 'melee' && !ab.move;
     if (tg.kind === 'enemy' && !tg.units.length) {
+      if (ab.steal && this.foesOf(u).some((e) => this.adjacent(u, e))) return { ok: false, why: 'No foe beside you has a purse left to lift.', short: 'No purse' };
       return melee || (ab.range ?? 1) <= 1
         ? { ok: false, why: 'No foe stands beside you.', short: 'No foe adjacent' }
         : { ok: false, why: `No foe in range (${ab.move ? ab.range : this.abilityRange(u, ab)} squares, with a clear line).`, short: 'Out of range' };
     }
     if (tg.kind === 'ally' && !tg.units.length) {
-      return ab.heal || ab.healPct ? { ok: false, why: 'No one in reach needs healing.', short: 'All healthy' } : { ok: false, why: 'No companion in reach.', short: 'No one in reach' };
+      if (ab.revive) return { ok: false, why: `No one has fallen within ${Math.max(1, ab.range ?? 1)} squares.`, short: 'No one fallen' };
+      return ab.heal || ab.healPct ? { ok: false, why: 'No one in reach needs healing.', short: 'All healthy' } : { ok: false, why: ab.others ? 'No companion in reach.' : 'No one in reach.', short: 'No one in reach' };
     }
     if (ab.healPct && (ab.target === 'allAllies' || ab.target === 'nearbyAllies') && !this.wounded(this.affected(u, ab, null), ab.cure).length) {
       return { ok: false, why: 'Everyone is at full health — save it for when it counts.', short: 'All healthy' };
     }
-    if (tg.kind === 'tile' && !tg.tiles.length) return { ok: false, why: 'Nowhere to go.', short: 'Blocked' };
+    if (tg.kind === 'tile' && !tg.tiles.length) return { ok: false, why: ab.summon ? 'No open square to call it to.' : 'Nowhere to go.', short: 'Blocked' };
+    // a blow aimed at the ground needs a foe it could catch
+    if (tg.kind === 'tile' && (ab.attack || ab.damage) && !ab.place && ab.move !== 'teleport') {
+      const foes = this.foesOf(u).filter((f) => u.side === 'party' || !this.unseen(f));
+      if (!tg.tiles.some((c) => foes.some((f) => cheb(f, c) <= (ab.radius ?? 0)))) return { ok: false, why: 'No foe in reach.', short: 'Out of range' };
+    }
     if (tg.kind === 'none' && ['adjacentFoes', 'nearbyFoes', 'multi', 'allEnemies'].includes(ab.target) && !tg.units.length) {
       const why = ab.target === 'adjacentFoes' ? 'No foe stands beside you.' : ab.target === 'nearbyFoes' ? `No foe within ${ab.radius ?? 1} square${(ab.radius ?? 1) > 1 ? 's' : ''}.` : 'No foe in range.';
       return { ok: false, why, short: ab.target === 'adjacentFoes' ? 'No foe adjacent' : 'No foe near' };
@@ -1263,18 +1553,18 @@ export class Battle {
 
   async useAbility(u, ab, target) {
     const can = this.canUseAbility(u, ab);
-    if (!can.ok) { if (u.side === 'party') { this.log(can.why, 'warn'); sfx('error'); } return false; }
+    if (!can.ok) { if (u.member) { this.log(can.why, 'warn'); sfx('error'); } return false; }
     const tg = this.abilityTargets(u, ab);
     if ((tg.kind === 'enemy' || tg.kind === 'ally') && (!target || !tg.units.includes(target))) {
-      if (u.side === 'party') { this.log(tg.kind === 'enemy' ? 'Choose a foe in reach.' : 'Choose a companion in reach.', 'warn'); sfx('error'); }
+      if (u.member) { this.log(tg.kind === 'enemy' ? 'Choose a foe in reach.' : 'Choose a companion in reach.', 'warn'); sfx('error'); }
       return false;
     }
     if (tg.kind === 'tile' && (!target || !tg.tiles.some((c) => c.x === target.x && c.y === target.y))) {
-      if (u.side === 'party') { this.log(`Choose a square within ${ab.range}.`, 'warn'); sfx('error'); }
+      if (u.member) { this.log(`Choose a square within ${ab.range}.`, 'warn'); sfx('error'); }
       return false;
     }
     // pay for it
-    if (ab.cooldown) u.cd[ab.id] = Math.max(1, ab.cooldown - (u.side === 'party' && perkCount(u.member, 'quick') ? 1 : 0)) + 1;
+    if (ab.cooldown) u.cd[ab.id] = Math.max(1, ab.cooldown - (u.member && perkCount(u.member, 'quick') ? 1 : 0)) + 1;
     u.uses[ab.id] = (u.uses[ab.id] || 0) + 1;
     if (this.isSpecial(u, ab)) u.specialUsed = true;
     this.log(`${u.side === 'party' ? u.name : this.The(u)}: ${ab.name}!`, u.side === 'party' ? 'magic' : 'bad');
@@ -1292,50 +1582,87 @@ export class Battle {
         u.face = [x - u.x, y - u.y];
         u.x = x; u.y = y;
         await this.view.moveEntity(u.id, x, y, 0.07, 0.22);
+        await this.stepOn(u);
+        if (!this.alive(u)) return true;
       }
+      if (path.length) this.emit('moved', u);
     }
     await this.abilityLeadIn(u, ab, target);
     const targets = this.affected(u, ab, target);
-    for (const t of targets) {
-      if (!this.alive(t)) continue;
-      let landed = true;
-      if (ab.attack === 'melee' || ab.attack === 'ranged') {
-        landed = (await this.strike(u, t, { ab })).hit;
-      } else if (ab.damage) {
-        let dmg = roll(ab.damage) + this.statMod(u, ab.stat) - (this.has(u, 'weakened') ? 2 : 0) + (u.side === 'party' ? perkCount(u.member, 'spellfire') * 2 : 0);
-        if (ab.undeadBonus && t.def?.undead) dmg *= ab.undeadBonus;
-        dmg = Math.max(1, dmg);
-        sfx(ab.vfx === 'fire' ? 'fire' : 'spell');
-        this.log(`${ab.name} hits ${this.the(t)} for ${dmg}.`, t.side === 'party' ? 'bad' : '');
-        await this.damage(t, dmg, { by: u, from: u, color: fxHex(ab.fx), burst: ab.fx });
-      }
-      if (!landed || !this.alive(t)) continue;
-      if (ab.heal || ab.healPct) {
-        const amt = ab.healPct ? Math.max(2, Math.ceil(this.maxHpOf(t) * ab.healPct)) : Math.max(1, roll(ab.heal) + this.statMod(u, ab.stat));
-        sfx('heal');
-        this.heal(t, amt, u);
-      }
-      if (ab.cure && t.side === 'party' && t.member.status === 'poisoned') { t.member.status = 'ok'; this.fx.number(t.x, t.y, 'Cured', 'status', '#9fe09f'); }
-      if (ab.cure) this.removeStatus(t, 'poisoned');
-      for (const s of ab.statuses || []) if (!s.self && (s.chance == null || rng.chance(s.chance))) this.addStatus(t, s.id, s.rounds || 1, s.power || 0, u);
-      if (ab.knockback && this.alive(t)) await this.knockback(u, t, ab.knockback);
+    // (dragging several: the nearest first, so the far ones are not blocked by them)
+    if (ab.pull) targets.sort((a, b) => cheb(a, u) - cheb(b, u));
+    for (const t of targets) await this.touch(u, ab, t);
+    if (ab.summon) await this.summon(u, ab, target);
+    if (ab.place) { this.placeMark(u, ab, target); sfx(ab.vfx === 'holy' ? 'heal' : 'spell'); }
+    if (ab.addMoves && u === this.active && this.alive(u)) {
+      u.moves = (u.moves || 0) + ab.addMoves;
+      u.maxMoves = (u.maxMoves || 0) + ab.addMoves;
+      this.fx.number(u.x, u.y, `+${ab.addMoves} moves`, 'info', '#d8f0c0');
     }
-    for (const s of ab.statuses || []) if (s.self) this.addStatus(u, s.id, s.rounds || 1, s.power || 0, u);
+    if (this.alive(u)) for (const s of ab.statuses || []) if (s.self) this.addStatus(u, s.id, s.rounds || 1, s.power || 0, u);
     this.s.ui.refresh();
     this.emit('update');
     return !ab.free;
+  }
+
+  // What an ability does to one it reaches — also what a sprung trap does to
+  // the foe, and the ground of a zone (opts.sure: no roll to hit; opts.zone:
+  // conditions only on foes). Returns whether it landed.
+  async touch(u, ab, t, opts = {}) {
+    if (ab.revive) {
+      if (t.member && t.dead && !t.fled) { sfx('heal'); await this.revive(t, ab.healPct); }
+      return true;
+    }
+    if (!this.alive(t)) return false;
+    const friend = t.side === u.side;
+    let landed = true;
+    if ((ab.attack || ab.thrown) && !opts.sure) {
+      landed = (await this.strike(u, t, { ab })).hit;
+    } else if (ab.damage && !friend && (!ab.undeadOnly || t.def?.undead)) {
+      let dmg = roll(ab.damage) + this.statMod(u, ab.stat) - (this.has(u, 'weakened') ? 2 : 0) + (u.member ? perkCount(u.member, 'spellfire') * 2 : 0);
+      if (ab.undeadBonus && t.def?.undead) dmg *= ab.undeadBonus;
+      dmg = Math.max(1, dmg);
+      sfx(ab.vfx === 'fire' ? 'fire' : 'spell');
+      this.log(`${ab.name} hits ${this.the(t)} for ${dmg}.`, t.side === 'party' ? 'bad' : '');
+      await this.damage(t, dmg, { by: u, from: u, color: fxHex(ab.fx), burst: ab.fx });
+    }
+    if (!landed || !this.alive(t)) return landed;
+    if ((ab.heal || ab.healPct) && friend) {
+      const amt = ab.healPct ? Math.max(2, Math.ceil(this.maxHpOf(t) * ab.healPct)) : Math.max(1, roll(ab.heal) + this.statMod(u, ab.stat));
+      sfx('heal');
+      this.heal(t, amt, u);
+    }
+    if (ab.cure && friend) {
+      if (t.member?.status === 'poisoned') { t.member.status = 'ok'; this.fx.number(t.x, t.y, 'Cured', 'status', '#9fe09f'); }
+      this.removeStatus(t, 'poisoned');
+    }
+    if (!opts.zone || !friend) for (const s of ab.statuses || []) if (!s.self && (s.chance == null || rng.chance(s.chance))) this.addStatus(t, s.id, s.rounds || 1, s.power || 0, u);
+    if (ab.steal && !friend) this.filch(u, t);
+    if (ab.extraTurn && friend && t !== u) this.grantTurn(t);
+    if (friend && t !== u && (ab.statuses || []).some((s) => s.id === 'guarded')) this.fx.ring(t.x, t.y, ab.fx ?? 0xa8c8ff, 0.2, 0.8, 0.4);
+    if (ab.pull && !friend && this.alive(t)) await this.pull(u, t, ab.pull);
+    if (ab.knockback && t !== u && this.alive(t)) await this.knockback(u, t, ab.knockback);
+    return true;
   }
 
   // The visual flourish before an ability's effect lands
   async abilityLeadIn(u, ab, target) {
     const col = ab.fx ?? 0xffffff;
     const kind = ab.vfx || 'arcane';
-    const single = target && target.side && target !== u && !ab.attack;
-    if (single && ['fire', 'frost', 'arcane', 'shadow', 'song', 'poison', 'holy'].includes(kind)) {
+    const single = target && target.side && target !== u && !ab.attack && !ab.thrown;
+    if (single && ['fire', 'frost', 'arcane', 'shadow', 'song', 'poison', 'holy'].includes(kind) && !ab.revive) {
       sfx(kind === 'fire' ? 'fire' : 'spell');
       await this.view.attackAnim(u.id, target.x, target.y);
       if (kind === 'holy') await this.fx.beam(target.x, target.y, col);
       else await this.fx.bolt(u, target, col, kind);
+      return;
+    }
+    // a marking arrow, a shove, a lifted purse: the hand goes out to the target
+    if (single && target.side !== u.side && (kind === 'arrow' || kind === 'impact' || ab.steal)) {
+      this.faceTo(u, target);
+      if (kind === 'arrow') { sfx('shoot'); await this.fx.shot(u, target, { kind: 'arrow', glow: col }); this.fx.splash(target.x, target.y, col, 'arcane'); return; }
+      await this.view.attackAnim(u.id, target.x, target.y);
+      if (ab.steal) { this.fx.smoke(target.x, target.y); return; }
       return;
     }
     switch (kind) {
@@ -1348,7 +1675,7 @@ export class Battle {
       case 'heal': case 'holy':
         if (!ab.attack) {
           sfx('heal');
-          for (const t of this.affected(u, ab, target)) kind === 'holy' ? this.fx.beam(t.x, t.y, col) : this.fx.healFx(t.x, t.y, col);
+          for (const t of ab.place ? [u] : this.affected(u, ab, target)) kind === 'holy' ? this.fx.beam(t.x, t.y, col) : this.fx.healFx(t.x, t.y, col);
           await this.view.wait(0.25);
         }
         break;
@@ -1369,6 +1696,7 @@ export class Battle {
           await this.fx.chain(u, chain, col);
         } else if (target?.side) this.fx.shock(target.x, target.y, col);
         else if (chain.length) await this.fx.arc(u, chain[0], col);
+        else if (ab.place && target) { sfx('spell'); await this.view.attackAnim(u.id, target.x, target.y); this.fx.shock(target.x, target.y, col); }
         break;
       }
       case 'arcane':
@@ -1392,14 +1720,23 @@ export class Battle {
 
   beginWindup(u, ab, target) {
     const { c, tiles } = this.windupTiles(u, ab, target);
-    u.charging = { ab, tiles, center: c, decal: this.fx.danger(tiles, 0xff3018) };
+    // (a hero's own blow is marked in its colour, not the red of danger)
+    u.charging = { ab, tiles, center: c, decal: this.fx.danger(tiles, u.side === 'party' ? (ab.fx ?? 0xffb030) : 0xff3018) };
     this.faceTo(u, c);
     sfx('encounter');
-    const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
-    this.log(`${this.The(u)} ${verb}… get clear of the marked squares!`, 'bad');
+    if (u.member) {
+      this.log(`${u.name} calls down ${ab.name}… it lands on the marked squares when ${u.name} next acts.`, 'magic');
+      this.fx.ring(c.x, c.y, ab.fx ?? 0xffb030, 0.3, (ab.radius ?? 0) + 0.9, 0.5);
+    } else {
+      const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
+      this.log(u.side === 'party' ? `${this.The(u)} ${verb}!` : `${this.The(u)} ${verb}… get clear of the marked squares!`, u.side === 'party' ? 'good' : 'bad');
+    }
     this.emit('update');
     return true;
   }
+
+  // is the square under a telegraphed blow from the other side of `side`?
+  inDanger(x, y, side) { return this.units.some((o) => o.side !== side && o.charging && this.alive(o) && o.charging.tiles.some((c) => c.x === x && c.y === y)); }
 
   cancelWindup(u) {
     if (!u.charging) return;
@@ -1436,8 +1773,8 @@ export class Battle {
   }
 
   // ------------------------------------------------------------ class specials (once per battle; the old API)
-  specialFor(u) { return u && u.side === 'party' ? specialOf(this.game, u.member) : null; }
-  specialAbility(u) { return u && u.side === 'party' ? abilityOf(this.game, classOf(this.game, u.member).special) : null; }
+  specialFor(u) { return u?.member ? specialOf(this.game, u.member) : null; }
+  specialAbility(u) { return u?.member ? abilityOf(this.game, classOf(this.game, u.member).special) : null; }
 
   specialTargets(u) {
     const ab = this.specialAbility(u);
@@ -1571,7 +1908,7 @@ export class Battle {
       for (const f of targets) kind === 'holy' ? this.fx.beam(f.x, f.y, color) : this.fx.shock(f.x, f.y, color);
       await this.view.wait(0.3);
     }
-    const fire = caster.side === 'party' && spell.effect === 'damage' ? perkCount(caster.member, 'spellfire') * 2 : 0;
+    const fire = caster.member && spell.effect === 'damage' ? perkCount(caster.member, 'spellfire') * 2 : 0;
     const power = () => roll(spell.power || '1d6') + bonus + fire;
     for (const t of targets) {
       switch (spell.effect) {
@@ -1590,17 +1927,17 @@ export class Battle {
           break;
         }
         case 'heal':
-          if (t.side === 'party' && t.member.status === 'dead') break;
+          if (t.member?.status === 'dead') break;
           this.heal(t, Math.max(1, power()), caster);
           sfx('heal');
           break;
         case 'cure':
-          if (t.side === 'party' && t.member.status === 'poisoned') { t.member.status = 'ok'; this.fx.number(t.x, t.y, 'Cured', 'status', '#9f9'); }
+          if (t.member?.status === 'poisoned') { t.member.status = 'ok'; this.fx.number(t.x, t.y, 'Cured', 'status', '#9f9'); }
           this.removeStatus(t, 'poisoned');
           this.fx.healFx(t.x, t.y, 0xa0ffa0);
           break;
         case 'revive':
-          if (t.side === 'party' && t.dead) await this.revive(t);
+          if (t.member && t.dead) await this.revive(t);
           break;
         case 'sleep': {
           if (spell.chance && !rng.chance(spell.chance)) { this.fx.number(t.x, t.y, 'Resists', 'info'); break; }
@@ -1625,10 +1962,10 @@ export class Battle {
     await this.view.wait(0.15);
   }
 
-  async revive(u) {
+  async revive(u, pct = 0) {
     const m = u.member;
     m.status = 'ok';
-    m.hp = Math.max(1, Math.floor(maxHp(this.game, m) / 3));
+    m.hp = Math.max(1, pct > 0 ? Math.ceil(maxHp(this.game, m) * Math.min(1, pct)) : Math.floor(maxHp(this.game, m) / 3));
     // they rise where their body lies, unless someone stands on it now
     const [x, y] = this.freeSpot([u.x, u.y]);
     u.dead = false;
@@ -1699,7 +2036,7 @@ export class Battle {
     }
     // (delve) on a big field a foe that can find no way to anyone (a locked door,
     // deep water) gives up after a few turns, so the battle cannot stall
-    if (this.field && this.alive(m)) {
+    if (this.field && this.alive(m) && !m.pet) {
       const stuck = m.x === x0 && m.y === y0 && !this.helpless(m)
         && !this.foesOf(m).some((f) => (cheb(f, m) <= 6 && this.lineClear(f, m)) || this.distField(f, m).has(`${m.x},${m.y}`));
       m.stuck = stuck ? (m.stuck || 0) + 1 : 0;
@@ -1714,7 +2051,7 @@ export class Battle {
 
   // whom a monster goes for
   pickTarget(m, ai) {
-    const foes = this.foesOf(m).filter((p) => !this.has(p, 'hidden'));
+    const foes = this.foesOf(m).filter((p) => !this.unseen(p));
     if (!foes.length) return null;
     const src = m.st.taunted?.src;
     if (src && foes.includes(src)) return src;
@@ -1744,9 +2081,11 @@ export class Battle {
       await this.flee(m, Math.max(1, steps));
       return;
     }
+    if (this.has(m, 'charmed')) { await this.bewildered(m, steps); return; }
     const frac = m.hp / m.maxHp;
     const alone = this.friendsOf(m).length === 1;
-    if (!def.boss && ((def.fleeAt && frac <= def.fleeAt) || (ai === 'coward' && alone && frac < 0.5))) {
+    // (a called creature fights to the end of its time)
+    if (!def.boss && !m.pet && ((def.fleeAt && frac <= def.fleeAt) || (ai === 'coward' && alone && frac < 0.5))) {
       await this.flee(m, steps);
       return;
     }
@@ -1761,10 +2100,25 @@ export class Battle {
     if (ai === 'archer' || ai === 'caster') await this.reposition(m, steps, target, ai);
     else await this.approach(m, target, steps, ai);
     if (!this.alive(m) || this.checkEnd()) return;
-    const tgt = this.canAttack(m, target) ? target : this.attackTargets(m).filter((p) => !this.has(p, 'hidden')).sort((a, b) => this.hpOf(a) - this.hpOf(b))[0];
+    const tgt = this.canAttack(m, target) ? target : this.attackTargets(m).filter((p) => !this.unseen(p)).sort((a, b) => this.hpOf(a) - this.hpOf(b))[0];
     const post = this.monsterAbility(m, tgt || target, 'post');
     if (post && rng.chance(eager)) { await this.useAbility(m, post.ab, post.target); return; }
     if (tgt) await this.strike(m, tgt);
+  }
+
+  // Song of Discord: for a turn it goes for the nearest of its own side
+  async bewildered(m, steps) {
+    const kin = this.friendsOf(m).filter((f) => f !== m).sort((a, b) => cheb(a, m) - cheb(b, m));
+    const t = kin[0];
+    this.fx.number(m.x, m.y, 'Bewildered!', 'status', STATUS_EFFECTS.charmed?.color || '#e090ff');
+    if (!t) { this.log(`${this.The(m)} stands bewildered, with no one of its own to turn on.`); return; }
+    const range = this.weaponRange(m);
+    const reach = () => this.adjacent(m, t) || (range > 1 && cheb(m, t) <= range && this.lineClear(m, t));
+    if (!reach()) await this.approach(m, t, steps, 'brute');
+    if (!this.alive(m) || !this.alive(t)) return;
+    if (!reach()) { this.log(`${this.The(m)} lurches about, bewildered.`); return; }
+    this.log(`${this.The(m)}, bewildered, turns on ${this.the(t)}!`, m.side === 'enemy' ? 'good' : 'bad');
+    await this.strike(m, t);
   }
 
   // The ability a monster would like to use now (before or after moving), if any
@@ -1811,7 +2165,7 @@ export class Battle {
 
   // where to aim a telegraphed blow: the square that catches the most foes
   windupSpot(m, ab) {
-    const foes = this.foesOf(m).filter((p) => !this.has(p, 'hidden'));
+    const foes = this.foesOf(m).filter((p) => !this.unseen(p));
     if ((ab.range ?? 1) === 0) {
       const n = foes.filter((f) => cheb(f, m) <= (ab.radius ?? 0)).length;
       return n >= (m.def.boss ? 1 : 2) || (n && m.def.boss) ? { x: m.x, y: m.y, n } : null;
@@ -1831,7 +2185,7 @@ export class Battle {
     if (!spell || spell.combat === false) return false;
     let tgt = null;
     if (spell.target === 'enemy' || spell.target === 'area') {
-      const inRange = this.foesOf(m).filter((p) => !this.has(p, 'hidden') && this.dist(m, p) <= (spell.range || 6) && this.lineClear(m, p));
+      const inRange = this.foesOf(m).filter((p) => !this.unseen(p) && this.dist(m, p) <= (spell.range || 6) && this.lineClear(m, p));
       if (inRange.length) tgt = rng.pick(inRange);
     } else tgt = m;
     if (!tgt) return false;
@@ -1877,12 +2231,16 @@ export class Battle {
       const unseen = this.field && m.side === 'enemy' && !this.field.visible?.(m.x, m.y) && !this.field.visible?.(x, y);
       m.x = x; m.y = y;
       await this.view.moveEntity(m.id, x, y, unseen ? 0.02 : speed);
+      // a sprung trap stops it where it stands
+      await this.stepOn(m);
+      if (!this.alive(m) || this.helpless(m) || this.has(m, 'rooted')) return;
     }
   }
 
   // Close in for a melee blow; pack hunters look for a flank or a back to bite
   async approach(m, target, steps, ai) {
-    if (steps <= 0 || this.adjacent(m, target)) return;
+    // (beside its target it stays put, unless a blow is about to land there)
+    if (steps <= 0 || (this.adjacent(m, target) && !this.inDanger(m.x, m.y, m.side))) return;
     const reach = this.reachable(m, steps);
     const field = this.distField(target, m);
     const flankers = this.friendsOf(m).filter((f) => f !== m && this.adjacent(f, target));
@@ -1899,6 +2257,7 @@ export class Battle {
         }
       } else s = -(field.get(`${c.x},${c.y}`) ?? 99) * 5 - c.d * 0.2;
       if (c.d > 0 && this.provokers(m, c.x, c.y).length) s -= 15;
+      if (this.inDanger(c.x, c.y, m.side)) s -= 30;
       if (s > bs) { bs = s; best = c; }
     }
     if (best && best.d > 0) await this.walkPath(m, this.pathOf(best));
@@ -1920,6 +2279,7 @@ export class Battle {
       if (near <= 1) s -= 40; else if (near === 2) s -= 8; else s += Math.min(near, 5) * 2;
       s -= c.d * 0.3;
       if (c.d > 0 && this.provokers(m, c.x, c.y).length) s -= 12;
+      if (this.inDanger(c.x, c.y, m.side)) s -= 40;
       if (s > bs) { bs = s; best = c; }
     }
     if (best && best.d > 0) await this.walkPath(m, this.pathOf(best));

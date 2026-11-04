@@ -4,7 +4,7 @@ import { h, clear } from './dom.js';
 import { iconSvg, classIcon, raceIcon } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import { STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, CLASS_SPECIALS } from '../data/defaults.js';
-import { createCharacter, classAvailable, charLook, maxHp, maxMp, mod, equipKit, specialOf, armorClass, combatMoves } from '../game/rules.js';
+import { createCharacter, classAvailable, charLook, maxHp, maxMp, mod, equipKit, specialOf, armorClass, combatMoves, classSkills } from '../game/rules.js';
 import { createMap } from '../world/map.js';
 import { T } from '../data/terrain.js';
 import { randomName, nameWords, npcNameWords } from '../world/generate.js';
@@ -227,7 +227,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
     const left = points - spent(hero);
     const c = kitted(hero);
     const sp = specialOf(game, c);
-    const skills = (k?.skills || []).map((id) => byId(game.abilities || [], id)?.name).filter(Boolean);
+    const skills = skillWords(game, k);
     const quick = (icon, label, val, title) => h('span.cq', { title }, ico(icon), h('b', String(val)), ` ${label}`);
     const panel = h('div.create-hero.panel',
       h('div.ch-top',
@@ -261,7 +261,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
         onclick: () => { if (hero.cls !== cls.id) { hero.cls = cls.id; autoStats(hero); newLook(hero, 'outfit'); } sfx('click'); render(); },
       }, h('div.card-head', ico(classIcon(cls), '.card-ico'), h('b', cls.name)),
       h('small', magicText(game, cls)), h('p', classPlay(game, cls))))),
-      k ? h('p.ch-flavour', k.desc || '', skills.length ? h('span.ch-skills', ` Battle skills: ${skills.join(', ')}${CLASS_SPECIALS[k.special] ? ` · ★ ${CLASS_SPECIALS[k.special].name}` : ''}.`) : null) : null,
+      k ? h('p.ch-flavour', k.desc || '', skills ? h('span.ch-skills', ` Battle skills: ${skills.now}${CLASS_SPECIALS[k.special] ? ` · ★ ${CLASS_SPECIALS[k.special].name}` : ''}${skills.later}.`) : null) : null,
       h('div.sub', 'Appearance', h('button.small', { title: 'Random skin, hair and outfit', onclick: () => { newLook(hero); sfx('click'); render(); } }, ico('dice'), ' New look')),
       appearance(hero),
       h('div.sub', `Attributes — ${left} point${left === 1 ? '' : 's'} left`,
@@ -386,8 +386,18 @@ function racePlay(race) {
 
 function classPlay(game, cls) {
   if (CLASS_PLAY[cls.id]) return CLASS_PLAY[cls.id];
-  const skills = (cls.skills || []).map((id) => byId(game.abilities || [], id)?.name).filter(Boolean);
-  return skills.length ? `Skills: ${skills.join(', ')}.` : (cls.desc || '');
+  const skills = skillWords(game, cls);
+  return skills ? `Skills: ${skills.now}${skills.later}.` : (cls.desc || '');
+}
+
+// A calling's first skills by name, and when the rest come:
+// { now: 'Shield Bash, Taunt', later: ' (more at levels 5, 7 and 9)' } or null
+function skillWords(game, cls) {
+  const list = classSkills(cls).map((s) => ({ ...s, name: byId(game.abilities || [], s.id)?.name })).filter((s) => s.name);
+  if (!list.length) return null;
+  const now = list.filter((s) => s.level <= 3), more = [...new Set(list.filter((s) => s.level > 3).map((s) => s.level))];
+  const and = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}` : a.join(''));
+  return { now: (now.length ? now : list.slice(0, 1)).map((s) => s.name).join(', '), later: more.length ? ` (more at level${more.length > 1 ? 's' : ''} ${and(more)})` : '' };
 }
 
 function magicText(game, cls) {

@@ -8,6 +8,7 @@ import { icon, itemTile } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
+  heroArts, battleArts, lastPick, ART_EVERY,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
 import { perkText, heroSchool, poolName, noNeed } from '../game/magic.js';
@@ -15,6 +16,23 @@ import { sfx } from '../core/sound.js';
 
 const hexCss = (n) => '#' + ((n ?? 0xe8c069) >>> 0).toString(16).padStart(6, '0');
 const pct = (f) => Math.round(Math.max(0, Math.min(1, f)) * 100) + '%';
+
+// The keys of a hero's skills, in the order of the bar: 1–9, then 0, − and =
+// (the ★ special is Q). abs: the hero's abilities; returns Map ability -> key
+export const SKILL_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];
+export function skillKeys(game, m, abs = heroAbilities(game, m)) {
+  const special = classOf(game, m).special;
+  const keys = new Map();
+  let n = 0;
+  for (const ab of abs) keys.set(ab, ab.id === special ? 'Q' : SKILL_KEYS[n++] || '');
+  return keys;
+}
+
+// the small print of an ability: free action, uses, cooldown, how long it lasts
+export function abilityTags(ab) {
+  return [ab.free ? 'Free action' : null, ab.perBattle ? (ab.perBattle > 1 ? `${ab.perBattle} per battle` : 'Once per battle') : ab.cooldown ? `Cooldown ${ab.cooldown}` : null,
+    ab.summon ? `Stays ${ab.lasts || 3} turns` : ab.place ? `Lasts ${ab.lasts || 3} rounds` : null, ab.windup ? 'Lands next turn' : null].filter(Boolean);
+}
 
 export class CombatHud {
   constructor(ui) {
@@ -108,7 +126,7 @@ export class CombatHud {
       this.showBanner(data);
       this.renderStrip();
       this.refreshPlates();
-      if (data?.side !== 'party') this.renderBar();
+      if (!data?.member) this.renderBar();
     }
     else if (type === 'busy') { if (!data) this.renderBar(); else this.cmdEl?.classList.add('busy'); }
     else if (type === 'surprise') this.showSurprise();
@@ -177,7 +195,7 @@ export class CombatHud {
   }
 
   // ------------------------------------------------------------ initiative strip
-  lookOf(u) { return u.side === 'party' ? charLook(this.game, u.member) : (u.def.look || { kind: 'blob' }); }
+  lookOf(u) { return u.member ? charLook(this.game, u.member) : (u.def.look || { kind: 'blob' }); }
   picOf(u) { try { return portrait(this.view, this.lookOf(u)); } catch { return ''; } }
 
   renderStrip() {
@@ -198,10 +216,10 @@ export class CombatHud {
     const frac = b.hpOf(u) / Math.max(1, b.maxHpOf(u));
     const pic = this.picOf(u);
     const st = b.statusList(u);
-    const el = h('div.cbt-chip.' + u.side + (now ? '.now' : '') + (u.charging ? '.warn' : ''),
+    const el = h('div.cbt-chip.' + u.side + (u.pet ? '.pet' : '') + (now ? '.now' : '') + (u.charging ? '.warn' : ''),
       pic ? h('img', { src: pic, alt: '' }) : h('span.ch-blank', u.name[0]),
       h('div.ch-hp', h('i', { style: { width: pct(frac) } })),
-      now ? h('span.ch-now', u.side === 'party' ? 'YOUR TURN' : 'NOW') : null,
+      now ? h('span.ch-now', u.member ? 'YOUR TURN' : 'NOW') : null,
       u.tag ? h('span.ch-tag', u.tag) : null,
       u.charging ? h('span.ch-warn', icon('warn')) : null,
       st.length ? h('span.ch-st', ...st.slice(0, 2).map((s) => h('i', { style: { color: s.def.color } }, icon(s.def.icon)))) : null);
@@ -217,8 +235,8 @@ export class CombatHud {
     const b = this.b;
     if (!this.banner || !u) return;
     clear(this.banner);
-    const mine = u.side === 'party';
-    this.banner.className = 'cbt-banner ' + (mine ? 'party' : 'enemy');
+    const mine = !!u.member;
+    this.banner.className = 'cbt-banner ' + (u.side === 'party' ? 'party' : 'enemy');
     this.banner.appendChild(h('span.bn-name', mine ? `${u.name}'s turn` : b.The(u)));
     if (!mine) this.banner.appendChild(h('span.bn-sub', ' acts'));
     void this.banner.offsetWidth; // restart the animation
@@ -291,7 +309,7 @@ export class CombatHud {
     if (!b || !u) {
       const cur = b?.current;
       bar.classList.add('waiting');
-      bar.append(h('div.cbt-waiting', cur ? h('span', cur.side === 'enemy' ? `${b.The(cur)} is acting…` : `${cur.name}…`) : h('span', 'The battle is joined…'),
+      bar.append(h('div.cbt-waiting', cur ? h('span', !cur.member ? `${b.The(cur)} is acting…` : `${cur.name}…`) : h('span', 'The battle is joined…'),
         h('button.cbt-help', { onclick: () => this.ui.openHelp() }, '? How battles work')));
       return;
     }
@@ -321,13 +339,20 @@ export class CombatHud {
       tip: `Strike with your ${w.name}${rw ? `, or shoot with your ${rw.name} (range ${b.weaponRange(u)})` : ''}. You can also just click a foe. Hover a foe to see your odds.`,
       onClick: () => this.beginAttack(),
     });
-    row.style.setProperty('--cols', String(Math.max(5, Math.ceil((6 + heroAbilities(g, m).length) / 2))));
-    heroAbilities(g, m).forEach((ab, i) => {
+    // two rows of buttons while they fit; a hero with many skills gets three
+    // rows of slimmer ones (and the keys 1–9, 0, −, =), so nothing is cut off
+    const abs = heroAbilities(g, m), keys = skillKeys(g, m, abs);
+    const total = 6 + abs.length, rows = total > 14 ? 3 : 2;
+    row.style.setProperty('--cols', String(Math.max(5, Math.ceil(total / rows))));
+    row.classList.toggle('dense', rows > 2);
+    bar.classList.toggle('dense', rows > 2);
+    const arts = new Set(heroArts(g, m).map((x) => x.ab));
+    abs.forEach((ab) => {
       const special = b.isSpecial(u, ab);
       const can = b.canUseAbility(u, ab);
-      const tags = [ab.free ? 'Free action' : null, ab.perBattle ? 'Once per battle' : ab.cooldown ? `Cooldown ${ab.cooldown}` : null].filter(Boolean).join(' · ');
+      const tags = [...abilityTags(ab), arts.has(ab) ? 'Battle art' : null].filter(Boolean).join(' · ');
       add({
-        icon: ab.icon, name: ab.name, key: special ? 'Q' : String(i + 1), color: ab.fx, special, off: !can.ok, cd: can.cd,
+        icon: ab.icon, name: ab.name, key: keys.get(ab) || '', color: ab.fx, special, off: !can.ok, cd: can.cd,
         sub: can.ok ? (ab.free ? 'Free action' : special || ab.perBattle ? '1 per battle' : 'Ready') : can.short, why: can.why,
         tip: `${ab.desc}${tags ? `\n${tags}` : ''}${ab.itemName ? `\nFrom the ${ab.itemName} ${u.name} wears` : ''}`,
         item: ab.fromItem ? g.items.find((x) => x.id === ab.fromItem) : null, // (charms) the badge of the piece it comes from
@@ -369,7 +394,7 @@ export class CombatHud {
     // the icon with its key beneath it on the left; the name (two lines if it
     // must) and what stands in the way on the right, so nothing is cut short
     const el = h('button.cbt-btn' + (o.off ? '.off' : '') + (o.special ? '.special' : '') + (o.item ? '.from-item' : ''),
-      h('span.cb-side', h('span.cb-ico', icon(o.icon)), h('span.cb-key', o.key), o.cd ? h('span.cb-cd', String(o.cd)) : null,
+      h('span.cb-side', h('span.cb-ico', icon(o.icon)), o.key ? h('span.cb-key', o.key) : null, o.cd ? h('span.cb-cd', String(o.cd)) : null,
         o.item ? itemTile(o.item, 'cb-item') : null),
       h('span.cb-text', h('span.cb-name', o.name), h('span.cb-sub', o.sub || '')));
     if (o.color != null) el.style.setProperty('--accent', hexCss(o.color));
@@ -381,7 +406,7 @@ export class CombatHud {
     });
     el.addEventListener('mouseenter', () => {
       const r = el.getBoundingClientRect();
-      const card = h('div.tc-btn', h('div.tc-title', h('b', o.name), h('span.tc-key', o.key)),
+      const card = h('div.tc-btn', h('div.tc-title', h('b', o.name), o.key ? h('span.tc-key', o.key) : null),
         h('p', ...String(o.tip || '').split('\n').map((t, i) => (i ? [h('br'), h('i', t)] : t))),
         o.off && o.why ? h('p.tc-why', o.why) : null);
       this.showTip(card, r.left, r.top - 8, 'above');
@@ -399,9 +424,10 @@ export class CombatHud {
     const tg = b.abilityTargets(u, ab);
     const units = tg.units || [];
     const cells = tg.tiles ? tg.tiles : units.map((t) => ({ x: t.x, y: t.y }));
-    if (ab.target === 'nearbyFoes' || ab.target === 'nearbyAllies') {
+    // (an aura or a zone round the user: the squares it covers, dimmer)
+    if (ab.target === 'nearbyFoes' || ab.target === 'nearbyAllies' || (ab.target === 'self' && ab.place)) {
       const r = ab.radius ?? 1;
-      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx || dy) cells.push({ x: u.x + dx, y: u.y + dy, color: 0x806040 });
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (dx || dy || ab.place) cells.push({ x: u.x + dx, y: u.y + dy, color: 0x806040 });
     }
     this.view.setHighlights(cells.map((c) => ({ ...c, color: c.color ?? ab.fx ?? 0xffc030 })), ab.fx ?? 0xffc030, 0.42);
   }
@@ -469,7 +495,9 @@ export class CombatHud {
       const valid = this.ui.targetValid(t);
       this.view.showCursor(t.x, t.y, valid ? 0xffe040 : 0x808080);
       this.view.setLine?.(null);
-      if (valid && unit && u) at(this.unitCard(unit, b.preview(u, unit, tg.ab || null), tg.label));
+      this.aimArea(tg, valid ? t : null);
+      if (valid && unit && u && !(tg.tiles && tg.ab)) at(this.unitCard(unit, b.preview(u, unit, tg.ab || null), tg.label));
+      else if (valid && tg.ab && tg.tiles && u) at(this.tileCard(u, tg.ab, t, tg.label));
       else if (valid) at(h('div.tc-move', h('b', tg.label), h('span', ' — here')));
       else this.hideTip();
       return;
@@ -483,12 +511,19 @@ export class CombatHud {
     }
     const danger = b.units.find((x) => b.alive(x) && x.charging && x.charging.tiles.some((c) => c.x === t.x && c.y === t.y));
     const lines = [];
+    // runes and caltrops on the ground
+    for (const mk of b.marksAt?.(t.x, t.y) || []) {
+      const left = Math.max(1, mk.until - b.round);
+      lines.push(h('p' + (mk.side === 'party' ? '.tc-good' : '.tc-why'), icon(mk.ab.icon || 'rune'), mk.kind === 'trap'
+        ? ` ${mk.owner.member ? `${mk.owner.name}'s ` : ''}${mk.ab.name}: the first foe to step here springs it (${left} round${left > 1 ? 's' : ''} left).`
+        : ` ${mk.ab.name} (${left} round${left > 1 ? 's' : ''} left): ${mk.ab.desc}`));
+    }
     // (delve) a monster that has not noticed anyone, or the way out
     const asleep = b.field?.describe?.(t.x, t.y);
     if (asleep) { this.view.showCursor(t.x, t.y, 0x9a9a9a); this.view.setLine?.(null); at(h('div.tc-move', h('span', asleep))); return; }
     const exit = b.field && u && b.field.exitAt?.(t.x, t.y);
     if (exit) lines.push(h('p.tc-good', icon('end'), ` Step here to escape ${exit.name}: ${u.name} leaves the fight.`));
-    if (danger) lines.push(h('p.tc-why', icon('warn'), ` ${danger.charging.ab.name} lands here when ${b.the(danger)} next acts!`));
+    if (danger) lines.push(h(danger.side === 'party' ? 'p.tc-good' : 'p.tc-why', icon('warn'), ` ${danger.charging.ab.name} lands here when ${b.the(danger)} next acts${danger.side === 'party' ? ' — on any foe still standing here' : '!'}`));
     if (u && !b.acting) {
       const path = b.pathTo(u, t.x, t.y);
       if (path) {
@@ -535,6 +570,17 @@ export class CombatHud {
         eye && !this.ui.targeting ? h('p.tc-eye', `Has its eye on ${eye.name}.`) : null,
         this.previewBlock(pv, label, unit) || this.reachNote(unit));
     }
+    // a creature a hero called into the fight
+    if (!unit.member) {
+      const d = unit.def;
+      return h('div.tc-unit.party.pet',
+        h('div.tc-head', pic ? h('img', { src: pic }) : null, h('div', h('b', b.label(unit)), h('span.tc-sub', `Called by ${unit.owner?.name || 'a friend'} · ${unit.ttl} turn${unit.ttl === 1 ? '' : 's'} left`))),
+        this.hpBar(hp, mhp),
+        h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}`), h('span', `Attack +${d.hit || 0} · ${d.dmg}`)),
+        h('p.tc-ai', h('b', 'Fights on its own'), ' — it goes for the foes nearest it, then fades when its time is up.'),
+        this.statusRows(unit),
+        this.previewBlock(pv, label, unit));
+    }
     const m = unit.member;
     return h('div.tc-unit.party',
       h('div.tc-head', pic ? h('img', { src: pic }) : null, h('div', h('b', m.name), h('span.tc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`))),
@@ -544,14 +590,51 @@ export class CombatHud {
       this.previewBlock(pv, label, unit));
   }
 
+  // Aiming a skill at a square: the squares it would cover, brighter, among
+  // those it can be aimed at (only redrawn when the square under the pointer changes)
+  aimArea(tg, t) {
+    const r = tg?.ab ? tg.ab.radius ?? 0 : 0;
+    if (!tg?.tiles || !r || tg.ab.move === 'teleport') return;
+    const key = t ? `${t.x},${t.y}` : '';
+    if (tg.areaKey === key) return;
+    tg.areaKey = key;
+    const col = tg.color || 0xffc030;
+    const cells = tg.tiles.map((c) => ({ ...c, color: col }));
+    if (t) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) cells.push({ x: t.x + dx, y: t.y + dy, color: 0xfff4c8 });
+    this.view.setHighlights(cells, col, 0.4);
+  }
+
+  // what a skill aimed at a square would do there
+  tileCard(u, ab, t, label) {
+    const b = this.b;
+    const lines = [];
+    const n = ab.lasts || 3, w = (ab.radius ?? 0) * 2 + 1;
+    if (ab.summon) {
+      const base = b.summonBase?.(ab);
+      lines.push(h('p.tc-good', icon(ab.icon || 'paw'), ` ${ab.summonName || base?.name || 'A creature'} answers the call here and fights for ${n} turns.`));
+    } else if (ab.place === 'trap') lines.push(h('p.tc-good', icon(ab.icon || 'rune'), ` The rune waits here ${n} rounds for the first foe to step on it.`));
+    else if (ab.place) lines.push(h('p.tc-good', icon(ab.icon || 'rune'), ` Covers ${w > 1 ? `${w}×${w} squares` : 'this square'} for ${n} rounds.`));
+    else if (ab.move === 'teleport') lines.push(h('p', `${u.name} steps here.`));
+    else {
+      const hit = b.affected(u, ab, t);
+      lines.push(h('p' + (hit.length ? '.tc-good' : ''), hit.length ? `Catches ${hit.map((f) => b.the(f)).join(', ')}.` : 'No foe there now.'));
+      if (ab.attack && hit.length) {
+        const pv = b.preview(u, hit[0], ab);
+        if (pv) lines.push(h('p', `${Math.round(pv.chance * 100)}% to hit ${b.the(hit[0])}, ${pv.lo}–${pv.hi} damage`));
+      }
+      if (ab.windup) lines.push(h('p.tc-why', icon('warn'), ` It lands when ${u.name} next acts: foes may step clear.`));
+    }
+    return h('div.tc-move', h('b', label), ...lines);
+  }
+
   // when the active hero cannot strike this foe: what could reach it, or how far it is
   reachNote(unit) {
     const b = this.b, u = b?.active;
     if (!u || this.ui.targeting || unit.side === u.side) return null;
-    const abs = heroAbilities(this.game, u.member);
+    const abs = heroAbilities(this.game, u.member), keys = skillKeys(this.game, u.member, abs);
     for (const ab of abs) {
       if (!b.canUseAbility(u, ab).ok || !(b.abilityTargets(u, ab).units || []).includes(unit)) continue;
-      return this.previewBlock(b.preview(u, unit, ab), `${ab.name} (${b.isSpecial(u, ab) ? 'Q' : abs.filter((a) => !b.isSpecial(u, a)).indexOf(ab) + 1})`, unit);
+      return this.previewBlock(b.preview(u, unit, ab), `${ab.name}${keys.get(ab) ? ` (${keys.get(ab)})` : ''}`, unit);
     }
     const why = this.whyNot(u, unit);
     return h('p.tc-why', why[0].toUpperCase() + why.slice(1));
@@ -676,12 +759,15 @@ export class CombatHud {
     const abs = heroAbilities(this.game, u.member);
     const skills = abs.filter((ab) => !b.isSpecial(u, ab));
     const press = (fn) => { e.preventDefault(); this.hideTip(); fn(); };
+    // (by the key's place on the keyboard too, so − and = work whatever the layout)
+    const code = { Minus: '-', Equal: '=', Digit0: '0' }[e.code] || (/^Digit[1-9]$/.test(e.code || '') ? e.code.slice(5) : null);
+    const slot = SKILL_KEYS.indexOf(SKILL_KEYS.includes(k) ? k : code);
     if (k === 'f') press(() => this.beginAttack());
     else if (k === 'c') press(() => this.cast());
     else if (k === 'u') press(() => this.useItem());
     else if (k === 'q') press(() => { const sp = abs.find((ab) => b.isSpecial(u, ab)); if (sp) this.beginAbility(sp); else { this.s.log('No special ability.', 'warn'); sfx('error'); } });
     else if (k === 'g') press(() => b.actGuard(u));
-    else if (/^[1-4]$/.test(k) && skills[+k - 1]) press(() => this.beginAbility(skills[+k - 1]));
+    else if (slot >= 0 && skills[slot]) press(() => this.beginAbility(skills[slot]));
     else if (k === '?') press(() => ui.openHelp());
     else if (k === ' ' || k === '.') press(() => b.actPass());
   }
@@ -704,7 +790,7 @@ export class CombatHud {
     if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
     const tg = b.abilityTargets(u, ab);
     if (tg.kind === 'enemy' || tg.kind === 'ally') {
-      this.ui.startTargeting({ units: tg.units, ally: tg.kind === 'ally', label: ab.name, color: ab.fx ?? 0xffc030, ab, onPick: (t) => b.actAbility(ab, b.unitAt(t.x, t.y), u) });
+      this.ui.startTargeting({ units: tg.units, ally: tg.kind === 'ally', label: ab.name, color: ab.fx ?? 0xffc030, ab, onPick: (t, unit) => b.actAbility(ab, unit || b.unitAt(t.x, t.y), u) });
     } else if (tg.kind === 'tile') {
       this.ui.startTargeting({ tiles: tg.tiles, label: ab.name, color: ab.fx ?? 0xb090ff, ab, onPick: (t) => b.actAbility(ab, { x: t.x, y: t.y }, u) });
     } else b.actAbility(ab, null, u);
@@ -801,18 +887,23 @@ export class CombatHud {
   }
 }
 
-// The choice of talent for a hero with one pending (or a note of what was learned)
+// The choice of talent for a hero with one pending (or a note of what was
+// learned). On even levels one of the three is a battle art: a skill any
+// calling can learn, marked as such.
 export function perkPicker(ui, m, after) {
   const g = ui.s.game;
   if (!(m.perkPending > 0)) {
-    const last = perkText(g, m, perkOf((m.perks || [])[m.perks.length - 1]));
-    return h('div.perk-done', last ? [icon(last.icon), ` Learned ${last.name}: ${last.desc}`] : '');
+    const last = lastPick(g, m);
+    const p = last && !last.art ? perkText(g, m, last) : last;
+    return h('div.perk-done', p ? [icon(p.icon), ` Learned ${p.name}${p.art ? ' (a battle art)' : ''}: ${p.desc}`] : '');
   }
-  const opts = perkChoices(g, m).map((p) => perkText(g, m, p));
+  const opts = perkChoices(g, m).map((p) => (p.art ? p : perkText(g, m, p)));
+  const art = opts.some((p) => p.art);
   return h('div.perk-pick',
-    h('div.pp-title', `Choose a talent${m.perkPending > 1 ? ` (${m.perkPending} to choose)` : ''}:`),
-    h('div.pp-opts', ...opts.map((p) => h('button.perk', {
-      title: p.desc,
+    h('div.pp-title', `Choose a talent${art ? ' or a battle art' : ''}${m.perkPending > 1 ? ` (${m.perkPending} to choose)` : ''}:`),
+    h('div.pp-opts', ...opts.map((p) => h('button.perk' + (p.art ? '.art' : ''), {
+      title: p.art ? `Battle art: a new skill for the battle bar. ${p.desc}${abilityTags(p.ab).length ? ` (${abilityTags(p.ab).join(', ').toLowerCase()})` : ''}` : p.desc,
+      style: p.art ? { '--accent': hexCss(p.ab.fx) } : null,
       onclick: (e) => {
         e.stopPropagation();
         if (!choosePerk(g, m, p.id)) return;
@@ -820,34 +911,43 @@ export function perkPicker(ui, m, after) {
         ui.refresh();
         after && after();
       },
-    }, h('span.pk-ico', icon(p.icon)), h('b', p.name), h('span', p.desc)))));
+    }, h('span.pk-ico', icon(p.icon)), h('b', p.art ? h('i.pk-art', 'Learn ') : null, p.name), h('span', p.desc)))));
 }
 
-// The hero sheet's battle section: skills, special, talents (and a pending choice)
+// The hero sheet's battle section: skills (with their keys), special, the
+// skills still to come and when, battle arts, talents (and a pending choice)
 export function sheetAbilities(ui, m, onChange) {
   const g = ui.s.game, b = ui.s.battle;
   const bu = b?.partyUnits.find((u) => u.member === m);
-  const abs = heroAbilities(g, m);
+  const abs = heroAbilities(g, m), keys = skillKeys(g, m, abs);
   const special = classOf(g, m).special;
+  const arts = new Set(heroArts(g, m).map((x) => x.ab));
+  const k = classOf(g, m);
   const wrap = h('div.sheet-abil');
   if (abs.length) {
     wrap.appendChild(h('div.sub', 'Battle skills'));
-    let n = 0;
     for (const ab of abs) {
       const isSp = ab.id === special;
-      const key = isSp ? 'Q' : String(++n);
       const state = bu ? b.canUseAbility(bu, ab) : null;
-      const tags = [ab.free ? 'free action' : null, ab.perBattle ? 'once per battle' : ab.cooldown ? `cooldown ${ab.cooldown}` : null].filter(Boolean).join(', ');
-      wrap.appendChild(h('div.sa-row' + (isSp ? '.special' : '') + (state && !state.ok ? '.off' : '') + (ab.itemName ? '.from-item' : ''), { style: { '--accent': hexCss(ab.fx) } },
+      const tags = [...abilityTags(ab), arts.has(ab) ? 'Battle art' : null].filter(Boolean).join(', ').toLowerCase();
+      wrap.appendChild(h('div.sa-row' + (isSp ? '.special' : '') + (state && !state.ok ? '.off' : '') + (ab.itemName ? '.from-item' : '') + (arts.has(ab) ? '.art' : ''), { style: { '--accent': hexCss(ab.fx) } },
         h('span.sa-ico', icon(ab.icon)),
-        h('div', h('b', ab.name), h('span.sa-tag', ` ${key} · ${tags}${ab.itemName ? `${tags ? ' · ' : ''}from the ${ab.itemName}` : ''}${state && !state.ok ? ' — ' + state.short : ''}`), h('p', ab.desc))));
+        h('div', h('b', ab.name), h('span.sa-tag', ` ${keys.get(ab) || ''}${keys.get(ab) && tags ? ' · ' : ''}${tags}${ab.itemName ? `${tags ? ' · ' : ''}from the ${ab.itemName}` : ''}${state && !state.ok ? ' — ' + state.short : ''}`), h('p', ab.desc))));
     }
   }
   // what is still to come, so each level has something to look forward to
-  for (const { ab, level } of lockedAbilities(g, m)) {
-    wrap.appendChild(h('div.sa-row.locked' + (ab.id === special ? '.special' : ''), { title: ab.desc },
+  const locked = lockedAbilities(g, m);
+  if (locked.length) wrap.appendChild(h('div.sub.sa-later', `Still to learn as a ${k.name.toLowerCase()}`));
+  for (const { ab, level } of locked) {
+    wrap.appendChild(h('div.sa-row.locked' + (ab.id === special ? '.special' : ''), { title: ab.desc, style: { '--accent': hexCss(ab.fx) } },
       h('span.sa-ico', icon(ab.icon)),
-      h('div', h('b', ab.name), h('span.sa-tag', ` learned at level ${level}`))));
+      h('div', h('b', ab.name), h('span.sa-tag', ` learned at level ${level}`), h('p', ab.desc))));
+  }
+  // battle arts: when the next one is on offer
+  const open = battleArts(g).filter((a) => !arts.has(a) && !abs.includes(a)).length;
+  if (open) {
+    const next = (m.level || 1) + (m.level % ART_EVERY ? 1 : ART_EVERY);
+    wrap.appendChild(h('p.sa-arts', icon('star'), ` Battle arts: on every ${ART_EVERY === 2 ? 'second' : `${ART_EVERY}th`} level one of the talents on offer is an art any calling can learn (${open} still to learn; the next chance at level ${next}).`));
   }
   if ((m.perks || []).length) {
     const counts = {};

@@ -2002,11 +2002,12 @@ health, conditions, what it is up to and your <b>chance to hit</b>; hover a squa
 damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: beside a tree, rock or wall, missiles from
 that side are −3 to hit. <b>Engaged</b>: shooting with a foe beside you is −4. <b>Breaking away</b>: stepping out of a foe's reach
 gives it a free strike (amber squares warn you).</p>
-<p><b>Skills</b> (keys 1, 2) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
-battle. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
+<p><b>Skills</b> (keys 1–9) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
+battle. Each calling learns new skills as it rises (at levels 3, 5, 7 and 9 for the callings of old), and on every second level one of
+the talents on offer is a <b>battle art</b> any hero can learn: Second Wind, Dash, First Aid, Throw Knife and more. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
 off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee (in a dungeon, step onto the stairs).</p>
 <table class="keys">
-<tr><td>F</td><td>Attack / shoot</td><td>1, 2</td><td>Skills</td></tr>
+<tr><td>F</td><td>Attack / shoot</td><td>1–9</td><td>Skills</td></tr>
 <tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>

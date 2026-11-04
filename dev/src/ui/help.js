@@ -71,7 +71,7 @@ export function openHelpOverlay(ui, rulesHtml) {
         h('h3', ico('sword'), ' In battle'),
         row(kbd('Click'), 'Blue square: move · red foe: attack'),
         row(kbd('F'), 'Attack or shoot'),
-        row(kbd('1', '2'), 'Class skills'),
+        row(kbd('1–9'), 'Skills (more as heroes rise)'),
         row(kbd('Q'), '★ Special, once per battle'),
         row(kbd('G'), 'Guard (+3 armour)'),
         row(kbd('Space'), 'End the turn'))),

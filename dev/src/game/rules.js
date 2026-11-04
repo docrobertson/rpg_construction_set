@@ -87,7 +87,7 @@ export function talentTree(game, c) {
   if (k.talents && TALENT_TREES[k.talents]) return k.talents;
   const def = CLASSES.find((d) => d.id === k.id);
   if (def?.talents) return def.talents;
-  const abs = [...(k.skills || []), k.special].map((id) => abilityOf(game, id)).filter(Boolean);
+  const abs = [...classSkills(k).map((s) => s.id), k.special].map((id) => abilityOf(game, id)).filter(Boolean);
   if (abs.some((a) => a.heal || a.healPct)) return 'healer';
   if ((k.magic || []).some((m) => (m.rate ?? 1) >= 1)) return 'caster';
   if (abs.some((a) => a.needs === 'ranged')) return 'archer';
@@ -98,7 +98,15 @@ export function talentTree(game, c) {
 // The three talents offered for the next pending level: fixed per hero and
 // level so that closing the window and coming back offers the same three.
 // Talents from the hero's own tree are three times as likely to come up.
+// On even levels the third is a battle art instead, when one is in reach.
 export function perkChoices(game, c) {
+  const out = talentChoices(game, c);
+  const art = artOffer(game, c);
+  if (art) out.splice(Math.min(2, out.length), out.length > 2 ? 1 : 0, art);
+  return out;
+}
+
+function talentChoices(game, c) {
   const ok = PERKS.filter((p) => (p.stack || !perkCount(c, p.id))
     && (p.needs !== 'mana' || maxMp(game, c) > 0)
     && (p.needs !== 'magic' || (() => { const ids = casting(game, c).map((ci) => ci.sys.id); return (game.spells || []).some((sp) => ids.includes(sp.system) && (sp.effect === 'damage' || sp.effect === 'drain')); })())
@@ -107,7 +115,7 @@ export function perkChoices(game, c) {
     && (p.needs !== 'heals' || heroAbilities(game, c).some((a) => a.heal || a.healPct) || knownSpells(game, c).some((sp) => sp.effect === 'heal') || casting(game, c).some((ci) => ci.sys.id === 'divine'))
     && (p.needs !== 'ranged' || classOf(game, c).weapons?.some((w) => ['bow', 'crossbow', 'sling'].includes(w))));
   const tree = talentTree(game, c);
-  const r = new RNG(hashString(`${c.id}:${c.level}:${(c.perks || []).length}`));
+  const r = new RNG(hashString(`${c.id}:${c.level}:${(c.perks || []).length + (c.arts || []).length}`));
   const pool = [...ok], out = [];
   while (out.length < 3 && pool.length) {
     const p = r.weighted(pool, (x) => ((x.trees || []).includes(tree) ? 3 : 1));
@@ -118,10 +126,13 @@ export function perkChoices(game, c) {
 }
 
 export function choosePerk(game, c, id) {
-  if (!(c.perkPending > 0) || !perkOf(id)) return false;
+  if (!(c.perkPending > 0)) return false;
+  if (String(id).startsWith(ART)) return learnArt(game, c, id.slice(ART.length));
+  if (!perkOf(id)) return false;
   const oldHp = maxHp(game, c), oldMp = maxMp(game, c);
   c.perks = [...(c.perks || []), id];
   c.perkPending--;
+  c.lastPick = id;
   if (c.status !== 'dead') {
     c.hp = Math.max(1, c.hp + maxHp(game, c) - oldHp);
     c.mp = Math.max(0, c.mp + maxMp(game, c) - oldMp);
@@ -133,55 +144,147 @@ export function choosePerk(game, c, id) {
 // Games made before abilities existed get the defaults, and their classes and
 // monsters the default skills of the same id. Safe to call often.
 export function ensureCombatData(game) {
-  if (!Array.isArray(game.abilities)) game.abilities = deepClone(ABILITIES);
+  if (!Array.isArray(game.abilities)) { game.abilities = deepClone(ABILITIES); game.skillsV = SKILLS_V; }
   for (const k of game.classes || []) {
-    if (k.skills === undefined) k.skills = [...(CLASSES.find((d) => d.id === k.id)?.skills || [])];
+    if (k.skills === undefined) k.skills = deepClone(CLASSES.find((d) => d.id === k.id)?.skills || []);
   }
   for (const m of game.monsters || []) {
     const d = MONSTERS.find((x) => x.id === m.id);
     if (m.abilities === undefined) m.abilities = [...(d?.abilities || [])];
     if (m.ai === undefined && d?.ai) m.ai = d.ai;
   }
+  if ((game.skillsV || 0) < SKILLS_V) migrateSkills(game);
   return game.abilities;
+}
+
+// Skills learned at levels 5, 7 and 9, and the battle arts, came later
+// (SKILLS_V 1). Older games gain the arts, and each built-in calling still
+// on its first two skills gains the new ones (with what they summon); a
+// calling the designer has changed is left alone.
+export const SKILLS_V = 1;
+function migrateSkills(game) {
+  game.skillsV = SKILLS_V;
+  const add = (id) => {
+    const d = ABILITIES.find((a) => a.id === id);
+    if (!d || game.abilities.some((a) => a.id === id)) return;
+    game.abilities.push(deepClone(d));
+    const mon = d.summon && MONSTERS.find((m) => m.id === d.summon);
+    if (mon && Array.isArray(game.monsters) && !game.monsters.some((m) => m.id === mon.id)) game.monsters.push(deepClone(mon));
+  };
+  for (const a of ABILITIES) if (a.general) add(a.id);
+  for (const k of game.classes || []) {
+    const d = CLASSES.find((x) => x.id === k.id);
+    if (!d) continue;
+    const was = classSkills(d).filter((s) => s.level <= 3).map((s) => s.id);
+    if (JSON.stringify(classSkills(k).map((s) => s.id)) !== JSON.stringify(was)) continue;
+    k.skills = deepClone(d.skills);
+    for (const s of classSkills(d)) add(s.id);
+  }
 }
 
 export function abilityOf(game, id) { return id ? byId(ensureCombatData(game), id) || null : null; }
 
-// A hero's battle abilities: class skills first, then the once-per-battle special
-// A new hero starts with one class skill; the rest arrive as they rise, so
-// levelling up brings something new to do: the ★ special at level 2, the
-// second skill at 3 (and any further ones a level apart after that).
-export const SPECIAL_LEVEL = 2;
-export function abilityLevel(k, id) {
-  if (id === k.special) return SPECIAL_LEVEL;
-  const i = (k.skills || []).indexOf(id);
-  return i <= 0 ? 1 : 1 + i * 2;
+// A class's skills and the level each is learned at: [{ id, level }], in
+// the order learned. An entry is { id, level }, or (as older games had it) a
+// plain id, learned by its place in the list: the first at 1, then 3, 5, 7…
+export function classSkills(k) {
+  const out = (k?.skills || []).map((s, i) => {
+    if (typeof s === 'string') return s ? { id: s, level: i ? 1 + i * 2 : 1 } : null;
+    return s && s.id ? { id: s.id, level: Math.max(1, Math.round(+s.level || 1)) } : null;
+  }).filter(Boolean);
+  return out.map((s, i) => ({ s, i })).sort((a, b) => a.s.level - b.s.level || a.i - b.i).map((x) => x.s);
 }
 
-// abilities in hand, in class order (all = include those not yet learned);
-// what the hero wears may add a battle action of its own (a charm's, or a
-// magic staff's), listed after the class skills and before the ★ special
+// A new hero starts with one class skill; the rest arrive as they rise, so
+// levelling up brings something new to do: the ★ special at level 2 (or the
+// class's specialLevel), the other skills at the levels the class gives them
+// (3, 5, 7, 9 for the built-in callings). Battle arts fill the even levels.
+export const SPECIAL_LEVEL = 2;
+export function abilityLevel(k, id) {
+  if (id === k.special) return Math.max(1, k.specialLevel ?? SPECIAL_LEVEL);
+  return classSkills(k).find((s) => s.id === id)?.level ?? 1;
+}
+
+// abilities in hand (all = include class skills not yet learned): class
+// skills and battle arts in the order they were learned, so a new one never
+// moves the keys of the old; then what the hero wears may add a battle action
+// of its own (a charm's, or a magic staff's); the ★ special comes last
 export function heroAbilities(game, c, all = false) {
   const k = classOf(game, c);
   ensureCombatData(game);
+  const lv = c.level || 1;
+  const learned = [];
+  for (const s of classSkills(k)) {
+    const a = abilityOf(game, s.id);
+    if (a && a.id !== k.special && (all || lv >= s.level)) learned.push({ a, level: s.level, art: 0 });
+  }
+  for (const s of heroArts(game, c)) learned.push({ a: s.ab, level: s.level, art: 1 });
   const out = [];
-  for (const id of [...(k.skills || []), k.special]) {
-    const a = abilityOf(game, id);
-    if (a && !out.includes(a) && (all || (c.level || 1) >= abilityLevel(k, id))) out.push(a);
-  }
-  const worn = wornAbilities(game, c).filter((a) => !out.includes(a));
-  if (worn.length) {
-    const sp = abilityOf(game, k.special);
-    const i = sp ? out.indexOf(sp) : -1;
-    out.splice(i >= 0 ? i : out.length, 0, ...worn);
-  }
+  for (const { a } of learned.map((x, i) => ({ ...x, i })).sort((x, y) => x.level - y.level || x.art - y.art || x.i - y.i)) if (!out.includes(a)) out.push(a);
+  for (const a of wornAbilities(game, c)) if (!out.includes(a)) out.push(a);
+  const sp = abilityOf(game, k.special);
+  if (sp && !out.includes(sp) && (all || lv >= abilityLevel(k, sp.id))) out.push(sp);
   return out;
 }
 
-// what the hero will learn later: [{ ab, level }]
+// what the hero will learn later: [{ ab, level }], soonest first
 export function lockedAbilities(game, c) {
   const k = classOf(game, c);
-  return heroAbilities(game, c, true).filter((a) => !heroAbilities(game, c).includes(a)).map((ab) => ({ ab, level: abilityLevel(k, ab.id) }));
+  const have = heroAbilities(game, c);
+  return heroAbilities(game, c, true).filter((a) => !have.includes(a)).map((ab) => ({ ab, level: abilityLevel(k, ab.id) })).sort((a, b) => a.level - b.level);
+}
+
+// ---- battle arts: abilities marked general, open to any calling. One is
+// offered among the talents on each even level (from the art's own level
+// on); the hero who takes it keeps it in c.arts as { id, level }.
+const ART = 'art:';
+export const ART_EVERY = 2;
+export function battleArts(game) { return ensureCombatData(game).filter((a) => a.general && !a.monster); }
+
+// the arts a hero knows: [{ ab, level }] (one the designer removed is forgotten)
+export function heroArts(game, c) {
+  return (Array.isArray(c.arts) ? c.arts : []).map((s) => ({ ab: abilityOf(game, typeof s === 'string' ? s : s?.id), level: +s?.level || 2 })).filter((s) => s.ab && s.ab.general);
+}
+
+// the level the hero's next pending talent belongs to
+export function pickLevel(c) { return Math.max(1, (c.level || 1) - Math.max(0, (c.perkPending || 1) - 1)); }
+
+// arts the hero could take at the level of their next pick (none on odd levels)
+export function artsInReach(game, c, level = pickLevel(c)) {
+  if (level < 2 || level % ART_EVERY) return [];
+  const known = new Set(heroArts(game, c).map((s) => s.ab.id));
+  const k = classOf(game, c);
+  const own = new Set([...classSkills(k).map((s) => s.id), k.special]);
+  const ranged = (k.weapons || []).some((w) => ['bow', 'crossbow', 'sling'].includes(w));
+  return battleArts(game).filter((a) => !known.has(a.id) && !own.has(a.id) && (a.level || 2) <= level && (a.needs !== 'ranged' || ranged));
+}
+
+function artOffer(game, c) {
+  if (!(c.perkPending > 0)) return null;
+  const pool = artsInReach(game, c);
+  if (!pool.length) return null;
+  const r = new RNG(hashString(`${c.id}:art:${pickLevel(c)}:${(c.arts || []).length}`));
+  const ab = r.pick(pool);
+  return { id: ART + ab.id, art: true, ab, name: ab.name, icon: ab.icon || 'star', desc: ab.desc };
+}
+
+function learnArt(game, c, id) {
+  const ab = artsInReach(game, c).find((a) => a.id === id);
+  if (!ab) return false;
+  c.arts = [...(Array.isArray(c.arts) ? c.arts : []), { id: ab.id, level: pickLevel(c) }];
+  c.perkPending--;
+  c.lastPick = ART + ab.id;
+  return true;
+}
+
+// what the hero chose last (a talent or a battle art), for the note after choosing
+export function lastPick(game, c) {
+  const id = c.lastPick || (c.perks || [])[(c.perks || []).length - 1];
+  if (String(id || '').startsWith(ART)) {
+    const ab = abilityOf(game, id.slice(ART.length));
+    return ab ? { id, art: true, ab, name: ab.name, icon: ab.icon || 'star', desc: ab.desc } : null;
+  }
+  return perkOf(id);
 }
 
 // Casting ability per magic system (only enabled systems count)
@@ -429,6 +532,7 @@ export function normalizeMember(game, c, inv) {
   }
   c.points = c.points || 0;
   if (!Array.isArray(c.book)) c.book = []; // spells copied from scrolls
+  if (!Array.isArray(c.arts)) c.arts = []; // battle arts chosen among the talents
   // heroes from before talents existed get one for every level already gained
   const fresh = !Array.isArray(c.perks);
   c.perks = fresh ? [] : c.perks;
