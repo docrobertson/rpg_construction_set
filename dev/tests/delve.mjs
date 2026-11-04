@@ -161,6 +161,219 @@ check('a band that notices a hero wakes as a whole', woke.battle && woke.aware &
 check('the battle is fought on the dungeon map itself, heroes where they stand', woke.field && woke.sameMap && woke.heroes.every((id) => id.startsWith('hero:')), woke);
 check('the log says who noticed whom', woke.log?.some((l) => /notices? /.test(l)), woke.log);
 
+await ev(() => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // wait for a hero's turn (the HUD waiting on the player)
+  window.__heroTurn = async (ms = 30000) => {
+    const s = window.__app.session;
+    for (let i = 0; i < ms / 30; i++) { const b = s.battle; if (!b) return null; if (b.active && !b.acting) return b.active; await sleep(30); }
+    return null;
+  };
+  // strike down every foe in the fight and end the turn: victory
+  window.__win = async () => {
+    const s = window.__app.session, b = s.battle;
+    if (!b) return false;
+    // (bands that hear the fight may join as it goes: strike them down too)
+    for (let k = 0; k < 6 && s.battle === b; k++) {
+      if (!(await window.__heroTurn())) break;
+      for (const e of b.enemies) if (b.alive(e)) await b.damage(e, 999, {});
+      await b.actPass();
+      for (let i = 0; i < 100 && s.battle === b && !(b.active && !b.acting); i++) await sleep(30);
+    }
+    for (let i = 0; i < 300 && (s.battle || s.mode !== 'explore'); i++) await sleep(30);
+    await sleep(1100); // the victory window
+    document.querySelectorAll('.victory-modal').forEach((m) => m.closest('.modal-back')?.remove());
+    return s.mode === 'explore' && !s.battle;
+  };
+});
+
+// a turn in, the camera on the hero whose turn it is; screenshot of a battle in a corridor-ish place
+await ev(() => window.__heroTurn());
+await ev(() => window.__tick(1));
+await shot('dv-04-battle');
+
+// --- a band that sees the fight joins it at the next round
+const joined = await ev(async () => {
+  const s = window.__app.session, dv = s.dv, b = s.battle;
+  const u = await window.__heroTurn();
+  if (!u) return { noTurn: true };
+  // another band, one of whom has wandered close to this hero
+  const [gid, g] = Object.entries(dv.groups).find(([og, gg]) => !gg.aware && !dv.entityOf(og)?.boss && gg.m.some((mm) => !mm.dead)) || [];
+  if (!gid) return { none: true };
+  const spot = dv.freeSquares(u.x, u.y, 1, (x, y) => (x !== u.x || y !== u.y) && dv.standable(x, y) && !b.unitAt(x, y) && Math.max(Math.abs(x - u.x), Math.abs(y - u.y)) <= 2)[0];
+  const mm = g.m.find((x) => !x.dead);
+  mm.x = spot.x; mm.y = spot.y;
+  s.view.placeEntity(`dv:${gid}:${g.m.indexOf(mm)}`, spot.x, spot.y);
+  const rng = window.__delve.rng, chance = rng.chance;
+  rng.chance = () => true; // (it surely notices)
+  try { await dv.afterTurn(b, u); } finally { rng.chance = chance; }
+  const units = b.enemies.filter((x) => x.gid === gid);
+  return { gid, members: g.m.filter((x) => !x.dead).length, units: units.length, inOrder: units.some((x) => b.order.includes(x)), aware: g.aware, log: [...document.querySelectorAll('.log-line')].slice(-3).map((l) => l.textContent) };
+});
+check('a dormant band that notices the fight joins it (whole, at the next round)', joined.aware && joined.units === joined.members && joined.units > 0 && !joined.inOrder, joined);
+check('the log says they join', joined.log?.some((l) => /join|come running/.test(l)), joined.log);
+await ev(() => window.__tick(0.5));
+await shot('dv-05-joined');
+
+// --- victory: back to exploring, everyone where they stood; the beaten bands are gone
+const won = await ev(async () => {
+  const s = window.__app.session, dv = s.dv, b = s.battle;
+  await window.__heroTurn();
+  const at = Object.fromEntries(b.partyUnits.filter((u) => b.alive(u)).map((u) => [u.member.name, { x: u.x, y: u.y }]));
+  const gids = [...new Set(b.enemies.map((u) => u.gid))];
+  const ok = await window.__win();
+  const now = Object.fromEntries(dv.alive().map((h) => [h.name, dv.pos(h)]));
+  const ms = s.mapState(s.map.id);
+  return {
+    ok, mode: s.mode, at, now, gids,
+    gone: gids.every((g) => !s.map.entities.some((e) => e.id === g) && !dv.groups[g] && ms.removed.includes(g)),
+    flags: Object.keys(s.party.flags).filter((k) => k.startsWith('killed_')),
+    figs: [...s.view.entities.keys()].filter((k) => k.startsWith('hero:')).length,
+  };
+});
+check('victory returns to exploring', won.ok && won.mode === 'explore', won);
+check('after the battle every hero stands where they fought', Object.keys(won.at).every((n) => won.now[n] && won.now[n].x === won.at[n].x && won.now[n].y === won.at[n].y) && won.figs === Object.keys(won.now).length, won);
+check('beaten bands leave the map for good (and count as slain)', won.gone && won.flags.length > 0, won);
+
+// --- strike an unaware monster: caught unawares, every hero a free turn first
+const surprise = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const p = s.state.pos;
+  const cands = Object.entries(dv.groups).filter(([gid, g]) => !g.aware && !dv.entityOf(gid)?.boss && g.m.some((mm) => !mm.dead));
+  cands.sort(([, a], [, b2]) => Math.abs(a.m[0].x - p.x) + Math.abs(a.m[0].y - p.y) - (Math.abs(b2.m[0].x - p.x) + Math.abs(b2.m[0].y - p.y)));
+  for (const [gid, g] of cands) {
+    const mm = g.m.find((x) => !x.dead);
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const x = mm.x + dx, y = mm.y + dy;
+      if (!dv.standable(x, y)) continue;
+      // the company a few squares behind, the striker right beside it, unseen
+      const lead = dv.actor();
+      dv.setPos(lead, x, y);
+      const rest = dv.freeSquares(x, y, dv.alive().length + 4, (a, c) => dv.standable(a, c) && Math.max(Math.abs(a - mm.x), Math.abs(c - mm.y)) >= 2);
+      dv.alive().filter((h) => h !== lead).forEach((h, i) => dv.setPos(h, rest[i].x, rest[i].y));
+      dv.spawnHeroes();
+      s.updateVisibility(true);
+      s.move(-dx, -dy); // bump: strike
+      for (let i = 0; i < 200 && !s.battle?.active; i++) await new Promise((r) => setTimeout(r, 30));
+      const b = s.battle;
+      if (!b) return { noBattle: true, gid };
+      const first = { round: b.round, order: b.order.map((u) => u.side), striker: b.order[0]?.member?.name, lead: lead.name, banner: !!document.querySelector('.dv-surprise'), strip: document.querySelector('.cbt-round.dv-free')?.textContent };
+      return { gid, surprise: !!b.opts.surprise, ...first, log: [...document.querySelectorAll('.log-line')].slice(-4).map((l) => l.textContent), heroes: b.partyUnits.length };
+    }
+  }
+  return { none: true };
+});
+check('striking an unaware monster catches its band unawares', surprise.surprise && surprise.round === 0 && surprise.log?.some((l) => /Caught unawares/.test(l)), surprise);
+check('in the surprise every hero has a turn before any foe, the striker first', surprise.order?.length === surprise.heroes && surprise.order.every((x) => x === 'party') && surprise.striker === surprise.lead, surprise);
+check('the surprise is shown on screen (banner, strip)', surprise.banner && surprise.strip === 'Free', surprise);
+await ev(() => window.__tick(0.3));
+await shot('dv-03-surprise');
+const surpriseWin = await ev(() => window.__win());
+check('the surprise battle can be won', surpriseWin);
+
+// --- leave and come back: the dead stay dead, the living as they were
+const back = await ev(async () => {
+  const s = window.__app.session;
+  const m = window.__barrow();
+  const before = Object.fromEntries(Object.entries(s.dv.groups).map(([gid, g]) => [gid, g.m.map((mm) => mm.dead ? 'x' : mm.hp).join()]));
+  const removed = [...s.mapState(m.id).removed];
+  await s.leaveMap();
+  const out = s.map.type;
+  await s.enterMap(m.id, m.entry.x, m.entry.y, { instant: true });
+  const after = Object.fromEntries(Object.entries(s.dv.groups).map(([gid, g]) => [gid, g.m.map((mm) => mm.dead ? 'x' : mm.hp).join()]));
+  return { out, before, after, removedBack: removed.filter((id) => s.map.entities.some((e) => e.id === id)), heroes: s.dv.alive().map((h) => s.dv.pos(h)) };
+});
+check('leaving the dungeon and coming back keeps the dead dead and the living as they were', back.out === 'world' && JSON.stringify(back.before) === JSON.stringify(back.after) && !back.removedBack.length, back);
+
+// --- fleeing by the stairs: every hero who steps onto them leaves the fight; all gone, the company is out
+const fled = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  const stairs = s.map.entities.find((e) => e.type === 'portal');
+  // everyone close by the stairs; then something nasty out of the dark
+  const spots = dv.freeSquares(stairs.x, stairs.y, dv.alive().length, (a, c) => dv.standable(a, c) && Math.abs(a - stairs.x) + Math.abs(c - stairs.y) <= 2);
+  dv.alive().forEach((h, i) => dv.setPos(h, spots[i].x, spots[i].y));
+  dv.spawnHeroes();
+  s.updateVisibility(true);
+  s.engage({ id: 'amb_test', monster: 'goblin', count: '3', roaming: true });
+  const seen = [];
+  for (let guard = 0; guard < 20; guard++) {
+    const u = await window.__heroTurn(20000);
+    if (!u) break;
+    const b = s.battle;
+    seen.push(u.member.name);
+    if (!(await b.actMoveTo(stairs.x, stairs.y, u))) await b.actPass();
+  }
+  for (let i = 0; i < 200 && (s.battle || s.transitioning || s.mode !== 'explore'); i++) await new Promise((r) => setTimeout(r, 30));
+  return { seen, map: s.map.type, dv: !!s.dv, tmp: Object.keys(s.mapState(window.__barrow().id).delve.groups).filter((k) => k.startsWith('foe')).length, log: [...document.querySelectorAll('.log-line')].slice(-16).map((l) => l.textContent) };
+});
+check('heroes escape up the stairs one by one; when all are out, the company has left the dungeon', fled.map === 'world' && !fled.dv && fled.log.filter((l) => /escapes up the stairs/.test(l)).length >= 1, fled);
+check('a fight that sprang up from nowhere does not linger once fled', fled.tmp === 0, fled);
+
+// --- a wandering band in a dungeon turns up out of sight, unaware
+const wander = await ev(async () => {
+  const s = window.__app.session;
+  const m = window.__barrow();
+  await s.enterMap(m.id, m.entry.x, m.entry.y, { instant: true });
+  const dv = s.dv;
+  // somewhere well inside (the way in is a breather), and the dice say yes
+  const lead = dv.actor();
+  const far = Object.values(dv.groups).flatMap((g) => g.m).filter((mm) => !mm.dead).sort((a, b) => (Math.abs(b.y - m.entry.y) + Math.abs(b.x - m.entry.x)) - (Math.abs(a.y - m.entry.y) + Math.abs(a.x - m.entry.x)))[0];
+  const spot = dv.freeSquares(far.x, far.y, 30, (a, c) => dv.standable(a, c) && Math.abs(a - far.x) + Math.abs(c - far.y) >= 10)[0] || dv.freeSquares(m.entry.x, m.entry.y - 12, 1, (a, c) => dv.standable(a, c))[0];
+  dv.alive().forEach((h) => dv.setPos(h, h === lead ? spot.x : dv.pos(h).x, h === lead ? spot.y : dv.pos(h).y));
+  dv.select(lead, true);
+  s.updateVisibility(true);
+  const before = Object.keys(dv.groups).length;
+  const rng = window.__delve.rng, chance = rng.chance;
+  s.state.lastEncounter = -99;
+  rng.chance = () => true;
+  try { for (let i = 0; i < 5 && Object.keys(dv.groups).length === before; i++) s.maybeSpawnEncounter(); } finally { rng.chance = chance; }
+  const gid = Object.keys(dv.groups).find((k) => s.map.entities.find((e) => e.id === k)?.roaming);
+  const g = gid && dv.groups[gid];
+  const ms = s.mapState(m.id);
+  return { gid, n: g?.m.length, aware: g?.aware, seen: g ? g.m.some((mm) => s.isVisible(mm.x, mm.y)) : null, near: g ? g.m.some((mm) => dv.nearHero(mm.x, mm.y, 7)) : null, kept: !!ms.delve.groups[gid]?.ent, battle: !!s.battle };
+});
+check('a wandering band in a dungeon turns up out of sight, unaware (no battle at once)', wander.gid && wander.n > 0 && !wander.aware && !wander.seen && !wander.near && !wander.battle && wander.kept, wander);
+
+// --- the designer's "monsters leave us alone": none notice
+const peace = await ev(async () => {
+  const s = window.__app.session, dv = s.dv;
+  s.peaceful = true;
+  const [gid, g] = Object.entries(dv.groups).find(([, gg]) => gg.m.some((mm) => !mm.dead));
+  const mm = g.m.find((x) => !x.dead);
+  const spot = dv.freeSquares(mm.x, mm.y, 1, (a, c) => dv.standable(a, c) && (a !== mm.x || c !== mm.y))[0];
+  dv.setPos(dv.actor(), spot.x, spot.y);
+  dv.spawnHeroes();
+  s.party.light = 200;
+  for (let i = 0; i < 3; i++) { await s.wait(); await window.__idle(); }
+  const out = { aware: g.aware, battle: !!s.battle };
+  s.peaceful = false;
+  return out;
+});
+check('a playtest where monsters leave the company alone: nobody notices', !peace.aware && !peace.battle, peace);
+
+// --- an old save made inside a dungeon (before battlegrounds) loads sensibly
+const old = await ev(async () => {
+  const app = window.__app;
+  const s = app.session;
+  const m = window.__barrow();
+  const st = s.serializeState();
+  for (const ms of Object.values(st.maps)) delete ms.delve;
+  st.pos = { map: m.id, x: m.entry.x, y: m.entry.y };
+  // (an old save had moved a band while it chased the company)
+  const band = m.entities.find((e) => e.type === 'monster' && !e.boss && !(st.maps[m.id]?.removed || []).includes(e.id));
+  (st.maps[m.id] ||= { removed: [], tiles: {}, moved: {}, explored: null }).moved[band.id] = [m.entry.x + 1, m.entry.y - 3];
+  app.stopSession();
+  await app.playGame(app.sample, { state: st, noSave: true });
+  await new Promise((r) => setTimeout(r, 1500));
+  const s2 = app.session, dv = s2.dv;
+  return {
+    dv: !!dv, map: s2.map?.name, heroes: dv ? dv.alive().map((h) => dv.pos(h)) : [], groups: dv ? Object.keys(dv.groups).length : 0,
+    ents: s2.map.entities.filter((e) => e.type === 'monster').length, pos: s2.state.pos,
+    figs: [...s2.view.entities.keys()].filter((k) => k.startsWith('hero:')).length,
+  };
+});
+check('an old save inside a dungeon loads: the company split round where it stood, the bands all there', old.dv && old.map === 'Grimholt Barrow' && old.heroes.length >= 2 && old.groups === old.ents && old.figs === old.heroes.length && old.heroes.some((p) => p.x === old.pos.x && p.y === old.pos.y), old);
+
 console.log(JSON.stringify(errors.slice(0, 5)));
 await browser.close();
 if (errors.length) { console.log('FAIL page errors'); fails.push('page errors'); }

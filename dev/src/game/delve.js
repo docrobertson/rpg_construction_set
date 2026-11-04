@@ -126,7 +126,7 @@ export class Delve {
   // Each monster of a band, around the band's square: as many as a fight with
   // it would bring (count or the monster's usual group, its escorts, more for
   // a big company), each with its own health
-  populate(e, list = null, origin = null) {
+  populate(e, list = null, origin = null, hidden = false) {
     const roster = list || this.s.enemiesFor(e);
     const g = { aware: false, m: [] };
     const taken = new Set();
@@ -135,7 +135,7 @@ export class Delve {
       const def = byId(this.game.monsters, id);
       if (!def) continue;
       for (let k = 0; k < n; k++) {
-        const ok = (x, y) => !taken.has(sq(x, y)) && this.standable(x, y, def, o);
+        const ok = (x, y) => !taken.has(sq(x, y)) && this.standable(x, y, def, o) && (!hidden || (!this.s.isVisible(x, y) && !this.nearHero(x, y, 7)));
         const spot = this.freeSquares(o.x, o.y, 1, ok, (x, y) => this.walkable(x, y, def))[0];
         if (!spot) break;
         taken.add(sq(spot.x, spot.y));
@@ -150,7 +150,8 @@ export class Delve {
 
   // a band that turned up while the company was here (a wandering one)
   addGroup(e) {
-    this.populate(e);
+    const g = this.populate(e, null, null, true); // (out of everyone's sight)
+    if (!g.m.length) { delete this.groups[e.id]; this.s.removeEntity(e, false); return; }
     this.spawnGroup(e.id);
     this.applyVis(this.s.visible);
   }
@@ -245,7 +246,16 @@ export class Delve {
   }
 
   // ------------------------------------------------------------ heroes
-  pos(m) { const p = this.data.heroes[heroKey(m)]; return p ? { x: p[0], y: p[1] } : { ...this.s.state.pos }; }
+  // (in a battle a hero is wherever their figure stands in the fight)
+  pos(m) {
+    const u = this.battle?.partyUnits.find((x) => x.member === m);
+    if (u) return { x: u.x, y: u.y };
+    const p = this.data.heroes[heroKey(m)];
+    return p ? { x: p[0], y: p[1] } : { ...this.s.state.pos };
+  }
+
+  // gone from the fight up the stairs (they see nothing down here, nor are seen)
+  away(m) { return !!this.battle?.partyUnits.some((x) => x.member === m && x.fled); }
   setPos(m, x, y) {
     this.data.heroes[heroKey(m)] = [x, y];
     if (m === this.actor()) { this.s.state.pos.x = x; this.s.state.pos.y = y; }
@@ -400,7 +410,7 @@ export class Delve {
     const map = this.map;
     const out = new Uint8Array(map.w * map.h);
     for (const m of this.alive()) {
-      if (this.fled?.has(heroKey(m))) continue;
+      if (this.away(m)) continue;
       const p = this.pos(m);
       const { sight, light } = this.sightOf(m);
       const v = computeVisible(map, p.x, p.y, sight, light, map.litMask);
@@ -613,7 +623,7 @@ export class Delve {
   notices(heroes = null) {
     if (this.s.peaceful) return [];
     const out = [];
-    const list = (heroes || this.alive()).filter((m) => m.status !== 'dead' && !this.fled?.has(heroKey(m)));
+    const list = (heroes || this.alive()).filter((m) => m.status !== 'dead' && !this.away(m));
     for (const [gid, g] of Object.entries(this.groups)) {
       if (g.aware || this.entityOf(gid)?.passive) continue;
       let hero = null;
@@ -742,22 +752,31 @@ export class Delve {
 
   // squares a fighter cannot enter: monsters still unaware, people and
   // curiosities, foes that slipped away into the dark; and for monsters the way out
+  // (asked for every square of every path search: the squares are gathered once a turn)
   fieldBlocked(x, y, unit) {
-    const b = this.battle;
-    for (const g of Object.values(this.groups)) {
-      if (g.aware) continue;
-      if (g.m.some((mm) => !mm.dead && mm.x === x && mm.y === y)) return true;
+    const c = this.blocks || this.gatherBlocks();
+    const k = y * this.map.w + x;
+    if (c.all.has(k)) return true;
+    return unit?.side === 'enemy' && c.foe.has(k);
+  }
+
+  gatherBlocks() {
+    const w = this.map.w, all = new Set(), foe = new Set();
+    for (const g of Object.values(this.groups)) if (!g.aware) for (const mm of g.m) if (!mm.dead) all.add(mm.y * w + mm.x);
+    for (const u of this.battle?.units || []) if (u.fled && u.side === 'enemy' && !u.dead) all.add(u.y * w + u.x);
+    for (const e of this.map.entities) {
+      if (['npc', 'sign', 'event', 'ship'].includes(e.type) && e !== this.hidden) all.add(e.y * w + e.x);
+      if (e.type === 'portal') foe.add(e.y * w + e.x);
     }
-    if (b && b.units.some((u) => u.fled && u.side === 'enemy' && !u.dead && u.x === x && u.y === y)) return true;
-    if (this.map.entities.some((e) => e.x === x && e.y === y && ['npc', 'sign', 'event', 'ship'].includes(e.type) && e !== this.hidden)) return true;
-    if (unit?.side === 'enemy' && this.exitAt(x, y)) return true;
-    return false;
+    if (this.map.exit) for (let i = 0; i < this.map.tiles.length; i++) { const t = terrain(this.map.tiles[i]); if (t.key === 'stairs_up' || t.key === 'stairs_down') foe.add(i); }
+    return (this.blocks = { all, foe });
   }
 
   // Noticing and noise while the battle goes on: after a hero's turn, bands that
   // see them; after anyone's turn, bands close by may hear the fighting.
   // They join the fight at the next round.
   async afterTurn(b, u) {
+    this.blocks = null;
     this.s.updateVisibility();
     if (this.s.peaceful) return;
     const found = u?.side === 'party' && b.alive(u) ? this.notices([u.member]) : [];
@@ -775,6 +794,7 @@ export class Delve {
   join(b, gid, text) {
     this.alert(gid);
     b.join(this.foesOf(gid), text);
+    this.blocks = null;
     sfx('encounter');
   }
 
@@ -808,7 +828,7 @@ export class Delve {
     sfx('encounter');
     v.shake?.(0.15, 0.25);
     playMusic('combat');
-    this.fled = new Set();
+    this.blocks = null;
     const b = new Battle(s, [], 'field', { field: this.fieldFor(gids), surprise, striker });
     this.battle = b;
     s.battle = b;
@@ -831,7 +851,7 @@ export class Delve {
     s.battle = null;
     this.battle = null;
     const exit = this.sync(b, res);
-    this.fled = null;
+    this.blocks = null;
     if (this.hidden) { if (res.outcome !== 'victory' && this.map.entities.includes(this.hidden)) v.setEntityVisible(this.hidden.id, true); this.hidden = null; }
     if (res.outcome === 'defeat') {
       s.mode = 'gameover';

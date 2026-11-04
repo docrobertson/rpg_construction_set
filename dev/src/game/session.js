@@ -1127,17 +1127,17 @@ export class PlaySession {
     const door = map.type === 'dungeon' && map.entry;
     if (door && Math.abs(p.x - door.x) + Math.abs(p.y - door.y) < 10) return;
     const [fx, fy] = st.facing || [0, 1];
-    for (let a = 0; a < 30; a++) {
+    for (let a = 0; a < (this.dv ? 80 : 30); a++) {
       let x, y;
       if (world && a < 20) {
         // somewhere ahead and to the side, close enough to be seen coming
         const ahead = rng.int(4, 7), side = rng.int(-4, 4);
         x = p.x + fx * ahead + (fx ? 0 : side); y = p.y + fy * ahead + (fy ? 0 : side);
-      } else { x = p.x + rng.int(-9, 9); y = p.y + rng.int(-9, 9); }
+      } else { const R = this.dv ? 14 : 9; x = p.x + rng.int(-R, R); y = p.y + rng.int(-R, R); } // (delve: further off, out of every hero's way)
       const d = Math.abs(x - p.x) + Math.abs(y - p.y);
       if (d < (world ? 4 : 6) || !inBounds(map, x, y)) continue;
       if (this.isVisible(x, y) && !world) continue;
-      if (this.dv?.nearHero(x, y, 8)) continue; // (delve) out of every hero's way
+      if (this.dv?.nearHero(x, y, 9)) continue;
       if (world && !hasLOS(map, x, y, p.x, p.y)) continue;
       const t = terrain(getTile(map, x, y));
       const habitat = map.type === 'dungeon' ? 'dungeon' : t.water ? 'water' : habitatOf(t);

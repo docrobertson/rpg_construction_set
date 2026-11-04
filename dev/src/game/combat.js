@@ -463,7 +463,6 @@ export class Battle {
       this.surprise = true;
       const first = this.opts.striker;
       this.emit('surprise');
-      for (const e of this.enemies) this.fx.number(e.x, e.y, 'Surprised!', 'status', '#9fe09f');
       const order = this.partyUnits.filter((u) => this.alive(u)).sort((a, b) => (b.member === first) - (a.member === first) || b.init - a.init);
       const res = await this.playRound(order);
       this.surprise = false;
