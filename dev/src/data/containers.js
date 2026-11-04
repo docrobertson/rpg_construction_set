@@ -84,9 +84,11 @@ export function dungeonStyle(map, x, y) {
 }
 
 // The look a chest is drawn with. Its own look; else what its name calls for;
-// else, for a plain chest the dungeon generator made (gold as a number, no
-// lock, trap or seal, not the hoard), one of the things that dungeon's
-// style keeps treasure in, the same for the same square every time.
+// else, for a plain chest the dungeon generator made (gold as a number, at
+// most a healing draught in it, no lock, trap or seal, not the hoard), one of
+// the things that dungeon's style keeps treasure in, the same for the same
+// square every time. (Nothing is written into the map, so generated maps stay
+// as they were and old games change their looks too.)
 export function chestLook(e, map = null, hoard = false) {
   if (e.look?.kind) return e.look;
   const named = e.name && containerLookFor(e.name);
@@ -96,6 +98,7 @@ export function chestLook(e, map = null, hoard = false) {
 
 export function autoContainer(e, map, hoard = false) {
   if (hoard || typeof e.gold !== 'number' || e.locked || e.trap || e.sealed || e.name) return null;
+  if ((e.items || []).some((it) => it.id !== 'healing_draught')) return null; // (a quest's prize waits in a chest)
   const style = dungeonStyle(map, e.x, e.y);
   if (!style) return null;
   const pool = BY_STYLE[style];
