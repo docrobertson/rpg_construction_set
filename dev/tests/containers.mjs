@@ -66,9 +66,12 @@ const sample = buildSampleGame();
   const ev = (id) => all.find((x) => x.e.id === id);
   const cart = ev('ev_cart'), isle = ev('ev_cache_isle'), mimic = ev('ev_mimic');
   const flags = all.filter((x) => x.e.type === 'event' && x.e.name === 'Loose Flagstone');
-  const looks = { cart: eventLook(cart.e, cart.m)?.kind, isle: eventLook(isle.e, isle.m)?.kind, mimic: eventLook(mimic.e, mimic.m)?.kind, flags: flags.map((x) => eventLook(x.e, x.m)?.kind) };
+  // (the sample fits its dungeons' caches to their places: a fallen adventurer
+  // in the barrow, barrels in the smugglers' cove, a flagstone in Dol Garoth)
+  const fitted = ['ev_201_cache', 'ev_207_cache'].map((id) => ev(id)).filter(Boolean);
+  const looks = { cart: eventLook(cart.e, cart.m)?.kind, isle: eventLook(isle.e, isle.m)?.kind, mimic: eventLook(mimic.e, mimic.m)?.kind, flags: flags.map((x) => eventLook(x.e, x.m)?.kind), fitted: fitted.map((x) => eventLook(x.e, x.m)?.kind) };
   check('the sample\'s overturned cart is drawn as a cart, the smugglers\' barrel as barrels', looks.cart === 'cart' && looks.isle === 'barrels', looks);
-  check('the dungeons\' loose flagstones are loose flagstones, not chests', flags.length >= 2 && looks.flags.every((k) => k === 'flagstone'), looks.flags);
+  check('the dungeons\' caches look like what they are: a loose flagstone, a fallen adventurer, smugglers\' barrels', flags.length >= 1 && looks.flags.every((k) => k === 'flagstone') && looks.fitted.join() === 'remains,barrels', looks);
   check('…but the barrow\'s suspiciously clean chest (a mimic) still looks like a chest', looks.mimic === 'chest', looks.mimic);
   const fresh = eventLook(eventFromTemplate('cache'));
   check('a hidden cache made from the template lies under a loose flagstone', fresh.kind === 'flagstone', fresh);
@@ -239,7 +242,7 @@ await wait(1500);
 await shot('cart-world');
 r = await ev(async () => {
   const s = window.__app.session, g = s.game;
-  const m = g.maps.find((mm) => mm.name === 'Grimholt Barrow');
+  const m = g.maps.find((mm) => mm.name === 'Dol Garoth');
   const flag = m.entities.find((e) => e.type === 'event' && e.name === 'Loose Flagstone');
   const near = m.entities.filter((e) => e.type === 'chest').map((e) => s.chestLook ? s.chestLook(e).kind : null);
   // the company a step or two off, its torch lighting the slab (and the
@@ -252,7 +255,7 @@ r = await ev(async () => {
   s.view.setZoom(6.5, true); s.view.focus(flag.x + 0.5 + (t.x - flag.x) * 0.3, flag.y + 1, true);
   return { kind: s.entityLook(flag)?.kind, chests: near };
 });
-check('in Grimholt Barrow the loose flagstone is a lifted slab, not a chest', r.kind === 'flagstone', r);
+check('in Dol Garoth the loose flagstone is a lifted slab, not a chest', r.kind === 'flagstone', r);
 await closeModals();
 await wait(1500);
 await shot('flagstone-dungeon');
@@ -273,6 +276,7 @@ r = await ev(async () => {
   const out = {};
   // the Wolfwood chest: give it a name and a look
   const chest = ed.map.entities.find((e) => e.id === 'chest_wolfwood');
+  delete chest.name; delete chest.look; // (a plain chest: the sample names this one "Poacher's Bones")
   ed.select(chest);
   ed.view.focus(chest.x, chest.y, true);
   await new Promise((res) => setTimeout(res, 300));
