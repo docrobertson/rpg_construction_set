@@ -8,6 +8,7 @@ import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
+import { isBattleground } from '../../game/delve.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -262,7 +263,14 @@ export function inspectMap(ed, container) {
     if (k === 'lighting') ed.view.setLighting(map.lighting);
     if (k === 'fill' || k === 'name') ed.reloadMap();
     if (k === 'name' || k === 'type') ed.refreshMapList();
+    if (k === 'type' && map.battleground == null) inspectMap(ed, container); // (the battleground default follows the kind)
   }));
+  // (delve) dungeons are fought over where they stand, unless the designer says otherwise
+  const bg = h('input', { type: 'checkbox' });
+  bg.checked = isBattleground(map);
+  bg.addEventListener('change', () => { map.battleground = bg.checked; ed.markDirty(); });
+  container.appendChild(h('label.field.check.dv-bg', { title: 'On by default for dungeons: turn it on for, say, a haunted castle, or off for a peaceful mine' }, bg, h('span.field-label', 'Battleground'),
+    h('span.field-hint', 'Every monster stands on the map and each hero walks a square of their own; monsters wake when they notice a hero, and the battle is fought right here. On by default for dungeons.')));
   if (map.exit) {
     const back = game.maps.find((m) => m.id === map.exit.map);
     container.appendChild(h('p.hint', `Walking off the edge leads back to ${back ? back.name : '?'} (${map.exit.x}, ${map.exit.y}).`));

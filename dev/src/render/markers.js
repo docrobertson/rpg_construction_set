@@ -11,6 +11,8 @@ const G = {
   cross: '<path d="M9.6 2.8h4.8v6.8h6.8v4.8h-6.8v6.8H9.6v-6.8H2.8V9.6h6.8z"/>',
   sword: '<path d="M20.6 2.4l1 1-10.5 11.3-2.4-2.4z"/><path d="M5.2 12.6l1.5-1.5 6.2 6.2-1.5 1.5-1.8-1.8-3.1 3.1a1.5 1.5 0 01-2.1-2.1l3.1-3.1z"/>',
   banner: '<path d="M5 2.5V22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M6 3.5h13l-3 4.2 3 4.2H6z"/>',
+  // a drowsy "z z": not yet aware of anyone
+  zz: '<path d="M3.5 9.5h7l-7 8h7M13.5 3.5h6.5l-6.5 7h6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
 // chunky quest marks, inked so they read at any size
@@ -27,6 +29,9 @@ const KINDS = {
   healer: { icon: 'cross', cls: 'svc healer', title: 'Healer' },
   trainer: { icon: 'sword', cls: 'svc trainer', title: 'Trainer' },
   recruit: { icon: 'banner', cls: 'svc recruit', title: 'Might join you' },
+  // (delve) over monsters in a dungeon battleground: not yet noticed you / roused
+  unaware: { icon: 'zz', cls: 'dv-mark unaware', title: 'Unaware of you' },
+  alert: { mark: BANG, cls: 'dv-mark alert', title: 'Has noticed you!' },
 };
 
 export function markerGlyph(kind) {

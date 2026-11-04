@@ -67,8 +67,10 @@ export class CombatHud {
     const tick = () => {
       if (!this.root) return;
       this.placePlates();
+      this.follow();
       this.raf = requestAnimationFrame(tick);
     };
+    if (this.b?.field) this.view.fieldBattle = true;
     this.raf = requestAnimationFrame(tick);
   }
 
@@ -78,6 +80,7 @@ export class CombatHud {
     if (this.onCallout) (this.view.container || document.body).removeEventListener('fx-callout', this.onCallout);
     this.onCallout = null;
     this.view.safeTop = 0;
+    this.view.fieldBattle = false;
     if (this.onLeave) this.canvas?.removeEventListener('mouseleave', this.onLeave);
     if (this.onDown) this.canvas?.removeEventListener('pointerdown', this.onDown);
     this.onLeave = null;
@@ -107,6 +110,7 @@ export class CombatHud {
       if (data?.side !== 'party') this.renderBar();
     }
     else if (type === 'busy') { if (!data) this.renderBar(); else this.cmdEl?.classList.add('busy'); }
+    else if (type === 'surprise') this.showSurprise();
     else if (type === 'start' || type === 'round' || type === 'death' || type === 'update' || type === 'moved') this.schedule();
   }
 
@@ -130,9 +134,35 @@ export class CombatHud {
     const below = Math.max(0, this.strip.getBoundingClientRect().bottom - box.top);
     v.safeTop = below + 2;
     if (this.banner) this.banner.style.top = `${Math.round(below + 4)}px`;
+    if (this.surpriseEl) this.surpriseEl.style.top = `${Math.round(below + 34)}px`;
+    if (b.field) return; // (delve) a dungeon floor is too big to frame: the camera follows whoever acts
     const r = v.rig, k = settle && r ? r.dist / Math.max(1e-6, r.tdist) : 1;
     v.frameArea(0, 0, b.arena.w, b.arena.h, { left: 10, right: 10, top: below + 30, bottom: 40 });
     if (k > 1) r.dist = r.tdist * k;
+  }
+
+  // (delve) On the dungeon floor the camera follows whoever is acting — a foe
+  // only while a hero can see it, so the view does not dive into the dark
+  follow() {
+    const b = this.b;
+    if (!b?.field || this.ui.targeting) return;
+    const u = b.current;
+    if (!u || (u.side !== 'party' && !b.field.visible?.(u.x, u.y))) return;
+    const e = this.view.entities.get(u.id);
+    if (!e) return;
+    const r = this.view.rig, p = e.root.position;
+    r.tx = p.x; r.tz = p.z;
+  }
+
+  // Caught unawares: a banner across the field before the heroes' free turns
+  showSurprise() {
+    if (!this.root) return;
+    this.surpriseEl?.remove();
+    const el = h('div.dv-surprise', h('b', 'Caught unawares!'), h('span', 'Every hero has a free turn before the foe can act'));
+    this.root.appendChild(el);
+    this.surpriseEl = el;
+    this.frame(false);
+    setTimeout(() => { el.classList.add('out'); setTimeout(() => { el.remove(); if (this.surpriseEl === el) this.surpriseEl = null; }, 600); }, 2600);
   }
 
   // ------------------------------------------------------------ initiative strip
@@ -147,6 +177,7 @@ export class CombatHud {
     let last = list[0]?.round;
     for (const it of list) {
       if (it.round !== last) { this.strip.appendChild(h('div.cbt-round', { title: `Round ${it.round}` }, `R${it.round}`)); last = it.round; }
+      else if (it === list[0] && it.round === 0) this.strip.appendChild(h('div.cbt-round.dv-free', { title: 'Caught unawares: a free turn for every hero' }, 'Free'));
       this.strip.appendChild(this.chip(it.u, it.now));
     }
   }
@@ -268,7 +299,7 @@ export class CombatHud {
     add({
       icon: 'move', name: 'Move', key: '←↑→', sub: pinned ? 'Pinned!' : `${mv} of ${u.maxMoves} left`, off: mv <= 0,
       why: pinned ? 'Pinned in place: you can still fight.' : 'No moves left this turn.',
-      tip: 'Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe — it gets a free strike. Walk off the edge of the field to flee.',
+      tip: `Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe — it gets a free strike. ${b.field ? 'Step onto the stairs (green) to flee.' : 'Walk off the edge of the field to flee.'}`,
       onClick: () => this.ui.hint('Click a blue square to move there.'),
     });
     const adjFoe = targets.some((t) => b.adjacent(u, t));
@@ -388,7 +419,7 @@ export class CombatHud {
     const cells = [];
     for (const c of b.reachable(u).values()) {
       if (c.d === 0 || c.ally) continue;
-      cells.push({ x: c.x, y: c.y, color: this.pathProvokes(u, c.x, c.y).length ? 0xff8a2a : 0x50a0ff });
+      cells.push({ x: c.x, y: c.y, color: c.exit ? 0x50e070 : this.pathProvokes(u, c.x, c.y).length ? 0xff8a2a : 0x50a0ff });
     }
     for (const e of b.attackTargets(u)) cells.push({ x: e.x, y: e.y, color: 0xff4030 });
     this.view.setHighlights(cells, 0x50a0ff, 0.34);
@@ -439,6 +470,11 @@ export class CombatHud {
     }
     const danger = b.units.find((x) => b.alive(x) && x.charging && x.charging.tiles.some((c) => c.x === t.x && c.y === t.y));
     const lines = [];
+    // (delve) a monster that has not noticed anyone, or the way out
+    const asleep = b.field?.describe?.(t.x, t.y);
+    if (asleep) { this.view.showCursor(t.x, t.y, 0x9a9a9a); this.view.setLine?.(null); at(h('div.tc-move', h('span', asleep))); return; }
+    const exit = b.field && u && b.field.exitAt?.(t.x, t.y);
+    if (exit) lines.push(h('p.tc-good', icon('end'), ` Step here to escape ${exit.name}: ${u.name} leaves the fight.`));
     if (danger) lines.push(h('p.tc-why', icon('warn'), ` ${danger.charging.ab.name} lands here when ${b.the(danger)} next acts!`));
     if (u && !b.acting) {
       const path = b.pathTo(u, t.x, t.y);
@@ -675,7 +711,7 @@ export class CombatHud {
     } else if (spell.target === 'area') {
       const tiles = [];
       const r = spell.range || 7;
-      for (let y = 0; y < b.arena.h; y++) for (let x = 0; x < b.arena.w; x++) if (Math.max(Math.abs(x - u.x), Math.abs(y - u.y)) <= r) tiles.push({ x, y });
+      for (let y = Math.max(0, u.y - r); y <= Math.min(b.arena.h - 1, u.y + r); y++) for (let x = Math.max(0, u.x - r); x <= Math.min(b.arena.w - 1, u.x + r); x++) if (Math.max(Math.abs(x - u.x), Math.abs(y - u.y)) <= r) tiles.push({ x, y });
       ui.startTargeting({ tiles, label: `${spell.name} (area)`, color: spell.fx, onPick: (t) => b.actCast(spell, { x: t.x, y: t.y }, u) });
       this.view.setHighlights(tiles.filter((c) => b.unitAt(c.x, c.y)?.side === 'enemy'), spell.fx || 0xffc030, 0.45);
     } else if (spell.target === 'ally') {

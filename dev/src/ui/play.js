@@ -30,6 +30,7 @@ import { showTreasureMap, treasureCircles, drawTreasureCircles } from './treasur
 import { isDug } from '../game/treasure.js';
 import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
 import { reagentUse, scrollUse, canCopy, copyScroll, hasBook } from '../game/magic.js';
+import { heroKey } from '../game/delve.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -91,6 +92,9 @@ export class PlayUI {
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.logToEnd()).observe(this.logEl);
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
+    // (delve) in a dungeon battleground: who walks, the company or one hero
+    this.dvBar = h('div.dv-bar', { role: 'toolbar', 'aria-label': 'Who walks' });
+    this.dvBar.hidden = true;
     this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M): the yellow dot is your company, the gold diamond your current goal. Click for the big map and its key.', onclick: () => this.openMap() });
     root.append(
       h('div.hud-head',
@@ -102,6 +106,7 @@ export class PlayUI {
       h('div.hud-frame'),
       h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.restEl),
       this.popEl,
+      this.dvBar,
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
         this.cmdEl,
@@ -159,6 +164,7 @@ export class PlayUI {
 
   refresh() {
     this.refreshStatus();
+    this.refreshDelveBar();
     this.refreshParty();
     this.refreshResting();
     this.offerJoin();
@@ -189,6 +195,33 @@ export class PlayUI {
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', { title: 'Sailing: walk onto land to go ashore' }, ico('compass'), 'Aboard ship') : null,
     ].filter(Boolean));
+  }
+
+  // (delve) In a dungeon battleground every hero has a square of their own:
+  // the whole company walks together (the others fall in behind the leader),
+  // or one hero walks alone. A chip per hero; Tab picks the next, G gathers.
+  refreshDelveBar() {
+    const s = this.s, dv = s.dv, el = this.dvBar;
+    const on = !!dv && !s.battle && (s.mode === 'explore' || s.mode === 'dialog');
+    const list = on ? dv.alive() : [];
+    const sel = on ? dv.selected() : null, bearer = on ? dv.bearer() : null;
+    const sig = on ? [list.map((m) => heroKey(m) + ':' + m.status).join(), sel && heroKey(sel), bearer && heroKey(bearer)].join('|') : '';
+    if (sig === this._dvSig) return;
+    this._dvSig = sig;
+    clear(el);
+    el.hidden = !on || list.length < 2;
+    if (el.hidden) return;
+    const g = s.game;
+    el.append(
+      h('button.dv-chip.all' + (sel ? '' : '.on'), { title: 'All together: the company walks as one, the others falling in behind the leader (G)', onclick: () => dv.select(null) },
+        h('span.dv-ico', { html: iconSvg('party') }), h('span.dv-name', 'All together'), h('kbd', 'G')),
+      ...list.map((m) => {
+        const pic = portrait(this.view, charLook(g, m));
+        return h('button.dv-chip' + (m === sel ? '.on' : ''), { title: m === sel ? `${m.name} walks alone` : `Send ${m.name} on alone (the others stay where they stand)`, onclick: () => dv.select(m) },
+          pic ? h('img', { src: pic, alt: '' }) : null, h('span.dv-name', m.name),
+          m === bearer ? h('i.dv-torch', { title: `${m.name} carries the torch: seen further in the dark, and sees further`, html: iconSvg('torch') }) : null);
+      }),
+      h('span.dv-tab', { title: 'Tab: the next hero · Shift+Tab: the one before' }, h('kbd', 'Tab')));
   }
 
   // Clicking a hero shows their full sheet in a pop-over beside the panel;
@@ -227,12 +260,14 @@ export class PlayUI {
     clear(this.partyEl);
     const g = this.s.game;
     const active = this.s.battle?.active?.member;
+    const dv = this.s.battle ? null : this.s.dv;
+    const walker = dv?.selected();
     this.s.party.members.forEach((m, i) => {
       const mhp = maxHp(g, m);
       const w = weaponOf(g, m), rw = rangedOf(g, m);
       const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
       const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
-      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '');
+      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '') + (walker === m ? '.dv-walks' : '');
       const pic = portrait(this.view, charLook(g, m));
       const who = `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}${i === 0 ? ' · party leader' : ''}`;
       const card = h('div' + cls, { title: `${who}. Click for the full sheet.` },
@@ -253,6 +288,13 @@ export class PlayUI {
             rw ? h('span', { title: `${rw.name}: ${rw.dmg} damage, range ${rw.range}` }, h('i.gi', { html: iconSvg(itemIcon(rw)[0]) }), rw.name) : null),
         ));
       card.addEventListener('click', () => this.selectHero(m, card));
+      // (delve) the portrait sends a hero on alone; the rest of the card opens the sheet
+      if (dv && m.status !== 'dead') {
+        const pc = card.querySelector('.pc-pic');
+        pc.title = walker === m ? `${m.name} walks alone` : `Click the portrait to send ${m.name} on alone`;
+        pc.addEventListener('click', (e) => { e.stopPropagation(); dv.select(m); });
+        if (walker === m) pc.appendChild(h('span.pc-walk', { title: 'Walking alone' }, '◆'));
+      }
       this.partyEl.appendChild(card);
     });
   }
@@ -369,7 +411,7 @@ export class PlayUI {
   // rim when a goal lies beyond the window) and places marked.
   drawMinimap() {
     const s = this.s, map = s.map;
-    if (!map || s.battle) return;
+    if (!map || (s.battle && !s.battle.field)) return; // (a battle on the dungeon floor keeps the map)
     const c = this.minimap;
     const box = c.parentElement;
     const css = Math.max(64, Math.min(box?.clientWidth || 160, box?.clientHeight || 160));
@@ -438,6 +480,15 @@ export class PlayUI {
         ctx.save(); ctx.translate(cx + dx * t, cy + dy * t); ctx.rotate(Math.atan2(dy, dx));
         ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.75); ctx.lineTo(-r * 0.35, 0); ctx.lineTo(-r * 0.7, -r * 0.75); ctx.closePath();
         ctx.fill(); ctx.stroke(); ctx.restore();
+      }
+    }
+    // (delve) every hero on a square of their own: a small gold disc each
+    if (s.dv) {
+      for (const m of s.dv.alive()) {
+        const q = s.dv.pos(m);
+        if (q.x === p.x && q.y === p.y) continue;
+        ctx.fillStyle = '#e8b830'; ctx.strokeStyle = '#1a0e02'; ctx.lineWidth = u * 1.3;
+        ctx.beginPath(); ctx.arc(sx(q.x + 0.5), sy(q.y + 0.5), u * 3.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       }
     }
     // the company: a gold disc with a dark rim and a white heart
@@ -598,6 +649,13 @@ export class PlayUI {
     const dir = MOVE_KEYS[e.key] || MOVE_KEYS[e.code];
     if (this.s.mode === 'combat') return this.combatKey(e, dir);
     if (this.s.mode !== 'explore') return;
+    // (delve) Tab: the next hero walks alone; G: all together again
+    if (this.s.dv && !this.pendingDir && (e.key === 'Tab' || e.key === 'g' || e.key === 'G')) {
+      e.preventDefault();
+      this.explore.stop();
+      if (e.key === 'Tab') this.s.dv.cycle(e.shiftKey ? -1 : 1); else this.s.dv.select(null);
+      return;
+    }
     if (dir) {
       e.preventDefault();
       this.explore.stop();
@@ -1615,6 +1673,18 @@ Any key stops a walk. Pinch (or scroll a mouse wheel) to zoom; on a trackpad, sl
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Stop walking / menu</td></tr>
 </table>
 <p>Step onto towns, caves and stairs to enter them; walk off the edge of a town to leave.</p>
+<h3>Dungeons</h3>
+<p>Caves, crypts, towers and fortresses are <b>battlegrounds</b>. Every monster stands there in the flesh, and each hero has a
+square of their own. The bar at the top of the map shows who walks: <b>All together</b> (the others fall in behind the leader),
+or one hero alone — click a hero (or their portrait), or press <b>Tab</b> for the next; <b>G</b> brings the company together again.
+Send a quiet hobbit or burglar ahead to scout; the others wait where they stand. Chests, doors and curiosities work for whoever
+reaches them; the stairs take everyone.</p>
+<p>Monsters marked <b>Zz</b> have not noticed you. They notice a hero who comes close in their sight — sooner in the light and
+when the hero carries the torch (the leader does), later in the dark and for the quiet of foot (hobbits, burglars, rangers).
+When one notices, its whole band is roused and the battle is fought right there, everyone where they stand; other bands that
+see the fight, or hear it close by, join in. Come upon a band before it sees you, or strike one that is unaware, and it may be
+<b>caught unawares</b>: every hero has a free turn before the first round. Win, and you carry on where you stand; step onto the
+stairs mid-battle to flee. What you slay stays dead.</p>
 <p><b>Treasure maps</b> turn up in chests, on beaten foes, as rewards and (for a price) from shady folk. Read one (<b>U</b>, or
 <b>Read</b> in the pack) to see a sketch of the place and its clue; your map (<b>M</b>) then rings the area in red. Find the very
 square the clue speaks of and <b>Dig here</b> appears in the Nearby bar. Some hoards are guarded.</p>
@@ -1647,7 +1717,7 @@ that side are −3 to hit. <b>Engaged</b>: shooting with a foe beside you is −
 gives it a free strike (amber squares warn you).</p>
 <p><b>Skills</b> (keys 1, 2) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
 battle. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
-off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee.</p>
+off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee (in a dungeon, step onto the stairs).</p>
 <table class="keys">
 <tr><td>F</td><td>Attack / shoot</td><td>1, 2</td><td>Skills</td></tr>
 <tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
