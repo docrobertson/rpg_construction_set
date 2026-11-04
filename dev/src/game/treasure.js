@@ -110,7 +110,7 @@ export function treasureLoot(session, e) {
       const gear = g.items.filter((it) => ['weapon', 'armor', 'shield'].includes(it.type) && !it.unique && !it.noLoot && (it.price || 0) <= budget && (it.price || 0) >= budget * 0.3);
       if (gear.length) items.push({ id: rng.weighted(gear, (it) => 1 + (it.price || 0) / 40).id, n: 1 });
       // as often as not a charm too, finer for a stronger company
-      const charm = rng.chance(0.5) && pickCharm(g, lvl + 1, { hoard: true });
+      const charm = rng.chance(0.5) && pickCharm(g, lvl + 1, { hoard: true, maxPrice: 120 + lvl * 90 });
       if (charm) items.push({ id: charm.id, n: 1 });
     }
   }

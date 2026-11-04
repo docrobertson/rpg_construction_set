@@ -337,7 +337,9 @@ function battleLoot(session, b, power, give) {
   const chance = bosses.length ? 0.55 : Math.min(0.14, 0.025 + power * 0.006);
   if (!rng.chance(chance)) return;
   const lvl = Math.max(partyLevel(session.party), ...bosses.map((d) => d.level || 1));
-  const it = pickCharm(g, lvl, { boss: bosses.length > 0 });
+  // worth no more than the gear such a fight leaves (see Battle.dropLoot): legends are found, not looted
+  const budget = 30 + power * 20 + Math.max(0, ...bosses.map((d) => d.level || 1)) * 30;
+  const it = pickCharm(g, lvl, { boss: bosses.length > 0, maxPrice: budget * 1.15 });
   if (it) give(it, bosses.length ? 'The great foe was wearing' : 'Among the fallen, something glints:');
 }
 
@@ -357,9 +359,9 @@ function battleEnd(b, outcome) {
 
 // A charm for a hoard or the spoils of battle at about this level: rarer
 // ones are scarcer, a boss or a deep hoard favours the finer kinds
-export function pickCharm(game, level, { boss = false, hoard = false, r = rng } = {}) {
+export function pickCharm(game, level, { boss = false, hoard = false, maxPrice = Infinity, r = rng } = {}) {
   const lift = boss || hoard;
-  const pool = (game.items || []).filter((it) => it.type === 'charm' && !it.unique && !it.noLoot && (it.level || 1) <= level + (lift ? 2 : 1));
+  const pool = (game.items || []).filter((it) => it.type === 'charm' && !it.unique && !it.noLoot && (it.level || 1) <= level + (lift ? 2 : 1) && (it.price || 0) <= maxPrice);
   if (!pool.length) return null;
   const boost = { common: lift ? 0.4 : 1, uncommon: 1, rare: lift ? 2.2 : 0.8, legendary: lift ? 1.4 : 0.15 };
   return r.weighted(pool, (it) => (RARITIES[it.rarity]?.weight ?? 2) * (boost[it.rarity] ?? 1) * (1 + Math.max(0, 3 - Math.abs((it.level || 1) - level)) * 0.4));
@@ -372,7 +374,7 @@ export function charmHoard(session, chest) {
   const g = session.game;
   if (!chest?.hoard || chest.charm === false || g.settings.loot === false) return [];
   const lvl = Math.max(partyLevel(session.party), (session.map?.level || 1) + 1);
-  const it = pickCharm(g, lvl, { hoard: true });
+  const it = pickCharm(g, lvl, { hoard: true, maxPrice: 200 + lvl * 150 });
   if (!it) return [];
   session.party.inventory[it.id] = (session.party.inventory[it.id] || 0) + 1;
   return [`${it.name} (✦ charm)`];
