@@ -516,8 +516,9 @@ export function gainXp(game, c, amount) {
     c.grew = c.level % 2 === 0 ? growStat(game, c) : null;
     // ...and every level a choice of talent
     c.perkPending = (c.perkPending || 0) + 1;
-    c.hp += maxHp(game, c) - oldHp;
-    c.mp += maxMp(game, c) - oldMp;
+    // (never above the new maximum, whatever the pools held before)
+    c.hp = Math.min(maxHp(game, c), c.hp + maxHp(game, c) - oldHp);
+    c.mp = Math.min(maxMp(game, c), c.mp + maxMp(game, c) - oldMp);
     gained.push(c.level);
   }
   return gained;
