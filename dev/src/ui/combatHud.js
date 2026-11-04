@@ -8,7 +8,7 @@ import { icon, itemTile } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
-  heroArts, battleArts, lastPick, ART_EVERY,
+  heroArts, battleArts, lastPick, pickLevel, ART_EVERY,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
 import { perkText, heroSchool, poolName, noNeed } from '../game/magic.js';
@@ -950,8 +950,11 @@ export function sheetAbilities(ui, m, onChange) {
   // battle arts: when the next one is on offer
   const open = battleArts(g).filter((a) => !arts.has(a) && !abs.includes(a)).length;
   if (open) {
-    const next = (m.level || 1) + (m.level % ART_EVERY ? 1 : ART_EVERY);
-    wrap.appendChild(h('p.sa-arts', icon('star'), ` Battle arts: on every ${ART_EVERY === 2 ? 'second' : `${ART_EVERY}th`} level one of the talents on offer is an art any calling can learn (${open} still to learn; the next chance at level ${next}).`));
+    // (a talent still to choose for an even level brings the next chance)
+    let pending = false;
+    for (let L = pickLevel(m); m.perkPending > 0 && L <= m.level; L++) if (L % ART_EVERY === 0) pending = true;
+    const lv = m.level || 1, next = lv + ART_EVERY - (lv % ART_EVERY);
+    wrap.appendChild(h('p.sa-arts', icon('star'), ` Battle arts: on every ${ART_EVERY === 2 ? 'second' : `${ART_EVERY}th`} level one of the talents on offer is an art any calling can learn (${open} still to learn; ${pending ? 'one is on offer among the talents still to choose' : `the next chance at level ${next}`}).`));
   }
   if ((m.perks || []).length) {
     const counts = {};

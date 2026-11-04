@@ -733,6 +733,9 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .il-row input[type=number] { width: 64px; flex: none; }
 .sublist { display: flex; flex-direction: column; gap: 6px; }
 .sl-row { border: 1px solid #3a2c1c; border-radius: 6px; padding: 6px 8px; background: rgba(0,0,0,.2); }
+/* a list of short rows (a class's skills and their levels): the fields side by side */
+.sl-inline .sl-row > .form { display: grid; grid-template-columns: 1fr 120px; gap: 0 8px; align-items: end; }
+.sl-inline .sl-row > .form > .field { margin-bottom: 0; }
 .sl-head { display: flex; justify-content: space-between; align-items: center; color: var(--gold); font-weight: bold; margin-bottom: 4px; }
 .sl-btns { display: flex; gap: 3px; }
 .cat-list { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }

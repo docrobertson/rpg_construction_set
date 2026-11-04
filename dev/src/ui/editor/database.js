@@ -179,7 +179,7 @@ export function categories(game) {
         { key: 'skills', label: 'Battle skills, and the level each is learned at', type: 'list', fields: [
           { key: 'id', label: 'Skill', type: 'select', options: abilities },
           { key: 'level', label: 'Learned at level', type: 'number', min: 1, max: 20 },
-        ], get: (o) => { if ((o.skills || []).some((x) => typeof x === 'string')) o.skills = classSkills(o); return o.skills; },
+        ], inline: true, get: (o) => { if ((o.skills || []).some((x) => typeof x === 'string')) o.skills = classSkills(o); return o.skills; },
           rowLabel: (r) => `${game.abilities.find((a) => a.id === r.id)?.name || r.id || 'Skill'} — level ${r.level || 1}`,
           newRow: () => ({ id: game.abilities.find((a) => !a.monster && !a.special && !a.general)?.id, level: 5 }), addLabel: '+ Add skill',
           hint: 'Defined under Abilities. They go on the battle bar (keys 1–9) as the hero reaches each level; the built-in callings learn theirs at 1, 3, 5, 7 and 9.' },

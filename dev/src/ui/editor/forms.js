@@ -160,7 +160,7 @@ function fieldInput(obj, f, changed) {
       // array of sub-objects with sub-fields
       const arr = Array.isArray(val) ? val : [];
       if (!Array.isArray(val)) setPath(obj, f.key, arr);
-      const wrap = h('div.sublist');
+      const wrap = h('div.sublist' + (f.inline ? '.sl-inline' : '')); // (inline: a row's few fields side by side)
       arr.forEach((row, i) => {
         const label = h('span', f.rowLabel ? f.rowLabel(row, i) : `#${i + 1}`);
         const sub = buildForm(row, f.fields, () => { if (f.rowLabel) label.textContent = f.rowLabel(row, i); changed(f.key); }, {});
