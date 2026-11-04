@@ -2127,3 +2127,5 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .cbt-btn.from-item .cb-ico { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .sa-row.from-item { background: linear-gradient(90deg, rgba(200,184,255,.1), rgba(0,0,0,.22)); }
 .charm-row .sr-use, .charm-row .inv-use { font-style: normal; color: #ddd2f6; }
+.pc-gear .pc-charm { flex: none; margin-left: auto; padding-right: 2px; }
+.pc-gear .pc-charm .gi { color: inherit; filter: drop-shadow(0 0 3px currentColor); }

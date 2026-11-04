@@ -90,6 +90,7 @@ const turns = (n) => `${n || 1} turn${(+n || 1) === 1 ? '' : 's'}`;
 const RESIST_WORDS = { stunned: 'stuns', asleep: 'sleep', afraid: 'fear', poisoned: 'poison', burning: 'fire', slowed: 'being slowed', rooted: 'being pinned', weakened: 'curses of weakness', taunted: 'taunts' };
 const IMMUNE_WORDS = { stunned: 'Cannot be stunned', asleep: 'Cannot be put to sleep', afraid: 'Cannot be frightened', poisoned: 'Immune to poison', burning: 'Cannot be set alight', slowed: 'Cannot be slowed', rooted: 'Cannot be pinned', weakened: 'Cannot be weakened', taunted: 'Cannot be taunted' };
 const DEFAULT_POWER = { blessed: 2, shielded: 2, hasted: 1, poisoned: 2 };
+const WARD_WORDS = { stunned: 'blow that would stun', asleep: 'spell of sleep', afraid: 'terror', poisoned: 'venom', burning: 'flames', slowed: 'frost', rooted: 'snare', weakened: 'curse', taunted: 'taunt' };
 
 // "blessed (+2 to hit)", "shielded (+3 armour)", "hasted (+1 square)"
 function statusWords(id, power) {
@@ -317,7 +318,7 @@ function resisted(b, t, id) {
   if (t?.side !== 'party' || !STATUS_EFFECTS[id]?.bad) return false;
   if (t.st?.warded) {
     b.removeStatus(t, 'warded');
-    b.log(`${t.name}'s ward turns the ${(STATUS_EFFECTS[id].name || id).toLowerCase()} aside.`, 'good');
+    b.log(`${t.name}'s ward turns the ${WARD_WORDS[id] || (STATUS_EFFECTS[id].name || id).toLowerCase()} aside.`, 'good');
     return true;
   }
   const sure = (e) => rng.chance(e.chance == null ? 1 : +e.chance);
@@ -354,7 +355,7 @@ function battleEnd(b, outcome) {
   if (!k) return;
   const extra = Math.max(1, Math.round(b.gold * Math.min(1, k)));
   b.gold += extra;
-  b.log(`${from.u.name}'s ${from.it.name} brings luck: ${extra} more gold turns up.`, 'loot');
+  b.log(`Luck from ${from.u.name}'s ${from.it.name}: ${extra} more gold turns up among the fallen.`, 'loot');
 }
 
 // A charm for a hoard or the spoils of battle at about this level: rarer
@@ -486,7 +487,7 @@ export function charmCalms(session, e) {
   if (e.mood === 'chase') {
     e.mood = null;
     const p = session.state.pos;
-    if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 10) session.log(`The ${(def.plural || def.name).toLowerCase()} hear ${x.m.name}'s ${x.it.name}, and lie down in the grass.`, 'magic');
+    if (Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 10) session.log(`The ${(def.plural || def.name).toLowerCase()} hear ${x.m.name}'s ${x.it.name}, and lie down quietly to let you pass.`, 'magic');
   }
   return true;
 }
@@ -521,8 +522,8 @@ export function hideUnseen(map, ms) {
 
 const THING_WORDS = { chest: 'a hidden chest', portal: 'a hidden way', event: 'something hidden', sign: 'a hidden sign', npc: 'someone hidden', treasure: 'a hidden hoard' };
 
-function revealUnseen(session, x) {
-  const map = session.map, p = session.state.pos;
+function revealUnseen(session, x, p = session.state.pos) {
+  const map = session.map;
   for (const e of [...(map.unseen || [])]) {
     if (Math.max(Math.abs(e.x - p.x), Math.abs(e.y - p.y)) > 5 || !hasLOS(map, p.x, p.y, e.x, e.y)) continue;
     map.unseen.splice(map.unseen.indexOf(e), 1);
@@ -537,11 +538,11 @@ function revealUnseen(session, x) {
 
 // a dowsing charm dips over buried treasure: the spot is marked on the big
 // map (as a read map would) and may be dug without its map
-function dowse(session, list) {
+function dowse(session, list, p = session.state.pos) {
   const r = Math.max(0, ...list.filter((x) => x.e.type === 'dowse').map((x) => +x.e.radius || 5));
   if (!r) return;
   const x = list.find((y) => y.e.type === 'dowse' && (+y.e.radius || 5) === r);
-  const p = session.state.pos, st = treasureState(session.state);
+  const st = treasureState(session.state);
   for (const e of session.map.entities) {
     if (e.type !== 'treasure' || st[e.id]?.dug || st[e.id]?.sensed != null) continue;
     if (Math.max(Math.abs(e.x - p.x), Math.abs(e.y - p.y)) > r) continue;
@@ -561,13 +562,14 @@ const FINDS = {
   hills: 'a crop of bilberries', swamp: 'a clutch of duck eggs among the reeds', fields: 'gleanings of a harvest', snow: 'a frozen cache of hazelnuts',
 };
 
-// After every step on foot: true sight, dowsing, and food from the wild
-export function charmStep(session, t) {
+// After every step on foot: true sight, dowsing, and food from the wild.
+// at: where the step ended (the company's square unless a hero walks alone)
+export function charmStep(session, t, at = session.state.pos) {
   const list = companyEffects(session);
   if (!list.length) return;
   const sight = list.find((x) => x.e.type === 'trueSight');
-  if (sight) revealUnseen(session, sight);
-  if (list.some((x) => x.e.type === 'dowse')) dowse(session, list);
+  if (sight) revealUnseen(session, sight, at);
+  if (list.some((x) => x.e.type === 'dowse')) dowse(session, list, at);
   const k = sumOf(list, 'forage', 'pct', 2);
   if (k && session.map.type === 'world' && FINDS[t?.key] && session.game.settings.food && rng.chance(0.02 * k)) {
     const x = list.find((y) => y.e.type === 'forage');

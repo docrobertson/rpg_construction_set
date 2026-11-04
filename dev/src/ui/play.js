@@ -251,7 +251,9 @@ export class PlayUI {
           h('div.pc-gear',
             h('span', { title: 'Armour: foes must roll this or more to hit' }, h('i.gi', { html: iconSvg('shield') }), String(armorClass(g, m))),
             h('span', { title: `${w.name}: ${w.dmg} damage` }, h('i.gi', { html: iconSvg(w.id ? itemIcon(w)[0] : 'sword') }), w.name),
-            rw ? h('span', { title: `${rw.name}: ${rw.dmg} damage, range ${rw.range}` }, h('i.gi', { html: iconSvg(itemIcon(rw)[0]) }), rw.name) : null),
+            rw ? h('span', { title: `${rw.name}: ${rw.dmg} damage, range ${rw.range}` }, h('i.gi', { html: iconSvg(itemIcon(rw)[0]) }), rw.name) : null,
+            // (charms) the worn charm, as its glyph in its rarity's colour
+            (() => { const ch = itemOf(g, m.equip?.charm); return ch ? h('span.pc-charm', { title: itemTip(g, ch), style: { color: magicalOf(ch)?.color } }, h('i.gi', { html: iconSvg(itemIcon(ch)[0]) })) : null; })()),
         ));
       card.addEventListener('click', () => this.selectHero(m, card));
       this.partyEl.appendChild(card);
