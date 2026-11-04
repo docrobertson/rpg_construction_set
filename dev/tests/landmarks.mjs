@@ -298,8 +298,10 @@ await ev(() => {
   v.setZoom(7, true); v.focus(at.x + 0.4, at.y - 4.3, true);
 });
 const turn0 = await ev(() => window.__app.session.view.entities.get('mill').spin.part.rotation.z);
-await wait(1500);
-const turn1 = await ev(() => window.__app.session.view.entities.get('mill').spin.part.rotation.z);
+let turn1 = turn0;
+// (a few frames: at full quality without a graphics card they come slowly)
+for (let k = 0; k < 30 && turn1 === turn0; k++) { await wait(500); turn1 = await ev(() => window.__app.session.view.entities.get('mill').spin.part.rotation.z); }
+await wait(1000);
 await shot('windmill-close');
 check('the windmill\'s sails turn as you watch', turn1 > turn0, { turn0, turn1 });
 // the ruins, close enough to see what happened to them
