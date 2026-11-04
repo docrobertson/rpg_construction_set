@@ -58,6 +58,7 @@ export function openHelpOverlay(ui, rulesHtml) {
         h('h3', ico('skull'), ' In dungeons'),
         row(kbd('Tab'), 'One hero walks alone (Tab again: the next)'),
         row(kbd('G'), 'All together again'),
+        row(kbd('X'), 'Leave a cleared dungeon at once'),
         row(kbd('Click'), 'A hero or their portrait: send them on alone')),
       h('section',
         h('h3', ico('book'), ' Windows'),

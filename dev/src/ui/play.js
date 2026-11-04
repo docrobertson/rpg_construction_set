@@ -101,6 +101,10 @@ export class PlayUI {
     // (delve) in a dungeon battleground: who walks, the company or one hero
     this.dvBar = h('div.dv-bar', { role: 'toolbar', 'aria-label': 'Who walks' });
     this.dvBar.hidden = true;
+    // (delve) a cleared level's way straight out, just below the bar
+    this.dvOut = h('button.dv-chip.dv-out', { title: 'Every foe here is slain: walk straight out (up through any cleared levels above) without retracing your steps. The walk still takes its time. (X)', onclick: () => this.quickExit() },
+      h('span.dv-ico', { html: iconSvg('door') }), h('span.dv-name', 'Leave the dungeon'), h('kbd', 'X'));
+    this.dvOut.hidden = true;
     this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M): the yellow dot is your company, the gold diamond your current goal. Click for the big map and its key.', onclick: () => this.openMap() });
     root.append(
       h('div.hud-head',
@@ -113,6 +117,7 @@ export class PlayUI {
       h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.restEl),
       this.popEl,
       this.dvBar,
+      this.dvOut,
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
         this.cmdEl,
@@ -236,10 +241,13 @@ export class PlayUI {
     const on = !!dv && !s.battle && (s.mode === 'explore' || s.mode === 'dialog');
     const list = on ? dv.alive() : [];
     const sel = on ? dv.selected() : null, bearer = on ? dv.bearer() : null;
-    const sig = on ? [list.map((m) => heroKey(m) + ':' + m.status).join(), sel && heroKey(sel), bearer && heroKey(bearer)].join('|') : '';
+    const out = on && !!s.map?.exit && s.levelCleared?.();
+    const sig = on ? [list.map((m) => heroKey(m) + ':' + m.status).join(), sel && heroKey(sel), bearer && heroKey(bearer), out].join('|') : '';
     if (sig === this._dvSig) return;
     this._dvSig = sig;
     clear(el);
+    this.dvOut.hidden = !out;
+    this.dvOut.classList.toggle('alone', list.length < 2);
     el.hidden = !on || list.length < 2;
     if (el.hidden) return;
     const g = s.game;
@@ -253,6 +261,23 @@ export class PlayUI {
           m === bearer ? h('i.dv-torch', { title: `${m.name} carries the torch: seen further in the dark, and sees further`, html: iconSvg('torch') }) : null);
       }),
       h('span.dv-tab', { title: 'Tab: the next hero · Shift+Tab: the one before' }, h('kbd', 'Tab')));
+  }
+
+  // (delve) out of a cleared dungeon at once
+  async quickExit() {
+    const s = this.s;
+    if (!s.dv) return;
+    if (!s.map?.exit) { s.log('There is no way out of here to hurry to.', 'warn'); return; }
+    if (!s.levelCleared()) { s.log('Not while foes still lurk here: clear the level first, or walk back to the stairs.', 'warn'); sfx('error'); return; }
+    this.explore.stop();
+    await s.quickExit();
+  }
+
+  // the moment the last foe on a level falls
+  onCleared(name) {
+    this.quests.banner(h('div.qbanner.done', h('div.qb-kind', 'Cleared'), h('div.qb-name', name), h('div.qb-line', 'Not a foe left alive. Leave the dungeon (X) to walk straight out.')));
+    this._dvSig = null;
+    this.refreshDelveBar();
   }
 
   // Clicking a hero shows their full sheet in a pop-over beside the panel;
@@ -719,6 +744,7 @@ export class PlayUI {
       z: () => this.openParty(),
       h: () => this.s.camp(),
       m: () => this.openMap(),
+      x: () => this.quickExit(),
       j: () => this.quests.openJournal(),
       ' ': () => this.s.wait(),
       '.': () => this.s.wait(),

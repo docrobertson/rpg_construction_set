@@ -23,7 +23,7 @@ import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
-import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
+import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH, durationText } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
 import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
 import { forageFind, lootTag, restoresPool, poolWords, poolName } from './magic.js';
@@ -953,6 +953,70 @@ export class PlaySession {
     this.autosave();
   }
 
+  // (delve) A dungeon level with no monster left alive in it (bands hidden
+  // from mortal eyes count: they are there, if unseen)
+  levelCleared(map = this.map) {
+    if (!map || !isBattleground(map)) return false;
+    if (map === this.map && this.dv) {
+      if (Object.values(this.dv.groups).some((g) => this.dv.living(g).length)) return false;
+      return !map.entities.some((e) => e.type === 'monster') && !(map.unseen || []).some((e) => e.type === 'monster');
+    }
+    const src = getMap(this.game, map.id) || map;
+    const removed = new Set(this.state.maps?.[map.id]?.removed || []);
+    return !src.entities.some((e) => e.type === 'monster' && !removed.has(e.id));
+  }
+
+  // (delve) Walking steps from the company to this level's way out (its
+  // stairs up or passage out), for the time a quick exit takes
+  stepsToWayOut() {
+    const map = this.map, p = this.state.pos;
+    const outs = map.entities.filter((e) => e.type === 'portal' && (e.target?.map === 'exit' || (map.exit && e.target?.map === map.exit.map)));
+    const reach = this.dv?.stepsFrom ? this.dv.stepsFrom(p, 200) : null;
+    let best = Infinity;
+    for (const o of outs) {
+      // (the stairs are a square of their own: the step before them will do)
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const d = reach?.get(`${o.x + dx},${o.y + dy}`);
+        if (d != null) best = Math.min(best, d + (dx || dy ? 1 : 0));
+      }
+    }
+    return Number.isFinite(best) ? best : Math.round((Math.abs(p.x - (map.entry?.x ?? p.x)) + Math.abs(p.y - (map.entry?.y ?? p.y))) * 1.3) + 4;
+  }
+
+  // (delve) Out of a cleared dungeon at once, without walking back through
+  // it: up through every cleared level above to the land outside, stopping
+  // at the first level that still has foes. The walk still takes its time.
+  async quickExit() {
+    if (this.mode !== 'explore' || this.busy || this.transitioning || this.battle || !this.levelCleared() || !this.map.exit) return false;
+    const first = this.map.name;
+    let turns = 0, levels = 0;
+    for (let guard = 0; guard < 12; guard++) {
+      if (!this.map.exit || !isBattleground(this.map) || !this.levelCleared()) break;
+      const n = this.stepsToWayOut();
+      this.passTime(n);
+      turns += n;
+      if (this.checkDefeat()) return true;
+      await this.leaveMap();
+      levels++;
+      if (!isBattleground(this.map)) break;
+    }
+    const dungeon = isBattleground(this.map);
+    this.log(`You make your way back out of ${first}${levels > 1 ? ` and the levels above it` : ''} — ${durationText(turns)} on foot through empty halls.`, 'place');
+    if (dungeon) this.log(`${this.map.name} still has foes in it: you stop at the foot of its stairs.`, 'warn');
+    this.ui?.refresh?.();
+    return true;
+  }
+
+  // (delve) When the last band on a level falls, say so and offer the way out
+  noteCleared() {
+    if (!this.levelCleared() || !this.map.exit) return;
+    const st = this.mapState(this.map.id);
+    if (st.clearedSaid) return;
+    st.clearedSaid = true;
+    this.log(`${this.map.name} is cleared — not a foe left alive. Press X (or "Leave the dungeon") to walk straight out.`, 'good');
+    this.ui?.onCleared?.(this.map.name);
+  }
+
   // ------------------------------------------------------------ chests
   async openChest(chest) {
     const st = this.state;
@@ -998,6 +1062,17 @@ export class PlaySession {
     this.map.entities = this.map.entities.filter((x) => x !== e);
     this.view.removeEntity(e.id);
     if (persist && !e.roaming) this.mapState(this.map.id).removed.push(e.id);
+    // (delve) the last band on a level gone: once the fight is over, say so
+    if (e.type === 'monster' && this.dv) this.clearedLater();
+  }
+
+  clearedLater(tries = 12) {
+    clearTimeout(this._clearedT);
+    this._clearedT = setTimeout(() => {
+      if (this.app.session !== this) return;
+      if (this.mode === 'explore' && !this.battle) this.noteCleared();
+      else if (tries > 0) this.clearedLater(tries - 1);
+    }, 800);
   }
 
   // ------------------------------------------------------------ NPCs & monsters
