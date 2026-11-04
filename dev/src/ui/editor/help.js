@@ -50,7 +50,7 @@ then the battle is fought right there on the map. Turn it on for, say, a haunted
 <tr><td>L</td><td>Line</td><td>I</td><td>Pick tile</td><td>V</td><td>Select</td></tr>
 <tr><td>X</td><td>Remove</td><td>[ ]</td><td>Brush/stamp size</td><td>Del</td><td>Delete selected</td></tr>
 <tr><td>WASD</td><td>Pan</td><td>Wheel</td><td>Zoom</td><td>Right-drag</td><td>Pan</td></tr>
-<tr><td>Two fingers</td><td>Pan (trackpad)</td><td>Pinch</td><td>Zoom</td><td></td><td></td></tr>
+<tr><td>Two fingers</td><td>Pan (trackpad)</td><td>Pinch</td><td>Zoom</td><td>⌥ / ⌘ + scroll</td><td>Zoom (Magic Mouse)</td></tr>
 <tr><td>Ctrl+Z</td><td>Undo</td><td>Ctrl+Y</td><td>Redo</td><td>Ctrl+K</td><td>Find anything</td></tr>
 </table>`,
   test: `<p>The <b>checklist</b> looks the whole realm over: places no one can reach, keys nothing gives, quests nobody

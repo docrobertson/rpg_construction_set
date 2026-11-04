@@ -55,6 +55,13 @@ export function isTrackpadScroll(e) {
   return Math.abs(e.deltaY) < 50 || !Number.isInteger(e.deltaY);
 }
 
+// A held-key zoom as the wheel zoom expects it: the swipe's up-down (or,
+// failing that, its side-to-side) movement, as a steady scroll
+function modZoom(e) {
+  const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+  return { deltaY: d * 2, deltaMode: e.deltaMode, ctrlKey: false };
+}
+
 // Wheels and trackpads for the 3D view. A mouse wheel zooms. On a trackpad,
 // two fingers slide the map and a pinch zooms: Chrome, Firefox and Edge send
 // a pinch as a wheel event with ctrlKey set; Safari sends gesture events of
@@ -74,7 +81,9 @@ export function attachWheel(view, el, opt = {}) {
     const now = performance.now();
     if (now - lastT > 220) mode = null;
     lastT = now;
-    if (e.ctrlKey) { mode = null; view.wheelZoom(e); return; }
+    // a pinch, or a scroll with Option or Command held (a Magic Mouse's
+    // swipe otherwise reads as a trackpad's slide), zooms
+    if (e.ctrlKey || e.altKey || e.metaKey) { mode = null; view.wheelZoom(e.ctrlKey ? e : modZoom(e)); return; }
     if (!mode) mode = canPan() && isTrackpadScroll(e) ? 'pan' : 'zoom';
     if (mode === 'pan') {
       const k = view.unitsPerPixel(), f = e.deltaMode === 1 ? 33 : 1;

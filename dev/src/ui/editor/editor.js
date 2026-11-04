@@ -1076,7 +1076,7 @@ export class Editor {
     if (inBounds(map, t.x, t.y)) {
       const td = terrain(getTile(map, t.x, t.y));
       const ents = map.entities.filter((e) => e.x === t.x && e.y === t.y).map((e) => (e.type === 'npc' ? e.name || 'person' : e.type === 'monster' ? byId(this.game.monsters, e.monster)?.name || 'monster' : e.label || e.type));
-      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch or wheel to zoom · Ctrl+Z undo`;
+      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch, wheel or ⌥/⌘+scroll to zoom · Ctrl+Z undo`;
     } else this.statusText.textContent = `${map.name} · outside the map`;
   }
 

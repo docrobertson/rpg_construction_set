@@ -29,7 +29,7 @@ await ev(() => { const app = window.__app; app.playGame(app.sample, { quick: tru
 check('the sample starts', await until(() => window.__app.session?.mode === 'explore' && !window.__app.session.transitioning));
 await ev(() => { for (let i = 0; i < 4; i++) document.querySelector('.modal-buttons button')?.click(); });
 
-let r = await ev(async () => {
+let r2; let r = await ev(async () => {
   const s = window.__app.session;
   const p0 = { ...s.state.pos };
   for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) { await s.move(dx, dy); if (s.state.pos.x !== p0.x || s.state.pos.y !== p0.y) break; }
@@ -54,6 +54,20 @@ r = await ev(async () => {
   const notch = v.rig.tdist > d1;
   return { slid, kept, pinched, notch, reach: v.reach };
 });
+r2 = await ev(async () => {
+  const v = window.__app.view, c = document.querySelector('#viewport canvas');
+  const fire = (o) => c.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ...o }));
+  const pause = () => new Promise((res) => setTimeout(res, 300));
+  await pause();
+  const d0 = v.rig.tdist, z0 = v.rig.tz;
+  for (let i = 0; i < 10; i++) fire({ deltaY: 4, altKey: true }); // (a Magic Mouse swipe with Option held)
+  const out = v.rig.tdist > d0 && Math.abs(v.rig.tz - z0) < 1e-6;
+  await pause();
+  const d1 = v.rig.tdist;
+  for (let i = 0; i < 10; i++) fire({ deltaY: -4, metaKey: true });
+  return { out, back: v.rig.tdist < d1 };
+});
+check('Option or Command with a scroll zooms (a Magic Mouse)', r2.out && r2.back, r2);
 check('a trackpad looks around, not far, and a pinch or a wheel zooms', r.slid > 2 && r.slid <= (r.reach || 8) + 0.01 && r.kept && r.pinched && r.notch, r);
 
 r = await ev(async () => {
