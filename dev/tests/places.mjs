@@ -320,6 +320,50 @@ check('climbing the lighthouse pays experience once and notes it in the journal'
 check('from the lamp-room the smugglers\' skerry can be seen', r.seesCove, r);
 
 await page.waitForTimeout(300);
+// ---- Eldmark's countryside: fields, mills and ruins, treasure that looks like
+// itself, and three small side quests built only from events and flags
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game, w = g.maps[0], sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const all = g.maps.flatMap((m) => m.entities);
+  const fields = [...w.tiles].filter((t) => t === 26).length;
+  const kinds = new Set(w.entities.filter((e) => e.type === 'event').map((e) => e.kind));
+  const looks = Object.fromEntries(['chest_wolfwood', 'chest_heron', 'chest_vault', 'chest_neds_box'].map((id) => [id, all.find((e) => e.id === id)?.look?.kind]));
+  if (s.map.id !== w.id || s.state.vehicle) { s.state.vehicle = null; await s.enterMap(w.id, 60, 51, { instant: true }); }
+  const ev = (id) => s.map.entities.find((e) => e.id === id);
+  const close = async () => { for (let i = 0; i < 5 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-buttons button, .modal-back .modal-x')?.click(); await sleep(120); } };
+  const choose = async (id, label) => {
+    s.ui.openEvent(ev(id)); await sleep(150);
+    const btn = [...document.querySelectorAll('.event-modal .choose-item')].find((x) => x.textContent.includes(label));
+    const off = !btn || btn.classList.contains('disabled');
+    if (!off) { btn.click(); await sleep(150); }
+    await close();
+    return !off;
+  };
+  const q = (id) => s.state.quests[id]?.status;
+  s.party.food = 50; s.party.gold = 200; s.party.members[0].str = 15;
+  const asked = await choose('ev_brookend_mill', 'Ask Ned');
+  const early = await choose('ev_brookend_mill', 'Give Ned');
+  await choose('ev_burnt_mill', 'Coax Tansy');
+  const box = ev('chest_neds_box');
+  s.state.pos = { map: w.id, x: box.x - 1, y: box.y };
+  await s.openChest(box); await sleep(100); await close();
+  const gave = await choose('ev_brookend_mill', 'Give Ned');
+  await choose('ev_aldred', 'Scrape');
+  await choose('ev_edric', 'Heave');
+  const edric = s.party.inventory.oath_ring_edric;
+  await choose('ev_kings_chapel', 'old chapel');
+  s.party.flags.ev_fallen_chapel_ghost = true;
+  await choose('ev_kings_chapel', 'Tell Brother');
+  return { fields, kinds: ['windmill', 'ruined_mill', 'statue', 'toppled_statue', 'graveyard', 'chapel', 'ruined_chapel', 'circle', 'wreck', 'watermill', 'apiary'].filter((k) => !kinds.has(k)), looks,
+    asked, early, gave, mill: q('q_mill'), tin: s.party.inventory.honeycake_tin, brothers: q('q_brothers'), edric, ghost: q('q_ghost'), bell: s.party.inventory.barrow_bell };
+});
+check('Eldmark has fields round its towns and new landmarks and ruins', r.fields >= 40 && !r.kinds.length, r);
+check('Eldmark\'s treasure looks like itself: bones, a heron\'s nest, a rune-chest, a strongbox', r.looks.chest_wolfwood === 'remains' && r.looks.chest_heron === 'nest' && r.looks.chest_vault === 'runechest' && r.looks.chest_neds_box === 'strongbox', r.looks);
+check('the Burnt Mill: Ned asks, wants his box and his cat first, and pays when both come home', r.asked && !r.early && r.gave && r.mill === 'done' && r.tin >= 1, r);
+check('the Brothers of the Ford starts at Aldred\'s statue; Edric\'s ring lies under his', r.brothers === 'active' && r.edric === 1, r);
+check('the Chapel of the Fallen Host is told back at the Kingsroad Chapel', r.ghost === 'done' && r.bell >= 1, r);
+
 check('no page errors', !errors.length, errors);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

@@ -10,6 +10,8 @@ import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
 import { eventFromTemplate, arenaBouts } from '../game/events.js';
 import { buryable, pacesText, addCrab } from '../game/treasure.js';
+import { sowFields } from '../world/countryside.js';
+import { fitCache, DUNGEON_CACHES } from './containers.js';
 
 export const SAMPLE_ID = 'sample_shadow_over_eldmark';
 
@@ -219,6 +221,7 @@ function buildSample() {
   addPlaces(game, w);
   addCharms(game, w);
   harbourYard(game, w);
+  addCountryside(game, w);
   return game;
 }
 
@@ -1283,4 +1286,272 @@ function dressTower(game, map) {
     ],
     recruit: { race: 'human', cls: 'wizard', level: 4, joinText: 'Very well! One last adventure. Where did I leave my hat?', stats: { str: 9, dex: 12, int: 17, wis: 15 } },
   });
+}
+
+// The countryside, last of all: fields round the towns; mills, hives and an
+// orchard that sell food; old places with a story (two brothers who held the
+// ford, a haunted chapel on the Downs, a mill the orcs burned); treasure kept
+// in things that look like what they are; and the companions' battle arts.
+// Three small side quests tie it together, each built only from events and
+// flags — the sort of thing a designer can make in the Construction Set.
+function addCountryside(game, w) {
+  const open = (t) => t.walk && !t.water && !t.feature && t.key !== 'road' && t.key !== 'bridge';
+  // (in the clear, where the trees will not hide them)
+  const clear = (t) => open(t) && t.key !== 'forest' && t.key !== 'pines';
+  const put = (id, tpl, x, y, extra = {}, pred = clear) => {
+    const p = nearestWhere(w, x, y, pred);
+    const e = { ...eventFromTemplate(tpl), id, x: p.x, y: p.y, ...extra };
+    w.entities.push(e);
+    return e;
+  };
+  // (a mill wants running water beside it)
+  const besideWater = (x, y) => {
+    for (let r = 0; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(w, nx, ny) || !clear(terrain(getTile(w, nx, ny))) || w.entities.some((e) => e.x === nx && e.y === ny)) continue;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ax, ay]) => inBounds(w, nx + ax, ny + ay) && terrain(getTile(w, nx + ax, ny + ay)).water)) return { x: nx, y: ny };
+    }
+    return { x, y };
+  };
+  const chest = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const leave = (label = 'Walk on') => ({ label, leave: true });
+
+  // ---------------------------------------------------------- the Burnt Mill
+  // Brookend's mill grinds on; the old mill up the east road is a shell, and
+  // its miller wants two things back: his strongbox and his cat.
+  put('ev_brookend_mill', 'windmill', 60, 53, {
+    name: 'Brookend Mill',
+    text: 'The sails of Brookend Mill creak round over the village fields. Ned the miller, white with flour from his eyebrows to his boots, leans in the doorway. He looks tired. "Bread\'s just out, if you\'ve coin. I grind for my cousin now. Had a mill of my own, once — up the east road. Before the orcs."',
+    choices: [
+      { label: 'Buy flour and fresh bread (8 gold)', text: 'Two warm loaves and a sack of flour. "Mind the sack, it leaks."', effects: { food: 25 }, cost: { gold: 8 }, req: { type: 'noflag', value: 'q_mill_home' } },
+      { label: 'Buy bread at a friend\'s price (4 gold)', text: '"For you? Half price, and Tansy\'s blessing." The cat, on the flour sacks, does not look up.', effects: { food: 25 }, cost: { gold: 4 }, req: { type: 'flag', value: 'q_mill_home' } },
+      { label: 'Ask Ned about his old mill', text: '"Grishak\'s raiders fired it, a month back. Took the flour, smashed the stones. I ran for it. Left everything — my strongbox with the mill-deeds in it, and..." His voice wobbles. "And Tansy. My cat. She wouldn\'t come. Would you look, if you\'re going east? I\'d make it worth your while."', effects: { quest: 'q_mill', flag: 'q_mill_asked' }, hideFlag: 'q_mill_asked' },
+      { label: 'Give Ned his strongbox and Tansy', text: 'Ned opens the scorched box with shaking hands — the deeds are there, a little brown at the edges. Then Tansy jumps down from your arms and winds round his boots, and the old man sits down in the flour and weeps. "Rebuild it. I\'ll rebuild it. Come back and I\'ll bake you a loaf the size of a cartwheel."', effects: { flag: 'q_mill_home', xp: 20 }, req: { type: 'flag', value: 'ev_burnt_mill_cat' }, lockedText: 'Find his strongbox and his cat first', hideFlag: 'q_mill_home' },
+      { label: 'Climb up to the cap and look about', text: 'Past the rumbling stones to the little window under the cap. The Eastfold lies spread out below like a patchwork quilt, and far to the east, the Ashen Peaks smoke.', effects: { reveal: 14 } },
+      leave(),
+    ],
+  });
+  const burnt = put('ev_burnt_mill', 'ruined_mill', 66, 49, {
+    name: 'Ned\'s Burnt Mill', setsFlag: 'ev_burnt_mill_cat',
+    text: 'Ned\'s mill is a blackened shell, its sails fallen and broken in the grass, its stones split by the heat. Goblin footprints are everywhere, fresh ones. On a charred beam high in the ruin sits a grey cat, watching you with deep suspicion.',
+    choices: [
+      { label: 'Coax Tansy down', text: 'It takes a long while and most of your dried fish. The cat accepts both, then climbs into {who}\'s arms and purrs like a millstone. "Tansy?" Her ears twitch. That\'s her.', effects: { xp: 10, flag: '{id}_cat' }, cost: { food: 3 }, hideFlag: '{id}_cat' },
+      { label: 'Poke about in the ashes', text: 'Something hisses in the cellar — and it isn\'t the cat. Goblin scavengers come boiling out of the dark!', effects: { fight: 'goblin', count: '3-4' }, hideFlag: '{id}_goblins',
+        win: { gold: 15, xp: 20, flag: '{id}_goblins', text: 'The scavengers lie still. They had been picking the ruin bare — but they never found the strongbox under the floor.' } },
+      leave(),
+    ],
+  });
+  // the strongbox itself, under the fallen beam
+  {
+    const p = nearestWhere(w, burnt.x + 1, burnt.y, open);
+    w.entities.push({ id: 'chest_neds_box', type: 'chest', x: p.x, y: p.y, name: 'Ned\'s Strongbox', look: { kind: 'strongbox' }, flag: 'q_mill_box', gold: '30', items: [{ id: 'healing_draught', n: 1 }] });
+  }
+
+  // ---------------------------------------------------------- the brothers of the ford
+  // Aldred and Edric held the Eldwater ford against the dark and died there
+  // side by side. Aldred stands; the orcs toppled Edric. Their oath-rings
+  // were buried with them, and the rings remember each other.
+  put('ev_aldred', 'statue', 50, 46, {
+    name: 'Statue of Aldred the Steadfast', setsFlag: 'q_brothers_heard',
+    look: { kind: 'statue', figure: { kind: 'humanoid', race: 'human', armor: 'chain', hat: 'helm', weapon: 'sword', beard: 0x888888, face: 'bold' } },
+    text: 'A stone knight stands by the ford, sword raised against the east, his face stern beneath a cap of moss. Coins and flowers lie at his feet. Across the river, on the far bank, his twin lies toppled in the grass.',
+    choices: [
+      { label: 'Scrape the moss off the inscription', text: '"ALDRED THE STEADFAST, WHO HELD THE FORD WITH HIS BROTHER EDRIC AGAINST THE DARK, AND FELL THERE. HE LIES WITH THE KINGS ON THE DOWNS; HIS BROTHER UNDER THE EASTERN STONE. STAND AS THEY STOOD."', effects: { lore: true, xp: 15, quest: 'q_brothers', flag: 'q_brothers_heard' } },
+      { label: 'Leave a coin at his feet (1 gold)', text: 'The old knight seems, just for a moment, to nod.', effects: { blessing: 'might', turns: 240 }, cost: { gold: 1 } },
+      leave(),
+    ],
+  });
+  put('ev_edric', 'toppled_statue', 55, 50, {
+    name: 'Toppled Statue of Edric', setsFlag: 'ev_edric_box',
+    look: { kind: 'statue', ruined: true, figure: { kind: 'humanoid', race: 'human', armor: 'chain', hat: 'helm', weapon: 'axe', beard: 0x888888, face: 'bold' } },
+    text: 'A stone knight lies on his back by the eastern bank, broken off at the shins, his feet still standing on the plinth. Orcs did this: they have drawn a moustache on him in charcoal. His stone eyes regard the clouds with great patience.',
+    choices: [
+      { label: 'Read the cracked plinth', text: '"EDRIC, WHO HELD THE FAR BANK." And, in smaller, newer letters, in orcish: "NOT ANY MORE HE DOESN\'T."', effects: { lore: true, xp: 10 } },
+      { label: 'Heave him over and look underneath', text: 'Wedged under his stone shoulder, where no orc could reach it without a great deal of heaving: a small iron box. Inside, wrapped in a scrap of old blue cloth, a silver ring.', effects: { items: [{ id: 'oath_ring_edric', n: 1 }], xp: 20, flag: '{id}_box' }, req: { type: 'stat', value: 'str:13' }, lockedText: 'Needs Strength 13 to heave him over', hideFlag: '{id}_box' },
+      { label: 'Wipe off the moustache', text: 'There. A little dignity restored. You feel oddly better for it.', effects: { xp: 5, flag: '{id}_clean' }, hideFlag: '{id}_clean' },
+      leave(),
+    ],
+  });
+  put('ev_downs_graves', 'graveyard', 37, 64, {
+    name: 'Graves of the Ford-Wardens', setsFlag: 'ev_downs_graves_laid',
+    text: 'Lichened headstones lean inside a tumbledown wall on the edge of the Downs. Pale lights drift between the graves though it is not yet dark, and the crypt door at the back — carved with two crossed swords — stands open a hand\'s breadth. It was not open a moment ago.',
+    choices: [
+      { label: 'Read the headstones', text: '"HERE LIES OLD TOM, WHO KEPT THE GATE. HE OPENED IT ONCE, A LITTLE TOO LATE." And, over the crypt: "ALDRED. HIS BROTHER WAITS."', effects: { lore: true, xp: 10 } },
+      { label: 'Go down into the crypt', text: 'You push the door. Bones rattle in the dark — and stand up.', effects: { fight: 'skeleton', count: '3' }, hideFlag: '{id}_laid',
+        win: { gold: 40, xp: 30, flag: '{id}_laid', items: [{ id: 'oath_ring_aldred', n: 1 }], text: 'The dead lie still at last. On Aldred\'s stone hand, a silver ring, warm as if someone had just taken it off.' } },
+      { label: 'Leave flowers on the oldest grave', text: 'You lay wild flowers on a grave so old its name is gone. The pale lights gather round you for a moment, then drift away, content.', effects: { xp: 10, heal: '1d6', flag: '{id}_flowers' }, hideFlag: '{id}_flowers' },
+      leave('Hurry on'),
+    ],
+  });
+
+  // ---------------------------------------------------------- the haunted chapel
+  put('ev_kings_chapel', 'chapel', 42, 44, {
+    name: 'Kingsroad Chapel', repeat: 'always', // (the quest is told here, any time)
+    text: 'A little chapel of grey stone stands by the King\'s road, its bell tower leaning just slightly, as if listening. Inside it is cool and smells of candle-wax. Brother Aelric is sweeping the step. "All are welcome. Even the muddy ones."',
+    choices: [
+      { label: 'Kneel and pray', text: 'The quiet settles on you like a cloak. When you rise, you feel steadier.', effects: { blessing: 'ward', turns: 300 } },
+      { label: 'Ask Brother Aelric to tend your wounds (15 gold, for the poor box)', text: 'He washes and binds your hurts with gentle, practised hands, murmuring a blessing over each.', effects: { heal: 'full' }, cost: { gold: 15 } },
+      { label: 'Ask about the old chapel on the Downs', text: '"Ah. The Chapel of the Fallen Host. My order kept it, once, until the barrow-kings stirred. Brother Osmund would not leave. He is there still, I fear — and not at rest. If you could lay him down gently... I would be in your debt."', effects: { quest: 'q_ghost', flag: 'q_ghost_asked' }, hideFlag: 'q_ghost_asked' },
+      { label: 'Tell Brother Aelric that Osmund is at rest', text: 'The old monk closes his eyes. "Then he is with the Host at last." He presses something into your hands. "His. He would want it to go on ringing."', effects: { flag: 'q_ghost_told' }, req: { type: 'flag', value: 'ev_fallen_chapel_ghost' }, lockedText: 'Not until Brother Osmund is at rest', hideFlag: 'q_ghost_told' },
+      { label: 'Ring the bell', text: '{who} hauls on the rope. BONG. BONG. Crows burst from every tree for a league around. Brother Aelric sighs. "It is meant for feast-days."' },
+      leave(),
+    ],
+  });
+  put('ev_fallen_chapel', 'ruined_chapel', 46, 63, {
+    name: 'Chapel of the Fallen Host', setsFlag: 'ev_fallen_chapel_ghost',
+    text: 'Roofless walls, an empty gable and a fallen beam across the nave; ivy has taken the rest. A cold pale light hangs in the air above the altar, like a held breath, and somewhere a bell rings that is not there.',
+    choices: [
+      { label: 'Read the runestone in the nave', text: '"I KEPT THIS HOUSE AND I KEEP IT STILL. LEAVE IT AS YOU FOUND IT. — OSMUND"', effects: { lore: true, xp: 15 } },
+      { label: 'Speak to the light', text: 'The light gathers itself into the shape of a robed figure with empty eyes. Its voice is the creak of the old doors: "THIEVES." It raises its hands...', effects: { fight: 'barrow_wight', count: '1' }, hideFlag: '{id}_ghost',
+        win: { gold: 50, xp: 50, flag: '{id}_ghost', items: [{ id: 'votive_candle', n: 2 }], text: 'The figure sighs and thins to nothing. "Thank you," says the empty air. Where it stood: two church candles that never quite burn down, and the poor box, still full.' } },
+      { label: 'Pray in the quiet nave', text: 'The chapel is only a ruin now, but a peaceful one. Something old and kind seems to listen.', effects: { blessing: 'ward', turns: 300 }, req: { type: 'flag', value: '{id}_ghost' }, lockedText: 'Not while it is haunted' },
+      leave('Leave quietly'),
+    ],
+  });
+
+  // ---------------------------------------------------------- farm and mill
+  { // (a watermill wants the river beside it: on the nearest bank)
+    const at = besideWater(53, 41);
+    w.entities.push({ ...eventFromTemplate('watermill'), id: 'ev_eldwater_mill', x: at.x, y: at.y, name: 'Eldwater Mill' });
+  }
+  put('ev_milos_hives', 'apiary', 56, 54, {
+    name: 'The Brambleby Hives',
+    text: 'Straw skeps hum on a bench among the lavender at the edge of Brookend. Old Mother Brambleby, Milo\'s grandmother, moves between them in her veil, talking to the bees as if they were old friends. "Mind your manners," she says. "They know if you\'re rude. So does Milo."',
+  });
+  put('ev_kings_orchard', 'orchard', 48, 31, {
+    name: 'The King\'s Orchard',
+    text: 'Gnarled old apple trees stand in rows below the castle, heavy with red fruit. A sign hangs on the gate: "WINDFALLS FREE TO ALL. PICKED, THREE COIN THE BASKET, BY ORDER OF KING ALDRIC. THIEVES, A BOOT UP THE BREECHES, ALSO BY ORDER OF KING ALDRIC."',
+  });
+  put('ev_amos_fold', 'shepherd', 37, 46, {
+    name: 'Old Amos\'s Fold',
+    text: 'Sheep crowd a pen of wattle hurdles beside a round stone hut. Old Amos, Wynn\'s grandfather, leans on his crook, his dog at his feet, watching the dark edge of the old forest. "Wolves," he says, before you can ask. "Greyfang\'s lot. Every night this moon, bold as bailiffs."',
+  });
+  put('ev_woodcutters', 'woodcutters', 35, 42, {
+    name: 'Woodcutters\' Clearing',
+    choices: [
+      { label: 'Lend a hand for the day', text: '{who} swings an axe from dawn to dusk. Your backs ache, but the foreman pays fair, and there is stew.', effects: { gold: 12, food: 8, xp: 15, flag: '{id}_worked' }, req: { type: 'stat', value: 'str:12' }, hideFlag: '{id}_worked' },
+      { label: 'Share their stew (2 gold)', text: 'Rabbit stew, black bread and a long argument about which wood burns best.', effects: { food: 12, heal: '1d6' }, cost: { gold: 2 } },
+      { label: 'Ask about the old forest', text: '"Stay on the paths. There\'s a black wolf in there big as a pony — Greyfang, the shepherds call him. Found a poacher\'s bones by his den last spring, satchel and all. We left it be. You go poking about there, you go armed."' },
+      leave(),
+    ],
+  });
+
+  // ---------------------------------------------------------- old places and wild places
+  put('ev_nine_maidens', 'circle', 45, 70, {
+    name: 'The Nine Maidens',
+    text: 'Nine grey stones stand in a ring on the Downs within sight of Grimholt, older than the barrow-kings, two of them capped with a great lintel. The wind does not blow inside the ring. Shepherds say the maidens danced on the Sabbath and were turned to stone for it; the stones look as if they would dance again, given half a chance.',
+  });
+  put('ev_pass_watch', 'tower', 70, 50, {
+    name: 'The Pass Watch',
+    choices: [
+      { label: 'Climb to the beacon', text: 'Ninety-nine steps (the fourth is loose). From the battlements you can see the whole road to the pass — and beyond it, the smoke of Grishak\'s camp.', effects: { reveal: 18 } },
+      { label: 'Ask what he has seen', text: '"Orcs, mostly. Grishak\'s lot camp by the road under the peaks, and they burn whatever they can\'t carry. Took Ned\'s mill last month. I lit the beacon. Nobody came." He spits. "Nobody ever comes."' },
+      { label: 'Share his watch-ration (2 gold)', text: 'Black bread, a hard sausage and a swig of something that makes your eyes water.', effects: { food: 10 }, cost: { gold: 2 } },
+      leave(),
+    ],
+  });
+  put('ev_ashford_farm', 'burnt_farm', 65, 58, { name: 'Ashford Farm' });
+  put('ev_merry_lark', 'wreck', 18, 59, {
+    name: 'Wreck of the Merry Lark',
+    text: 'The Merry Lark lies heeled over on the strand south of Westhold, her ribs bare where the sea has torn the planks away and her mast snapped like a twig. Gulls wheel and scream. A sea-chest has washed up beside her.',
+    choices: [
+      { label: 'Break open the sea-chest', text: 'Salt-stained shirts, a rusty cutlass — and at the bottom, a purse of foreign silver.', effects: { gold: 45, items: [{ id: 'antidote', n: 1 }], flag: '{id}_chest' }, hideFlag: '{id}_chest' },
+      { label: 'Search the hold', text: 'You crawl into the dark belly of the wreck and come out with ship\'s biscuit, salt pork and a keg of something.', effects: { food: 20, flag: '{id}_hold' }, hideFlag: '{id}_hold', chance: 0.6, failText: 'Ship\'s rats! Big ones, and they don\'t care to share.', failEffects: { fight: 'giant_rat', count: '3-5' } },
+      { label: 'Read the captain\'s log', text: 'The last entry, in a shaking hand: "Lights on the western skerry. Not Gull Point. NOT Gull Point. They are waving us in." Wreckers — and the skerry is Black Maddoc\'s.', effects: { lore: true, xp: 15 } },
+      leave(),
+    ],
+  }, (t) => t.key === 'sand');
+  put('ev_gallows_hill', 'gallows', 33, 55, {
+    name: 'Gallows Hill',
+    text: 'A gibbet creaks on the hill above the south road, an iron cage swinging from its arm. What is left of its last tenant grins down at you. A notice is nailed to the post: "SO PERISH ALL HIGHWAYMEN. BY ORDER OF MAYOR HILDA OF WESTHOLD." The bandits on the road below do not seem to have read it.',
+  });
+  put('ev_dwarf_quarry', 'quarry', 36, 24, {
+    name: 'Hammerdeep Quarry',
+    text: 'A raw face of cut grey stone below the dwarf-hold, a wooden crane creaking over it and blocks stacked ready for the carts. The quarry-master, a dwarf grey with dust from beard to boots, eyes your company like stone he might buy. "You lot look like you can lift."',
+  });
+  put('ev_vorthax', 'bones', 60, 20, {
+    name: 'Bones of Vorthax',
+    text: 'The bones of a dragon lie half sunk in the snow, ribs arching higher than a house, one great wing-bone still raised against the sky. This was Vorthax, who nested in the Grey Mountains long ago — the Eyrie to the west was hers. Nothing grows near the skull. Even the crows keep a respectful distance — mostly.',
+  });
+  put('ev_broken_tower', 'ruined_tower', 27, 33, { name: 'The Broken Tower' });
+  put('ev_ash_circle', 'broken_circle', 80, 64, {
+    name: 'The Cinder Ring',
+    text: 'A ring of standing stones in the ash before Dol Garoth, most of them fallen, the rest scorched black. Whatever power was here, the Shadow has drunk most of it. Most.',
+  });
+
+  // ---------------------------------------------------------- treasure that looks like itself
+  const looks = {
+    chest_wolfwood: { name: 'Poacher\'s Bones', look: { kind: 'remains' } },
+    chest_isle: { name: 'Half-buried Sea Chest', look: { kind: 'seachest' } },
+    chest_heron: { name: 'Heron\'s Nest', look: { kind: 'nest' } },
+    chest_eyrie: { name: 'Nest of Vorthax', look: { kind: 'nest', color: 0x8a7a6a } },
+    chest_vault: { name: 'Vault of the Kings', look: { kind: 'runechest' } },
+    chest_elfcache: { name: 'Elven Reliquary', look: { kind: 'reliquary', color: 0x2a6a5a } },
+  };
+  for (const [id, v] of Object.entries(looks)) { const c = chest(id); if (c) Object.assign(c, v); }
+  // the Rune-Key lies in Ulfgar's own sarcophagus
+  const barrowMap = game.maps.find((m) => m.name === 'Grimholt Barrow');
+  const hoard = barrowMap?.entities.find((e) => e.type === 'chest' && (e.items || []).some((i) => i.id === 'rune_key'));
+  if (hoard) Object.assign(hoard, { name: 'Ulfgar\'s Sarcophagus', look: { kind: 'sarcophagus' } });
+  for (const [id, kind] of [['ev_201_cache', 'cave'], ['ev_207_cache', 'seacave']]) { const e = chest(id); if (e) fitCache(e, DUNGEON_CACHES[kind]); }
+  // Fennick's bookcase, with a hidden drawer
+  const towerMap = game.maps.find((m) => m.name === 'Tower of the Hermit');
+  const fen = towerMap?.entities.find((e) => e.id === 'npc_fennick');
+  if (fen) { const p = freeSpot(towerMap, fen.x - 1, fen.y); towerMap.entities.push({ id: 'chest_fennick_books', type: 'chest', x: p.x, y: p.y, name: 'Fennick\'s Bookcase', look: { kind: 'bookcase' }, gold: '20', items: [{ id: 'scroll_seeing', n: 1 }, { id: 'mana_tonic', n: 1 }] }); }
+  // the yard's unclaimed cargo, stacked on Gullhaven quay
+  { const p = nearestWhere(w, 21, 44, open); w.entities.push({ id: 'chest_gull_cargo', type: 'chest', x: p.x, y: p.y, name: 'Unclaimed Cargo', look: { kind: 'crates' }, gold: '12', items: [{ id: 'torch', n: 2 }, { id: 'rations', n: 2 }] }); }
+
+  // ---------------------------------------------------------- fields round the towns
+  // (after the places above, so nothing stands in a furrow)
+  sowFields(w, { seed: 1105, sites: [{ x: 22, y: 52 }, { x: 44, y: 28 }, { x: 60, y: 56 }, { x: 20, y: 45 }], keep: [game.settings.start] });
+
+  // ---------------------------------------------------------- companions' battle arts
+  const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const arts = { npc_borin: ['hold_the_line'], npc_wynn: ['first_aid'], npc_milo: ['throw_knife'], npc_fennick: ['disengage'] };
+  for (const [id, a] of Object.entries(arts)) { const e = npc(id); if (e?.recruit) e.recruit.arts = a; }
+  const elf = game.maps.flatMap((m) => m.entities).find((e) => e.recruit?.race === 'elf');
+  if (elf) elf.recruit.arts = ['steady_aim'];
+
+  // ---------------------------------------------------------- word gets round
+  // (townsfolk point the way: each new place is mentioned by someone)
+  const says = (id, ...k) => { const e = npc(id); if (e) e.keywords = [...(e.keywords || []), ...k]; };
+  says('npc_hal', kw('MILL', 'Ned\'s mill up the east road? Grishak\'s lot burned it. Ned grinds for his cousin at Brookend Mill now, poor soul — ask him about it, he\'d be glad of the help.'));
+  says('npc_milo', kw('HIVES', 'Gran keeps the hives at the edge of the village. Tell the bees your news — they sulk if you don\'t. I am not joking. I am never joking about bees.'));
+  says('npc_wynn', kw('AMOS', 'My grandda, Old Amos. He keeps the fold east of town, by the old forest. He sits up nights with the sheep, for the WOLVES. Go and keep him company, if ye\'re brave.'));
+  says('npc_osric', kw('WRECK', 'The Merry Lark, on the strand south of town. Went aground in a clear sky. Lights on the skerry, the mate said, before he drowned. Wreckers, if you ask me.'));
+  says('npc_hilda', kw('FORD', 'The Eldwater ford, east of the crossroads. Aldred and Edric held it against the dark in my great-grandmother\'s day. Aldred\'s statue still stands there. The orcs knocked Edric\'s down.'),
+    kw('CHAPEL', 'Brother Aelric keeps the chapel on the King\'s road, north of the crossroads. He worries about the old one on the Downs. Everyone worries about the Downs.'));
+
+  // ---------------------------------------------------------- the three side quests
+  game.quests.push(
+    {
+      id: 'q_mill', name: 'The Burnt Mill',
+      summary: 'Ned the miller lost his mill on the east road to Grishak\'s raiders. He wants two things back from the ruin: his strongbox with the mill-deeds, and Tansy, his cat.',
+      stages: [
+        { text: 'Find Ned\'s strongbox and his cat Tansy at the burnt mill on the east road', goal: { type: 'flag', flags: 'q_mill_box,ev_burnt_mill_cat' } },
+        { text: 'Bring them back to Ned at Brookend Mill', goal: { type: 'flag', flags: 'q_mill_home' } },
+      ],
+      reward: { gold: 40, xp: 40, items: [{ id: 'honeycake_tin', n: 1 }] },
+      doneText: 'Ned has his deeds and his cat. He means to build the mill again, and Brookend will have bread at a friend\'s price.',
+    },
+    {
+      id: 'q_ghost', name: 'The Chapel of the Fallen Host',
+      summary: 'Brother Aelric of the Kingsroad Chapel asks you to lay to rest the spirit of Brother Osmund, who haunts the ruined Chapel of the Fallen Host on the Barrow Downs.',
+      stages: [
+        { text: 'Lay Brother Osmund\'s spirit to rest in the ruined chapel on the Barrow Downs', goal: { type: 'flag', flags: 'ev_fallen_chapel_ghost' } },
+        { text: 'Tell Brother Aelric at the Kingsroad Chapel', goal: { type: 'flag', flags: 'q_ghost_told' } },
+      ],
+      reward: { gold: 60, xp: 60, items: [{ id: 'barrow_bell', n: 1 }] },
+      doneText: 'Brother Osmund is at rest, and his bell rings on with you.',
+    },
+    {
+      id: 'q_brothers', name: 'The Brothers of the Ford',
+      summary: 'Aldred and Edric held the Eldwater ford against the dark and fell there side by side. Their silver oath-rings were buried with them, and the rings remember each other: worn together, they are stronger.',
+      stages: [
+        { text: 'Find the oath-rings: Aldred lies in the crypt of the ford-wardens on the Downs, Edric under his toppled statue on the eastern bank', goal: { type: 'flag', flags: 'ev_downs_graves_laid,ev_edric_box' } },
+      ],
+      reward: { xp: 50 },
+      doneText: 'Both oath-rings are found. Worn together by two of your company, the brothers stand at the ford again.',
+    },
+  );
 }
