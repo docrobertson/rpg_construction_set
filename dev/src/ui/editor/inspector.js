@@ -180,6 +180,11 @@ export function inspectEntity(ed, ent, container) {
         { key: 'locked', label: 'Locked (needs a key or a burglar)', type: 'check' },
         { key: 'trap', label: 'Trapped', type: 'check' },
         { key: 'flag', label: 'Sets flag when opened', type: 'text' },
+        // (charms) ways only a worn charm opens, and a hoard's charm
+        { key: 'sealed', label: 'Sealed by magic (opens only to a charm of opening, e.g. a Ring of Opening)', type: 'check' },
+        { key: 'sealedText', label: 'Said when it will not open', type: 'textarea', rows: 2, show: (o) => !!o.sealed },
+        { key: 'unseen', label: 'Hidden from mortal eyes (only true sight, e.g. an Owl Feather, finds it)', type: 'check' },
+        { key: 'hoard', label: 'A hoard: also holds a charm, chosen for the company when opened', type: 'check' },
       ], changed));
       break;
     case 'treasure': {
@@ -230,6 +235,10 @@ export function inspectEntity(ed, ent, container) {
         { key: 'target.y', label: 'Arrive at Y', type: 'number', nullable: true, show: (o) => o.target?.map !== 'exit' },
         { key: 'requires', label: 'Requires item', type: 'select', empty: '— nothing —', nullable: true, options: () => game.items.map((i) => [i.id, i.name]) },
         { key: 'lockedText', label: 'Message when barred', type: 'textarea', rows: 2, show: (o) => !!o.requires },
+        // (charms) a way sealed by magic, or hidden from mortal eyes
+        { key: 'sealed', label: 'Sealed by magic (only a charm of opening opens it)', type: 'check' },
+        { key: 'sealedText', label: 'Said when it will not open', type: 'textarea', rows: 2, show: (o) => !!o.sealed },
+        { key: 'unseen', label: 'Hidden from mortal eyes (only true sight finds it)', type: 'check' },
       ], changed));
       const tgt = game.maps.find((m) => m.id === ent.target?.map);
       if (tgt) {

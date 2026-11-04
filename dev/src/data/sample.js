@@ -488,6 +488,7 @@ function addCharms(game, w) {
     const t = terrain(getTile(w, x, y));
     if (t.water || t.feature || t.key === 'road') continue;
     if (d < 0.5) setTile(w, x, y, T.meadow);
+    else if (d < 1.1) setTile(w, x, y, y < mere.y ? T.forest : T.meadow); // (the islet, a tree for the herons)
     else if (d <= 2.3) setTile(w, x, y, T.shallows);
     else if (d <= 3.4) setTile(w, x, y, (x + y) % 3 ? T.meadow : T.swamp);
   }
