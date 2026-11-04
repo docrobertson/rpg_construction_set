@@ -35,6 +35,15 @@ await ev(() => {
   window.__tick = (sec = 1) => { for (let t = 0; t < sec; t += 0.05) { v.time += 0.05; v._updateEntities(0.05); } v._updateCamera(1); };
   window.__idle = async (ms = 8000) => { const s = window.__app.session; for (let i = 0; i < ms / 20 && (s.busy || s.transitioning); i++) await new Promise((r) => setTimeout(r, 20)); };
   window.__barrow = () => window.__app.session.game.maps.find((m) => m.name === 'Grimholt Barrow');
+  // one step, not waiting on a battle it may start (unseen: nobody notices it)
+  window.__step = async (dx, dy, unseen = false) => {
+    const s = window.__app.session, rng = window.__delve.rng, chance = rng.chance;
+    if (unseen) rng.chance = () => false;
+    try {
+      s.move(dx, dy);
+      for (let i = 0; i < 400 && s.busy && !s.battle; i++) await new Promise((r) => setTimeout(r, 20));
+    } finally { rng.chance = chance; }
+  };
 });
 
 // --- into Grimholt Barrow
@@ -76,7 +85,7 @@ const alone = await ev(async () => {
   dv.select(scout);
   const at = dv.pos(scout);
   const open = [[0, -1], [1, 0], [-1, 0], [0, 1]].find(([dx, dy]) => dv.heroPass(at.x + dx, at.y + dy) && !dv.heroAt(at.x + dx, at.y + dy) && !s.blockingAt(at.x + dx, at.y + dy));
-  await s.move(open[0], open[1]);
+  await window.__step(open[0], open[1]);
   await window.__idle();
   const after = Object.fromEntries(dv.alive().map((h) => [h.name, dv.pos(h)]));
   return { scout: scout.name, lead: lead.name, before, after, pos: { x: s.state.pos.x, y: s.state.pos.y }, sel: dv.selected()?.name, actor: dv.actor().name };
@@ -106,7 +115,7 @@ const together = await ev(async () => {
     const at = dv.pos(lead);
     const dir = [[0, -1], [1, 0], [-1, 0]].find(([dx, dy]) => dv.heroPass(at.x + dx, at.y + dy) && !s.blockingAt(at.x + dx, at.y + dy) && !dv.exitAt(at.x + dx, at.y + dy));
     if (!dir) break;
-    await s.move(dir[0], dir[1]);
+    await window.__step(dir[0], dir[1]);
     await window.__idle();
     window.__tick(0.5);
     const ps = dv.alive().map((h) => dv.pos(h));
@@ -139,7 +148,7 @@ const scout = await ev(async () => {
   let steps = 0, seen = false;
   for (const [x, y] of best?.path || []) {
     const p = dv.pos(quiet);
-    await s.move(x - p.x, y - p.y);
+    await window.__step(x - p.x, y - p.y, true);
     await window.__idle();
     steps++;
     seen = dv.groups[best.gid]?.m.some((mm) => !mm.dead && s.isVisible(mm.x, mm.y));
