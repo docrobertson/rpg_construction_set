@@ -2191,12 +2191,25 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .dv-out.alone { top: calc(var(--hud-top) + 10px); }
 .dv-out[hidden] { display: none; }
 
-/* what a swap gives up: the magic of the piece it replaces */
-.tradeoff { flex-basis: 100%; display: flex; gap: 6px; align-items: flex-start; margin-top: 3px; padding: 3px 8px; border-radius: 6px;
-  font: 12px/1.35 var(--font-ui); color: #f0d8b8; background: rgba(200,120,60,.12); border-left: 2px solid rgba(230,150,80,.7); white-space: normal; }
-.tradeoff .to-ico { flex: none; color: #f0a860; display: inline-flex; margin-top: 1px; }
-.tradeoff .to-ico svg { width: 13px; height: 13px; }
-.tradeoff b { color: #ffe6c0; font-weight: 600; }
-.tradeoff .to-gain { color: #b8f4a8; }
-.cmp .cmp-lose { color: #f0a860; margin-left: 1px; }
-.inv-name .tradeoff { width: 100%; }
+/* a swap, side by side in a hover card: what goes on, what comes off */
+.ui-tip.rich { max-width: min(520px, calc(100vw - 12px)); padding: 8px 9px 8px; white-space: normal; }
+.swap-card { display: grid; gap: 6px; }
+.sw-head .cmp { font-size: 12px; }
+.sw-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 380px; }
+.sw-cols.one { grid-template-columns: 1fr; min-width: 200px; }
+.sw-col { display: grid; align-content: start; gap: 6px; padding: 5px 8px 6px; border-radius: 6px; background: rgba(0,0,0,.28); box-shadow: inset 0 0 0 1px #4a3a24; }
+.sw-col.new { box-shadow: inset 0 0 0 1px rgba(120,210,110,.4); }
+.sw-col.old { box-shadow: inset 0 0 0 1px rgba(230,140,100,.35); }
+.sw-label { font: 700 9.5px var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: -3px; }
+.sw-name { font: 600 13.5px var(--font-ui); color: #fff3d8; }
+.sw-note { font: italic 11px var(--font-ui); color: #f0b890; }
+.sw-stats { font: 600 11px var(--font-ui); color: var(--gold); }
+.sw-lines { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; font: 12px/1.32 var(--font-ui); }
+.sw-lines li { position: relative; padding-left: 12px; color: #d8ccb0; }
+.sw-lines li::before { content: '•'; position: absolute; left: 1px; color: var(--muted); }
+.sw-lines li.gain { color: #c4f4b0; }
+.sw-lines li.gain::before { content: '+'; color: #7ce07a; font-weight: 700; }
+.sw-lines li.lose { color: #ffc4a8; }
+.sw-lines li.lose::before { content: '−'; color: #ff8a6a; font-weight: 700; }
+.sw-plain { font: italic 11.5px var(--font-ui); color: var(--muted); }
+.sw-foot { font: italic 11px var(--font-ui); color: var(--muted); text-align: right; }

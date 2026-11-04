@@ -1083,20 +1083,12 @@ export class PlayUI {
       const who = s.party.members.filter((m) => m.status !== 'dead');
       const can = who.filter((m) => canEquip(g, m, it).ok);
       if (!can.length) return h('div.sr-cmp', h('span.cmp.none', noOneText(g, it)));
-      // a charm is no better or worse than another, only different: say who may wear it
-      if (it.type === 'charm') {
-        const free = can.filter((m) => !m.equip?.charm);
-        return h('div.sr-cmp', h('span.cmp.' + (free.length ? 'up' : 'swap'), { title: can.map((m) => tradeoffTip(g, m, it, `${m.name}: ${compareText(g, m, it).text}`)).join('\n\n') },
-          cmpArrow({ cls: free.length ? 'up' : 'swap' }), can.length === who.length ? 'Anyone in your company can wear it' : `${can.map((m) => m.name).join(', ')} can wear it`,
-          free.length && free.length < can.length ? ` (${free.map((m) => m.name).join(', ')} wear${free.length === 1 ? 's' : ''} none)` : ''),
-          ...can.map((m) => tradeoffLine(g, m, it)).filter(Boolean));
-      }
+      // (hover a hero: the piece beside what they wear now, gains and losses
+      // marked; a charm's chip is just the name: ▲ a free slot, ⇄ a swap)
       return h('div.sr-cmp', ...can.map((m) => {
         const c = compareText(g, m, it);
-        const cur = itemOf(g, m.equip[slotFor(it)]);
-        return h('span.cmp.' + c.cls, { title: tradeoffTip(g, m, it, `${m.name} now has ${cur ? `${cur.name} (${itemStats(cur)})` : 'nothing'} as ${SLOT_NAMES[slotFor(it)].toLowerCase()}`) },
-          cmpArrow(c), `${m.name} ${c.text}`, tradeoff(g, m, it).lose.length ? h('span.cmp-lose', ' ⚠') : null);
-      }), ...can.map((m) => tradeoffLine(g, m, it)).filter(Boolean));
+        return h('span.cmp.' + c.cls, { tip: () => swapCard(g, m, it) }, cmpArrow(c), it.type === 'charm' ? m.name : `${m.name} ${c.text}`);
+      }));
     };
     const render = () => {
       const scroller = body.parentElement;
@@ -1294,11 +1286,10 @@ export class PlayUI {
         const who = slot ? heroes.filter((x) => canEquip(g, x, it).ok) : [];
         const chips = !slot ? [] : who.length ? who.map((x) => {
           const c = compareText(g, x, it);
-          const t = tradeoff(g, x, it);
-          return h('button.cmp.' + c.cls + (t.lose.length ? '.loses' : ''), {
-            title: tradeoffTip(g, x, it, `${x.name}: ${c.text}. Click to put it on ${x.name}.`),
+          return h('button.cmp.' + c.cls, {
+            tip: () => swapCard(g, x, it, `Click to put it on ${x.name}.`),
             onclick: () => this.equipFromPack(x, it, { stay: true }),
-          }, cmpArrow(c), `${x.name} ${c.text}`, t.lose.length ? h('span.cmp-lose', { title: 'Gives up some magic: see below' }, ' ⚠') : null);
+          }, cmpArrow(c), `${x.name} ${c.text}`);
         }) : [h('span.cmp.none', noOneText(g, it))];
         // reagents and herbs say plainly who burns them; scrolls offer to be
         // copied into each spellbook-keeper's book
@@ -1325,9 +1316,7 @@ export class PlayUI {
             use ? h('span.inv-use', use) : null,
             // a scroll's copy buttons already say who can copy it
             magic && !(it.type === 'scroll' && chips.length) ? h('span.cmp.use.' + magic.cls, magic.text) : null,
-            ...chips,
-            // what each would give up by putting it on: the magic of the piece it replaces
-            ...who.map((x) => tradeoffLine(g, x, it)).filter(Boolean)));
+            ...chips));
         if (it.type === 'consumable' && !s.battle) {
           row.appendChild(h('button', { title: it.desc || 'Use it now', onclick: async () => { closeTopModal(); await this.fieldUseItem(it); } }, 'Use'));
         }
@@ -1339,7 +1328,7 @@ export class PlayUI {
       h('div.pack-head', h('span', h('i', { html: iconSvg('pack') }), ' Carried by the company'),
         h('span.pack-purse', h('span', { title: 'Gold' }, h('i.coin', { html: iconSvg('coin') }), String(s.party.gold)),
           g.settings.food ? h('span', { title: 'Food' }, h('i', { html: iconSvg('food') }), String(s.party.food)) : null)),
-      h('p.hint.pack-hint', 'Everything here is shared. Gear is worn from each hero\'s sheet: click a name on a piece to put it on that hero, or click a portrait on the right to change their gear.'),
+      h('p.hint.pack-hint', 'Everything here is shared. Click a name on a piece to put it on that hero; hover the name to see it beside what they wear now.'),
       invList));
     return modal(body, { title: 'The Pack', icon: 'pack', cls: 'wide party-modal' });
   }
@@ -1634,38 +1623,39 @@ function magicLines(g, it) {
   return out;
 }
 
-// What a hero gains and gives up by wearing `it` instead of what they have
-// now: the magic of each piece compared line by line (a two-handed weapon
-// also takes the shield off, and its magic with it)
-function tradeoff(g, m, it) {
+// A hover card setting a piece beside what a hero wears in its place (and the
+// shield, when it needs both hands): each side's stats and magic, with what
+// only the new piece does marked + and what only the old one did marked −
+function swapCard(g, m, it, foot) {
   const slot = slotFor(it);
-  const cur = slot ? itemOf(g, m.equip[slot]) : null;
-  if (!slot || cur?.id === it.id) return { cur, gain: [], lose: [] };
-  const had = magicLines(g, cur).map((l) => ({ l, from: cur }));
+  const cur = itemOf(g, m.equip[slot]);
+  const c = compareText(g, m, it);
+  const head = h('div.sw-head', h('span.cmp.' + c.cls, cmpArrow(c), `${m.name} ${c.text}`));
+  if (cur?.id === it.id) return h('div.swap-card', head, h('div.sw-cols.one', h('div.sw-col', swapPiece(g, it, null))));
   const sh = it.twoHanded && slot === 'weapon' ? itemOf(g, m.equip.shield) : null;
-  if (sh) had.push(...magicLines(g, sh).map((l) => ({ l, from: sh })));
   const got = magicLines(g, it);
-  return { cur, gain: got.filter((l) => !had.some((x) => x.l === l)), lose: had.filter((x) => !got.includes(x.l)) };
+  const had = [...magicLines(g, cur), ...magicLines(g, sh)];
+  const slotName = (SLOT_NAMES[slot] || slot).toLowerCase();
+  return h('div.swap-card', head,
+    h('div.sw-cols',
+      h('div.sw-col.new', h('div.sw-label', 'Puts on'), swapPiece(g, it, had, 'gain')),
+      h('div.sw-col.old', h('div.sw-label', cur || sh ? 'Takes off' : 'In its place'),
+        cur ? swapPiece(g, cur, got, 'lose') : h('div.sw-plain', `No ${slotName} now`),
+        sh ? swapPiece(g, sh, got, 'lose', 'shield: both hands are needed') : null)),
+    foot ? h('div.sw-foot', foot) : null);
 }
 
-// One line saying what a swap costs a hero (null when it costs no magic)
-function tradeoffLine(g, m, it) {
-  const t = tradeoff(g, m, it);
-  if (!t.lose.length) return null;
-  const by = new Map();
-  for (const { l, from } of t.lose) (by.get(from) || by.set(from, []).get(from)).push(l);
-  const losing = [...by.entries()].map(([from, ls]) => [h('b', `the ${from.name}`), `: ${ls.join('; ')}`]);
-  return h('div.tradeoff', h('i.to-ico', { html: iconSvg('warn') }),
-    h('span', h('b.to-who', m.name), ' would give up ', ...losing.flatMap((x, i) => (i ? [' and ', ...x] : x))));
-}
-
-// The full swap, for a chip's tooltip
-function tradeoffTip(g, m, it, head) {
-  const t = tradeoff(g, m, it);
-  const out = [head];
-  if (t.gain.length) out.push(`Gains: ${t.gain.join('; ')}`);
-  if (t.lose.length) out.push(`Gives up: ${t.lose.map((x) => `${x.l} (${x.from.name})`).join('; ')}`);
-  return out.join('\n');
+// one side of a swap card: name, stats and the magic, each line marked by
+// whether the other side has it too
+function swapPiece(g, it, other, mark, note) {
+  const lines = magicLines(g, it);
+  const mg = magicalOf(it);
+  return h('div.sw-piece',
+    h('div.sw-name', { style: mg ? { color: mg.color } : null }, mg ? '✦ ' : '', it.name),
+    note ? h('div.sw-note', note) : null,
+    itemStats(it) ? h('div.sw-stats', itemStats(it)) : null,
+    lines.length ? h('ul.sw-lines', ...lines.map((l) => h('li.' + (!other ? 'same' : other.includes(l) ? 'same' : mark), l)))
+      : h('div.sw-plain', 'No magic'));
 }
 
 // how an item compares with what a hero already has in that slot

@@ -226,6 +226,34 @@ check('a curio-seller sells charms', r.seller && r.rows >= 6, r);
 await shot('charms_shop');
 await closeModals();
 
+// ---- swapping: hovering a hero's chip in the pack sets the piece beside what
+// they wear now, marking what is gained (+) and given up (−)
+r = await ev(async () => {
+  const s = window.__app.session, inv = s.party.inventory;
+  const m = s.party.members.find((x) => x.status !== 'dead');
+  m.equip.charm = 'stormcaller_orb';
+  inv.owl_feather = 1;
+  s.ui.openParty();
+  await new Promise((res) => setTimeout(res, 200));
+  const row = [...document.querySelectorAll('.party-modal .inv-row')].find((x) => x.textContent.includes('Owl Feather'));
+  const chip = [...(row?.querySelectorAll('button.cmp') || [])].find((b) => b.textContent.includes(m.name));
+  return { name: m.name, chip: !!chip, inline: !!document.querySelector('.party-modal .tradeoff, .party-modal .cmp-lose') };
+});
+if (r.chip) {
+  await page.locator('.party-modal .inv-row', { hasText: 'Owl Feather' }).locator('button.cmp', { hasText: r.name }).first().hover();
+  await wait(700);
+}
+const card = await ev(() => {
+  const c = document.querySelector('.ui-tip:not([hidden]) .swap-card');
+  return c && { on: c.querySelector('.sw-col.new .sw-name')?.textContent, off: c.querySelector('.sw-col.old .sw-name')?.textContent,
+    gain: c.querySelectorAll('.sw-col.new li.gain').length, lose: [...c.querySelectorAll('.sw-col.old li.lose')].map((x) => x.textContent) };
+});
+check('the pack has no inline swap warnings', r.chip && !r.inline, r);
+check('hovering a hero shows the swap side by side: gains and what is given up', card && /Owl Feather/.test(card.on) && /Stormcaller/.test(card.off) && card.gain >= 1 && card.lose.some((l) => /Chain Lightning/.test(l)), { r, card });
+await shot('charms_swap_card');
+await page.mouse.move(5, 5);
+await closeModals();
+
 // ---- battle: a blessing at the start, a charm's action on the bar
 await ev(() => {
   const s = window.__app.session, g = s.game;
