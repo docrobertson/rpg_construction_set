@@ -1,5 +1,5 @@
 // A small declarative form builder used by the editor's inspectors.
-// Field spec: { key: 'a.b', label, type, options, hint, show(obj), min, max, step, placeholder }
+// Field spec: { key: 'a.b', label, type, options, empty, hint, show(obj), min, max, step, placeholder, get(obj), put(obj, v) }
 // types: text, textarea, number, dice, check, select, color, multicheck, statmods, itemlist, list, ids, info
 import { h, hex, unhex } from '../dom.js';
 import { STATS } from '../../data/defaults.js';
@@ -19,7 +19,8 @@ export function setPath(obj, path, value) {
   else o[keys[keys.length - 1]] = value;
 }
 
-const optList = (options) => (typeof options === 'function' ? options() : options || []).map((o) => (Array.isArray(o) ? o : typeof o === 'object' ? [o.id, o.name ?? o.label ?? o.id] : [o, o]));
+// (an options function is handed the object being edited)
+const optList = (options, obj) => (typeof options === 'function' ? options(obj) : options || []).map((o) => (Array.isArray(o) ? o : typeof o === 'object' ? [o.id, o.name ?? o.label ?? o.id] : [o, o]));
 
 export function buildForm(obj, fields, onChange, opts = {}) {
   const root = h('div.form');
@@ -47,8 +48,10 @@ export function buildForm(obj, fields, onChange, opts = {}) {
 }
 
 function fieldInput(obj, f, changed) {
-  const val = getPath(obj, f.key);
-  const set = (v, structural) => { setPath(obj, f.key, v); changed(f.key, structural || f.rerender); };
+  // (f.get / f.put: a field that reads or writes more than one value, e.g. a
+  // tick that adds or removes a whole sub-object)
+  const val = f.get ? f.get(obj) : getPath(obj, f.key);
+  const set = (v, structural) => { if (f.put) f.put(obj, v); else setPath(obj, f.key, v); changed(f.key, structural || f.rerender); };
   switch (f.type) {
     case 'textarea': {
       const el = h('textarea', { rows: f.rows || 3, placeholder: f.placeholder || '' });
@@ -69,9 +72,10 @@ function fieldInput(obj, f, changed) {
     }
     case 'select': {
       const el = h('select');
-      if (f.empty !== undefined) el.appendChild(h('option', { value: '' }, f.empty));
-      for (const [v, label] of optList(f.options)) el.appendChild(h('option', { value: String(v) }, label));
-      const opts0 = optList(f.options);
+      // (f.empty may be a function of the object: "Automatic — a cart")
+      if (f.empty !== undefined) el.appendChild(h('option', { value: '' }, typeof f.empty === 'function' ? f.empty(obj) : f.empty));
+      for (const [v, label] of optList(f.options, obj)) el.appendChild(h('option', { value: String(v) }, label));
+      const opts0 = optList(f.options, obj);
       el.value = val == null ? (f.empty !== undefined ? '' : String(opts0[0]?.[0] ?? '')) : String(val);
       el.addEventListener('change', () => {
         let v = el.value;
@@ -158,7 +162,7 @@ function fieldInput(obj, f, changed) {
       // array of sub-objects with sub-fields
       const arr = Array.isArray(val) ? val : [];
       if (!Array.isArray(val)) setPath(obj, f.key, arr);
-      const wrap = h('div.sublist');
+      const wrap = h('div.sublist' + (f.inline ? '.sl-inline' : '')); // (inline: a row's few fields side by side)
       arr.forEach((row, i) => {
         const label = h('span', f.rowLabel ? f.rowLabel(row, i) : `#${i + 1}`);
         const sub = buildForm(row, f.fields, () => { if (f.rowLabel) label.textContent = f.rowLabel(row, i); changed(f.key); }, {});

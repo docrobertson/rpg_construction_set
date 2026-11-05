@@ -25,6 +25,11 @@ await ev(async () => { const app = window.__app; app.playGame(app.sample, { quic
 await ev(() => { const s = window.__app.session; const { gainXp } = {}; for (const m of s.party.members) { m.level = 5; m.mp = 30; m.hp = 90; } });
 await ev(() => { const s = window.__app.session; s.engage({ id: 'x', monster: 'goblin', count: '5', roaming: true }); });
 await wait(2500);
+// the opening order: the first half of the roster in front, the rest a step behind in the gaps
+const formation = await ev(() => {
+  const s = window.__app.session, b = s.battle;
+  return s.party.members.filter((m) => m.status !== 'dead').map((m) => { const u = b.partyUnits.find((p) => p.member === m); return [u.x, u.y]; });
+});
 const active = () => ev(() => { const b = window.__app.session.battle; return b && b.active ? { name: b.active.name, cls: b.active.member.cls } : null; });
 const waitActive = async (cls) => {
   for (let i = 0; i < 60; i++) {
@@ -76,6 +81,11 @@ log(await ev(() => { const b = window.__app.session.battle; return b ? b.enemies
 // skills from the keyboard: the wizard's Firebolt is key 1, then Enter at the chosen foe
 let fails = 0;
 const expect = (name, ok, info) => { console.log((ok ? 'ok   ' : 'FAIL ') + name + ' ' + JSON.stringify(info)); if (!ok) fails++; };
+{
+  const half = Math.ceil(formation.length / 2), front = formation.slice(0, half), back = formation.slice(half);
+  expect('the first half of the company stands in front, the rest a step behind in the gaps', formation.length >= 2
+    && front.every(([, y]) => y === 7) && back.every(([, y]) => y === 8) && back.every(([x]) => !front.some(([fx]) => fx === x)), formation);
+}
 // let the fireball finish, then wait for the wizard's next turn
 const settle = () => ev(async () => { for (let i = 0; i < 100; i++) { const b = window.__app.session.battle; if (!b || (b.active && !b.acting)) return true; await new Promise((r) => setTimeout(r, 100)); } return false; });
 await settle();

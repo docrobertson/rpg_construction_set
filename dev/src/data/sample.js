@@ -10,6 +10,8 @@ import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
 import { eventFromTemplate, arenaBouts } from '../game/events.js';
 import { buryable, pacesText, addCrab } from '../game/treasure.js';
+import { sowFields } from '../world/countryside.js';
+import { fitCache, DUNGEON_CACHES } from './containers.js';
 
 export const SAMPLE_ID = 'sample_shadow_over_eldmark';
 
@@ -217,6 +219,9 @@ function buildSample() {
   // (last of all, so every id made before keeps its place in old saves)
   hideTreasures(game, w, westhold);
   addPlaces(game, w);
+  addCharms(game, w);
+  harbourYard(game, w);
+  addCountryside(game, w);
   return game;
 }
 
@@ -286,7 +291,8 @@ function hideTreasures(game, w, westhold) {
 }
 
 // The places added for sailors and wanderers: Hob's farmstead made a proper
-// homestead, the shipyard at Gullhaven where a ship is bought, the
+// homestead, the shipyard at Gullhaven where a ship is bought (made a simple
+// place on the map at the end: harbourYard), the
 // smugglers' sea cave on the western skerry (reached only by ship) and the
 // chart to their hoard on the far north-eastern isle, the lighthouse on Gull
 // Point, the Red Pit by Brookend, a fortune-teller's caravan and a fairy ring.
@@ -401,6 +407,162 @@ function addPlaces(game, w) {
 
   // the free ship is gone from Westhold's harbour: ships are bought now
   w.entities = w.entities.filter((e) => e.id !== 'ship_westhold');
+}
+
+// Charms, the fifth slot: who sells them (Pelagia's curios in Westhold, the
+// sage, the dwarves, Pell on the road), who gives them (quest rewards, the
+// great foes' spoils, the hoards), and four places only a worn charm opens:
+// the islet in the Heron Mere (wading the shallows), the Dragon's Eyrie in the
+// Grey Mountains (climbing), the sealed vault of Hammerdeep (a Ring of
+// Opening) and an elven cache in Silverwood hidden from mortal eyes (true
+// sight). (Built last of all, so every id made before keeps its place.)
+function addCharms(game, w) {
+  const item = (id) => game.items.find((i) => i.id === id);
+  const mapNamed = (name) => game.maps.find((m) => m.name === name);
+  const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const placed = (monster) => w.entities.find((e) => e.type === 'monster' && e.monster === monster);
+  const give = (holder, ...ids) => { if (holder) holder.loot = [...(holder.loot || []), ...ids.map((id) => ({ id, n: 1 }))]; };
+  const sell = (shop, ...ids) => { if (shop?.shop) shop.shop.stock = [...new Set([...(shop.shop.stock || []), ...ids])]; };
+  const reward = (qid, ...ids) => { const q = game.quests.find((x) => x.id === qid); if (q) q.reward.items = [...(q.reward.items || []), ...ids.map((id) => ({ id, n: 1 }))]; };
+
+  // the tale's magic arms and armour gain a little magic of their own
+  Object.assign(item('tidecaller'), { effects: [{ type: 'wade' }, { type: 'resist', status: 'slowed', chance: 1 }] });
+  Object.assign(item('serpent_shield'), { effects: [{ type: 'resist', status: 'poisoned', chance: 0.5 }] });
+  Object.assign(item('whisperwind'), { effects: [{ type: 'onStart', status: 'hidden', rounds: 1, who: 'self' }] });
+  Object.assign(item('gilded_buckler'), { effects: [{ type: 'spoils', gold: 0.15 }] });
+  Object.assign(item('fallen_hauberk'), { effects: [{ type: 'resist', status: 'afraid', chance: 1 }] });
+  Object.assign(item('brakkas_cleaver'), { effects: [{ type: 'onStart', status: 'enraged', rounds: 2, who: 'self' }] });
+
+  // --- Pelagia's curios, in Westhold's square: a few charms, and dear
+  addNpc(mapNamed('Westhold'), 21, 22, {
+    id: 'npc_pelagia', name: 'Pelagia', race: 'human', role: 'merchant', wander: 1, desc: 'a weathered old woman behind a tray of shells, charms and curios',
+    lookExtra: { body: 0x4a6a7a, robe: true, hat: 'hood', hatColor: 0x2a4a5a, cape: 0x6a4a7a, hair: 0xd8d8d0 },
+    greeting: 'Charms, dearies! Lucky acorns, selkie shells, owl feathers — every one of them true.',
+    job: 'I sell CHARMS: trinkets with a little magic in them. They only work if you WEAR them, mind.',
+    keywords: [
+      kw('CHARMS', 'Rings, amulets, feathers, shells. A hero has one hand free for a charm — the charm slot, the young ones call it. In the pack they sleep; worn, they wake. Ask to BUY.'),
+      kw('WEAR', 'Open your hero\'s sheet and put it in the Charm slot. One each. Don\'t ask me why — the magic is jealous.'),
+      kw('SHELL', 'A selkie\'s shell. Hold it in your fist and walk out over the SHALLOWS — the sea holds you up. Slow going, but no boat needed.'),
+      kw('SHALLOWS', 'East of Westhold, behind the dunes, lies the HERON Mere. No boat was ever carried that far from the sea, so no one has set foot on its islet. With a shell, you could.'),
+      kw('HERON', 'The herons nest on the islet in the mere. Something glints there in the reeds, the fishermen say. Herons like shiny things.'),
+      kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
+      kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
+    ],
+    shop: { kind: 'charms', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'gull_feather', 'hazel_twig', 'selkie_shell', 'thunder_egg', 'owl_feather'], priceMod: 1.25 },
+    rumour: 'There\'s an old woman in the square sells charms. Selkie shells and the like — dear, mind. My cousin swears by his lucky acorn.',
+  });
+  // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
+  sell(npc('npc_merek'), 'star_ring', 'warding_mirror', 'owl_feather');
+  const deep = mapNamed('Hammerdeep');
+  sell(deep?.entities.find((e) => e.shop?.kind === 'armor'), 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc');
+  sell(deep?.entities.find((e) => e.shop?.kind === 'weapons'), 'forgespark_amulet');
+  sell(npc('npc_pell'), 'lucky_acorn', 'giants_hobnail', 'honeycake_tin');
+  sell(npc('npc_nim'), 'fox_ring'); // (a thief's ring, from a thief)
+  sell(mapNamed('Lindaleth')?.entities.find((e) => e.shop?.kind === 'reagents'), 'wildwood_whistle', 'hawk_eye');
+  sell(mapNamed('Brookend')?.entities.find((e) => e.shop?.kind === 'provisions'), 'honeycake_tin', 'hearth_stone');
+
+  // quest rewards and what the great foes carry
+  reward('q_wolf', 'wolf_tooth');
+  reward('q_brookend', 'hearth_stone');
+  reward('q_spiders', 'leaf_brooch');
+  reward('q_chart', 'ring_of_opening');
+  reward('q_lay', 'golden_string');
+  const chart = game.quests.find((q) => q.id === 'q_chart');
+  if (chart) chart.stages[1].say = 'The chart! And annotated! The third moon — of course! Here, take these from my stores, with a scholar\'s thanks. And this ring came with the chart, wrapped in a note: "For the dwarves\' VAULT. I sealed it; this unseals it. Do not lose it. — F."';
+  give(placed('grishak'), 'salamander_scale');
+  give(placed('spider_queen'), 'viper_amulet');
+  give(placed('west_serpent'), 'kings_coin');
+  give(placed('troll'), 'trollblood_ring');
+  give(placed('drake'), 'phoenix_ember');
+  // (in the dungeons' own hoards, not on their bosses: a rebuilt dungeon makes its boss anew)
+  const hoardWith = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.type === 'chest' && (e.items || []).some((i) => i.id === id));
+  hoardWith('rune_key')?.items.push({ id: 'moonstone', n: 1 }); // the Hollow King's pale stone
+  hoardWith('duellists_rapier')?.items.push({ id: 'bone_dice', n: 1 }); // Black Maddoc's dice
+  // buried: Brannoc's horn with the pay-chest of Elendur's host, the sunstone with the Laughing God's tithe
+  for (const [id, it] of [['tr_downs', 'horn_of_brannoc'], ['tr_tithe', 'sunstone']]) {
+    const t = w.entities.find((e) => e.id === id);
+    if (t) t.items = [...(t.items || []), { id: it, n: 1 }];
+  }
+
+  // --- the Heron Mere: a shallow lake behind the dunes, its islet reached only by wading
+  const mere = { x: 28, y: 60 };
+  for (let y = mere.y - 4; y <= mere.y + 4; y++) for (let x = mere.x - 4; x <= mere.x + 4; x++) {
+    const d = Math.hypot(x - mere.x, y - mere.y);
+    if (!inBounds(w, x, y) || w.entities.some((e) => e.x === x && e.y === y)) continue;
+    const t = terrain(getTile(w, x, y));
+    if (t.water || t.feature || t.key === 'road') continue;
+    if (d < 0.5) setTile(w, x, y, T.meadow);
+    else if (d < 1.1) setTile(w, x, y, y < mere.y ? T.forest : T.meadow); // (the islet, a tree for the herons)
+    else if (d <= 2.3) setTile(w, x, y, T.shallows);
+    else if (d <= 3.4) setTile(w, x, y, (x + y) % 3 ? T.meadow : T.swamp);
+  }
+  w.entities.push({ id: 'chest_heron', type: 'chest', x: mere.x, y: mere.y, gold: '60', items: [{ id: 'leech_stone', n: 1 }, { id: 'healing_draught', n: 2 }] });
+  const heronSign = nearestWhere(w, mere.x, mere.y + 4, (t) => t.walk && !t.water && !t.feature && t.key !== 'road');
+  w.entities.push({ id: 'sign_heron', type: 'sign', x: heronSign.x, y: heronSign.y, text: 'HERON MERE. The herons nest on the islet; no boat was ever carried this far from the sea. (Something glints in the reeds out there.)' });
+
+  // --- the Dragon's Eyrie: a high vale closed in by the Grey Mountains, reached only by climbing
+  const rocky = (x, y) => inBounds(w, x, y) && ['mountains', 'peaks', 'hills'].includes(terrain(getTile(w, x, y)).key) && !w.entities.some((e) => e.x === x && e.y === y);
+  let vale = null;
+  for (let r = 0; r < 14 && !vale; r++) for (let dy = -r; dy <= r && !vale; dy++) for (let dx = -r; dx <= r && !vale; dx++) {
+    const cx = 25 + dx, cy = 16 + dy;
+    let ok = true;
+    for (let y = cy - 2; y <= cy + 2 && ok; y++) for (let x = cx - 2; x <= cx + 2 && ok; x++) ok = rocky(x, y);
+    if (ok) vale = { x: cx, y: cy };
+  }
+  if (vale) {
+    // a green vale of nine squares, walled all round by the peaks (steps go only N, S, E, W)
+    for (let y = vale.y - 2; y <= vale.y + 2; y++) for (let x = vale.x - 2; x <= vale.x + 2; x++) {
+      const d = Math.max(Math.abs(x - vale.x), Math.abs(y - vale.y));
+      if (d <= 1) setTile(w, x, y, d === 0 || (x + y) % 2 ? T.meadow : T.grass);
+      else if (terrain(getTile(w, x, y)).key === 'hills') setTile(w, x, y, T.mountains);
+    }
+    w.entities.push({ id: 'chest_eyrie', type: 'chest', x: vale.x, y: vale.y, gold: '180', items: [{ id: 'dragons_eye', n: 1 }, { id: 'greater_draught', n: 1 }] });
+    w.entities.push({ ...eventFromTemplate('lore'), id: 'ev_eyrie', x: vale.x - 1, y: vale.y - 1, name: 'The Dragon\'s Eyrie',
+      text: 'A hidden vale high among the peaks, green and still. Great bones lie half-sunk in the turf: the skull of a dragon, a black arrow still fixed in one eye-socket. The other socket is empty.',
+      choices: [{ label: 'Read the runes on the arrow', text: '"Elendur shot this." Then the dragon\'s other eye was taken as a prize... and hidden here, it seems.', effects: { lore: true, xp: 30 } }, { label: 'Leave it', leave: true }] });
+  }
+
+  // --- the old vault of Hammerdeep, sealed by Fennick's art
+  const durgan = npc('npc_durgan');
+  if (deep && durgan) {
+    const at = freeSpot(deep, durgan.x + 4, durgan.y);
+    deep.entities.push({ id: 'chest_vault', type: 'chest', x: at.x, y: at.y, gold: '250', items: [{ id: 'heart_of_the_mountain', n: 1 }], sealed: true,
+      sealedText: 'The old vault of the kings is shut with a ward of blue fire. No key fits it; Durgan\'s smiths say only a RING of opening could undo it.' });
+    durgan.keywords.push(
+      kw('VAULT', 'The old vault of the kings. When the goblins came, the wizard Fennick sealed it for us — and kept the only RING that opens it. The Heart of the Mountain lies within.'),
+      kw('RING', 'Fennick\'s ring of opening. Find the old fool on his isle; if he gives thee the ring, the vault is thine to open — and what is in it, if thou be of dwarf-kind, to wear.'));
+  }
+  const fen = npc('npc_fennick');
+  if (fen) fen.keywords.push(kw('RING', 'My Ring of Opening! I made it after locking myself out of my own tower. Twice. I left it with my star-chart for young Merek — ask HIM.'));
+
+  // --- an elven cache in Silverwood, hidden from mortal eyes
+  const cache = nearestWhere(w, 65, 36, (t) => t.key === 'forest' || t.key === 'pines');
+  w.entities.push({ id: 'chest_elfcache', type: 'chest', x: cache.x, y: cache.y, unseen: true, gold: '120', items: [{ id: 'phial_of_morning', n: 1 }] });
+  const ith = npc('npc_ithilwen');
+  if (ith) ith.keywords.push(kw('PHIAL', 'Light caught from the first dawn. We hid it in the wood, south-west of this glade, where no mortal eye can find it. An owl\'s eye is not mortal, mind.'));
+  if (ith) ith.keywords.find((k) => k.key === 'LIGHT').afterText = 'Holy prayers and the light of the stars — those are thy weapons against him. And the PHIAL, if thou canst find it.';
+}
+
+// Gullhaven made a simple place on the map: no town to walk about, just the
+// quay and the yard, where Master Halloran builds a ship for whoever can pay.
+// (Its old town is still built first and then taken away, so everything made
+// after it keeps its id in old saves; a ship bought there is the same ship.)
+function harbourYard(game, w) {
+  const haven = game.maps.find((m) => m.name === 'Gullhaven');
+  if (!haven) return;
+  game.maps = game.maps.filter((m) => m !== haven);
+  const gate = w.entities.find((e) => e.type === 'portal' && e.target?.map === haven.id);
+  w.entities = w.entities.filter((e) => e !== gate);
+  w.entities.push({
+    id: 'ev_gullhaven', type: 'event', kind: 'shipyard', name: 'Gullhaven', x: gate?.x ?? 20, y: gate?.y ?? 45, repeat: 'always',
+    text: 'Gullhaven is a quay, a slipway and a tarred shed, with a gull on every post. On the slipway stands a new hull, her oak ribs still pale from the saw. Master Halloran the shipwright wipes the tar from his hands. "Come about a ship? The Gull wants only her mast and sails. Four hundred and fifty gold, and my lads will float her and moor her at the quay."',
+    ship: { id: 'ship_npc_halloran', name: 'Gull', price: 450, x: 19, y: 45 },
+    choices: [
+      { label: 'Have the Gull built', text: '', effects: { ship: true } },
+      { label: 'Ask about the sea', text: '"The black rock far out west? Smugglers, they say: Black Maddoc\'s lot. No honest captain goes there. And Old Gulper the serpent is why I\'ve a ship to sell at all — no fisherman will buy one while he\'s out there. Old Fenn at the Gull Point light, up the shore, knows the sea better than anyone."' },
+      { label: 'Walk on', leave: true },
+    ],
+  });
 }
 
 function dressHaven(game, map) {
@@ -525,7 +687,7 @@ function placeWonders(game, w, { barrow, fortress, tower, village }) {
     lookExtra: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x8a2a2a, cape: 0x5a3a1a },
     greeting: 'Pell\'s Peerless Provisions! Rare goods from four kingdoms! Wouldst thou BUY?',
     job: 'I walk the roads with the finest goods in Eldmark. Prices are fair — mostly. Ask to BUY.',
-    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
+    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'votive_candle', 'larks_honey', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
     keywords: [kw('RUMOURS', 'They say a troll has claimed the Eldwater bridge. Pays to be clever with trolls — or rich.')],
     rumour: 'Pell the pedlar walks the great road. He sells things you won\'t find in any shop.',
   });
@@ -923,7 +1085,7 @@ function dressCastle(game, map) {
     greeting: 'Provisions for the King\'s champions? Thou\'lt not march far on an empty belly.',
     job: 'I keep the castle stores: FOOD, torches and draughts. Wouldst thou BUY?',
     keywords: [kw('FOOD', 'Rations, waybread, salt pork. Every hero eats a ration each twenty paces or so in the wild — more than folk expect. Stock up before the road.')],
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'iron_key'] },
+    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'votive_candle', 'larks_honey', 'iron_key'] },
   });
   nameNpcs(map, game, 2);
   const smith = map.entities.find((x) => x.shop?.kind === 'weapons');
@@ -977,7 +1139,7 @@ function dressElves(game, map) {
     lookExtra: { body: 0x8ab06a, robe: true, trim: 0xf0e0b0 },
     greeting: 'Thou lookest hungry. Elven waybread keeps for a month and fills a soldier for a day.',
     job: 'I bake the waybread of Lindaleth, and keep a few draughts besides. Wouldst thou BUY?',
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'torch'] },
+    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'votive_candle', 'larks_honey', 'torch'] },
   });
   nameNpcs(map, game, 3);
   const singer = addNpc(map, 12, 22, {
@@ -1124,4 +1286,273 @@ function dressTower(game, map) {
     ],
     recruit: { race: 'human', cls: 'wizard', level: 4, joinText: 'Very well! One last adventure. Where did I leave my hat?', stats: { str: 9, dex: 12, int: 17, wis: 15 } },
   });
+}
+
+// The countryside, last of all: fields round the towns; mills, hives and an
+// orchard that sell food; old places with a story (two brothers who held the
+// ford, a haunted chapel on the Downs, a mill the orcs burned); treasure kept
+// in things that look like what they are; and the companions' battle arts.
+// Three small side quests tie it together, each built only from events and
+// flags — the sort of thing a designer can make in the Construction Set.
+function addCountryside(game, w) {
+  const open = (t) => t.walk && !t.water && !t.feature && t.key !== 'road' && t.key !== 'bridge';
+  // (in the clear, where the trees will not hide them)
+  const clear = (t) => open(t) && t.key !== 'forest' && t.key !== 'pines';
+  const put = (id, tpl, x, y, extra = {}, pred = clear) => {
+    const p = nearestWhere(w, x, y, pred);
+    const e = { ...eventFromTemplate(tpl), id, x: p.x, y: p.y, ...extra };
+    w.entities.push(e);
+    return e;
+  };
+  // (a mill wants running water beside it)
+  const besideWater = (x, y) => {
+    for (let r = 0; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(w, nx, ny) || !clear(terrain(getTile(w, nx, ny))) || w.entities.some((e) => e.x === nx && e.y === ny)) continue;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([ax, ay]) => inBounds(w, nx + ax, ny + ay) && terrain(getTile(w, nx + ax, ny + ay)).water)) return { x: nx, y: ny };
+    }
+    return { x, y };
+  };
+  const chest = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const leave = (label = 'Walk on') => ({ label, leave: true });
+
+  // ---------------------------------------------------------- the Burnt Mill
+  // Brookend's mill grinds on; the old mill up the east road is a shell, and
+  // its miller wants two things back: his strongbox and his cat.
+  put('ev_brookend_mill', 'windmill', 60, 53, {
+    name: 'Brookend Mill',
+    text: 'The sails of Brookend Mill creak round over the village fields. Ned the miller, white with flour from his eyebrows to his boots, leans in the doorway. He looks tired. "Bread\'s just out, if you\'ve coin. I grind for my cousin now. Had a mill of my own, once — up the east road. Before the orcs."',
+    choices: [
+      { label: 'Buy flour and fresh bread (8 gold)', text: 'Two warm loaves and a sack of flour. "Mind the sack, it leaks."', effects: { food: 25 }, cost: { gold: 8 }, req: { type: 'noflag', value: 'q_mill_home' } },
+      { label: 'Buy bread at a friend\'s price (4 gold)', text: '"For you? Half price, and Tansy\'s blessing." The cat, on the flour sacks, does not look up.', effects: { food: 25 }, cost: { gold: 4 }, req: { type: 'flag', value: 'q_mill_home' } },
+      { label: 'Ask Ned about his old mill', text: '"Grishak\'s raiders fired it, a month back. Took the flour, smashed the stones. I ran for it. Left everything — my strongbox with the mill-deeds in it, and..." His voice wobbles. "And Tansy. My cat. She wouldn\'t come. Would you look, if you\'re going east? I\'d make it worth your while."', effects: { quest: 'q_mill', flag: 'q_mill_asked' }, hideFlag: 'q_mill_asked' },
+      { label: 'Give Ned his strongbox and Tansy', text: 'Ned opens the scorched box with shaking hands — the deeds are there, a little brown at the edges. Then Tansy jumps down from your arms and winds round his boots, and the old man sits down in the flour and weeps. "Rebuild it. I\'ll rebuild it. Come back and I\'ll bake you a loaf the size of a cartwheel."', effects: { flag: 'q_mill_home', xp: 20 }, req: { type: 'flag', value: 'ev_burnt_mill_cat' }, lockedText: 'Find his strongbox and his cat first', hideFlag: 'q_mill_home' },
+      { label: 'Climb up to the cap and look about', text: 'Past the rumbling stones to the little window under the cap. The Eastfold lies spread out below like a patchwork quilt, and far to the east, the Ashen Peaks smoke.', effects: { reveal: 14 } },
+      leave(),
+    ],
+  });
+  const burnt = put('ev_burnt_mill', 'ruined_mill', 66, 49, {
+    name: 'Ned\'s Burnt Mill', setsFlag: 'ev_burnt_mill_cat',
+    text: 'Ned\'s mill is a blackened shell, its sails fallen and broken in the grass, its stones split by the heat. Goblin footprints are everywhere, fresh ones. On a charred beam high in the ruin sits a grey cat, watching you with deep suspicion.',
+    choices: [
+      { label: 'Coax Tansy down', text: 'It takes a long while and most of your dried fish. The cat accepts both, then climbs into {who}\'s arms and purrs like a millstone. "Tansy?" Her ears twitch. That\'s her.', effects: { xp: 10, flag: '{id}_cat' }, cost: { food: 3 }, hideFlag: '{id}_cat' },
+      { label: 'Poke about in the ashes', text: 'Something hisses in the cellar — and it isn\'t the cat. Goblin scavengers come boiling out of the dark!', effects: { fight: 'goblin', count: '3-4' }, hideFlag: '{id}_goblins',
+        win: { gold: 15, xp: 20, flag: '{id}_goblins', text: 'The scavengers lie still. They had been picking the ruin bare — but they never found the strongbox under the floor.' } },
+      leave(),
+    ],
+  });
+  // the strongbox itself, under the fallen beam
+  {
+    const p = nearestWhere(w, burnt.x + 1, burnt.y, open);
+    w.entities.push({ id: 'chest_neds_box', type: 'chest', x: p.x, y: p.y, name: 'Ned\'s Strongbox', look: { kind: 'strongbox' }, flag: 'q_mill_box', gold: '30', items: [{ id: 'healing_draught', n: 1 }] });
+  }
+
+  // ---------------------------------------------------------- the brothers of the ford
+  // Aldred and Edric held the Eldwater ford against the dark and died there
+  // side by side. Aldred stands; the orcs toppled Edric. Their oath-rings
+  // were buried with them, and the rings remember each other.
+  put('ev_aldred', 'statue', 50, 46, {
+    name: 'Statue of Aldred the Steadfast', setsFlag: 'q_brothers_heard',
+    look: { kind: 'statue', figure: { kind: 'humanoid', race: 'human', armor: 'chain', hat: 'helm', weapon: 'sword', beard: 0x888888, face: 'bold' } },
+    text: 'A stone knight stands by the ford, sword raised against the east, his face stern beneath a cap of moss. Coins and flowers lie at his feet. Across the river, on the far bank, his twin lies toppled in the grass.',
+    choices: [
+      { label: 'Scrape the moss off the inscription', text: '"ALDRED THE STEADFAST, WHO HELD THE FORD WITH HIS BROTHER EDRIC AGAINST THE DARK, AND FELL THERE. HE LIES WITH THE KINGS ON THE DOWNS; HIS BROTHER UNDER THE EASTERN STONE. STAND AS THEY STOOD."', effects: { lore: true, xp: 15, quest: 'q_brothers', flag: 'q_brothers_heard' } },
+      { label: 'Leave a coin at his feet (1 gold)', text: 'The old knight seems, just for a moment, to nod.', effects: { blessing: 'might', turns: 240 }, cost: { gold: 1 } },
+      leave(),
+    ],
+  });
+  put('ev_edric', 'toppled_statue', 55, 50, {
+    name: 'Toppled Statue of Edric', setsFlag: 'ev_edric_box',
+    look: { kind: 'statue', ruined: true, figure: { kind: 'humanoid', race: 'human', armor: 'chain', hat: 'helm', weapon: 'axe', beard: 0x888888, face: 'bold' } },
+    text: 'A stone knight lies on his back by the eastern bank, broken off at the shins, his feet still standing on the plinth. Orcs did this: they have drawn a moustache on him in charcoal. His stone eyes regard the clouds with great patience.',
+    choices: [
+      { label: 'Read the cracked plinth', text: '"EDRIC, WHO HELD THE FAR BANK." And, in smaller, newer letters, in orcish: "NOT ANY MORE HE DOESN\'T."', effects: { lore: true, xp: 10 } },
+      { label: 'Heave him over and look underneath', text: 'Wedged under his stone shoulder, where no orc could reach it without a great deal of heaving: a small iron box. Inside, wrapped in a scrap of old blue cloth, a silver ring.', effects: { items: [{ id: 'oath_ring_edric', n: 1 }], xp: 20, flag: '{id}_box' }, req: { type: 'stat', value: 'str:13' }, lockedText: 'Needs Strength 13 to heave him over', hideFlag: '{id}_box' },
+      { label: 'Wipe off the moustache', text: 'There. A little dignity restored. You feel oddly better for it.', effects: { xp: 5, flag: '{id}_clean' }, hideFlag: '{id}_clean' },
+      leave(),
+    ],
+  });
+  put('ev_downs_graves', 'graveyard', 37, 64, {
+    name: 'Graves of the Ford-Wardens', setsFlag: 'ev_downs_graves_laid',
+    text: 'Lichened headstones lean inside a tumbledown wall on the edge of the Downs. Pale lights drift between the graves though it is not yet dark, and the crypt door at the back — carved with two crossed swords — stands open a hand\'s breadth. It was not open a moment ago.',
+    choices: [
+      { label: 'Read the headstones', text: '"HERE LIES OLD TOM, WHO KEPT THE GATE. HE OPENED IT ONCE, A LITTLE TOO LATE." And, over the crypt: "ALDRED. HIS BROTHER WAITS."', effects: { lore: true, xp: 10 } },
+      { label: 'Go down into the crypt', text: 'You push the door. Bones rattle in the dark — and stand up.', effects: { fight: 'skeleton', count: '3' }, hideFlag: '{id}_laid',
+        win: { gold: 40, xp: 30, flag: '{id}_laid', items: [{ id: 'oath_ring_aldred', n: 1 }], text: 'The dead lie still at last. On Aldred\'s stone hand, a silver ring, warm as if someone had just taken it off.' } },
+      { label: 'Leave flowers on the oldest grave', text: 'You lay wild flowers on a grave so old its name is gone. The pale lights gather round you for a moment, then drift away, content.', effects: { xp: 10, heal: '1d6', flag: '{id}_flowers' }, hideFlag: '{id}_flowers' },
+      leave('Hurry on'),
+    ],
+  });
+
+  // ---------------------------------------------------------- the haunted chapel
+  put('ev_kings_chapel', 'chapel', 42, 44, {
+    name: 'Kingsroad Chapel', repeat: 'always', // (the quest is told here, any time)
+    text: 'A little chapel of grey stone stands by the King\'s road, its bell tower leaning just slightly, as if listening. Inside it is cool and smells of candle-wax. Brother Aelric is sweeping the step. "All are welcome. Even the muddy ones."',
+    choices: [
+      { label: 'Kneel and pray', text: 'The quiet settles on you like a cloak. When you rise, you feel steadier.', effects: { blessing: 'ward', turns: 300 } },
+      { label: 'Ask Brother Aelric to tend your wounds (15 gold, for the poor box)', text: 'He washes and binds your hurts with gentle, practised hands, murmuring a blessing over each.', effects: { heal: 'full' }, cost: { gold: 15 } },
+      { label: 'Ask about the old chapel on the Downs', text: '"Ah. The Chapel of the Fallen Host. My order kept it, once, until the barrow-kings stirred. Brother Osmund would not leave. He is there still, I fear — and not at rest. If you could lay him down gently... I would be in your debt."', effects: { quest: 'q_ghost', flag: 'q_ghost_asked' }, hideFlag: 'q_ghost_asked' },
+      { label: 'Tell Brother Aelric that Osmund is at rest', text: 'The old monk closes his eyes. "Then he is with the Host at last." He presses something into your hands. "His. He would want it to go on ringing."', effects: { flag: 'q_ghost_told' }, req: { type: 'flag', value: 'ev_fallen_chapel_ghost' }, lockedText: 'Not until Brother Osmund is at rest', hideFlag: 'q_ghost_told' },
+      { label: 'Ring the bell', text: '{who} hauls on the rope. BONG. BONG. Crows burst from every tree for a league around. Brother Aelric sighs. "It is meant for feast-days."' },
+      leave(),
+    ],
+  });
+  put('ev_fallen_chapel', 'ruined_chapel', 46, 63, {
+    name: 'Chapel of the Fallen Host', setsFlag: 'ev_fallen_chapel_ghost',
+    text: 'Roofless walls, an empty gable and a fallen beam across the nave; ivy has taken the rest. A cold pale light hangs in the air above the altar, like a held breath, and somewhere a bell rings that is not there.',
+    choices: [
+      { label: 'Read the runestone in the nave', text: '"I KEPT THIS HOUSE AND I KEEP IT STILL. LEAVE IT AS YOU FOUND IT. — OSMUND"', effects: { lore: true, xp: 15 } },
+      { label: 'Speak to the light', text: 'The light gathers itself into the shape of a robed figure with empty eyes. Its voice is the creak of the old doors: "THIEVES." It raises its hands...', effects: { fight: 'barrow_wight', count: '1' }, hideFlag: '{id}_ghost',
+        win: { gold: 50, xp: 50, flag: '{id}_ghost', items: [{ id: 'votive_candle', n: 2 }], text: 'The figure sighs and thins to nothing. "Thank you," says the empty air. Where it stood: two church candles that never quite burn down, and the poor box, still full.' } },
+      { label: 'Pray in the quiet nave', text: 'The chapel is only a ruin now, but a peaceful one. Something old and kind seems to listen.', effects: { blessing: 'ward', turns: 300 }, req: { type: 'flag', value: '{id}_ghost' }, lockedText: 'Not while it is haunted' },
+      leave('Leave quietly'),
+    ],
+  });
+
+  // ---------------------------------------------------------- farm and mill
+  { // (a watermill wants the river beside it: on the nearest bank)
+    const at = besideWater(53, 41);
+    w.entities.push({ ...eventFromTemplate('watermill'), id: 'ev_eldwater_mill', x: at.x, y: at.y, name: 'Eldwater Mill' });
+  }
+  put('ev_milos_hives', 'apiary', 56, 54, {
+    name: 'The Brambleby Hives',
+    text: 'Straw skeps hum on a bench among the lavender at the edge of Brookend. Old Mother Brambleby, Milo\'s grandmother, moves between them in her veil, talking to the bees as if they were old friends. "Mind your manners," she says. "They know if you\'re rude. So does Milo."',
+  });
+  put('ev_kings_orchard', 'orchard', 48, 31, {
+    name: 'The King\'s Orchard',
+    text: 'Gnarled old apple trees stand in rows below the castle, heavy with red fruit. A sign hangs on the gate: "WINDFALLS FREE TO ALL. PICKED, THREE COIN THE BASKET, BY ORDER OF KING ALDRIC. THIEVES, A BOOT UP THE BREECHES, ALSO BY ORDER OF KING ALDRIC."',
+  });
+  put('ev_amos_fold', 'shepherd', 37, 46, {
+    name: 'Old Amos\'s Fold',
+    text: 'Sheep crowd a pen of wattle hurdles beside a round stone hut. Old Amos, Wynn\'s grandfather, leans on his crook, his dog at his feet, watching the dark edge of the old forest. "Wolves," he says, before you can ask. "Greyfang\'s lot. Every night this moon, bold as bailiffs."',
+  });
+  put('ev_woodcutters', 'woodcutters', 35, 42, {
+    name: 'Woodcutters\' Clearing',
+    choices: [
+      { label: 'Lend a hand for the day', text: '{who} swings an axe from dawn to dusk. Your backs ache, but the foreman pays fair, and there is stew.', effects: { gold: 12, food: 8, xp: 15, flag: '{id}_worked' }, req: { type: 'stat', value: 'str:12' }, hideFlag: '{id}_worked' },
+      { label: 'Share their stew (2 gold)', text: 'Rabbit stew, black bread and a long argument about which wood burns best.', effects: { food: 12, heal: '1d6' }, cost: { gold: 2 } },
+      { label: 'Ask about the old forest', text: '"Stay on the paths. There\'s a black wolf in there big as a pony — Greyfang, the shepherds call him. Found a poacher\'s bones by his den last spring, satchel and all. We left it be. You go poking about there, you go armed."' },
+      leave(),
+    ],
+  });
+
+  // ---------------------------------------------------------- old places and wild places
+  put('ev_nine_maidens', 'circle', 45, 70, {
+    name: 'The Nine Maidens',
+    text: 'Nine grey stones stand in a ring on the Downs within sight of Grimholt, older than the barrow-kings, two of them capped with a great lintel. The wind does not blow inside the ring. Shepherds say the maidens danced on the Sabbath and were turned to stone for it; the stones look as if they would dance again, given half a chance.',
+  });
+  put('ev_pass_watch', 'tower', 70, 50, {
+    name: 'The Pass Watch',
+    choices: [
+      { label: 'Climb to the beacon', text: 'Ninety-nine steps (the fourth is loose). From the battlements you can see the whole road to the pass — and beyond it, the smoke of Grishak\'s camp.', effects: { reveal: 18 } },
+      { label: 'Ask what he has seen', text: '"Orcs, mostly. Grishak\'s lot camp by the road under the peaks, and they burn whatever they can\'t carry. Took Ned\'s mill last month. I lit the beacon. Nobody came." He spits. "Nobody ever comes."' },
+      { label: 'Share his watch-ration (2 gold)', text: 'Black bread, a hard sausage and a swig of something that makes your eyes water.', effects: { food: 10 }, cost: { gold: 2 } },
+      leave(),
+    ],
+  });
+  put('ev_ashford_farm', 'burnt_farm', 65, 58, { name: 'Ashford Farm' });
+  put('ev_merry_lark', 'wreck', 18, 59, {
+    name: 'Wreck of the Merry Lark',
+    text: 'The Merry Lark lies heeled over on the strand south of Westhold, her ribs bare where the sea has torn the planks away and her mast snapped like a twig. Gulls wheel and scream. A sea-chest has washed up beside her.',
+    choices: [
+      { label: 'Break open the sea-chest', text: 'Salt-stained shirts, a rusty cutlass — and at the bottom, a purse of foreign silver.', effects: { gold: 45, items: [{ id: 'antidote', n: 1 }], flag: '{id}_chest' }, hideFlag: '{id}_chest' },
+      { label: 'Search the hold', text: 'You crawl into the dark belly of the wreck and come out with ship\'s biscuit, salt pork and a keg of something.', effects: { food: 20, flag: '{id}_hold' }, hideFlag: '{id}_hold', chance: 0.6, failText: 'Ship\'s rats! Big ones, and they don\'t care to share.', failEffects: { fight: 'giant_rat', count: '3-5' } },
+      { label: 'Read the captain\'s log', text: 'The last entry, in a shaking hand: "Lights on the western skerry. Not Gull Point. NOT Gull Point. They are waving us in." Wreckers — and the skerry is Black Maddoc\'s.', effects: { lore: true, xp: 15 } },
+      leave(),
+    ],
+  }, (t) => t.key === 'sand');
+  put('ev_gallows_hill', 'gallows', 33, 55, {
+    name: 'Gallows Hill',
+    text: 'A gibbet creaks on the hill above the south road, an iron cage swinging from its arm. What is left of its last tenant grins down at you. A notice is nailed to the post: "SO PERISH ALL HIGHWAYMEN. BY ORDER OF MAYOR HILDA OF WESTHOLD." The bandits on the road below do not seem to have read it.',
+  });
+  // (in the hills under the peaks west of the hold, clear of the verse-stone)
+  put('ev_dwarf_quarry', 'quarry', 24, 21, {
+    name: 'Hammerdeep Quarry',
+    text: 'A raw face of cut grey stone where the hills meet the mountains west of the dwarf-hold, a wooden crane creaking over it and blocks stacked ready for the carts. The quarry-master, a dwarf grey with dust from beard to boots, eyes your company like stone he might buy. "You lot look like you can lift."',
+  });
+  put('ev_vorthax', 'bones', 60, 20, {
+    name: 'Bones of Vorthax',
+    text: 'The bones of a dragon lie half sunk in the snow, ribs arching higher than a house, one great wing-bone still raised against the sky. This was Vorthax, who nested in the Grey Mountains long ago — the Eyrie to the west was hers. Nothing grows near the skull. Even the crows keep a respectful distance — mostly.',
+  });
+  put('ev_broken_tower', 'ruined_tower', 27, 33, { name: 'The Broken Tower' });
+  put('ev_ash_circle', 'broken_circle', 80, 64, {
+    name: 'The Cinder Ring',
+    text: 'A ring of standing stones in the ash before Dol Garoth, most of them fallen, the rest scorched black. Whatever power was here, the Shadow has drunk most of it. Most.',
+  });
+
+  // ---------------------------------------------------------- treasure that looks like itself
+  const looks = {
+    chest_wolfwood: { name: 'Poacher\'s Bones', look: { kind: 'remains' } },
+    chest_isle: { name: 'Half-buried Sea Chest', look: { kind: 'seachest' } },
+    chest_heron: { name: 'Heron\'s Nest', look: { kind: 'nest' } },
+    chest_eyrie: { name: 'Nest of Vorthax', look: { kind: 'nest', color: 0x8a7a6a } },
+    chest_vault: { name: 'Vault of the Kings', look: { kind: 'runechest' } },
+    chest_elfcache: { name: 'Elven Reliquary', look: { kind: 'reliquary', color: 0x2a6a5a } },
+  };
+  for (const [id, v] of Object.entries(looks)) { const c = chest(id); if (c) Object.assign(c, v); }
+  // the Rune-Key lies in Ulfgar's own sarcophagus
+  const barrowMap = game.maps.find((m) => m.name === 'Grimholt Barrow');
+  const hoard = barrowMap?.entities.find((e) => e.type === 'chest' && (e.items || []).some((i) => i.id === 'rune_key'));
+  if (hoard) Object.assign(hoard, { name: 'Ulfgar\'s Sarcophagus', look: { kind: 'sarcophagus' } });
+  for (const [id, kind] of [['ev_201_cache', 'cave'], ['ev_207_cache', 'seacave']]) { const e = chest(id); if (e) fitCache(e, DUNGEON_CACHES[kind]); }
+  // Fennick's bookcase, with a hidden drawer
+  const towerMap = game.maps.find((m) => m.name === 'Tower of the Hermit');
+  const fen = towerMap?.entities.find((e) => e.id === 'npc_fennick');
+  if (fen) { const p = freeSpot(towerMap, fen.x - 1, fen.y); towerMap.entities.push({ id: 'chest_fennick_books', type: 'chest', x: p.x, y: p.y, name: 'Fennick\'s Bookcase', look: { kind: 'bookcase' }, gold: '20', items: [{ id: 'scroll_seeing', n: 1 }, { id: 'mana_tonic', n: 1 }] }); }
+  // the yard's unclaimed cargo, stacked on Gullhaven quay
+  { const p = nearestWhere(w, 21, 44, open); w.entities.push({ id: 'chest_gull_cargo', type: 'chest', x: p.x, y: p.y, name: 'Unclaimed Cargo', look: { kind: 'crates' }, gold: '12', items: [{ id: 'torch', n: 2 }, { id: 'rations', n: 2 }] }); }
+
+  // ---------------------------------------------------------- fields round the towns
+  // (after the places above, so nothing stands in a furrow)
+  sowFields(w, { seed: 1105, sites: [{ x: 22, y: 52 }, { x: 44, y: 28 }, { x: 60, y: 56 }, { x: 20, y: 45 }], keep: [game.settings.start] });
+
+  // ---------------------------------------------------------- companions' battle arts
+  const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
+  const arts = { npc_borin: ['hold_the_line'], npc_wynn: ['first_aid'], npc_milo: ['throw_knife'], npc_fennick: ['disengage'] };
+  for (const [id, a] of Object.entries(arts)) { const e = npc(id); if (e?.recruit) e.recruit.arts = a; }
+  const elf = game.maps.flatMap((m) => m.entities).find((e) => e.recruit?.race === 'elf');
+  if (elf) elf.recruit.arts = ['steady_aim'];
+
+  // ---------------------------------------------------------- word gets round
+  // (townsfolk point the way: each new place is mentioned by someone)
+  const says = (id, ...k) => { const e = npc(id); if (e) e.keywords = [...(e.keywords || []), ...k]; };
+  says('npc_hal', kw('MILL', 'Ned\'s mill up the east road? Grishak\'s lot burned it. Ned grinds for his cousin at Brookend Mill now, poor soul — ask him about it, he\'d be glad of the help.'));
+  says('npc_milo', kw('HIVES', 'Gran keeps the hives at the edge of the village. Tell the bees your news — they sulk if you don\'t. I am not joking. I am never joking about bees.'));
+  says('npc_wynn', kw('AMOS', 'My grandda, Old Amos. He keeps the fold east of town, by the old forest. He sits up nights with the sheep, for the WOLVES. Go and keep him company, if ye\'re brave.'));
+  says('npc_osric', kw('WRECK', 'The Merry Lark, on the strand south of town. Went aground in a clear sky. Lights on the skerry, the mate said, before he drowned. Wreckers, if you ask me.'));
+  says('npc_hilda', kw('FORD', 'The Eldwater ford, east of the crossroads. Aldred and Edric held it against the dark in my great-grandmother\'s day. Aldred\'s statue still stands there. The orcs knocked Edric\'s down.'),
+    kw('CHAPEL', 'Brother Aelric keeps the chapel on the King\'s road, north of the crossroads. He worries about the old one on the Downs. Everyone worries about the Downs.'));
+
+  // ---------------------------------------------------------- the three side quests
+  game.quests.push(
+    {
+      id: 'q_mill', name: 'The Burnt Mill',
+      summary: 'Ned the miller lost his mill on the east road to Grishak\'s raiders. He wants two things back from the ruin: his strongbox with the mill-deeds, and Tansy, his cat.',
+      stages: [
+        { text: 'Find Ned\'s strongbox and his cat Tansy at the burnt mill on the east road', goal: { type: 'flag', flags: 'q_mill_box,ev_burnt_mill_cat' } },
+        { text: 'Bring them back to Ned at Brookend Mill', goal: { type: 'flag', flags: 'q_mill_home' } },
+      ],
+      reward: { gold: 40, xp: 40, items: [{ id: 'honeycake_tin', n: 1 }] },
+      doneText: 'Ned has his deeds and his cat. He means to build the mill again, and Brookend will have bread at a friend\'s price.',
+    },
+    {
+      id: 'q_ghost', name: 'The Chapel of the Fallen Host',
+      summary: 'Brother Aelric of the Kingsroad Chapel asks you to lay to rest the spirit of Brother Osmund, who haunts the ruined Chapel of the Fallen Host on the Barrow Downs.',
+      stages: [
+        { text: 'Lay Brother Osmund\'s spirit to rest in the ruined chapel on the Barrow Downs', goal: { type: 'flag', flags: 'ev_fallen_chapel_ghost' } },
+        { text: 'Tell Brother Aelric at the Kingsroad Chapel', goal: { type: 'flag', flags: 'q_ghost_told' } },
+      ],
+      reward: { gold: 60, xp: 60, items: [{ id: 'barrow_bell', n: 1 }] },
+      doneText: 'Brother Osmund is at rest, and his bell rings on with you.',
+    },
+    {
+      id: 'q_brothers', name: 'The Brothers of the Ford',
+      summary: 'Aldred and Edric held the Eldwater ford against the dark and fell there side by side. Their silver oath-rings were buried with them, and the rings remember each other: worn together, they are stronger.',
+      stages: [
+        { text: 'Find the oath-rings: Aldred lies in the crypt of the ford-wardens on the Downs, Edric under his toppled statue on the eastern bank', goal: { type: 'flag', flags: 'ev_downs_graves_laid,ev_edric_box' } },
+      ],
+      reward: { xp: 50 },
+      doneText: 'Both oath-rings are found. Worn together by two of your company, the brothers stand at the ford again.',
+    },
+  );
 }

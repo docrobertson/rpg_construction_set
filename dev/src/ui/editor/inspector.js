@@ -8,6 +8,11 @@ import { defaultStock } from '../../world/generate.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
+import { isBattleground } from '../../game/delve.js';
+import { isHoard } from '../../game/charms.js';
+import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.js';
+import { containerLookFields } from './containerFields.js';
+import { battleArts } from '../../game/rules.js';
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -142,6 +147,8 @@ export function inspectEntity(ed, ent, container) {
           { key: 'recruit.cls', label: 'Joins as', type: 'select', options: () => game.classes.map((c) => [c.id, c.name]) },
           { key: 'recruit.race', label: 'Race', type: 'select', options: () => game.races.map((r) => [r.id, r.name]) },
           { key: 'recruit.level', label: 'Level', type: 'number', min: 1, max: 20 },
+          { key: 'recruit.arts', label: 'Knows these battle arts', type: 'multicheck', options: () => battleArts(game).map((a) => [a.id, a.name]),
+            hint: 'Skills any calling can learn (Abilities → battle arts); the rest come with their class and level' },
           { key: 'recruit.joinText', label: 'Says on joining', type: 'text' },
           { key: 'recruit.after', label: 'Joins after quest', type: 'select', options: () => [['', '— any time —'], ...(game.quests || []).map((q) => [q.id, q.name])], hint: 'Only once this quest is done; they ask to join as it ends' },
           { key: 'recruit.offerText', label: 'Says when offering', type: 'text', show: (o) => !!o.recruit?.after },
@@ -172,16 +179,30 @@ export function inspectEntity(ed, ent, container) {
       ], (k) => { if (k === 'monster') ed.lastMonster = ent.monster; changed(); if (k === 'monster') { ed.refreshEntities(); } }));
       break;
     }
-    case 'chest':
-      container.appendChild(head('Treasure chest'));
+    case 'chest': {
+      // (containers) a chest may be drawn as something else, and called by name
+      const auto = (o) => {
+        const k = chestLook({ ...o, look: null }, ed.map, isHoard(ed.map, o)).kind;
+        return { kind: k, why: o.name && containerLookFor(o.name) ? 'from its name' : k !== 'chest' ? 'suits the dungeon' : '' };
+      };
+      const lookName = CONTAINERS[chestLook(ent, ed.map, isHoard(ed.map, ent)).kind]?.label;
+      container.appendChild(head(ent.name || 'Treasure chest', lookName && lookName !== 'Treasure chest' ? lookName : ''));
       container.appendChild(buildForm(ent, [
+        { key: 'name', label: 'Name', type: 'text', placeholder: 'Overturned Cart', hint: 'Shown when pointed at, and in what opening it says: "You search the Overturned Cart…". A name such as "Hollow Oak" or "Old Cairn" also picks its look.' },
+        ...containerLookFields(auto, { hint: 'What the treasure is found in. The words follow: you lift a loose flagstone, rummage through sacks, search a fallen adventurer.' }),
         { key: 'gold', label: 'Gold', type: 'dice', placeholder: '3d20 or 50' },
         { key: 'items', label: 'Items', type: 'itemlist', options: () => game.items.map((i) => [i.id, i.name]) },
         { key: 'locked', label: 'Locked (needs a key or a burglar)', type: 'check' },
         { key: 'trap', label: 'Trapped', type: 'check' },
         { key: 'flag', label: 'Sets flag when opened', type: 'text' },
+        // (charms) ways only a worn charm opens, and a hoard's charm
+        { key: 'sealed', label: 'Sealed by magic (opens only to a charm of opening, e.g. a Ring of Opening)', type: 'check' },
+        { key: 'sealedText', label: 'Said when it will not open', type: 'textarea', rows: 2, show: (o) => !!o.sealed },
+        { key: 'unseen', label: 'Hidden from mortal eyes (only true sight, e.g. an Owl Feather, finds it)', type: 'check' },
+        { key: 'hoard', label: 'A hoard: also holds a charm, chosen for the company when opened', type: 'check', get: (o) => isHoard(ed.map, o), hint: 'A dungeon\'s final chest is one unless unticked.' },
       ], changed));
       break;
+    }
     case 'treasure': {
       container.appendChild(head('Buried treasure', `at ${ent.x}, ${ent.y}`));
       if (ent.bonus === undefined) ent.bonus = true; // (the game treats a missing one as on)
@@ -230,6 +251,10 @@ export function inspectEntity(ed, ent, container) {
         { key: 'target.y', label: 'Arrive at Y', type: 'number', nullable: true, show: (o) => o.target?.map !== 'exit' },
         { key: 'requires', label: 'Requires item', type: 'select', empty: '— nothing —', nullable: true, options: () => game.items.map((i) => [i.id, i.name]) },
         { key: 'lockedText', label: 'Message when barred', type: 'textarea', rows: 2, show: (o) => !!o.requires },
+        // (charms) a way sealed by magic, or hidden from mortal eyes
+        { key: 'sealed', label: 'Sealed by magic (only a charm of opening opens it)', type: 'check' },
+        { key: 'sealedText', label: 'Said when it will not open', type: 'textarea', rows: 2, show: (o) => !!o.sealed },
+        { key: 'unseen', label: 'Hidden from mortal eyes (only true sight finds it)', type: 'check' },
       ], changed));
       const tgt = game.maps.find((m) => m.id === ent.target?.map);
       if (tgt) {
@@ -249,7 +274,7 @@ export function inspectMap(ed, container) {
   const game = ed.game, map = ed.map;
   clear(container);
   container.appendChild(h('div.insp-head', h('b', 'Map properties'), h('span', `${map.w} × ${map.h}`)));
-  container.appendChild(buildForm(map, [
+  const form = buildForm(map, [
     { key: 'name', label: 'Name', type: 'text' },
     { key: 'type', label: 'Kind', type: 'select', options: Object.entries(MAP_TYPES).map(([k, v]) => [k, v.label]) },
     { key: 'lighting', label: 'Lighting', type: 'select', options: [['day', 'Daylight'], ['dusk', 'Dusk'], ['night', 'Night'], ['dark', 'Dark (needs light)']], rerender: true },
@@ -262,7 +287,16 @@ export function inspectMap(ed, container) {
     if (k === 'lighting') ed.view.setLighting(map.lighting);
     if (k === 'fill' || k === 'name') ed.reloadMap();
     if (k === 'name' || k === 'type') ed.refreshMapList();
-  }));
+    // (delve) the battleground default follows the kind; a redrawn form needs its box again
+    if ((k === 'type' && map.battleground == null) || k === 'lighting') setTimeout(() => { if (container.isConnected && ed.map === map) inspectMap(ed, container); });
+  });
+  container.appendChild(form);
+  // (delve) dungeons are fought over where they stand, unless the designer says otherwise
+  const bg = h('input', { type: 'checkbox' });
+  bg.checked = isBattleground(map);
+  bg.addEventListener('change', () => { map.battleground = bg.checked; ed.markDirty(); });
+  if (map.type !== 'world') form.insertBefore(h('label.field.check.dv-bg', { title: 'On by default for dungeons: turn it on for, say, a haunted castle, or off for a peaceful mine' }, bg, h('span.field-label', 'Battleground'),
+    h('span.field-hint', 'Every monster stands on the map and each hero walks a square of their own; monsters wake when they notice a hero, and the battle is fought right here. On by default for dungeons.')), form.children[3] || null);
   if (map.exit) {
     const back = game.maps.find((m) => m.id === map.exit.map);
     container.appendChild(h('p.hint', `Walking off the edge leads back to ${back ? back.name : '?'} (${map.exit.x}, ${map.exit.y}).`));

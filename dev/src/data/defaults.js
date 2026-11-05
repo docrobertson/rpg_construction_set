@@ -36,6 +36,16 @@ export const CLASS_ABILITIES = {
 //   move     teleport (to the chosen tile) | beside (appear next to the target) | charge (rush at it)
 //   cooldown rounds before it can be used again; perBattle limits uses; free keeps the turn going
 //   windup   the blow lands a turn later on whoever still stands in the marked squares
+// and, for the skills heroes learn as they rise (game/combat.js has the rules):
+//   others   an ally ability that cannot be aimed at the user; revive raises a companion fallen this battle
+//   thrown   dice of a thrown missile (rolls to hit with Dexterity, no bow needed)
+//   pull     squares the target is dragged towards the user; chain/chainRange: leaps to more foes
+//   execute  below this share of health the target is struck surely, for double damage
+//   steal    lifts the foe's purse (once each); addMoves: more squares this turn; extraTurn: an ally acts next
+//   summon   a monster id called to the chosen square for `lasts` turns (summonName, summonTint)
+//   place    trap (the first foe to step on the square suffers the ability) | zone (the squares
+//            harm foes and mend friends who start a turn there or walk in) for `lasts` rounds
+//   general  a battle art any hero may learn, offered among the talents from `level` on
 export const ABILITIES = [
   // Warrior
   { id: 'shield_bash', name: 'Shield Bash', icon: 'bash', target: 'enemy', range: 1, attack: 'melee', mult: 1, cooldown: 3, knockback: 1,
@@ -94,6 +104,84 @@ export const ABILITIES = [
     desc: 'Free action. Carve a ward on yourself or a companion within 3: +3 armour for two rounds.' },
   { id: 'earthshaker', name: 'Earthshaker', icon: 'quake', special: true, target: 'nearbyFoes', radius: 1, damage: '1d8', stat: 'str', perBattle: 1, statuses: [{ id: 'stunned', rounds: 1 }], vfx: 'earth', fx: 0x9a8a70,
     desc: 'Once per battle. Slam the ground: every foe around you takes 1d8 + Strength and is stunned.' },
+  // ---- skills learned later (levels 5, 7 and 9 of each calling)
+  // Warrior
+  { id: 'shield_wall', name: 'Shield Wall', icon: 'shield', target: 'ally', range: 1, others: true, cooldown: 4, vfx: 'impact', fx: 0xa8c8ff,
+    statuses: [{ id: 'guarded', rounds: 2 }, { id: 'shielded', rounds: 2, power: 2, self: true }],
+    desc: 'Plant your shield beside a companion: for two rounds the blows aimed at them strike you instead, and you gain +2 armour.' },
+  { id: 'riposte', name: 'Riposte', icon: 'sword', target: 'self', cooldown: 4, vfx: 'slash', fx: 0xffd0a0,
+    statuses: [{ id: 'riposte', rounds: 2, self: true }, { id: 'shielded', rounds: 2, power: 1, self: true }],
+    desc: 'Take a fencer\'s stance for two rounds (+1 armour): every foe that swings at you in melee, hit or miss, is struck back at once.' },
+  { id: 'finishing_blow', name: 'Finishing Blow', icon: 'axe', target: 'enemy', range: 1, attack: 'melee', mult: 1, execute: 0.34, cooldown: 3, vfx: 'impact', fx: 0xff7050,
+    desc: 'A brutal blow. Against a foe at a third of its health or less it cannot miss and deals double damage.' },
+  // Ranger
+  { id: 'hunters_mark', name: 'Hunter\'s Mark', icon: 'aim', target: 'enemy', range: 8, free: true, cooldown: 4, vfx: 'arrow', fx: 0xff9a7a,
+    statuses: [{ id: 'marked', rounds: 3, power: 2 }], desc: 'Free action. Mark a foe in sight: for three rounds every attack on it, by anyone, is +2 to hit and +2 damage.' },
+  { id: 'spirit_wolf', name: 'Spirit Wolf', icon: 'paw', target: 'tile', range: 2, summon: 'wolf', summonName: 'Spirit Wolf', summonTint: 0xa8d4f0, lasts: 4, perBattle: 1, vfx: 'arcane', fx: 0x9fd8ff,
+    desc: 'Once per battle. Call a spirit wolf of the old woods to an open square within 2: it fights beside the company for four turns, then fades.' },
+  { id: 'arrowstorm', name: 'Arrowstorm', icon: 'volley', target: 'tile', range: 8, radius: 1, attack: 'ranged', mult: 1, needs: 'ranged', cooldown: 4, vfx: 'arrow', fx: 0xfff0b0,
+    desc: 'Loose a storm of arrows over a 3×3 patch within range: one shot at every foe standing there.' },
+  // Wizard
+  { id: 'arc_lightning', name: 'Arc Lightning', icon: 'sparkle', target: 'enemy', range: 6, damage: '1d8', stat: 'int', chain: 2, chainRange: 2, cooldown: 3, vfx: 'shock', fx: 0xa8d4ff,
+    statuses: [{ id: 'stunned', rounds: 1, chance: 0.15 }], desc: 'Lightning strikes a foe and leaps on to two more, each within 2 squares of the last (1d8 + Intellect each; it may stun).' },
+  { id: 'arcane_grasp', name: 'Arcane Grasp', icon: 'hands', target: 'enemy', range: 6, pull: 3, damage: '1d4', stat: 'int', cooldown: 3, vfx: 'arcane', fx: 0xc0a0ff,
+    statuses: [{ id: 'rooted', rounds: 1 }], desc: 'An unseen hand drags a foe up to three squares towards you (1d4 + Intellect) and holds it there for a turn.' },
+  { id: 'meteor', name: 'Falling Star', icon: 'fire', target: 'tile', range: 7, radius: 1, windup: true, damage: '4d6', stat: 'int', perBattle: 1, vfx: 'fire', fx: 0xff8030,
+    statuses: [{ id: 'burning', rounds: 2 }], desc: 'Once per battle. Call down a star on a 3×3 patch within 7: it lands at the start of your next turn (4d6 + Intellect, and fire). Foes may flee the mark!' },
+  // Cleric
+  { id: 'hallowed_ground', name: 'Hallowed Ground', icon: 'cross', target: 'self', radius: 1, place: 'zone', lasts: 3, heal: '1d4', damage: '1d6', stat: 'wis', undeadOnly: true, cooldown: 5, vfx: 'holy', fx: 0xfff0a0,
+    desc: 'Bless the ground around you for three rounds: companions who start a turn there or step in heal 1d4 + Wisdom; the undead burn for 1d6 + Wisdom.' },
+  { id: 'sanctuary', name: 'Sanctuary', icon: 'sun', target: 'ally', range: 4, cooldown: 5, vfx: 'holy', fx: 0xfff4c0,
+    statuses: [{ id: 'sanctuary', rounds: 2 }], desc: 'Wrap yourself or a companion within 4 in holy light: for two rounds no foe can strike or aim at them — unless they strike first.' },
+  { id: 'breath_of_life', name: 'Breath of Life', icon: 'heart', target: 'ally', range: 3, revive: true, healPct: 0.34, perBattle: 1, vfx: 'heal', fx: 0xfff0c0,
+    desc: 'Once per battle. Call back a companion who has fallen in this battle, within 3 squares: they rise with a third of their health.' },
+  // Burglar
+  { id: 'filch', name: 'Filch', icon: 'pouch', target: 'enemy', range: 1, steal: true, free: true, cooldown: 2, vfx: 'smoke', fx: 0xffd060,
+    desc: 'Free action. Lift the purse of a foe beside you: its gold is yours, there and then (each foe has but the one purse).' },
+  { id: 'caltrops', name: 'Caltrops', icon: 'claw', target: 'tile', range: 4, radius: 1, place: 'zone', lasts: 3, damage: '1d4', cooldown: 4, vfx: 'smoke', fx: 0xc8c0a8,
+    statuses: [{ id: 'slowed', rounds: 1 }], desc: 'Scatter iron caltrops over a 3×3 patch within 4 for three rounds: foes who start a turn there or walk in take 1d4 and are slowed.' },
+  { id: 'fan_of_knives', name: 'Fan of Knives', icon: 'dagger', target: 'nearbyFoes', radius: 2, thrown: '1d6', cooldown: 4, vfx: 'slash', fx: 0xd8e0ec,
+    desc: 'Spin and loose a fan of knives: a throw at every foe within 2 squares (1d6 + half Dexterity each, rolled to hit).' },
+  // Paladin
+  { id: 'holy_charge', name: 'Holy Charge', icon: 'paladin', target: 'enemy', range: 5, move: 'charge', attack: 'melee', mult: 1, bonus: '1d6', knockback: 1, cooldown: 4, vfx: 'holy', fx: 0xffe080,
+    desc: 'Charge up to 5 squares at a foe and strike it with holy fury: +1d6 damage, and it is driven back a square.' },
+  { id: 'aura_of_courage', name: 'Aura of Courage', icon: 'banner', target: 'nearbyAllies', radius: 2, cooldown: 5, vfx: 'holy', fx: 0xffe8a0,
+    statuses: [{ id: 'warded', rounds: 3 }, { id: 'shielded', rounds: 3, power: 1 }], desc: 'You and every companion within 2 gain +1 armour and a ward that turns aside the next stun, sleep, fear or curse (three rounds).' },
+  { id: 'shield_of_dawn', name: 'Shield of Dawn', icon: 'sun', target: 'nearbyAllies', radius: 2, perBattle: 1, vfx: 'holy', fx: 0xffd870,
+    statuses: [{ id: 'deathward', rounds: 2 }], desc: 'Once per battle. For two rounds no companion within 2 can fall: a blow that would fell them leaves them at 1 health instead (once each).' },
+  // Minstrel
+  { id: 'lullaby', name: 'Lullaby', icon: 'sleep', target: 'nearbyFoes', radius: 2, cooldown: 5, vfx: 'song', fx: 0xb0a0ff,
+    statuses: [{ id: 'asleep', rounds: 2, chance: 0.5 }], desc: 'A drowsy air: each foe within 2 may nod off (one in two) for two turns, until struck.' },
+  { id: 'discord', name: 'Song of Discord', icon: 'note', target: 'enemy', range: 5, cooldown: 4, vfx: 'song', fx: 0xe090ff,
+    statuses: [{ id: 'charmed', rounds: 1 }], desc: 'A maddening tune: a foe within 5 turns on its own side for its next turn (a great foe may shake it off).' },
+  { id: 'encore', name: 'Encore', icon: 'star', target: 'ally', range: 5, others: true, extraTurn: true, perBattle: 1, vfx: 'song', fx: 0xffd870,
+    desc: 'Once per battle. Strike up a reel: a companion within 5 takes an extra turn straight after yours.' },
+  // Runesmith
+  { id: 'rune_trap', name: 'Rune Trap', icon: 'rune', target: 'tile', range: 4, radius: 0, place: 'trap', lasts: 6, damage: '2d6', stat: 'int', cooldown: 3, vfx: 'shock', fx: 0x5ee8ff,
+    statuses: [{ id: 'stunned', rounds: 1 }], desc: 'Carve a hidden rune on an empty square within 4 (it waits six rounds): the first foe to step on it takes 2d6 + Intellect and is stunned.' },
+  { id: 'lodestone', name: 'Lodestone Rune', icon: 'stone', target: 'nearbyFoes', radius: 3, pull: 2, cooldown: 4, vfx: 'shock', fx: 0x9ab8ff,
+    desc: 'A rune of iron-hunger: every foe within 3 is dragged two squares towards you. (Then let the hammer fall.)' },
+  { id: 'stone_warden', name: 'Stone Warden', icon: 'anvil', target: 'tile', range: 1, summon: 'stone_warden', lasts: 5, perBattle: 1, vfx: 'earth', fx: 0x5ee8ff,
+    desc: 'Once per battle. Wake a rune-carved warden of stone on a square beside you: for five turns it fights at your side and bellows foes away from your friends.' },
+  // ---- battle arts: any hero may learn them, offered among the talents
+  { id: 'second_wind', name: 'Second Wind', icon: 'heart', general: true, level: 2, target: 'self', healPct: 0.3, perBattle: 1, free: true, vfx: 'heal', fx: 0x9fe8b8,
+    desc: 'Free action, once per battle. Catch your breath: heal three tenths of your health.' },
+  { id: 'first_aid', name: 'First Aid', icon: 'hands', general: true, level: 2, target: 'ally', range: 1, heal: '1d6+2', cure: true, cooldown: 4, vfx: 'heal', fx: 0x9fe8b8,
+    desc: 'Bind your own wounds or those of a companion beside you: heal 1d6+2 and draw out poison.' },
+  { id: 'dash', name: 'Dash', icon: 'boot', general: true, level: 2, target: 'self', addMoves: 3, free: true, cooldown: 3, vfx: 'smoke', fx: 0xd8d0b8,
+    desc: 'Free action. Sprint: three more squares of movement this turn.' },
+  { id: 'throw_knife', name: 'Throw Knife', icon: 'dagger', general: true, level: 2, target: 'enemy', range: 4, thrown: '1d4', cooldown: 2, vfx: 'slash', fx: 0xd8e0ec,
+    desc: 'Hurl a knife at a foe up to 4 squares away: rolled to hit with Dexterity, 1d4 + half Dexterity. No bow needed.' },
+  { id: 'shove', name: 'Shove', icon: 'bash', general: true, level: 2, target: 'enemy', range: 1, knockback: 2, free: true, cooldown: 3, vfx: 'impact', fx: 0xe8d0a0,
+    desc: 'Free action. Shove a foe beside you two squares back — into a wall or another foe, and it takes a knock.' },
+  { id: 'steady_aim', name: 'Steady Aim', icon: 'eye', general: true, level: 4, target: 'self', free: true, cooldown: 2, vfx: 'arcane', fx: 0xffe8a0,
+    statuses: [{ id: 'focused', rounds: 1, power: 4, self: true }], desc: 'Free action. Take a breath and steady your hand: your next attack is +4 to hit and ignores cover.' },
+  { id: 'hold_the_line', name: 'Hold the Line', icon: 'shield', general: true, level: 4, target: 'nearbyAllies', radius: 1, cooldown: 4, vfx: 'shout', fx: 0x90b8ff,
+    statuses: [{ id: 'shielded', rounds: 2, power: 2 }], desc: 'Close ranks: you and every companion beside you gain +2 armour for two rounds.' },
+  { id: 'disengage', name: 'Disengage', icon: 'flee', general: true, level: 4, target: 'self', free: true, cooldown: 3, vfx: 'smoke', fx: 0xb8f0d0,
+    statuses: [{ id: 'nimble', rounds: 1, self: true }], desc: 'Free action. Watch your footing: this turn you slip away from foes without giving them free strikes.' },
+  { id: 'battle_cry', name: 'Battle Cry', icon: 'shout', general: true, level: 6, target: 'nearbyAllies', radius: 3, cooldown: 5, vfx: 'shout', fx: 0xffb050,
+    statuses: [{ id: 'blessed', rounds: 2, power: 2 }], desc: 'A roar that stirs the blood: you and every companion within 3 are +2 to hit for two rounds.' },
   // Monsters
   { id: 'pounce', name: 'Pounce', icon: 'claw', monster: true, target: 'enemy', range: 5, move: 'charge', attack: 'melee', mult: 1, cooldown: 3,
     statuses: [{ id: 'stunned', rounds: 1, chance: 0.35 }], vfx: 'impact', fx: 0xd0c0a0, desc: 'Leaps on a foe up to 5 squares away and may knock it down.' },
@@ -136,6 +224,18 @@ export const STATUS_EFFECTS = {
   enraged: { name: 'Enraged', icon: 'fire', color: '#ff6040', desc: 'Fights in a fury: +2 to hit and a quarter more damage.' },
   shielded: { name: 'Shielded', icon: 'shield', color: '#90b8ff', desc: 'Bonus to armour.' },
   hidden: { name: 'Hidden', icon: 'smoke', color: '#b8b8d0', desc: 'Foes cannot see it. Slips away without provoking; its next attack is a backstab.' },
+  // (charms) quick feet, and a ward that turns aside the next curse
+  hasted: { name: 'Hasted', icon: 'boot', color: '#9ff0d0', desc: 'Moves further each turn (its strength in squares).' },
+  warded: { name: 'Warded', icon: 'rune', color: '#c8dcff', desc: 'The next stun, sleep, fear or curse slides off it.' },
+  // (skills learned later)
+  guarded: { name: 'Guarded', icon: 'shield', color: '#a8c8ff', desc: 'A companion beside it takes the blows meant for it.' },
+  riposte: { name: 'Riposte', icon: 'sword', color: '#ffd0a0', desc: 'Strikes back at once at any foe that swings at it in melee (once a round).' },
+  marked: { name: 'Marked', icon: 'aim', color: '#ff9a7a', bad: true, desc: 'Every attack on it is more accurate and harder-hitting (+2 to hit, +2 damage).' },
+  focused: { name: 'Steady', icon: 'eye', color: '#ffe8a0', desc: 'Its next attack is more accurate and ignores cover.' },
+  sanctuary: { name: 'Sanctuary', icon: 'sun', color: '#fff0b0', desc: 'No foe can strike or aim at it — until it strikes first.' },
+  charmed: { name: 'Bewildered', icon: 'note', color: '#e090ff', bad: true, desc: 'Turns on its own side.' },
+  deathward: { name: 'Dawn-shielded', icon: 'sun', color: '#ffd870', desc: 'A blow that would fell it leaves it at 1 health instead (once).' },
+  nimble: { name: 'Nimble', icon: 'boot', color: '#b8f0d0', desc: 'Slips away from foes without giving them free strikes.' },
 };
 
 // Bosses can have a second phase: below phaseAt of their health they call
@@ -180,7 +280,22 @@ export const MAGIC_GEAR = { elven_bow: 0xb8ffb0, ember_bow: 0xff8030, shadow_fan
 
 export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
-export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'consumable', 'reagent', 'scroll', 'key', 'quest', 'map'];
+export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'charm', 'consumable', 'reagent', 'scroll', 'key', 'quest', 'map'];
+
+// Charms: rings, amulets, horns and stones worn in a hero's charm slot. Their
+// kind gives a default icon; rarity colours the name and sets loot odds.
+export const CHARM_KINDS = {
+  ring: 'Ring', amulet: 'Amulet', brooch: 'Brooch', talisman: 'Talisman', horn: 'Horn', stone: 'Stone', token: 'Token',
+  whistle: 'Whistle', feather: 'Feather', bell: 'Bell', lantern: 'Lantern', orb: 'Orb', mirror: 'Mirror', pipe: 'Pipe', relic: 'Relic',
+};
+export const CHARM_KIND_ICONS = { ring: 'ring', amulet: 'amulet', brooch: 'brooch', talisman: 'rune', horn: 'horn', stone: 'stone', token: 'acorn',
+  whistle: 'whistle', feather: 'feather', bell: 'bell', lantern: 'lantern', orb: 'orb', mirror: 'mirror', pipe: 'pipe', relic: 'gem' };
+export const RARITIES = {
+  common: { name: 'Common', color: '#d8ccb0', weight: 6 },
+  uncommon: { name: 'Uncommon', color: '#8fe08a', weight: 3 },
+  rare: { name: 'Rare', color: '#7ab8ff', weight: 1.5 },
+  legendary: { name: 'Legendary', color: '#ffa640', weight: 0.5 },
+};
 export const ITEM_EFFECTS = ['heal', 'cure', 'revive', 'mp', 'light', 'food', 'reveal', 'recall'];
 export const SPELL_TARGETS = ['enemy', 'area', 'allEnemies', 'ally', 'allAllies', 'self'];
 export const SPELL_EFFECTS = ['damage', 'heal', 'cure', 'revive', 'sleep', 'fear', 'shield', 'bless', 'drain', 'light', 'reveal', 'recall'];
@@ -220,40 +335,252 @@ export const RACES = [
     look: { race: 'hobbit', skin: 0xf0c4a0 } },
 ];
 
+// skills: [{ id, level }] — each class skill and the level it is learned at (a
+// plain id is learned at 1, 3, 5… by its place in the list, as older games had it)
+const learn = (id, level) => ({ id, level });
 export const CLASSES = [
   { id: 'warrior', talents: 'fighter', name: 'Warrior', desc: 'A master of arms and armour, the shield-wall of any fellowship.',
     hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], armor: 'plate', shields: true,
-    abilities: ['cleave'], special: 'whirlwind', skills: ['shield_bash', 'taunt'], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
+    abilities: ['cleave'], special: 'whirlwind', skills: [learn('shield_bash', 1), learn('taunt', 3), learn('shield_wall', 5), learn('riposte', 7), learn('finishing_blow', 9)], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
     look: { body: 0xa8302a, hat: 'helm', hatColor: 0x8c94a0, wings: true, helmTrim: 0xd8a83a, weapon: 'sword', shield: 0x9a6a30, pauldrons: 'plate', cape: 0x6a1c1a, pose: 'raise' } },
   { id: 'ranger', talents: 'archer', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow. Gathers herbs on the road and brews remedies from them.',
     hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
-    abilities: ['tracker'], special: 'volley', skills: ['aimed_shot', 'pinning_shot'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
+    abilities: ['tracker'], special: 'volley', skills: [learn('aimed_shot', 1), learn('pinning_shot', 3), learn('hunters_mark', 5), learn('spirit_wolf', 7), learn('arrowstorm', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
     look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
   { id: 'wizard', talents: 'caster', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
     requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], armor: 'cloth', shields: false,
-    abilities: [], special: 'blink', skills: ['firebolt', 'frost_nova'], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
+    abilities: [], special: 'blink', skills: [learn('firebolt', 1), learn('frost_nova', 3), learn('arc_lightning', 5), learn('arcane_grasp', 7), learn('meteor', 9)], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
     look: { body: 0x3446a8, robe: true, hat: 'wizard', hatColor: 0x3446a8, trim: 0xe2b24a, weapon: 'staff', pose: 'cast' } },
   { id: 'cleric', talents: 'healer', name: 'Cleric', desc: 'A servant of the Powers, healer of wounds and scourge of the restless dead.',
     requires: 'divine', hpBase: 12, hpLevel: 6, hitRate: 0.6, magic: [{ system: 'divine', rate: 1 }], weapons: ['blunt', 'staff', 'sling'], armor: 'chain', shields: true,
-    abilities: [], special: 'mending', skills: ['healing_word', 'smite'], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
+    abilities: [], special: 'mending', skills: [learn('healing_word', 1), learn('smite', 3), learn('hallowed_ground', 5), learn('sanctuary', 7), learn('breath_of_life', 9)], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
     look: { body: 0xe6dcc4, robe: true, trim: 0xd8a83a, weapon: 'mace', shield: 0x8a5a32, mantle: 0xa87828 } },
   { id: 'burglar', talents: 'rogue', name: 'Burglar', desc: 'Quick of hand and quiet of foot. Picks locks, finds traps, and strikes from the shadows.',
     hpBase: 10, hpLevel: 5, hitRate: 0.75, magic: [], weapons: ['dagger', 'blade', 'sling', 'bow'], armor: 'leather', shields: false,
-    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: ['poison_blade', 'smoke_bomb'], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
+    abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: [learn('poison_blade', 1), learn('smoke_bomb', 3), learn('filch', 5), learn('caltrops', 7), learn('fan_of_knives', 9)], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
     look: { body: 0x5a5448, hat: 'hood', hatColor: 0x3e3a44, weapon: 'dagger', offhand: 'dagger', cape: 0x3e3a44, scarf: 0xb03a2a } },
   { id: 'paladin', talents: 'fighter', name: 'Paladin', desc: 'A holy knight sworn to a cause, mighty in arms and gifted with a little Prayer.',
     requires: null, hpBase: 15, hpLevel: 7, hitRate: 0.9, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'greatblade', 'blunt', 'spear', 'axe'], armor: 'plate', shields: true,
-    abilities: ['layHands'], special: 'rally', skills: ['holy_strike', 'lay_on_hands'], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
+    abilities: ['layHands'], special: 'rally', skills: [learn('holy_strike', 1), learn('lay_on_hands', 3), learn('holy_charge', 5), learn('aura_of_courage', 7), learn('shield_of_dawn', 9)], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
     look: { body: 0xd8d8e0, armor: 'plate', hat: 'helm', plume: 0xc03030, weapon: 'sword', shield: 0xcdd2da, cape: 0x2a4a9a } },
   { id: 'minstrel', talents: 'caster', name: 'Minstrel', desc: 'A singer of the old lays whose songs of power hearten friends and dismay foes.',
     requires: 'song', hpBase: 10, hpLevel: 5, hitRate: 0.65, magic: [{ system: 'song', rate: 1 }], weapons: ['blade', 'dagger', 'bow', 'sling'], armor: 'leather', shields: false,
-    abilities: [], special: 'dazzle', skills: ['cutting_words', 'inspire'], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
+    abilities: [], special: 'dazzle', skills: [learn('cutting_words', 1), learn('inspire', 3), learn('lullaby', 5), learn('discord', 7), learn('encore', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
     look: { body: 0x9a3a8a, hat: 'cap', hatColor: 0x7a2a6a, weapon: 'sword', cape: 0xd8a83a, back: 'lute', pose: 'hip' } },
   { id: 'runesmith', talents: 'caster', name: 'Runesmith', desc: 'A forge-priest of the dwarves who carves runes of power, fuelled by rare reagents.',
     requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], armor: 'chain', shields: true,
-    abilities: [], special: 'earthshaker', skills: ['thunder_hammer', 'ward_rune'], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
+    abilities: [], special: 'earthshaker', skills: [learn('thunder_hammer', 1), learn('ward_rune', 3), learn('rune_trap', 5), learn('lodestone', 7), learn('stone_warden', 9)], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
     // slate and steel with glowing cyan runes: never mistaken for the white-and-gold cleric
     look: { body: 0x3e5a78, armor: 'chain', hat: 'helm', hatColor: 0x8e9cae, weapon: 'hammer', shield: 0x4a5c70, runes: 0x5ee8ff } },
+];
+
+// ---------------------------------------------------------------- charms
+// Magic worn in the charm slot (only a worn charm works; one in the pack
+// sleeps). Each is data: effects [{ type, ...params }] (see game/charms.js
+// for the vocabulary: steady bonuses, battle-start blessings, effects each
+// turn, on a blow struck or taken, resistances, spoils, and world effects such
+// as quicker travel, keener sight, wading the shallows or climbing mountains),
+// an optional battle action (ability: the ability schema above, shown on the
+// battle bar), and who may wear it (only: { races, classes }, onlyText).
+// rarity and level decide where it turns up; say is the log line when its
+// battle-start magic fires ({who} is the wearer). An effect with `with` wakes
+// only while someone else in the company wears that other piece (twins).
+const C = (o) => ({ type: 'charm', ...o });
+export const CHARMS = [
+  // humble trinkets
+  C({ id: 'lucky_acorn', name: 'Lucky Acorn', kind: 'token', icon: 'acorn', tint: 0xc8904a, rarity: 'common', level: 1, price: 25,
+    desc: 'Picked from the hollow of a lightning-struck oak. Squirrels give you funny looks.', effects: [{ type: 'bonus', stat: 'ac', power: 1 }] }),
+  C({ id: 'tin_whistle', name: 'Tin Whistle', kind: 'whistle', icon: 'whistle', tint: 0xc8d0dc, rarity: 'common', level: 1, price: 18,
+    desc: 'Three notes, all of them shrill.', effects: [],
+    ability: { name: 'Shrill Blast', icon: 'whistle', target: 'nearbyFoes', radius: 2, perBattle: 1, free: true, statuses: [{ id: 'stunned', rounds: 1, chance: 0.3 }], vfx: 'shout', fx: 0xe0e8ff,
+      desc: 'Free action, once per battle. A blast that sets teeth on edge: each foe within 2 squares may flinch (3 in 10) and lose its next turn.' } }),
+  C({ id: 'giants_hobnail', name: 'Giant\'s Hobnail', kind: 'token', icon: 'boot', tint: 0xa8a8a8, rarity: 'common', level: 1, price: 40,
+    desc: 'A hobnail the size of a thumb, from the boot of some long-dead giant. It wants to keep walking.', effects: [{ type: 'travel', pct: 0.1 }] }),
+  C({ id: 'glowworm_jar', name: 'Glow-worm Jar', kind: 'lantern', icon: 'lantern', tint: 0xc0ff70, rarity: 'common', level: 1, price: 35,
+    desc: 'A stoppered jar of glow-worms. They seem happy enough.', effects: [{ type: 'sight', light: 2 }] }),
+  C({ id: 'rabbit_foot', name: 'Rabbit\'s Foot', kind: 'token', icon: 'paw', tint: 0xeadfcc, rarity: 'common', level: 1, price: 45,
+    desc: 'Lucky for you. Less so for the rabbit.', effects: [{ type: 'bonus', stat: 'init', power: 3 }, { type: 'resist', status: 'stunned', chance: 0.25 }] }),
+  C({ id: 'worry_stone', name: 'Worry Stone', kind: 'stone', icon: 'stone', tint: 0x8ea8b8, rarity: 'common', level: 1, price: 22,
+    desc: 'A river pebble worn smooth by an anxious thumb. Rub it, and the fear goes into the stone.', effects: [{ type: 'resist', status: 'afraid', chance: 1 }, { type: 'resist', status: 'asleep', chance: 0.25 }] }),
+  C({ id: 'hazel_twig', name: 'Hazel Dowsing-twig', kind: 'talisman', icon: 'rod', tint: 0xc09058, rarity: 'common', level: 2, price: 65,
+    desc: 'A forked hazel twig. Held loosely, it dips towards whatever lies buried.', effects: [{ type: 'dowse', radius: 5 }] }),
+  C({ id: 'copper_bangle', name: 'Copper Bangle', kind: 'ring', icon: 'ring', tint: 0xe08c50, rarity: 'common', level: 1, price: 30,
+    desc: 'Turns your wrist green, and keeps the venom out.', effects: [{ type: 'resist', status: 'poisoned', chance: 0.5 }] }),
+  C({ id: 'shepherds_bell', name: 'Shepherd\'s Bell', kind: 'bell', icon: 'bell', tint: 0xe0c060, rarity: 'common', level: 1, price: 50,
+    desc: 'Its dull clank says: nothing worth eating here, move along.', effects: [{ type: 'encounters', pct: 0.25 }] }),
+  C({ id: 'honeycake_tin', name: 'Honey-cake Tin', kind: 'relic', icon: 'pouch', tint: 0xe8b848, rarity: 'common', level: 1, price: 40,
+    desc: 'A battered tin that always seems to hold one more cake than you remember.', effects: [{ type: 'food', pct: 0.25 }] }),
+  C({ id: 'hearth_stone', name: 'Hearth-stone', kind: 'stone', icon: 'stone', tint: 0xe07040, rarity: 'common', level: 2, price: 55,
+    desc: 'A warm stone from a hobbit-hole hearth. Tucked into a bedroll, it makes any camp a home.', effects: [{ type: 'camp', pct: 0.3 }] }),
+  // finer work
+  C({ id: 'selkie_shell', name: 'Selkie\'s Shell', kind: 'talisman', icon: 'shell', tint: 0xf4c8dc, rarity: 'uncommon', level: 2, price: 150,
+    desc: 'Hold it to your ear and you hear the sea; hold it in your fist and the sea holds you up.', effects: [{ type: 'wade' }] }),
+  C({ id: 'goatfoot_amulet', name: 'Goat-foot Amulet', kind: 'amulet', icon: 'amulet', tint: 0xc8b890, rarity: 'uncommon', level: 3, price: 240,
+    desc: 'A cloven hoof bound in silver wire. Dwarf scouts wear them on the high passes, where no road goes.', effects: [{ type: 'climb' }] }),
+  C({ id: 'merchants_brooch', name: 'Merchant\'s Brooch', kind: 'brooch', icon: 'brooch', tint: 0xecc464, rarity: 'uncommon', level: 2, price: 150,
+    desc: 'A brass brooch shaped like a pair of scales. Shopkeepers find themselves strangely reasonable.', effects: [{ type: 'prices', pct: 0.15 }] }),
+  C({ id: 'nettle_ring', name: 'Nettle Ring', kind: 'ring', icon: 'ring', tint: 0x88c058, rarity: 'uncommon', level: 2, price: 140,
+    desc: 'Woven of nettle-stems and silver wire. It stings anyone who lays a hand on you.', effects: [{ type: 'thorns', dmg: '1d4' }] }),
+  C({ id: 'leech_stone', name: 'Leech-stone', kind: 'stone', icon: 'stone', tint: 0xb02838, rarity: 'uncommon', level: 3, price: 220,
+    desc: 'A blood-red stone, warm as skin. It drinks a little of every wound you deal, and shares.', effects: [{ type: 'drain', pct: 0.25 }] }),
+  C({ id: 'owl_feather', name: 'Owl Feather', kind: 'feather', icon: 'feather', tint: 0xdccaa8, rarity: 'uncommon', level: 2, price: 200,
+    desc: 'A grey owl\'s feather. Tuck it behind your ear, and shadows give up their secrets.', effects: [{ type: 'trueSight' }, { type: 'sight', power: 1, light: 1 }] }),
+  C({ id: 'wolf_tooth', name: 'Wolf-tooth Necklace', kind: 'amulet', icon: 'tooth', tint: 0xf2ead2, rarity: 'uncommon', level: 2, price: 160,
+    only: { classes: ['warrior', 'ranger'] }, onlyText: 'Only a warrior or a ranger can bear its hunger',
+    desc: 'Teeth of a pack-leader, still sharp. In battle you can hear it howl.', say: '{who}\'s wolf-tooth howls — the blood runs hot!',
+    effects: [{ type: 'onStart', status: 'enraged', rounds: 2, who: 'self' }] }),
+  C({ id: 'shieldmaiden_brooch', name: 'Brooch of the Shield-maiden', kind: 'brooch', icon: 'brooch', tint: 0x98bcff, rarity: 'uncommon', level: 3, price: 170,
+    desc: 'A round silver brooch. When steel comes for you, a pale shield shimmers into being.',
+    effects: [{ type: 'onStart', status: 'shielded', power: 2, rounds: 3, who: 'self' }, { type: 'onHurt', status: 'shielded', power: 3, rounds: 2, below: 0.5 }] }),
+  C({ id: 'frostfang_pendant', name: 'Frostfang Pendant', kind: 'amulet', icon: 'tooth', tint: 0xa8ecff, rarity: 'uncommon', level: 3, price: 240,
+    desc: 'An icicle that never melts, on a silver chain. Your blows leave rime behind.',
+    effects: [{ type: 'onHit', status: 'slowed', rounds: 2, chance: 0.3 }, { type: 'resist', status: 'slowed', chance: 1 }] }),
+  C({ id: 'viper_amulet', name: 'Amulet of the Viper', kind: 'amulet', icon: 'amulet', tint: 0x88d868, rarity: 'uncommon', level: 3, price: 260,
+    desc: 'A coiled serpent of green enamel. Your blades come away glistening.',
+    effects: [{ type: 'onHit', status: 'poisoned', rounds: 3, power: 2, chance: 0.3, melee: true }] }),
+  C({ id: 'wanderers_pin', name: 'Wanderer\'s Cloak-pin', kind: 'brooch', icon: 'brooch', tint: 0x74b07a, rarity: 'uncommon', level: 3, price: 230,
+    desc: 'Worn by a ranger who walked every road in Eldmark twice, and found the short cuts on the third time round.',
+    effects: [{ type: 'travel', pct: 0.15 }, { type: 'encounters', pct: 0.2 }] }),
+  C({ id: 'bone_dice', name: 'Gambler\'s Bone Dice', kind: 'token', icon: 'dice', tint: 0xf2ead8, rarity: 'uncommon', level: 2, price: 190,
+    desc: 'Two knucklebone dice that never seem to roll a one.', effects: [{ type: 'bonus', stat: 'crit', power: 1 }, { type: 'spoils', gold: 0.25 }] }),
+  C({ id: 'wildwood_whistle', name: 'Wildwood Whistle', kind: 'whistle', icon: 'whistle', tint: 0xa0d478, rarity: 'uncommon', level: 3, price: 280,
+    desc: 'Carved from rowan. Its note is too low for you to hear, but every beast of the wild hears it, and lies down.',
+    effects: [{ type: 'calm' }],
+    ability: { name: 'Hush', icon: 'whistle', target: 'nearbyFoes', radius: 3, perBattle: 1, statuses: [{ id: 'asleep', rounds: 2, chance: 0.4 }], vfx: 'song', fx: 0xa0d478,
+      desc: 'Once per battle. A note below hearing: each foe within 3 may drowse off (4 in 10) for a turn or two.' } }),
+  C({ id: 'salamander_scale', name: 'Salamander Scale', kind: 'talisman', icon: 'scale', tint: 0xff8848, rarity: 'uncommon', level: 4, price: 320,
+    desc: 'A single scale of a fire-lizard, hot to the touch. Flames lick at you and find nothing to eat.',
+    effects: [{ type: 'fireWalk' }, { type: 'resist', status: 'burning', chance: 1 }] }),
+  // rare things
+  C({ id: 'quicksilver_hourglass', name: 'Quicksilver Hourglass', kind: 'relic', icon: 'hourglass', tint: 0xd4e4f4, rarity: 'rare', level: 4, price: 300,
+    desc: 'Its sand runs upwards. So, for a little while, does time.', say: 'The sand in {who}\'s hourglass runs upwards…',
+    effects: [{ type: 'onStart', status: 'hasted', power: 2, rounds: 2, who: 'self' }, { type: 'bonus', stat: 'init', power: 4 }] }),
+  C({ id: 'ring_of_opening', name: 'Ring of Opening', kind: 'ring', icon: 'keyring', tint: 0xffd468, rarity: 'rare', level: 3, price: 380,
+    desc: 'Fennick made it after locking himself out of his own tower. Twice. No lock, bar or seal of magic refuses it.', effects: [{ type: 'unseal' }] }),
+  C({ id: 'trollblood_ring', name: 'Troll-blood Ring', kind: 'ring', icon: 'ring', tint: 0x7a9a50, rarity: 'rare', level: 5, price: 480,
+    desc: 'Set with a stone of clotted troll-blood. Your wounds close as you watch, which is unsettling.', effects: [{ type: 'regen', hp: 2, who: 'self' }] }),
+  C({ id: 'warding_mirror', name: 'Mirror of Warding', kind: 'mirror', icon: 'mirror', tint: 0xd4e4ff, rarity: 'rare', level: 4, price: 360,
+    desc: 'A hand-mirror of polished silver. Curses see their own faces in it, and flee.',
+    effects: [{ type: 'onStart', status: 'warded', rounds: 99, who: 'self' }, { type: 'cleanse', chance: 0.35 }] }),
+  C({ id: 'phoenix_ember', name: 'Phoenix Ember', kind: 'talisman', icon: 'fire', tint: 0xff7a30, rarity: 'rare', level: 4, price: 420,
+    desc: 'A coal from a phoenix\'s nest that has burned for a hundred years, and is not tired yet.', effects: [{ type: 'resist', status: 'burning', chance: 1 }],
+    ability: { name: 'Rekindle', icon: 'fire', target: 'ally', range: 4, healPct: 0.4, cure: true, perBattle: 1, vfx: 'heal', fx: 0xffa040,
+      desc: 'Once per battle. Fan the ember over yourself or a companion within 4: they heal two-fifths of their health and are cured of poison.' } }),
+  C({ id: 'stormcaller_orb', name: 'Stormcaller\'s Orb', kind: 'orb', icon: 'orb', tint: 0x98c8ff, rarity: 'rare', level: 5, price: 520,
+    desc: 'Lightning sleeps in the glass, and does not like to be woken.', effects: [],
+    ability: { name: 'Chain Lightning', icon: 'orb', target: 'multi', count: 3, range: 6, damage: '2d6', stat: 'int', cooldown: 3, statuses: [{ id: 'stunned', rounds: 1, chance: 0.2 }], vfx: 'shock', fx: 0xa8d4ff,
+      desc: 'Lightning leaps from the orb to up to three foes within 6 (2d6 + Intellect each; never misses, may stun). Ready again three turns later.' } }),
+  C({ id: 'horn_of_brannoc', name: 'Horn of Brannoc', kind: 'horn', icon: 'horn', tint: 0xe8c888, rarity: 'rare', level: 5, price: 650,
+    desc: 'The war-horn of Brannoc, who sounded the charge at King Elendur\'s last battle. It has not forgotten how.',
+    say: '{who} sounds the Horn of Brannoc — the company is blessed!',
+    effects: [{ type: 'onStart', status: 'blessed', power: 2, rounds: 3, who: 'party' }],
+    ability: { name: 'Sound the Charge', icon: 'horn', target: 'allAllies', perBattle: 1, free: true, statuses: [{ id: 'hasted', rounds: 2, power: 2 }], vfx: 'shout', fx: 0xffd080,
+      desc: 'Free action, once per battle. The horn calls the charge: every companion moves 2 squares further for two turns.' } }),
+  C({ id: 'sunstone', name: 'Sunstone of Anor', kind: 'stone', icon: 'sunstone', tint: 0xffc848, rarity: 'rare', level: 4, price: 340,
+    desc: 'A golden stone that holds a summer noon. It longs for its pale twin.', say: 'Sun and moon wake together on {who}\'s breast!',
+    effects: [{ type: 'bonus', stat: 'hit', power: 1 }, { type: 'onStart', status: 'blessed', power: 2, rounds: 3, who: 'party', with: 'moonstone' }] }),
+  C({ id: 'moonstone', name: 'Moonstone of Ithil', kind: 'stone', icon: 'moonstone', tint: 0xc8d8ff, rarity: 'rare', level: 4, price: 340,
+    desc: 'A pale stone that holds a winter midnight. It longs for its golden twin.',
+    effects: [{ type: 'bonus', stat: 'ac', power: 1 }, { type: 'onStart', status: 'shielded', power: 2, rounds: 3, who: 'party', with: 'sunstone' }] }),
+  // sworn brothers: apart a little armour; worn by two of the company, neither falls easily
+  C({ id: 'oath_ring_aldred', name: 'Oath-ring of Aldred', kind: 'ring', icon: 'ring', tint: 0xd8dce8, rarity: 'uncommon', level: 3, price: 210,
+    desc: 'One of two silver rings sworn on the same blade. Aldred died beside his brother Edric, and the rings remember.',
+    effects: [{ type: 'bonus', stat: 'ac', power: 1 }, { type: 'regen', hp: 1, who: 'self', with: 'oath_ring_edric' }, { type: 'resist', status: 'afraid', chance: 1, with: 'oath_ring_edric' }] }),
+  C({ id: 'oath_ring_edric', name: 'Oath-ring of Edric', kind: 'ring', icon: 'ring', tint: 0xe8d8b8, rarity: 'uncommon', level: 3, price: 210,
+    desc: 'One of two silver rings sworn on the same blade. Edric died beside his brother Aldred, and the rings remember.',
+    effects: [{ type: 'bonus', stat: 'hit', power: 1 }, { type: 'regen', hp: 1, who: 'self', with: 'oath_ring_aldred' }, { type: 'resist', status: 'afraid', chance: 1, with: 'oath_ring_aldred' }] }),
+  // odds and ends
+  C({ id: 'gull_feather', name: 'Gull-feather Charm', kind: 'feather', icon: 'feather', tint: 0xf0f0f4, rarity: 'common', level: 1, price: 30,
+    desc: 'Sailors tie them to the mast for a fair wind. On land, it seems, the wind is fair too — and there is always a fish.',
+    effects: [{ type: 'travel', pct: 0.05 }, { type: 'food', pct: 0.1 }] }),
+  C({ id: 'thieves_penny', name: 'Thieves\' Penny', kind: 'token', icon: 'coin', tint: 0xd8a860, rarity: 'uncommon', level: 2, price: 110,
+    desc: 'A copper penny with a head on both sides, for those who never lose a toss.',
+    effects: [{ type: 'prices', pct: 0.1 }, { type: 'spoils', gold: 0.1 }] }),
+  C({ id: 'ember_ring', name: 'Ember Ring', kind: 'ring', icon: 'ring', tint: 0xff7838, rarity: 'uncommon', level: 3, price: 200,
+    desc: 'A band of red gold that is always warm. Strike with that hand, and sparks fly.',
+    effects: [{ type: 'onHit', status: 'burning', rounds: 2, chance: 0.25 }, { type: 'resist', status: 'burning', chance: 1 }] }),
+  // small powers that come again a few turns later
+  C({ id: 'thunder_egg', name: 'Thunder-egg', kind: 'stone', icon: 'stone', tint: 0x9aa4b8, rarity: 'uncommon', level: 2, price: 180,
+    desc: 'A grey stone the size of a hen\'s egg. Shake it and it grumbles; strike it and it roars.', effects: [],
+    ability: { name: 'Thunderclap', icon: 'quake', target: 'adjacentFoes', damage: '1d6', knockback: 1, cooldown: 3, vfx: 'shock', fx: 0xc8d4ff,
+      desc: 'The egg cracks like thunder: every foe beside you takes 1d6 and is thrown back a square. Ready again three turns later.' } }),
+  C({ id: 'menders_pendant', name: 'Mender\'s Pendant', kind: 'amulet', icon: 'hands', tint: 0xd8f0e0, rarity: 'uncommon', level: 2, price: 170,
+    desc: 'A silver pendant shaped like a cupped hand. It is warm whenever someone near you bleeds.', effects: [],
+    ability: { name: 'Cupped Hand', icon: 'heart', target: 'ally', range: 3, heal: '1d8+2', stat: 'wis', cooldown: 3, free: true, vfx: 'heal', fx: 0x9fe8b8,
+      desc: 'Free action. Heal yourself or a companion within 3 (1d8+2 + Wisdom). Ready again three turns later.' } }),
+  C({ id: 'fox_ring', name: 'Ring of the Fox', kind: 'ring', icon: 'ring', tint: 0xe8904a, rarity: 'rare', level: 3, price: 330,
+    desc: 'A copper ring with a fox\'s mask. The fox is never quite where the hounds thought.', effects: [{ type: 'bonus', stat: 'init', power: 2 }],
+    ability: { name: 'Fox\'s Leap', icon: 'blink', target: 'tile', range: 3, move: 'teleport', cooldown: 4, free: true, vfx: 'arcane', fx: 0xffa860,
+      desc: 'Free action. Vanish and step out on any open square within 3. Ready again four turns later.' } }),
+  C({ id: 'barrow_bell', name: 'Barrow-warden\'s Bell', kind: 'bell', icon: 'bell', tint: 0xb8c0a8, rarity: 'uncommon', level: 3, price: 230,
+    desc: 'The barrow-wardens rang it at dusk to tell the dead to keep to their graves. Most of them listen.',
+    effects: [{ type: 'resist', status: 'afraid', chance: 0.5, who: 'party' }],
+    ability: { name: 'Toll for the Dead', icon: 'bell', target: 'nearbyFoes', radius: 3, damage: '1d4', undeadBonus: 3, cooldown: 4, statuses: [{ id: 'afraid', rounds: 2, chance: 0.4 }], vfx: 'shout', fx: 0xd8e0c0,
+      desc: 'The bell tolls: every foe within 3 takes 1d4 (three times as much if undead) and may flee in fear. Ready again four turns later.' } }),
+  // for one people
+  C({ id: 'deep_runering', name: 'Rune-ring of the Deep', kind: 'ring', icon: 'ring', tint: 0x68e4ff, rarity: 'uncommon', level: 3, price: 300,
+    only: { races: ['dwarf'] }, onlyText: 'Only a dwarf can wake its runes',
+    desc: 'Black iron set with blue runes that glow only on a dwarf\'s finger.',
+    effects: [{ type: 'bonus', stat: 'ac', power: 2 }, { type: 'resist', status: 'poisoned', chance: 1 }, { type: 'resist', status: 'stunned', chance: 0.5 }] }),
+  C({ id: 'leaf_brooch', name: 'Leaf-brooch of Lindaleth', kind: 'brooch', icon: 'leaf', tint: 0xa0e8a8, rarity: 'uncommon', level: 2, price: 260,
+    only: { races: ['elf'] }, onlyText: 'Only an elf can hear the leaf sing',
+    desc: 'A leaf of green enamel that rustles though there is no wind. It knows every path through the woods.',
+    effects: [{ type: 'travel', pct: 0.15 }, { type: 'sight', power: 2 }, { type: 'forage', pct: 0.5 }] }),
+  C({ id: 'old_toby_pipe', name: 'Old Toby\'s Pipe', kind: 'pipe', icon: 'pipe', tint: 0xb07a48, rarity: 'uncommon', level: 1, price: 120,
+    only: { races: ['hobbit'] }, onlyText: 'Only a hobbit can draw on it without coughing',
+    desc: 'A long-stemmed pipe of briar. Its smoke-rings drift, unhurried, through any danger — and so does whoever is puffing it.',
+    effects: [{ type: 'camp', pct: 0.5 }, { type: 'food', pct: 0.2 }, { type: 'onStart', status: 'hidden', rounds: 1, who: 'self' }, { type: 'resist', status: 'afraid', chance: 1 }] }),
+  C({ id: 'kings_coin', name: 'Coin of the Old Kings', kind: 'token', icon: 'coin', tint: 0xf4d470, rarity: 'uncommon', level: 2, price: 220,
+    only: { races: ['human'] }, onlyText: 'Only one of Men may carry the Kings\' coin',
+    desc: 'A gold coin of the Elder Days, stamped with a crowned head. Men who carry it learn swiftly, and fight with a king\'s confidence.',
+    effects: [{ type: 'spoils', xp: 0.15 }, { type: 'bonus', stat: 'hit', power: 1 }] }),
+  C({ id: 'heart_of_the_mountain', name: 'Heart of the Mountain', kind: 'relic', icon: 'gem', tint: 0x8ab0d0, rarity: 'legendary', level: 7, price: 1400,
+    only: { races: ['dwarf'] }, onlyText: 'Only a dwarf can bear the mountain\'s weight',
+    desc: 'A gem the size of a fist, cut from the root of the world. Stone remembers its own, and lets them pass.',
+    effects: [{ type: 'bonus', stat: 'ac', power: 3 }, { type: 'bonus', stat: 'hp', power: 10 }, { type: 'resist', status: 'stunned', chance: 1 }, { type: 'climb' }] }),
+  // for one calling
+  C({ id: 'star_ring', name: 'Star-ring of the Magi', kind: 'ring', icon: 'starring', tint: 0xb8a8ff, rarity: 'rare', level: 3, price: 420,
+    only: { classes: ['wizard'] }, onlyText: 'Only a wizard can kindle its star',
+    desc: 'A ring set with a chip of fallen star. It hums with stored power.', effects: [{ type: 'bonus', stat: 'mp', power: 4 }, { type: 'regen', mp: 1, who: 'self' }] }),
+  C({ id: 'dawn_medallion', name: 'Dawn-sun Medallion', kind: 'amulet', icon: 'sun', tint: 0xfff0a0, rarity: 'rare', level: 3, price: 380,
+    only: { classes: ['cleric', 'paladin'] }, onlyText: 'Only a cleric or a paladin may bear the Dawn',
+    desc: 'A gold sun on a chain, warm as morning. The dead cannot bear to look at it.', effects: [{ type: 'resist', status: 'afraid', chance: 1 }],
+    ability: { name: 'Dawnburst', icon: 'sun', target: 'nearbyFoes', radius: 2, damage: '1d6', stat: 'wis', undeadBonus: 2, perBattle: 1, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'holy', fx: 0xfff0a0,
+      desc: 'Once per battle. Light bursts from the medallion: every foe within 2 takes 1d6 + Wisdom (double against the undead) and is weakened.' } }),
+  C({ id: 'golden_string', name: 'Golden Lute-string', kind: 'talisman', icon: 'note', tint: 0xffd870, rarity: 'uncommon', level: 2, price: 300,
+    only: { classes: ['minstrel'] }, onlyText: 'Only a minstrel can make it sing',
+    desc: 'A single string of spun gold. Plucked in battle, it plays the whole company\'s heartbeat, only faster.', effects: [],
+    ability: { name: 'Quickstep Reel', icon: 'note', target: 'allAllies', perBattle: 1, free: true, statuses: [{ id: 'hasted', rounds: 2, power: 1 }, { id: 'blessed', rounds: 2, power: 1 }], vfx: 'song', fx: 0xffd870,
+      desc: 'Free action, once per battle. A wild reel: every companion moves a square further and gains +1 to hit for two turns.' } }),
+  C({ id: 'shadowsilk_mask', name: 'Shadow-silk Mask', kind: 'relic', icon: 'mask', tint: 0x8a80a8, rarity: 'rare', level: 3, price: 340,
+    only: { classes: ['burglar'] }, onlyText: 'Only a burglar knows how to vanish into it',
+    desc: 'A half-mask of grey silk. Foes forget you were ever there — until you are behind them.',
+    effects: [{ type: 'onStart', status: 'hidden', rounds: 2, who: 'self' }, { type: 'bonus', stat: 'crit', power: 1 }] }),
+  C({ id: 'hawk_eye', name: 'Hawk\'s-eye Pendant', kind: 'amulet', icon: 'eye', tint: 0xd8a850, rarity: 'uncommon', level: 2, price: 260,
+    only: { classes: ['ranger'] }, onlyText: 'Only a ranger can see through the hawk\'s eye',
+    desc: 'A hawk\'s eye of amber. Look through it, and the far hills come near.',
+    effects: [{ type: 'bonus', stat: 'hit', power: 1 }, { type: 'sight', power: 2 }, { type: 'forage', pct: 1 }] }),
+  C({ id: 'shieldwall_torc', name: 'Torc of the Shield-wall', kind: 'amulet', icon: 'torc', tint: 0xc8ccd4, rarity: 'uncommon', level: 3, price: 280,
+    only: { classes: ['warrior', 'paladin'] }, onlyText: 'Only one sworn to the front rank can close the torc',
+    desc: 'A heavy iron neck-ring, worn by those who stand where the blows fall thickest.', effects: [{ type: 'bonus', stat: 'ac', power: 1 }, { type: 'bonus', stat: 'hp', power: 6 }] }),
+  C({ id: 'forgespark_amulet', name: 'Forge-spark Amulet', kind: 'amulet', icon: 'anvil', tint: 0xffa058, rarity: 'uncommon', level: 3, price: 260,
+    only: { classes: ['runesmith'] }, onlyText: 'Only a runesmith can stoke its spark',
+    desc: 'A tiny anvil of red-gold that rings like a bell whenever its wearer strikes.',
+    effects: [{ type: 'onHit', status: 'stunned', rounds: 1, chance: 0.2, melee: true }, { type: 'resist', status: 'burning', chance: 1 }] }),
+  // legends
+  C({ id: 'seers_eye', name: 'Eye of the Seer', kind: 'orb', icon: 'eye', tint: 0x98f4ff, rarity: 'legendary', level: 6, price: 900,
+    desc: 'A crystal eye that sees what was, what is, and where you left your keys.',
+    effects: [{ type: 'trueSight' }, { type: 'dowse', radius: 8 }, { type: 'sight', power: 3, light: 3 }] }),
+  C({ id: 'phial_of_morning', name: 'Phial of Morning', kind: 'lantern', icon: 'phial', tint: 0xfff8d8, rarity: 'legendary', level: 6, price: 760,
+    desc: 'Light caught from the first dawn, stoppered in crystal. Things of shadow cannot bear to look upon it.',
+    say: 'Light floods from {who}\'s phial — the foes shrink from it!',
+    effects: [{ type: 'sight', light: 4 }, { type: 'onStart', status: 'weakened', rounds: 2, who: 'foes' }] }),
+  C({ id: 'dragons_eye', name: 'Dragon\'s-eye Amulet', kind: 'amulet', icon: 'eye', tint: 0xff5a30, rarity: 'legendary', level: 8, price: 1600,
+    desc: 'The eye of a great dragon, cut and set in red gold. It still sees — and it still burns.',
+    say: 'The dragon\'s eye on {who}\'s breast opens, and the company stands in its glare!',
+    effects: [{ type: 'onStart', status: 'shielded', power: 2, rounds: 3, who: 'party' }, { type: 'resist', status: 'afraid', chance: 1, who: 'party' }, { type: 'resist', status: 'burning', chance: 1 }],
+    ability: { name: 'Dragon\'s Wrath', icon: 'fire', target: 'tile', range: 6, radius: 1, damage: '4d6', stat: 'int', perBattle: 1, statuses: [{ id: 'burning', rounds: 2 }], vfx: 'fire', fx: 0xff5010,
+      desc: 'Once per battle. The eye opens: dragonfire bursts on a square within 6, searing every foe on and around it (4d6 + Intellect) and setting them alight.' } }),
 ];
 
 export const ITEMS = [
@@ -294,7 +621,12 @@ export const ITEMS = [
   { id: 'healing_draught', name: 'Healing Draught', type: 'consumable', effect: 'heal', power: '2d8+2', price: 25, combat: true, desc: 'A bitter green draught that knits wounds.' },
   { id: 'greater_draught', name: 'Greater Draught', type: 'consumable', effect: 'heal', power: '4d8+6', price: 70, combat: true, desc: 'A potent restorative.' },
   { id: 'antidote', name: 'Antidote', type: 'consumable', effect: 'cure', price: 15, combat: true, desc: 'Draws poison from the blood.' },
-  { id: 'mana_tonic', name: 'Mana Tonic', type: 'consumable', effect: 'mp', power: '2d6+2', price: 45, combat: true, desc: 'Restores magical energy.' },
+  // (each refills one kind of pool: a sorcerer's mana is not a cleric's faith)
+  { id: 'mana_tonic', name: 'Mana Tonic', type: 'consumable', effect: 'mp', pool: ['arcane'], power: '2d6+2', price: 45, combat: true, desc: 'A blue, fizzing draught that refills a sorcerer\'s mana.' },
+  { id: 'votive_candle', name: 'Votive Candle', type: 'consumable', effect: 'mp', pool: ['divine'], power: '2d6+2', price: 45, combat: true, icon: 'torch', tint: 'fire',
+    desc: 'A blessed beeswax candle. Lit and prayed over, it renews a cleric\'s or paladin\'s Faith.' },
+  { id: 'larks_honey', name: 'Lark\'s Honey', type: 'consumable', effect: 'mp', pool: ['song'], power: '2d6+2', price: 45, combat: true, icon: 'drop', tint: 'food',
+    desc: 'Wild honey from the meadows where larks nest. A spoonful soothes the throat and brings back an elven singer\'s Voice.' },
   { id: 'phoenix_feather', name: 'Phoenix Feather', type: 'consumable', effect: 'revive', price: 300, combat: true, desc: 'Brings a fallen companion back from the brink.' },
   { id: 'torch', name: 'Torch', type: 'consumable', effect: 'light', power: '100', price: 3, combat: false, desc: 'Pitch-soaked; lights the dark places for a while.' },
   { id: 'rations', name: 'Rations (x25)', type: 'consumable', effect: 'food', power: '25', price: 20, combat: false, desc: 'Waybread, salt meat and dried apples. Adds 25 food.' },
@@ -318,7 +650,25 @@ export const ITEMS = [
   { id: 'scroll_phantasm', name: 'Scroll: Phantasmal Terror', type: 'scroll', spell: 'phantasm', price: 110, desc: 'The ink seems to crawl when you are not looking at it.' },
   { id: 'scroll_vampiric', name: 'Scroll: Vampiric Touch', type: 'scroll', spell: 'vampiric_touch', price: 160, desc: 'Written in rust-brown ink. Best not to ask.' },
   { id: 'scroll_ice_storm', name: 'Scroll: Ice Storm', type: 'scroll', spell: 'ice_storm', price: 240, desc: 'Frost forms on the vellum as you unroll it.' },
+  // charms (see CHARMS below): worn in the charm slot
+  ...CHARMS,
 ];
+
+// Enchanted gear does a little more than hit harder (older games gain these once)
+export const GEAR_MAGIC = {
+  elven_bow: { effects: [{ type: 'bonus', stat: 'init', power: 2 }] },
+  ember_bow: { effects: [{ type: 'onHit', status: 'burning', rounds: 2, chance: 0.35 }] },
+  shadow_fang: { effects: [{ type: 'bonus', stat: 'crit', power: 1 }] },
+  runeblade: { effects: [{ type: 'resist', status: 'afraid', chance: 1 }] },
+  dwarf_axe: { effects: [{ type: 'onHit', status: 'stunned', rounds: 1, chance: 0.15, melee: true }] },
+  staff_of_power: { effects: [{ type: 'bonus', stat: 'mp', power: 4 }],
+    ability: { name: 'Star-stone Flare', icon: 'sparkle', target: 'nearbyFoes', radius: 1, damage: '2d6', stat: 'int', perBattle: 1, statuses: [{ id: 'stunned', rounds: 1, chance: 0.3 }], vfx: 'arcane', fx: 0xff80ff,
+      desc: 'Once per battle. The star-stone flares: every foe beside you takes 2d6 + Intellect and may be dazzled for a turn.' } },
+  truesilver_mail: { effects: [{ type: 'resist', status: 'stunned', chance: 0.5 }, { type: 'resist', status: 'poisoned', chance: 0.5 }] },
+  elven_cloak: { effects: [{ type: 'onStart', status: 'hidden', rounds: 1, who: 'self' }] },
+  dragonscale: { effects: [{ type: 'resist', status: 'burning', chance: 1 }, { type: 'fireWalk' }] },
+};
+for (const it of ITEMS) if (GEAR_MAGIC[it.id]) Object.assign(it, JSON.parse(JSON.stringify(GEAR_MAGIC[it.id])));
 
 export const SPELLS = [
   // Sorcery
@@ -423,6 +773,11 @@ export const MONSTERS = [
   { id: 'shadow_lord', name: 'The Shadow Lord', plural: 'Shadow Lords', level: 10, hp: '36d8+50', ac: 17, hit: 12, dmg: '2d10+8', undead: true, sleepImmune: true, xp: 1000, gold: '50d10', habitat: [], group: [1, 1], spells: ['drain_life', 'fireball'], castChance: 0.35, boss: true, ai: 'boss', abilities: ['dark_wave'], escort: [{ id: 'barrow_wight', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'barrow_wight', min: 2, max: 2 }], phaseText: 'The Shadow Lord cries out in a dead tongue, and the dead rise to his call!',
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
+  // called into battle by a runesmith's skill, never met in the wild (no habitat)
+  { id: 'stone_warden', name: 'Stone Warden', plural: 'Stone Wardens', level: 4, hp: '6d10+12', ac: 16, hit: 5, dmg: '1d8+3', xp: 0, gold: '0', habitat: [], group: [1, 1], ai: 'brute', moves: 3,
+    abilities: ['taunt'], sleepImmune: true, poisonImmune: true,
+    look: L({ race: 'dwarf', body: 0x8c8a82, skin: 0xa8a294, beard: 0x7a776e, armor: 'plate', hat: 'helm', hatColor: 0x8c8a82, weapon: 'hammer', shield: 0x7a786e, runes: 0x5ee8ff, eyes: 0x5ee8ff, scale: 1.1 }),
+    desc: 'A dwarf-shaped guardian of rune-carved granite, woken for a little while by a runesmith\'s craft.' },
 ];
 
 // ---------------------------------------------------------------- travel

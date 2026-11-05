@@ -9,9 +9,13 @@ import {
   activeQuests, doneQuests, trackedQuest, currentStage, questState, stageLine, stageLineHere, guidance, questPins, onTalk, offersFrom, startQuest, npcMarker,
   goalTarget, pinQuest, isPinned, greetingFor,
 } from '../game/quests.js';
-import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS, visibleChoices, applyEffects } from '../game/events.js';
+import { activeBlessings, resolveChoice, choiceState, eventUsedRecently, eventLook, EVENT_KINDS, EVENT_DOTS, eventDot, visibleChoices, applyEffects } from '../game/events.js';
+import { shipDeal } from '../game/dialog.js';
+import { terrain } from '../data/terrain.js';
+import { getTile } from '../world/map.js';
 import * as Quests from '../game/quests.js';
 import * as Events from '../game/events.js';
+import { LANDMARK_KEEPERS } from '../render/landmarks.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
 import { chapterList, chapterLabel, currentChapter, chapterOfQuestNow, questSpans, roman } from '../game/story.js';
 import * as Story from '../game/story.js';
@@ -214,10 +218,11 @@ export class QuestUI {
     if (opts.events) {
       for (const e of map.entities) {
         if (e.type !== 'event' || (s.visible && !map.explored[e.y * map.w + e.x])) continue;
-        const known = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' };
-        const c = known[e.kind] || '#d0a0ff';
-        shown.events.add(known[e.kind] ? e.kind : 'other');
-        ctx.fillStyle = c;
+        if (terrain(getTile(map, e.x, e.y)).feature) continue; // (on a site square: the site shows it)
+        // (coloured by group: farms and mills, ruins and graves...)
+        const dot = eventDot(e);
+        shown.events.add(dot);
+        ctx.fillStyle = EVENT_DOTS[dot][0];
         ctx.strokeStyle = '#000';
         ctx.beginPath();
         ctx.arc(e.x * scale + scale / 2, e.y * scale + scale / 2, Math.max(2, scale * 0.6), 0, Math.PI * 2);
@@ -411,9 +416,11 @@ export class QuestUI {
     s.mode = 'dialog';
     sfx('click');
     const body = h('div.event');
-    const look = eventLook(e);
-    // a farmstead's farmer stands in his yard: his face goes on the card
-    const who = look.kind === 'humanoid' ? look : look.kind === 'farmstead' ? { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, ...(look.keeper || {}) } : null;
+    const look = eventLook(e, s.map) || {};
+    // a farmstead's farmer stands in his yard, the miller at his door: their
+    // faces go on the card
+    const keeper = !look.ruined && LANDMARK_KEEPERS[look.kind];
+    const who = look.kind === 'humanoid' ? look : look.kind === 'farmstead' ? { kind: 'humanoid', race: 'hobbit', body: 0x7a8a3a, ...(look.keeper || {}) } : keeper ? { kind: 'humanoid', ...keeper, ...(look.keeper || {}) } : null;
     const pic = who ? portrait(s.view, who) : null;
     let pendingFight = null, whisk = null;
     const m = modal(body, {
@@ -455,6 +462,7 @@ export class QuestUI {
         const tags = [];
         if (c.req && c.req.type && c.req.type !== 'none' && cs.tag) tags.push(cs.tag);
         if (+c.cost?.gold) tags.push(`◆ ${c.cost.gold}`);
+        if (c.effects?.ship) tags.push(`◆ ${shipDeal(e).price}`);
         if (+c.cost?.food) tags.push(`${c.cost.food} food`);
         if (c.cost?.item) tags.push(itemOf(g, c.cost.item)?.name || c.cost.item);
         if (c.chance != null && c.chance !== '' && +c.chance < 1) tags.push('a gamble');

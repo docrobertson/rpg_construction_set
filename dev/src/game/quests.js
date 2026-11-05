@@ -19,6 +19,7 @@ import { getTile, inBounds } from '../world/map.js';
 import { partyAlive, gainXp, itemOf, levelUpNote } from './rules.js';
 import { bfsPath } from './walk.js';
 import { lootTag } from './magic.js';
+import { shipBought } from './ships.js';
 import { chapterList, chapterById, chapterIndex, chapterTitle, openChapterIds, questOpen } from './story.js';
 
 export const GOAL_TYPES = {
@@ -126,7 +127,7 @@ export function npcMarker(session, npc) {
   if (offersFrom(session, npc).length) return 'quest';
   if ((session.game.quests || []).some((q) => q.giver === npc.id && isActive(st, q.id))) return 'progress';
   // a shipwright with a ship still to sell shows his trade too
-  if (npc.role === 'shipwright' && !st.party.flags[`_ship_${npc.id}`]) return 'shop';
+  if (npc.role === 'shipwright' && !shipBought(session, npc)) return 'shop';
   if (npc.shop && npc.shop.kind) return npc.role === 'merchant' ? 'merchant' : 'shop';
   if (npc.role === 'inn') return 'inn';
   if (npc.role === 'healer') return 'healer';

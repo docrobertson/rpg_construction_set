@@ -94,14 +94,17 @@ log(await ev(async () => {
 }));
 // 7. Leave dungeon via exit
 log(await ev(async () => { const s = window.__app.session; await s.leaveMap(); return { map: s.map.name, pos: s.state.pos }; }));
-// 8. Ship: buy one from the shipwright at Gullhaven, board her at the quay and sail
+// 8. Ship: have one built at the Gullhaven shipyard, board her at the quay and sail
 log(await ev(async () => {
   const s = window.__app.session;
   const w = s.game.maps[0];
   if (s.map.id !== w.id) await s.enterMap(w.id, 20, 52, { instant: true });
-  const wright = s.game.maps.flatMap((m) => m.entities).find((e) => e.role === 'shipwright');
   s.party.gold += 500;
-  s.say(wright, 'BUY');
+  s.ui.openEvent(s.map.entities.find((e) => e.id === 'ev_gullhaven'));
+  await new Promise((r) => setTimeout(r, 200));
+  [...document.querySelectorAll('.event-modal .choose-item')].find((b) => /Gull/.test(b.textContent))?.click();
+  await new Promise((r) => setTimeout(r, 200));
+  for (let i = 0; i < 4 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-buttons button, .modal-back .modal-x')?.click(); await new Promise((r) => setTimeout(r, 150)); }
   const ship = s.map.entities.find((e) => e.type === 'ship');
   // stand next to it
   const adj = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: ship.x + dx, y: ship.y + dy, dx: -dx, dy: -dy }));

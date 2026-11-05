@@ -16,6 +16,7 @@ export function h(tag, attrs, ...children) {
       else if (k === 'style' && typeof v === 'object') { for (const [p, x] of Object.entries(v)) { if (p.startsWith('--')) el.style.setProperty(p, x); else el.style[p] = x; } }
       else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === 'html') el.innerHTML = v;
+      else if (k === 'tip' && typeof v === 'function') tipCard(el, v);
       else if (k in el && k !== 'list' && k !== 'type') {
         try { el[k] = v; } catch { el.setAttribute(k, v); }
       } else el.setAttribute(k, v === true ? '' : v);
@@ -107,6 +108,9 @@ export function toast(msg, kind = '') {
 // and a framed card appears beside the element after a short pause. Touch
 // screens keep their long-press behaviour; nothing shows for them.
 let tipEl = null, tipFor = null, tipTimer = 0;
+// elements whose tooltip is a card built on hover (h(tag, { tip: () => el }))
+const cards = new WeakMap();
+export function tipCard(el, build) { cards.set(el, build); el.dataset.tipcard = ''; return el; }
 
 const hide = () => { clearTimeout(tipTimer); tipFor = null; if (tipEl) tipEl.hidden = true; };
 
@@ -125,7 +129,7 @@ export function initTooltips() {
   document.body.appendChild(tipEl);
   document.addEventListener('pointerover', (e) => {
     if (e.pointerType === 'touch') return;
-    const t = e.target.closest?.('[title], [data-tip]');
+    const t = e.target.closest?.('[title], [data-tip], [data-tipcard]');
     if (t === tipFor) return;
     hide();
     if (!t || t.tagName === 'svg' || t.closest('svg')) return;
@@ -137,7 +141,7 @@ export function initTooltips() {
         if (!t.hasAttribute('aria-label') && !t.textContent.trim()) t.setAttribute('aria-label', v);
       }
     }
-    const text = t.dataset.tip;
+    const text = cards.get(t) || t.dataset.tip;
     if (!text) return;
     tipFor = t;
     tipTimer = setTimeout(() => showTip(t, text), 350);
@@ -151,7 +155,10 @@ export function initTooltips() {
 
 function showTip(t, text) {
   if (!t.isConnected || tipFor !== t) return;
-  tipEl.textContent = text;
+  const rich = typeof text === 'function';
+  if (rich) tipEl.replaceChildren(text());
+  else tipEl.textContent = text;
+  tipEl.classList.toggle('rich', rich);
   tipEl.hidden = false;
   const r = t.getBoundingClientRect();
   const w = tipEl.offsetWidth, ht = tipEl.offsetHeight;

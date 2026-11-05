@@ -11,9 +11,10 @@ import { placesOf, autoPlaceSites, connectPlaces, defaultPlan, placeSummary, PLA
 import { fbm } from '../../core/noise.js';
 import { hash2 } from '../../core/rng.js';
 import { defaultSiteName } from './tools.js';
+import { sowFields, inFieldPlot } from '../../world/countryside.js';
 
 const SEA = ['raise', 'sink', 'island', 'lake'];
-const REGIONS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
+const REGIONS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'fields', 'clear'];
 const PATHS = ['road', 'river', 'ridge'];
 
 // ------------------------------------------------------------ region brushes
@@ -80,6 +81,14 @@ const BRUSHES = {
   snow: { pick: nat(HIGH, (x, y, d, r, seed) => (hash2(x, y, seed + 1) < 0.12 ? 'pines' : 'snow')) },
   blight: { pick: nat(HIGH, (x, y, d, r, seed) => (d < 0.7 && fbm(x * 0.35, y * 0.35, seed + 11) > 0.62 ? 'lava' : 'ash')) },
   meadow: { pick: nat([], (x, y, d, r, seed) => (hash2(x, y, seed) < 0.6 ? 'meadow' : 'grass')) },
+  // farmland is sown only on open grass and meadow, in a patchwork of plots
+  fields: {
+    label: 'Farmland', icon: '🌾', desc: 'A patchwork of fenced fields, sown only on open grass and meadow: roads, water, woods and places are left alone.',
+    pick(x, y, d, cur, r, seed) {
+      const k = terrain(cur).key;
+      return d < 1 && (k === 'grass' || k === 'meadow') && inFieldPlot(x, y, seed) ? 'fields' : null;
+    },
+  },
   clear: { rough: 0.15, pick: nat([], () => 'grass') },
 };
 
@@ -205,7 +214,8 @@ export function renderLandPanel(ed, L) {
     h('button.wide.land-roads', { title: 'Lay roads joining every place and the start, round the mountains and over the rivers, using the roads already there', onclick: () => joinRoads(ed) }, '🛣 Join the places with roads')));
   L.appendChild(section('Places', 'Click the map to found a town, castle or dungeon — its map is built for you — or let the land choose good spots.',
     h('div.tool-grid', ...Object.keys(FEATURE_KINDS).map((k) => toolBtn('found_' + k))),
-    h('button.wide', { title: 'Choose how many of each kind; they go where the ground suits them', onclick: () => findSpotsDialog(ed) }, '✦ Find spots for places…')));
+    h('button.wide', { title: 'Choose how many of each kind; they go where the ground suits them', onclick: () => findSpotsDialog(ed) }, '✦ Find spots for places…'),
+    h('button.wide.land-fields', { title: 'Sow a patchwork of fields on the open grass round every town, village and castle (roads, water and anything standing there are left alone)', onclick: () => sowAround(ed) }, '🌾 Fields round the towns')));
   const places = placesOf(ed.game).filter((p) => p.world === world);
   if (places.length) {
     const list = h('div.entry-list.land-places', ...places.map((p) => {
@@ -221,6 +231,15 @@ export function renderLandPanel(ed, L) {
 }
 
 // ------------------------------------------------------------ actions
+function sowAround(ed, sites = null) {
+  const world = ed.map;
+  if (world.type !== 'world') return;
+  ed.beginEdit();
+  const b = sowFields(world, { seed: Math.floor(Math.random() * 1e6), sites, keep: [ed.game.settings.start] });
+  if (b.x1 >= b.x0) ed.changed(b); else ed.markDirty();
+  toast(b.sown ? `Sowed ${b.sown} square${b.sown === 1 ? '' : 's'} of fields.` : 'There is no open grass left round the towns to sow.', b.sown ? '' : 'warn');
+}
+
 function joinRoads(ed) {
   const world = ed.map;
   if (world.type !== 'world') return;
@@ -236,7 +255,7 @@ function findSpotsDialog(ed) {
   const world = ed.map;
   const o = Object.fromEntries(Object.keys(FEATURE_KINDS).map((k) => [k, 0]));
   o.town = 1;
-  let roads = true;
+  let roads = true, fields = true;
   const body = h('div.land-find');
   const draw = () => {
     clear(body);
@@ -252,6 +271,10 @@ function findSpotsDialog(ed) {
     cb.checked = roads;
     cb.addEventListener('change', () => { roads = cb.checked; });
     body.appendChild(h('label.field.check', cb, h('span.field-label', 'Then join every place with roads')));
+    const fb = h('input', { type: 'checkbox' });
+    fb.checked = fields;
+    fb.addEventListener('change', () => { fields = fb.checked; });
+    body.appendChild(h('label.field.check', fb, h('span.field-label', 'And sow fields round the new towns and villages')));
   };
   draw();
   modal(body, {
@@ -274,6 +297,7 @@ function findSpotsDialog(ed) {
           const b = connectPlaces(ed.game, world, { seed: Math.floor(Math.random() * 1e6) });
           if (b?.unreached?.length) roadNote = ` No road reaches ${b.unreached.join(', ')}.`;
         }
+        if (fields && placed.length) sowFields(world, { seed: Math.floor(Math.random() * 1e6), sites: placed.map((p) => p.portal).filter(Boolean), keep: [ed.game.settings.start] });
         ed.markDirty();
         ed.loadMap(world, true);
         toast(`Founded ${placed.length} of ${wants.length} place${wants.length === 1 ? '' : 's'}${placed.length < wants.length ? ' (the land had no good spot for the rest)' : ''}.${roadNote}`, placed.length < wants.length ? 'warn' : '');

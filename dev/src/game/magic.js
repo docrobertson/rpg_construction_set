@@ -3,7 +3,8 @@
 // into a spellbook, and rangers foraging for herbs on the road.
 import { MAGIC_SYSTEMS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { casting, knownSpells, itemOf, createCharacter, maxMp, magicalOf } from './rules.js';
+import { casting, knownSpells, itemOf, createCharacter, maxHp, maxMp, magicalOf, canEquip, onlyWords } from './rules.js';
+import { charmForage } from './charms.js';
 
 const STYLE_ICONS = { book: 'book', prayer: 'sun', song: 'note', runes: 'rune', herbs: 'herb' };
 
@@ -32,6 +33,36 @@ export function manaSchool(game, c) { return schoolLook(casting(game, c).find((c
 
 // "Mana", "Faith", "Voice": what this hero's spell points are called
 export function poolName(game, c) { return manaSchool(game, c)?.resName || 'Mana'; }
+
+// Does a restoring item (effect 'mp') work for this hero? Each names the
+// schools whose pool it refills (item.pool); one that names none (an older
+// game's) refills any
+export function restoresPool(game, item, c) {
+  if (!item?.pool?.length) return true;
+  const sch = manaSchool(game, c);
+  return !!sch && item.pool.includes(sch.sys.id);
+}
+
+// Why a draught, a tonic, a feather or a spell of that effect cannot go to
+// this hero (null: it can). One answer for every way of choosing a hero.
+export function noNeed(game, effect, c, item = null) {
+  if (effect === 'revive') return c.status === 'dead' ? null : 'not fallen';
+  if (c.status === 'dead') return 'fallen';
+  if (effect === 'heal') return c.hp >= maxHp(game, c) ? 'already at full health' : null;
+  if (effect === 'mp') {
+    if (maxMp(game, c) <= 0) return item?.pool?.length ? `has no ${poolWords(game, item)}` : 'has no mana';
+    if (item && !restoresPool(game, item, c)) return `not for ${poolName(game, c)}`;
+    return c.mp >= maxMp(game, c) ? `${poolName(game, c)} already full` : null;
+  }
+  if (effect === 'cure') return c.status !== 'poisoned' ? 'not poisoned' : null;
+  return null;
+}
+
+// "mana", "Faith" or "mana or Faith": what a restoring item refills
+export function poolWords(game, item) {
+  if (!item?.pool?.length) return 'mana';
+  return item.pool.map((id) => (game.magic || []).find((m) => m.id === id)?.resName || id).join(' or ');
+}
 
 // A talent as this hero sees it: the deeper-pool talent is named for the
 // pool they actually draw on (a cleric's Faith, a minstrel's Voice)
@@ -107,6 +138,11 @@ export function scrollUse(game, members, item) {
 
 // A short note after a reagent, herb or scroll in a loot line: " (for Thrar)"
 export function lootTag(game, members, item) {
+  // a charm: who could wear it (or who it is for)
+  if (item?.type === 'charm') {
+    const who = members.filter((m) => m.status !== 'dead' && canEquip(game, m, item).ok);
+    return who.length ? ' (✦ charm)' : ` (✦ charm — ${(item.onlyText || onlyWords(game, item) || 'no one here can wear it').replace(/^Only/, 'only')})`;
+  }
   const mg = magicalOf(item);
   if (mg) return ` (✦ magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''})`;
   if (item?.type === 'reagent') {
@@ -136,7 +172,7 @@ export function forageFind(game, members, inv, ground, rng) {
     const mine = herbs.filter((it) => (inv[it.id] || 0) < FORAGE_CAP
       && (game.spells || []).some((sp) => schools.includes(sp.system) && (sp.reagents || []).includes(it.id)));
     const forager = (m.perks || []).includes('forager');
-    if (!mine.length || !rng.chance(FORAGE_CHANCE * (forager ? 2 : 1))) continue;
+    if (!mine.length || !rng.chance(FORAGE_CHANCE * (forager ? 2 : 1) * (1 + charmForage(game, members)))) continue; // (charms) a forager's charm
     const it = rng.pick(mine);
     const n = Math.min(FORAGE_CAP - (inv[it.id] || 0), (rng.chance(0.35) ? 2 : 1) + (forager ? 1 : 0));
     inv[it.id] = (inv[it.id] || 0) + n;

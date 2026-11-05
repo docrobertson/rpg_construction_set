@@ -5,6 +5,8 @@ import { createMaterials, shared, silhouetteMaterial } from './materials.js';
 import { TerrainView, WATER_Y, LAVA_Y } from './terrainView.js';
 import { BuildingsView } from './houses.js';
 import { makeModel } from './models.js';
+import { CONTAINER_BUILDERS } from './containers.js';
+import { LANDMARK_WORLD_SCALE, SPINNERS } from './landmarks.js';
 import { Followers } from './followers.js';
 import { HeadMarkers, PathPreview, HoverGlow } from './markers.js';
 import { terrain } from '../data/terrain.js';
@@ -27,7 +29,9 @@ const LIGHTING = {
   dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
 const WORLD_FIGURE = 0.78;
-const WORLD_POI = new Set(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate']);
+// (how much larger each point of interest is drawn there; the other things
+// treasure is found in are drawn larger too, like a chest)
+const WORLD_POI = { ...Object.fromEntries(['campfire', 'shrine', 'lorestone', 'well', 'sign', 'chest', 'waygate', ...Object.keys(CONTAINER_BUILDERS)].map((k) => [k, 1.6])), ...LANDMARK_WORLD_SCALE };
 const SUN_DIR =new THREE.Vector3(-0.52, 0.74, 0.42).normalize();
 
 export class View {
@@ -263,7 +267,7 @@ export class View {
     if (!b.list.length) return;
     // the party's building stands open; in the editor (no party), the one
     // under the cursor
-    const party = this.entities.get('party');
+    const party = this.partyFigure();
     const inside = party ? b.at(party.x, party.y) : -1;
     const cursor = !party && this.cursor.visible && this._cursorTile ? b.at(this._cursorTile.x, this._cursorTile.y) : -1;
     b.update(dt, { inside, cursor, vis: this.visOn ? this.visCur : null, exp: this.visOn ? this.expCur : null });
@@ -547,7 +551,7 @@ export class View {
     // On the world map a square is a league: figures stand smaller beside the
     // (enlarged) towns and castles, and points of interest a little larger
     const world = this.map?.type === 'world';
-    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI.has(spec.kind) ? 1.6 : 1) : WORLD_FIGURE;
+    const worldK = !world || info.boat ? 1 : info.noLean ? (WORLD_POI[spec.kind] ?? 1) : WORLD_FIGURE;
     const scale = (opts.scale ?? 1) * (info.noLean ? 1 : this.unitScale) * worldK;
     leanG.scale.setScalar(scale);
     // soft contact shadow under the feet
@@ -580,8 +584,18 @@ export class View {
         o.parent.add(s);
       }
     }
+    // a mill's sails or wheel: a part of its own that turns
+    const sp = SPINNERS[spec.kind]?.(spec);
+    let spin = null;
+    if (sp) {
+      const part = makeModel(sp.look, this.mats), k = spec.scale ?? 1;
+      part.position.set(sp.at[0] * k, sp.at[1] * k, sp.at[2] * k);
+      part.scale.setScalar(k);
+      model.add(part);
+      spin = { part, axis: sp.axis, speed: sp.speed };
+    }
     const e = {
-      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person,
+      id, root, leanG, faceG, model, info, x, y, poi: !!opts.poi, person: !!opts.person, spin,
       bobPhase: Math.random() * Math.PI * 2,
       anim: null, scale, idle: opts.idle !== false,
       hpBar: null,
@@ -608,6 +622,10 @@ export class View {
     if (opts.aboard) this.followers.aboard(opts.aboard);
   }
   setMarker(id, kind, always) { this.markers.set(id, kind, always); }
+
+  // The company's figure: the party, or (in a dungeon battleground, where every
+  // hero stands alone) the hero the light and the view are anchored on
+  partyFigure() { return this.entities.get('party') || (this.anchorId ? this.entities.get(this.anchorId) : null) || null; }
 
   // The figure under the pointer (screen space, so a click on a head counts),
   // nearest the camera first; filter(entity) can rule some out
@@ -765,6 +783,28 @@ export class View {
     });
   }
 
+  // A fallen hero topples and lies where they fell (to be raised there, or
+  // carried off when the battle ends); their ring fades to a faint mark
+  fallAnim(id) {
+    const e = this.entities.get(id);
+    if (!e) return Promise.resolve();
+    e.idle = false;
+    e.model.scale.set(1, 1, 1);
+    const ring = e.root.userData.ring, y0 = e.root.position.y;
+    // (toppled about the feet, then slid so the body lies across its own square)
+    const half = (e.info.height || 0.8) * e.scale * 0.45;
+    if (e.hpBar) { e.hpBar.el.remove(); e.hpBar = null; }
+    return new Promise((resolve) => {
+      this.tween(0.5, (k) => {
+        const q = 1 - (1 - k) * (1 - k);
+        e.leanG.rotation.z = q * 1.5;
+        e.leanG.position.x = q * half;
+        e.root.position.y = y0 - q * 0.04;
+        if (ring) ring.material.opacity = 0.9 - q * 0.6;
+      }, resolve);
+    });
+  }
+
   setHpBar(id, frac) {
     const e = this.entities.get(id);
     if (!e) return;
@@ -811,6 +851,7 @@ export class View {
         }
         if (e.info.boat) e.model.rotation.z = Math.sin(this.time * 1.3 + e.bobPhase) * 0.05;
       }
+      if (e.spin) e.spin.part.rotation[e.spin.axis] += dt * e.spin.speed;
       if (e.faceTarget !== undefined) {
         let d = e.faceTarget - e.faceG.rotation.y;
         while (d > Math.PI) d -= Math.PI * 2;
@@ -831,11 +872,12 @@ export class View {
   // Scenery between the camera and the party (or the unit whose turn it is,
   // or the square under the cursor) dithers away in a circle around them.
   _updateCutaway() {
-    const cuts = shared.uCut.value, ys = shared.uCutY.value;
+    const cuts = shared.uCut.value, ys = shared.uCutY.value, ks = shared.uCutK.value;
     const pr = this.renderer.getPixelRatio();
     const H = this._h || 1;
     let n = 0;
-    const add = (x, y, z, h, rad) => {
+    ks.fill(1);
+    const add = (x, y, z, h, rad, k = 1) => {
       if (n >= cuts.length) return;
       const a = this.worldToScreen(x, y, z), b = this.worldToScreen(x, y + h, z);
       const px = Math.abs(a.y - b.y);
@@ -843,14 +885,15 @@ export class View {
       const r = px * 1.25 + rad * Math.min(1, px / 50);
       cuts[n].set(((a.x + b.x) / 2) * pr, (H - (a.y + b.y) / 2) * pr, r * pr, z - 0.1);
       ys[n] = y + 0.08;
+      ks[n] = k;
       n++;
     };
-    const ent = (e, extra = 0) => {
+    const ent = (e, extra = 0, k = 1) => {
       if (!e.root.visible) return;
       const p = e.root.position;
-      add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra);
+      add(p.x, p.y, p.z, e.info.height * e.scale, 22 + extra, k);
     };
-    const party = this.entities.get('party');
+    const party = this.partyFigure();
     if (party && party.root.visible) {
       // one clear window over the whole company: the box round every figure's
       // feet and head on screen, cut from the northernmost of them forward
@@ -871,6 +914,15 @@ export class View {
       n = 1;
     }
     for (const id of this.cutFocus) { const e = this.entities.get(id); if (e && e !== party) ent(e); }
+    // (delve) heroes on squares of their own each get a window, and in a
+    // battle on the dungeon floor so do the foes nearest the camera
+    if (this.cutAlways) for (const id of this.cutAlways) { const e = this.entities.get(id); if (e && e !== party && !this.cutFocus.has(id)) ent(e); }
+    if (this.fieldBattle) {
+      const r = this.rig;
+      const foes = [...this.entities.entries()].filter(([id, e]) => id.startsWith('dv:') && e.root.visible && !this.cutFocus.has(id))
+        .map(([, e]) => [Math.hypot(e.root.position.x - r.x, e.root.position.z - r.z), e]).sort((a, b) => a[0] - b[0]);
+      for (const [, e] of foes) { if (n >= cuts.length) break; ent(e, -8); }
+    }
     // points of interest near the company: nothing tall in front hides them
     if (party && this.map?.type === 'world') {
       const px = party.root.position.x, pz = party.root.position.z;
@@ -904,8 +956,10 @@ export class View {
       const c = this.cursor.position, s = this.cursor.scale.x;
       add(c.x + s / 2, c.y, c.z + s / 2, 0.9, 34 + s * 10);
     }
-    // in battle no tree or rock may hide any fighter
-    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8);
+    // in battle no tree or rock may hide any fighter: what stands in front
+    // turns to a see-through ghost of itself (a clean hole left the stump and
+    // the shadow of a tree that seemed to be missing)
+    if (this.map?.type === 'arena') for (const [id, e] of this.entities) if (!this.cutFocus.has(id) && e !== party) ent(e, -8, 0.5);
     shared.uCutN.value = n;
     // the party's own torchlight at night and underground
     const L = this.light;
@@ -915,6 +969,17 @@ export class View {
       const dark = this.lighting === 'dark';
       shared.uParty.value.set(p.x, p.z, (dark ? 4.2 : 3.8) * (torch ? 1.55 : 1), L.party * (torch ? 1.35 : 0.85));
     } else shared.uParty.value.set(0, 0, 0, 0);
+    // (delve) heroes on squares of their own, away from the torch: a dim pool each
+    let k = 0;
+    if (this.cutAlways && L.party > 0) {
+      const pools = shared.uPools.value;
+      for (const id of this.cutAlways) {
+        const e = this.entities.get(id);
+        if (!e || e === party || !e.root.visible || k >= pools.length) continue;
+        pools[k++].set(e.root.position.x, e.root.position.z, this.lighting === 'dark' ? 4.2 : 3.8, L.party * 0.9); // (as a company with no torch)
+      }
+    }
+    shared.uPoolN.value = k;
   }
 
   // ---- overlays ----

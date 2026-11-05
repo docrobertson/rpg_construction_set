@@ -1,4 +1,4 @@
-// Places to visit: Hob's farmstead, buying a ship at Gullhaven, the Red Pit's
+// Places to visit: Hob's farmstead, the shipyard at Gullhaven, the Red Pit's
 // ladder of bouts, the fortune-teller, the fairy ring, the lighthouse, the
 // smugglers' cove and its hoard, and the same places in generated worlds and
 // in the editor's site tools (each check prints PASS/FAIL).
@@ -61,34 +61,55 @@ check('Hob\'s farmstead is a homestead (farm kind, cottage-and-yard look)', r.ki
 // (terrain ids: meadow 3, sand 10, fields 26)
 check('the farmstead stands on meadow among fields, with no sand round it', r.here === 3 && r.around.filter((t) => t === 26).length >= 5 && !r.around.includes(10), r);
 
-// ---- the shipwright: too poor, then a ship bought and moored at the quay
-r = await ev(async () => {
-  const s = window.__app.session, g = s.game;
-  const haven = g.maps.find((m) => m.name === 'Gullhaven');
-  const wright = haven.entities.find((e) => e.role === 'shipwright');
-  await s.enterMap(haven.id, haven.entry.x, haven.entry.y, { instant: true });
-  const live = s.map.entities.find((e) => e.id === wright.id);
-  s.party.gold = 200;
-  const poor = s.say(live, 'BUY');
-  const pitch = s.say(live, 'SHIP');
-  s.party.gold = 600;
-  const bought = s.say(live, 'BUY');
-  const after = s.party.gold;
-  const again = s.say(live, 'BUY');
-  const w = g.maps[0];
-  const added = (s.state.maps[w.id]?.added || []).filter((e) => e.type === 'ship');
-  return { poorText: poor.text, poorGold: 200, pitch: pitch.text, bought: bought.text, note: bought.note, after, againGold: s.party.gold, again: again.text, added, wright: { x: wright.ship?.x, y: wright.ship?.y } };
+// ---- the shipyard at Gullhaven: a simple place on the map; too poor, then a
+// ship built and moored at the quay
+const yardChoice = () => ev(() => {
+  const btn = [...document.querySelectorAll('.event-modal .choose-item')].find((b) => /Gull/.test(b.textContent));
+  return btn && { text: btn.textContent, off: btn.classList.contains('disabled') };
 });
-check('the shipwright tells of his ship and her price', /450 gold/.test(r.pitch) && /BUY/.test(r.pitch), r.pitch);
-check('a company too poor is turned away', /not a copper less/.test(r.poorText), r.poorText);
-check('buying the ship takes 450 gold', r.after === 150, r);
-check('the bought ship is moored at the quay on the world map', r.added.length === 1 && r.added[0].x === r.wright.x && r.added[0].y === r.wright.y, r.added);
-check('a ship is sold only once', r.againGold === 150 && /thine already/.test(r.again), r);
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game, w = g.maps[0];
+  const yard = w.entities.find((e) => e.id === 'ev_gullhaven');
+  const town = g.maps.some((m) => m.name === 'Gullhaven');
+  const portal = w.entities.some((e) => e.type === 'portal' && e.label === 'Gullhaven');
+  if (s.map.id !== w.id) await s.enterMap(w.id, yard.x + 1, yard.y + 1, { instant: true });
+  s.party.gold = 200;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === yard.id));
+  await new Promise((res) => setTimeout(res, 200));
+  return { yard: yard && { kind: yard.kind, x: yard.x, y: yard.y, tile: w.tiles[yard.y * w.w + yard.x], mooring: [yard.ship?.x, yard.ship?.y] }, town, portal, text: document.querySelector('.event-modal .ev-text')?.textContent };
+});
+const poor = await yardChoice();
+check('Gullhaven is a simple place on the map: a shipyard on the harbour square, no town to enter', r.yard?.kind === 'shipyard' && r.yard.tile === 27 && !r.town && !r.portal, r);
+check('the shipyard offers to build the Gull for 450 gold', /Four hundred and fifty gold/.test(r.text) && /450/.test(poor?.text || ''), { text: r.text, poor });
+check('a company too poor cannot have her built', poor?.off && /Costs 450 gold/.test(poor.text), poor);
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session, w = s.game.maps[0];
+  s.party.gold = 600;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === 'ev_gullhaven'));
+  await new Promise((res) => setTimeout(res, 200));
+  [...document.querySelectorAll('.event-modal .choose-item')].find((b) => /Gull/.test(b.textContent))?.click();
+  await new Promise((res) => setTimeout(res, 200));
+  const said = document.querySelector('.event-modal .ev-text')?.textContent;
+  const added = (s.state.maps[w.id]?.added || []).filter((e) => e.type === 'ship');
+  const live = s.map.entities.filter((e) => e.type === 'ship');
+  return { said, gold: s.party.gold, added, live: live.map((e) => e.id) };
+});
+check('having her built takes 450 gold', r.gold === 150, r);
+check('the new ship is moored at the quay on the world map', r.added.length === 1 && r.added[0].x === 19 && r.added[0].y === 45 && r.live.includes('ship_npc_halloran') && /Gull is thine/.test(r.said), r);
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session;
+  s.ui.openEvent(s.map.entities.find((e) => e.id === 'ev_gullhaven'));
+  await new Promise((res) => setTimeout(res, 200));
+  return { gold: s.party.gold };
+});
+const again = await yardChoice();
+check('a ship is built only once', r.gold === 150 && again?.off && /yours already/.test(again.text), { r, again });
+await closeModals();
 
 r = await ev(async () => {
   const s = window.__app.session, g = s.game, w = g.maps[0];
-  await s.leaveMap?.();
-  for (let i = 0; i < 40 && (s.transitioning || s.map.id !== w.id); i++) await new Promise((res) => setTimeout(res, 100));
   const ship = s.map.entities.find((e) => e.type === 'ship');
   if (!ship) return { onWorld: s.map.id === w.id, ship: null };
   // step aboard from the quay beside her
@@ -106,7 +127,7 @@ r = await ev(async () => {
   const sailed = { ...s.state.pos };
   return { onWorld: s.map.id === w.id, ship: { x: ship.x, y: ship.y, name: ship.name }, boarded, at, sailed, vehicle: s.state.vehicle };
 });
-check('leaving Gullhaven, the company finds its ship and can board her', r.onWorld && r.boarded && r.vehicle?.id === 'ship_npc_halloran', r);
+check('the company can board its new ship', r.onWorld && r.boarded && r.vehicle?.id === 'ship_npc_halloran', r);
 check('the bought ship sails', r.sailed.x === r.at.x - 1, r);
 
 // the ship stays where she was left, after the map is built afresh (a reload)
@@ -299,6 +320,50 @@ check('climbing the lighthouse pays experience once and notes it in the journal'
 check('from the lamp-room the smugglers\' skerry can be seen', r.seesCove, r);
 
 await page.waitForTimeout(300);
+// ---- Eldmark's countryside: fields, mills and ruins, treasure that looks like
+// itself, and three small side quests built only from events and flags
+await closeModals();
+r = await ev(async () => {
+  const s = window.__app.session, g = s.game, w = g.maps[0], sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const all = g.maps.flatMap((m) => m.entities);
+  const fields = [...w.tiles].filter((t) => t === 26).length;
+  const kinds = new Set(w.entities.filter((e) => e.type === 'event').map((e) => e.kind));
+  const looks = Object.fromEntries(['chest_wolfwood', 'chest_heron', 'chest_vault', 'chest_neds_box'].map((id) => [id, all.find((e) => e.id === id)?.look?.kind]));
+  if (s.map.id !== w.id || s.state.vehicle) { s.state.vehicle = null; await s.enterMap(w.id, 60, 51, { instant: true }); }
+  const ev = (id) => s.map.entities.find((e) => e.id === id);
+  const close = async () => { for (let i = 0; i < 5 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-buttons button, .modal-back .modal-x')?.click(); await sleep(120); } };
+  const choose = async (id, label) => {
+    s.ui.openEvent(ev(id)); await sleep(150);
+    const btn = [...document.querySelectorAll('.event-modal .choose-item')].find((x) => x.textContent.includes(label));
+    const off = !btn || btn.classList.contains('disabled');
+    if (!off) { btn.click(); await sleep(150); }
+    await close();
+    return !off;
+  };
+  const q = (id) => s.state.quests[id]?.status;
+  s.party.food = 50; s.party.gold = 200; s.party.members[0].str = 15;
+  const asked = await choose('ev_brookend_mill', 'Ask Ned');
+  const early = await choose('ev_brookend_mill', 'Give Ned');
+  await choose('ev_burnt_mill', 'Coax Tansy');
+  const box = ev('chest_neds_box');
+  s.state.pos = { map: w.id, x: box.x - 1, y: box.y };
+  await s.openChest(box); await sleep(100); await close();
+  const gave = await choose('ev_brookend_mill', 'Give Ned');
+  await choose('ev_aldred', 'Scrape');
+  await choose('ev_edric', 'Heave');
+  const edric = s.party.inventory.oath_ring_edric;
+  await choose('ev_kings_chapel', 'old chapel');
+  s.party.flags.ev_fallen_chapel_ghost = true;
+  await choose('ev_kings_chapel', 'Tell Brother');
+  return { fields, kinds: ['windmill', 'ruined_mill', 'statue', 'toppled_statue', 'graveyard', 'chapel', 'ruined_chapel', 'circle', 'wreck', 'watermill', 'apiary'].filter((k) => !kinds.has(k)), looks,
+    asked, early, gave, mill: q('q_mill'), tin: s.party.inventory.honeycake_tin, brothers: q('q_brothers'), edric, ghost: q('q_ghost'), bell: s.party.inventory.barrow_bell };
+});
+check('Eldmark has fields round its towns and new landmarks and ruins', r.fields >= 40 && !r.kinds.length, r);
+check('Eldmark\'s treasure looks like itself: bones, a heron\'s nest, a rune-chest, a strongbox', r.looks.chest_wolfwood === 'remains' && r.looks.chest_heron === 'nest' && r.looks.chest_vault === 'runechest' && r.looks.chest_neds_box === 'strongbox', r.looks);
+check('the Burnt Mill: Ned asks, wants his box and his cat first, and pays when both come home', r.asked && !r.early && r.gave && r.mill === 'done' && r.tin >= 1, r);
+check('the Brothers of the Ford starts at Aldred\'s statue; Edric\'s ring lies under his', r.brothers === 'active' && r.edric === 1, r);
+check('the Chapel of the Fallen Host is told back at the Kingsroad Chapel', r.ghost === 'done' && r.bell >= 1, r);
+
 check('no page errors', !errors.length, errors);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

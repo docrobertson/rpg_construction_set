@@ -7,10 +7,11 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
- magicalOf,
+ magicalOf, wearRule,
 } from '../game/rules.js';
+import { charmInfo, charmPrice, hasMagic } from '../game/charms.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
-import { STAT_NAMES, STATS } from '../data/defaults.js';
+import { STAT_NAMES, STATS, CHARM_KINDS, RARITIES } from '../data/defaults.js';
 import { sfx, isMuted, setMuted } from '../core/sound.js';
 import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
@@ -29,7 +30,9 @@ import { fillVellum, inkEdges } from './vellum.js';
 import { showTreasureMap, treasureCircles, drawTreasureCircles } from './treasureMap.js';
 import { isDug } from '../game/treasure.js';
 import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
-import { reagentUse, scrollUse, canCopy, copyScroll, hasBook } from '../game/magic.js';
+import { reagentUse, scrollUse, canCopy, copyScroll, hasBook, restoresPool, poolWords, poolName, noNeed } from '../game/magic.js';
+import { heroKey } from '../game/delve.js';
+import { EVENT_DOTS, eventDot } from '../game/events.js';
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -80,17 +83,29 @@ export class PlayUI {
     this.popEl = h('div.hero-pop', h('button.pop-close', { title: 'Close (Esc)', onclick: () => this.closeHero() }, '×'), this.heroEl);
     this.popEl.hidden = true;
     this.logEl = h('div.hud-log');
-    // The log follows new lines unless the player has scrolled back to read
-    // (decided by their own scrolling, not by where a line happens to land:
-    // a layout change or a burst of lines must not unpin it)
-    this.logPinned = true;
-    this.logEl.addEventListener('scroll', () => {
+    // The log always shows the newest line. Only while the player is reading
+    // back (they scrolled it up themselves, in the last few seconds) does it
+    // wait; then it jumps to the end with the next line. (Following "is it at
+    // the bottom?" alone stuck for good after one scroll up.)
+    this.logReadUntil = 0;
+    const reading = () => {
       const el = this.logEl;
-      this.logPinned = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    }, { passive: true });
+      // (only the player's own wheel, drag or keys count, never our scrolling)
+      requestAnimationFrame(() => { this.logReadUntil = el.scrollHeight - el.scrollTop - el.clientHeight > 24 ? performance.now() + 8000 : 0; });
+    };
+    for (const ev of ['wheel', 'touchmove', 'keydown']) this.logEl.addEventListener(ev, reading, { passive: true });
+    this.logEl.addEventListener('pointerdown', () => { this.logDrag = true; });
+    window.addEventListener('pointerup', this.onLogUp = () => { if (this.logDrag) { this.logDrag = false; reading(); } });
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.logToEnd()).observe(this.logEl);
     this.hintEl = h('div.hud-prompt');
     this.cmdEl = h('div.hud-cmds');
+    // (delve) in a dungeon battleground: who walks, the company or one hero
+    this.dvBar = h('div.dv-bar', { role: 'toolbar', 'aria-label': 'Who walks' });
+    this.dvBar.hidden = true;
+    // (delve) a cleared level's way straight out, just below the bar
+    this.dvOut = h('button.dv-chip.dv-out', { title: 'Every foe here is slain: walk straight out (up through any cleared levels above) without retracing your steps. The walk still takes its time. (X)', onclick: () => this.quickExit() },
+      h('span.dv-ico', { html: iconSvg('door') }), h('span.dv-name', 'Leave the dungeon'), h('kbd', 'X'));
+    this.dvOut.hidden = true;
     this.minimap = h('canvas.hud-minimap', { width: 64, height: 64, title: 'Map (M): the yellow dot is your company, the gold diamond your current goal. Click for the big map and its key.', onclick: () => this.openMap() });
     root.append(
       h('div.hud-head',
@@ -102,6 +117,8 @@ export class PlayUI {
       h('div.hud-frame'),
       h('div.hud-side', h('div.side-head', 'Company'), this.partyEl, this.restEl),
       this.popEl,
+      this.dvBar,
+      this.dvOut,
       h('div.hud-foot',
         h('div.hud-logbox', this.logEl, this.hintEl),
         this.cmdEl,
@@ -124,6 +141,7 @@ export class PlayUI {
     this.view.markers.clear();
     this.view.pathPreview.clear();
     document.removeEventListener('pointerdown', this.onOutside, true);
+    window.removeEventListener('pointerup', this.onLogUp);
     closeAllModals();
     this.root.remove();
     this.view.showCursor(null);
@@ -150,15 +168,19 @@ export class PlayUI {
     this.logToEnd();
   }
 
-  // show the newest line (unless the player is reading back)
+  // show the newest line (unless the player is reading back just now)
   logToEnd() {
     const el = this.logEl;
-    if (!el || !this.logPinned || el.scrollHeight - el.scrollTop - el.clientHeight < 1) return;
+    if (!el || performance.now() < this.logReadUntil) return;
     el.scrollTop = el.scrollHeight;
+    // and again once the line is laid out (fonts, icons, a wrapped line)
+    cancelAnimationFrame(this.logRaf);
+    this.logRaf = requestAnimationFrame(() => { if (performance.now() >= this.logReadUntil) el.scrollTop = el.scrollHeight; });
   }
 
   refresh() {
     this.refreshStatus();
+    this.refreshDelveBar();
     this.refreshParty();
     this.refreshResting();
     this.offerJoin();
@@ -171,6 +193,21 @@ export class PlayUI {
   }
 
   onMapChanged() { this.drawMinimap(); }
+
+  // A poison tick: a green "−1" and bubbles over the hero's figure, and their
+  // card flashes
+  onPoisonTick(m) {
+    const s = this.s, v = this.view;
+    const p = s.dv?.pos ? s.dv.pos(m) : s.state.pos;
+    if (p && !s.battle) {
+      v.floatText(p.x, p.y, '−1 ☠', '#8ef070');
+      v.burst(p.x, p.y, 0x70e040, 8, { speed: 0.3, up: 1.0, gravity: 0.4, duration: 0.9, y: 0.6 });
+    }
+    this.refresh();
+    const i = s.party.members.indexOf(m);
+    const card = this.partyEl.children[i];
+    if (card) { card.classList.remove('pc-sting'); void card.offsetWidth; card.classList.add('pc-sting'); }
+  }
 
   refreshStatus() {
     const s = this.s, p = s.party;
@@ -188,7 +225,60 @@ export class PlayUI {
       this.s.game.settings.food ? h('span.st-item.st-food' + (p.food < 20 ? '.low' : ''), { title: `Food: in the wild each hero eats a ration every 20 turns (roads are quicker, rough ground slower), and a camp costs ${n}. Without food the company goes hungry. Every town's provisioner sells rations.` }, ico('food'), String(p.food)) : null,
       p.light > 0 ? h('span.st-item.st-light', { title: 'Torchlight: lets you see in dark places; it burns down as you walk' }, ico('torch'), String(p.light)) : null,
       s.state.vehicle ? h('span.st-item', { title: 'Sailing: walk onto land to go ashore' }, ico('compass'), 'Aboard ship') : null,
+      (() => {
+        const sick = p.members.filter((m) => m.status === 'poisoned');
+        if (!sick.length || s.battle) return null;
+        return h('span.st-item.st-poison', { title: `Poisoned: ${sick.map((m) => `${m.name} (${m.hp}/${maxHp(s.game, m)})`).join(', ')}. They lose health as you travel until cured: an Antidote (U), Cure Poison or the Rune of Purity, or any town healer.` },
+          ico('skull'), sick.length === 1 ? `${sick[0].name} poisoned` : `${sick.length} poisoned`);
+      })(),
     ].filter(Boolean));
+  }
+
+  // (delve) In a dungeon battleground every hero has a square of their own:
+  // the whole company walks together (the others fall in behind the leader),
+  // or one hero walks alone. A chip per hero; Tab picks the next, G gathers.
+  refreshDelveBar() {
+    const s = this.s, dv = s.dv, el = this.dvBar;
+    const on = !!dv && !s.battle && (s.mode === 'explore' || s.mode === 'dialog');
+    const list = on ? dv.alive() : [];
+    const sel = on ? dv.selected() : null, bearer = on ? dv.bearer() : null;
+    const out = on && !!s.map?.exit && s.levelCleared?.();
+    const sig = on ? [list.map((m) => heroKey(m) + ':' + m.status).join(), sel && heroKey(sel), bearer && heroKey(bearer), out].join('|') : '';
+    if (sig === this._dvSig) return;
+    this._dvSig = sig;
+    clear(el);
+    this.dvOut.hidden = !out;
+    this.dvOut.classList.toggle('alone', list.length < 2);
+    el.hidden = !on || list.length < 2;
+    if (el.hidden) return;
+    const g = s.game;
+    el.append(
+      h('button.dv-chip.all' + (sel ? '' : '.on'), { title: 'All together: the company walks as one, the others falling in behind the leader (G)', onclick: () => dv.select(null) },
+        h('span.dv-ico', { html: iconSvg('party') }), h('span.dv-name', 'All together'), h('kbd', 'G')),
+      ...list.map((m) => {
+        const pic = portrait(this.view, charLook(g, m));
+        return h('button.dv-chip' + (m === sel ? '.on' : ''), { title: m === sel ? `${m.name} walks alone` : `Send ${m.name} on alone (the others stay where they stand)`, onclick: () => dv.select(m) },
+          pic ? h('img', { src: pic, alt: '' }) : null, h('span.dv-name', m.name),
+          m === bearer ? h('i.dv-torch', { title: `${m.name} carries the torch: seen further in the dark, and sees further`, html: iconSvg('torch') }) : null);
+      }),
+      h('span.dv-tab', { title: 'Tab: the next hero · Shift+Tab: the one before' }, h('kbd', 'Tab')));
+  }
+
+  // (delve) out of a cleared dungeon at once
+  async quickExit() {
+    const s = this.s;
+    if (!s.dv) return;
+    if (!s.map?.exit) { s.log('There is no way out of here to hurry to.', 'warn'); return; }
+    if (!s.levelCleared()) { s.log('Not while foes still lurk here: clear the level first, or walk back to the stairs.', 'warn'); sfx('error'); return; }
+    this.explore.stop();
+    await s.quickExit();
+  }
+
+  // the moment the last foe on a level falls
+  onCleared(name) {
+    this.quests.banner(h('div.qbanner.done', h('div.qb-kind', 'Cleared'), h('div.qb-name', name), h('div.qb-line', 'Not a foe left alive. Leave the dungeon (X) to walk straight out.')));
+    this._dvSig = null;
+    this.refreshDelveBar();
   }
 
   // Clicking a hero shows their full sheet in a pop-over beside the panel;
@@ -225,23 +315,29 @@ export class PlayUI {
   // matter at a glance. The first hero leads the company.
   refreshParty() {
     clear(this.partyEl);
+    this.refreshPickBar();
     const g = this.s.game;
     const active = this.s.battle?.active?.member;
+    const dv = this.s.battle ? null : this.s.dv;
+    const walker = dv?.selected();
     this.s.party.members.forEach((m, i) => {
       const mhp = maxHp(g, m);
       const w = weaponOf(g, m), rw = rangedOf(g, m);
       const next = xpForLevel(m.level + 1), prev = xpForLevel(m.level);
       const xpf = isFinite(next) ? Math.max(0, Math.min(1, (m.xp - prev) / Math.max(1, next - prev))) : 1;
-      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '');
+      const pick = this.pickState(m);
+      const cls = '.pcard' + (m.status === 'dead' ? '.dead' : '') + (m.status === 'poisoned' ? '.poisoned' : '') + (m === active ? '.active' : '') + (m === this.popHero ? '.sel' : '') + (i === 0 ? '.leader' : '') + (walker === m ? '.dv-walks' : '')
+        + (pick ? (pick.ok ? '.pick-ok' : '.pick-no') : '');
       const pic = portrait(this.view, charLook(g, m));
       const who = `${m.name} — Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}${i === 0 ? ' · party leader' : ''}`;
-      const card = h('div' + cls, { title: `${who}. Click for the full sheet.` },
+      const card = h('div' + cls, { title: pick ? (pick.ok ? `${pick.title}: ${m.name}` : `${m.name}: ${pick.why}`) : `${who}. Click for the full sheet.` },
         h('div.pc-pic', { title: who }, pic ? h('img', { src: pic, alt: m.name }) : null, i === 0 ? h('span.pc-crown', { title: 'Party leader', html: iconSvg('crown') }) : null),
         h('div.pc-body',
           h('div.pc-head', h('span.pc-name', m.name),
             m.points > 0 ? h('span.pc-pts', { title: 'Attribute points to spend' }, '▲' + m.points) : null,
             m.perkPending > 0 ? h('span.pc-pts.perk', { title: 'A talent to choose — open the sheet', html: iconSvg('star') }) : null,
-            m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
+            m.status === 'poisoned' ? h('span.pc-status.poisoned', { title: `${m.name} is poisoned: loses health as the company travels, and in battle, until cured — an Antidote (U), a Cure Poison spell or Rune of Purity, or a town healer.`, html: iconSvg('skull') + 'Poisoned' })
+              : m.status !== 'ok' ? h('span.pc-status.' + m.status, statusLabel(m)) : null,
             i === 0 ? h('span.pc-lead', 'Leader') : null),
           h('div.pc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`),
           bar('HP', m.hp, mhp, 'hp'),
@@ -250,9 +346,22 @@ export class PlayUI {
           h('div.pc-gear',
             h('span', { title: 'Armour: foes must roll this or more to hit' }, h('i.gi', { html: iconSvg('shield') }), String(armorClass(g, m))),
             h('span', { title: `${w.name}: ${w.dmg} damage` }, h('i.gi', { html: iconSvg(w.id ? itemIcon(w)[0] : 'sword') }), w.name),
-            rw ? h('span', { title: `${rw.name}: ${rw.dmg} damage, range ${rw.range}` }, h('i.gi', { html: iconSvg(itemIcon(rw)[0]) }), rw.name) : null),
+            rw ? h('span', { title: `${rw.name}: ${rw.dmg} damage, range ${rw.range}` }, h('i.gi', { html: iconSvg(itemIcon(rw)[0]) }), rw.name) : null,
+            // (charms) the worn charm, as its glyph in its rarity's colour
+            (() => { const ch = itemOf(g, m.equip?.charm); return ch ? h('span.pc-charm', { title: itemTip(g, ch), style: { color: magicalOf(ch)?.color } }, h('i.gi', { html: iconSvg(itemIcon(ch)[0]) })) : null; })()),
         ));
-      card.addEventListener('click', () => this.selectHero(m, card));
+      // (choosing a hero for something: the card says whether it can go to them)
+      if (pick) {
+        card.appendChild(pick.ok ? h('span.pc-key', String(i + 1)) : h('span.pc-why', pick.why));
+      }
+      card.addEventListener('click', () => (pick ? this.pickCard(m) : this.selectHero(m, card)));
+      // (delve) the portrait sends a hero on alone; the rest of the card opens the sheet
+      if (dv && m.status !== 'dead' && !pick) {
+        const pc = card.querySelector('.pc-pic');
+        pc.title = walker === m ? `${m.name} walks alone` : `Click the portrait to send ${m.name} on alone`;
+        pc.addEventListener('click', (e) => { e.stopPropagation(); dv.select(m); });
+        if (walker === m) pc.appendChild(h('span.pc-walk', { title: 'Walking alone' }, '◆'));
+      }
       this.partyEl.appendChild(card);
     });
   }
@@ -325,7 +434,7 @@ export class PlayUI {
       }
       sel.value = cur ? cur.id : '';
       sel.addEventListener('change', () => {
-        if (!sel.value) unequip(m, slot, inv);
+        if (!sel.value) unequip(m, slot, inv, g);
         else {
           const res = equipItem(g, m, itemOf(g, sel.value), inv);
           if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); }
@@ -333,9 +442,10 @@ export class PlayUI {
         sfx('click');
         changed();
       });
-      eq.appendChild(h('div.slot', h('span.slot-name', SLOT_NAMES[slot]), sel));
+      eq.appendChild(h('div.slot' + (slot === 'charm' ? '.slot-charm' : ''), { title: cur && hasMagic(cur) ? itemTip(g, cur) : slot === 'charm' ? CHARM_SLOT_TIP : null }, h('span.slot-name', SLOT_NAMES[slot]), sel));
     }
     add(eq);
+    add(charmPanel(g, m));
     // battle skills, special and talents
     add(sheetAbilities(this, m, changed));
     // spells, by school
@@ -369,7 +479,7 @@ export class PlayUI {
   // rim when a goal lies beyond the window) and places marked.
   drawMinimap() {
     const s = this.s, map = s.map;
-    if (!map || s.battle) return;
+    if (!map || (s.battle && !s.battle.field)) return; // (a battle on the dungeon floor keeps the map)
     const c = this.minimap;
     const box = c.parentElement;
     const css = Math.max(64, Math.min(box?.clientWidth || 160, box?.clientHeight || 160));
@@ -414,8 +524,9 @@ export class PlayUI {
     // points of interest seen so far
     for (const e of map.entities) {
       if (e.type !== 'event' || (vis && !explored[e.y * map.w + e.x])) continue;
+      if (terrain(getTile(map, e.x, e.y)).feature) continue; // (a shipyard on its harbour: the site square says enough)
       if (e.x < ox - 1 || e.y < oy - 1 || e.x > ox + span || e.y > oy + span) continue;
-      ctx.fillStyle = { shrine: '#ffd870', campfire: '#ff8a30', lore: '#b0b8ff', well: '#60b0ff' }[e.kind] || '#d0a0ff';
+      ctx.fillStyle = EVENT_DOTS[eventDot(e)][0];
       ctx.strokeStyle = '#000';
       ctx.beginPath(); ctx.arc(sx(e.x + 0.5), sy(e.y + 0.5), Math.max(u * 2.6, k * 0.36), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }
@@ -438,6 +549,15 @@ export class PlayUI {
         ctx.save(); ctx.translate(cx + dx * t, cy + dy * t); ctx.rotate(Math.atan2(dy, dx));
         ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.75); ctx.lineTo(-r * 0.35, 0); ctx.lineTo(-r * 0.7, -r * 0.75); ctx.closePath();
         ctx.fill(); ctx.stroke(); ctx.restore();
+      }
+    }
+    // (delve) every hero on a square of their own: a small gold disc each
+    if (s.dv) {
+      for (const m of s.dv.alive()) {
+        const q = s.dv.pos(m);
+        if (q.x === p.x && q.y === p.y) continue;
+        ctx.fillStyle = '#e8b830'; ctx.strokeStyle = '#1a0e02'; ctx.lineWidth = u * 1.3;
+        ctx.beginPath(); ctx.arc(sx(q.x + 0.5), sy(q.y + 0.5), u * 3.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       }
     }
     // the company: a gold disc with a dark rim and a white heart
@@ -588,6 +708,7 @@ export class PlayUI {
     }
     if (e.key === 'Escape') {
       if (closeTopModal()) return;
+      if (this.endPick(null)) return;
       if (this.closeHero()) return;
       if (this.pendingDir || this.targeting) { this.cancelTargeting(); return; }
       if (this.autoPath) { this.explore.stop(); return; }
@@ -595,9 +716,23 @@ export class PlayUI {
       return;
     }
     if (anyModal()) return;
+    // choosing a hero on the Company panel: their number picks; anything else lets it be
+    if (this.picking) {
+      const n = parseInt(e.key, 10);
+      const m = n >= 1 ? this.s.party.members[n - 1] : null;
+      if (m) { e.preventDefault(); this.pickCard(m); return; }
+      this.endPick(null);
+    }
     const dir = MOVE_KEYS[e.key] || MOVE_KEYS[e.code];
     if (this.s.mode === 'combat') return this.combatKey(e, dir);
     if (this.s.mode !== 'explore') return;
+    // (delve) Tab: the next hero walks alone; G: all together again
+    if (this.s.dv && !this.pendingDir && (e.key === 'Tab' || e.key === 'g' || e.key === 'G')) {
+      e.preventDefault();
+      this.explore.stop();
+      if (e.key === 'Tab') this.s.dv.cycle(e.shiftKey ? -1 : 1); else this.s.dv.select(null);
+      return;
+    }
     if (dir) {
       e.preventDefault();
       this.explore.stop();
@@ -626,6 +761,7 @@ export class PlayUI {
       z: () => this.openParty(),
       h: () => this.s.camp(),
       m: () => this.openMap(),
+      x: () => this.quickExit(),
       j: () => this.quests.openJournal(),
       ' ': () => this.s.wait(),
       '.': () => this.s.wait(),
@@ -645,7 +781,7 @@ export class PlayUI {
   handleHover(e) {
     const b = this.s.battle;
     if (b) {
-      const t = this.view.pick(e.clientX, e.clientY);
+      const t = this.battleTile(e.clientX, e.clientY);
       if (!t) { this.view.showCursor(null); return; }
       const u = b.unitAt(t.x, t.y);
       this.hoverEl.textContent = u ? `${b.label(u)}${u.side === 'enemy' ? ` — ${healthWord(u.hp / u.maxHp)}` : ''}` : '';
@@ -668,7 +804,7 @@ export class PlayUI {
     this.press = null;
     if (this.gestures?.active) return;
     const b = this.s.battle;
-    if (b) { const t = this.view.pick(e.clientX, e.clientY); if (t) this.combatClick(t); return; }
+    if (b) { const t = this.battleTile(e.clientX, e.clientY); if (t) this.combatClick(t); return; }
     if (this.s.mode !== 'explore') return;
     if (this.pendingDir) {
       const t = this.view.pick(e.clientX, e.clientY);
@@ -695,6 +831,25 @@ export class PlayUI {
   // ------------------------------------------------------------ combat input (the battle HUD does the work)
   combatKey(e, dir) { this.chud.key(e, dir); }
   combatClick(t) { this.chud.click(t); }
+
+  // The square a battle click or hover means. A foe is picked by its body,
+  // not only by the ground at its feet: a tall monster's head, or one half
+  // hidden behind the top of a cave wall, can be clicked. Where figures
+  // overlap, the one nearer the camera is in front and takes the click (a
+  // great beast hides whoever stands behind it). An ally's figure counts only
+  // while choosing whom to heal or bless, so the ground behind a friend can
+  // still be walked to.
+  battleTile(cx, cy) {
+    const b = this.s.battle, v = this.view;
+    const want = new Set((this.targeting?.units || []).map((u) => u.id));
+    const id = v.pickEntity(cx, cy, (en) => {
+      const u = b.units.find((x) => x.id === en.id);
+      return !!u && ((b.alive(u) && u.side === 'enemy') || want.has(u.id));
+    });
+    const u = id && b.units.find((x) => x.id === id);
+    if (u) return { x: u.x, y: u.y };
+    return v.pick(cx, cy);
+  }
   combatEvent(type, data) { this.chud.event(type, data); }
 
   combatStart() {
@@ -723,13 +878,15 @@ export class PlayUI {
 
   startTargeting(tg) {
     this.targeting = tg;
+    if (tg.ally) this.refreshParty();
     const cells = tg.tiles || tg.units.map((u) => ({ x: u.x, y: u.y }));
     this.view.setHighlights(cells, tg.color || 0xffc030, 0.4);
     tg.index = 0;
     const foe = tg.tiles ? tg.tiles.find((c) => this.s.battle?.unitAt(c.x, c.y)?.side === 'enemy') : null;
     tg.cursor = foe ? { ...foe } : cells[0] ? { ...cells[0] } : null;
     if (tg.cursor) this.view.showCursor(tg.cursor.x, tg.cursor.y, 0xffe040);
-    this.hint(`${tg.label}: click a target (Tab cycles, Enter confirms, Esc cancels).`);
+    this.hint(tg.ally ? `${tg.label}: click a hero, on the field or on the right (Tab cycles, Enter confirms, Esc cancels).`
+      : `${tg.label}: click a target (Tab cycles, Enter confirms, Esc cancels).`);
   }
 
   targetValid(t) {
@@ -753,18 +910,91 @@ export class PlayUI {
     if (tg && tg.cursor && this.targetValid(tg.cursor)) this.pickTarget(tg.cursor);
   }
 
+  // (the unit is passed along too: a fallen hero's body is no unit standing there)
   pickTarget(t) {
     const tg = this.targeting;
     this.cancelTargeting();
-    tg.onPick(t);
+    tg.onPick(t, tg.units?.find((u) => u.x === t.x && u.y === t.y) || null);
   }
 
   cancelTargeting() {
-    const wasTargeting = !!this.targeting;
+    const was = this.targeting;
     this.targeting = null;
     this.pendingDir = null;
     this.hint('');
-    if (wasTargeting && this.s.battle?.active) this.combatTurn(this.s.battle.active);
+    if (was?.ally) this.refreshParty();
+    if (was && this.s.battle?.active) this.combatTurn(this.s.battle.active);
+  }
+
+  // ------------------------------------------------------------ choosing a hero
+  // One way to say who something is for (who drinks the draught, who casts,
+  // on whom the spell goes): the Company panel on the right lights up the
+  // heroes it can go to and says why not of the rest; a click on a card (or
+  // its number) chooses, Esc or a click elsewhere lets it be. In battle the
+  // heroes are clicked on the field instead, or their cards (pickAlly).
+  // why(m): a reason it cannot go to m, or null. Resolves to a hero or null.
+  pickHero(title, why = () => null) {
+    this.endPick(null);
+    this.closeHero();
+    return new Promise((resolve) => {
+      this.picking = { title, why, resolve };
+      this.hint(`${title} Click a hero on the right, or press their number (Esc cancels).`);
+      this.refreshParty();
+      this.pickOutside = (e) => {
+        if (this.partyEl.contains(e.target) || this.pickBar?.contains(e.target)) return;
+        this.endPick(null);
+      };
+      document.addEventListener('pointerdown', this.pickOutside, true);
+    });
+  }
+
+  endPick(m) {
+    const p = this.picking;
+    if (!p) return false;
+    this.picking = null;
+    document.removeEventListener('pointerdown', this.pickOutside, true);
+    this.hint('');
+    this.refreshParty();
+    p.resolve(m);
+    return true;
+  }
+
+  // In battle: the heroes a spell, a draught or a skill can go to are clicked
+  // where they stand (or lie), or on their cards; act(unit) does the deed
+  pickAlly(label, units, why, color, act) {
+    this.startTargeting({ units, ally: true, why, label, color: color ?? 0x70e070, onPick: (t, u) => u && act(u) });
+  }
+
+  // What a hero's card shows while one is being chosen: { ok, why, title } or null
+  pickState(m) {
+    const p = this.picking;
+    if (p) { const why = p.why(m); return { ok: !why, why, title: p.title }; }
+    const tg = this.targeting;
+    if (!tg?.ally) return null;
+    const ok = tg.units.some((u) => u.member === m);
+    return { ok, why: ok ? null : tg.why?.(m) || 'out of reach', title: tg.label };
+  }
+
+  pickCard(m) {
+    const st = this.pickState(m);
+    if (!st) return;
+    if (!st.ok) { this.s.log(`${m.name}: ${st.why}.`, 'warn'); sfx('error'); return; }
+    sfx('click');
+    if (this.picking) { this.endPick(m); return; }
+    const u = this.targeting.units.find((x) => x.member === m);
+    this.pickTarget({ x: u.x, y: u.y });
+  }
+
+  // the question over the Company panel while a hero is being chosen
+  refreshPickBar() {
+    const p = this.picking || (this.targeting?.ally ? { title: `${this.targeting.label}: on whom?` } : null);
+    if (!p) { this.pickBar?.remove(); this.pickBar = null; this.partyEl.parentElement?.classList.remove('picking'); return; }
+    const bar = h('div.pick-bar', h('span.pk-title', p.title), h('button.pk-x', {
+      title: 'Never mind (Esc)', onclick: () => (this.picking ? this.endPick(null) : this.cancelTargeting()),
+    }, '✕'));
+    if (this.pickBar) this.pickBar.replaceWith(bar); else this.partyEl.before(bar);
+    this.pickBar = bar;
+    this.partyEl.parentElement?.classList.add('picking');
   }
 
   // ------------------------------------------------------------ generic choosers
@@ -814,13 +1044,13 @@ export class PlayUI {
     if (this.s.mode !== 'explore' || this.s.busy) return;
     const casters = this.s.party.members.filter((m) => m.status !== 'dead' && this.s.spellsFor(m, 'field').length);
     if (!casters.length) { this.s.log('No one in your party can cast spells here.', 'warn'); return; }
-    const caster = casters.length === 1 ? casters[0] : await this.chooseMember('Who casts?', (m) => casters.includes(m));
+    const caster = casters.length === 1 ? casters[0] : await this.pickHero('Who casts?', (m) => (casters.includes(m) ? null : m.status === 'dead' ? 'fallen' : 'no spell to cast here'));
     if (!caster) return;
     const spell = await this.chooseSpell(caster, this.s.spellsFor(caster, 'field'));
     if (!spell) return;
     let target = null;
     if (spell.target === 'ally') {
-      target = await this.chooseMember(`${spell.name} — on whom?`, (m) => (spell.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(this.s.game, spell.effect, m));
+      target = await this.pickHero(`${spell.name}: on whom?`, (m) => noNeed(this.s.game, spell.effect, m));
       if (!target) return;
     }
     await this.s.castField(caster, spell, target);
@@ -831,9 +1061,15 @@ export class PlayUI {
     const inv = this.s.party.inventory;
     const items = this.s.game.items.filter((it) => (it.type === 'consumable' || it.type === 'map') && inv[it.id] > 0);
     if (!items.length) { this.s.log('You have nothing to use.', 'warn'); return; }
-    const item = await this.chooseFrom('Use which item?', items.map((it) => ({ label: it.name, tag: `×${inv[it.id]}`, sub: itemUse(this.s.game, it) || it.desc, icon: itemIcon(it)[0], tone: itemIcon(it)[1], value: it })));
+    const item = await this.chooseFrom('Use which item?', this.itemOptions(items));
     if (!item) return;
     await this.fieldUseItem(item);
+  }
+
+  // the pack's usable things as a list to choose from (the same in battle)
+  itemOptions(items) {
+    const inv = this.s.party.inventory;
+    return items.map((it) => ({ label: it.name, tag: `×${inv[it.id]}`, sub: itemUse(this.s.game, it) || it.desc, icon: itemIcon(it)[0], tone: itemIcon(it)[1], value: it }));
   }
 
   // ------------------------------------------------------------ talk
@@ -927,7 +1163,8 @@ export class PlayUI {
   priceOf(item, npc, selling = false) {
     const mod = npc.shop?.priceMod || 1;
     const base = item.price || 0;
-    return selling ? Math.max(1, Math.floor(base * 0.5)) : Math.max(1, Math.round(base * mod));
+    // (a charm of haggling: the merchant asks less and pays more)
+    return selling ? Math.max(1, Math.floor(charmPrice(this.s, base * 0.5, true))) : Math.max(1, Math.round(charmPrice(this.s, base * mod)));
   }
 
   openShop(npc) {
@@ -943,12 +1180,12 @@ export class PlayUI {
       if (!slotFor(it)) return null;
       const who = s.party.members.filter((m) => m.status !== 'dead');
       const can = who.filter((m) => canEquip(g, m, it).ok);
-      if (!can.length) return h('div.sr-cmp', h('span.cmp.none', 'No one in your company can use this'));
+      if (!can.length) return h('div.sr-cmp', h('span.cmp.none', noOneText(g, it)));
+      // (hover a hero: the piece beside what they wear now, gains and losses
+      // marked; a charm's chip is just the name: ▲ a free slot, ⇄ a swap)
       return h('div.sr-cmp', ...can.map((m) => {
         const c = compareText(g, m, it);
-        const cur = itemOf(g, m.equip[slotFor(it)]);
-        return h('span.cmp.' + c.cls, { title: `${m.name} now has ${cur ? `${cur.name} (${itemStats(cur)})` : 'nothing'} as ${SLOT_NAMES[slotFor(it)].toLowerCase()}` },
-          cmpArrow(c), `${m.name} ${c.text}`);
+        return h('span.cmp.' + c.cls, { tip: () => swapCard(g, m, it) }, cmpArrow(c), it.type === 'charm' ? m.name : `${m.name} ${c.text}`);
       }));
     };
     const render = () => {
@@ -971,7 +1208,8 @@ export class PlayUI {
           const owned = s.party.inventory[it.id] || 0;
           const afford = s.party.gold >= price;
           const magic = magicNote(g, s.party.members, it);
-          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : ''),
+          list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
+            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it) : null },
             itemTile(it),
             h('div.sr-main',
               h('div.sr-name', itemName(it), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
@@ -1021,7 +1259,8 @@ export class PlayUI {
         for (const it of owned) {
           const price = this.priceOf(it, npc, true);
           const magic = magicNote(g, s.party.members, it);
-          list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : ''),
+          list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
+            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : null },
             itemTile(it),
             h('div.sr-main', h('div.sr-name', itemName(it), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
               magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),
@@ -1115,6 +1354,24 @@ export class PlayUI {
   // each hero's sheet (the pop-over by their portrait). Here every piece says
   // who it suits (▲ better / ▼ worse than what they wear) and links there.
   openParty() {
+    return modal(this.packBody(), { title: 'The Pack', icon: 'pack', cls: 'wide party-modal' });
+  }
+
+  // After a change in the open pack (a piece put on, a scroll copied): build
+  // it afresh in place, the list scrolled just where it was
+  refreshPack() {
+    const old = document.querySelector('.party-modal .party-screen');
+    if (!old) return this.openParty();
+    const outer = old.closest('.modal-body');
+    const keep = [old.querySelector('.inv')?.scrollTop || 0, outer?.scrollTop || 0];
+    const fresh = this.packBody();
+    old.replaceWith(fresh);
+    const list = fresh.querySelector('.inv');
+    if (list) list.scrollTop = keep[0];
+    if (outer) outer.scrollTop = keep[1];
+  }
+
+  packBody() {
     const s = this.s, g = s.game;
     const body = h('div.party-screen');
     const inv = s.party.inventory;
@@ -1123,6 +1380,7 @@ export class PlayUI {
     if (!items.length) invList.appendChild(h('p.hint', 'The pack is empty.'));
     // grouped, so gear, supplies and spell reagents are easy to find
     const groups = [
+      ['Charms', (it) => it.type === 'charm'],
       ['Arms & armour', (it) => !!slotFor(it)],
       ['Potions & supplies', (it) => it.type === 'consumable'],
       ['Reagents & herbs', (it) => it.type === 'reagent'],
@@ -1145,10 +1403,10 @@ export class PlayUI {
         const chips = !slot ? [] : who.length ? who.map((x) => {
           const c = compareText(g, x, it);
           return h('button.cmp.' + c.cls, {
-            title: `${x.name}: ${c.text}. Click to put it on ${x.name}`,
+            tip: () => swapCard(g, x, it, `Click to put it on ${x.name}.`),
             onclick: () => this.equipFromPack(x, it, { stay: true }),
           }, cmpArrow(c), `${x.name} ${c.text}`);
-        }) : [h('span.cmp.none', 'No one in your company can use this')];
+        }) : [h('span.cmp.none', noOneText(g, it))];
         // reagents and herbs say plainly who burns them; scrolls offer to be
         // copied into each spellbook-keeper's book
         if (it.type === 'scroll' && !s.battle) {
@@ -1162,12 +1420,12 @@ export class PlayUI {
                 if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); return; }
                 sfx('level');
                 s.log(`${x.name} copies ${res.spell.name} into the spellbook.`, 'magic');
-                closeTopModal(); this.refresh(); this.openParty();
+                this.refresh(); this.refreshPack();
               },
             }, h('i', { html: iconSvg('quill') }), can.ok ? `Copy into ${x.name}'s spellbook` : can.why.replace(/\.$/, '')));
           }
         }
-        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : ''), { title: it.desc || null },
+        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''), { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : it.desc || null },
           itemTile(it),
           h('span.inv-name', itemName(it), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
@@ -1186,9 +1444,9 @@ export class PlayUI {
       h('div.pack-head', h('span', h('i', { html: iconSvg('pack') }), ' Carried by the company'),
         h('span.pack-purse', h('span', { title: 'Gold' }, h('i.coin', { html: iconSvg('coin') }), String(s.party.gold)),
           g.settings.food ? h('span', { title: 'Food' }, h('i', { html: iconSvg('food') }), String(s.party.food)) : null)),
-      h('p.hint.pack-hint', 'Everything here is shared. Gear is worn from each hero\'s sheet: click a name on a piece to put it on that hero, or click a portrait on the right to change their gear.'),
+      h('p.hint.pack-hint', 'Everything here is shared. Click a name on a piece to put it on that hero; hover the name to see it beside what they wear now.'),
       invList));
-    return modal(body, { title: 'The Pack', icon: 'pack', cls: 'wide party-modal' });
+    return body;
   }
 
   // From the pack: put the piece on that hero, then show their sheet so the
@@ -1200,13 +1458,8 @@ export class PlayUI {
     const res = equipItem(g, m, it, s.party.inventory);
     if (!res.ok) { s.log(res.why, 'warn'); sfx('error'); } else { sfx('click'); s.log(`${m.name} now wears the ${it.name}.`); s.refreshPartyVisual(); }
     if (stay) {
-      const scroller = document.querySelector('.party-modal .modal-body');
-      const keep = scroller ? scroller.scrollTop : 0;
-      closeTopModal();
       this.refresh();
-      this.openParty();
-      const again = document.querySelector('.party-modal .modal-body');
-      if (again) again.scrollTop = keep;
+      this.refreshPack();
       return;
     }
     this.popHero = null;
@@ -1219,9 +1472,9 @@ export class PlayUI {
     let target = null;
     if (['heal', 'cure', 'mp', 'revive'].includes(it.effect)) {
       const g = this.s.game;
-      const ms = this.s.party.members.filter((m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'));
-      if (ms.length && ms.every((m) => needFor(g, it.effect, m))) { this.s.log(`No one needs the ${it.name} right now (${needFor(g, it.effect, ms[0])}).`, 'warn'); sfx('error'); return; }
-      target = await this.chooseMember(`${it.name} — for whom?`, (m) => (it.effect === 'revive' ? m.status === 'dead' : m.status !== 'dead'), (m) => needFor(g, it.effect, m));
+      const why = (m) => noNeed(g, it.effect, m, it);
+      if (this.s.party.members.every(why)) { this.s.log(it.effect === 'revive' ? 'No one has fallen.' : `No one needs the ${it.name} right now (${why(this.s.party.members.find((m) => m.status !== 'dead') || this.s.party.members[0])}).`, 'warn'); sfx('error'); return; }
+      target = await this.pickHero(`${it.name}: for whom?`, why);
       if (!target) return;
     }
     this.s.useItemField(it, target);
@@ -1420,7 +1673,7 @@ export class PlayUI {
     const v = this.view;
     const slider = h('input', { type: 'range', min: 50, max: 85, value: v.rig.pitch });
     slider.addEventListener('input', () => v.setPitch(+slider.value));
-    modal(h('div', h('p', 'Camera pitch (degrees above the horizon):'), slider, h('p.hint', 'Pinch or scroll the mouse wheel to zoom. On a trackpad, slide two fingers to look around.')), { title: 'Camera', icon: 'camera', cls: 'small' });
+    modal(h('div', h('p', 'Camera pitch (degrees above the horizon):'), slider, h('p.hint', 'Pinch or scroll the mouse wheel to zoom — or hold Option (⌥) or Command (⌘) and scroll, as on a Magic Mouse. On a trackpad, slide two fingers to look around.')), { title: 'Camera', icon: 'camera', cls: 'small' });
   }
 
   // the controls reference (help.js), with the full rules folded in below it
@@ -1466,9 +1719,53 @@ function bar(label, v, max, cls) {
 
 function fmtMod(n) { return n >= 0 ? '+' + n : String(n); }
 
-// the colours journal.js draws points of interest in, for the map key
-const EVENT_DOTS = { shrine: ['#ffd870', 'Shrine'], campfire: ['#ff8a30', 'Campfire: rest'], lore: ['#b0b8ff', 'Lore stone'], well: ['#60b0ff', 'Well'], other: ['#d0a0ff', 'Something curious'] };
+const RARITY_NAMES = Object.fromEntries(Object.entries(RARITIES).map(([k, v]) => [k, v.name]));
 
+
+
+// What a piece's magic does, line by line (its effects, then its battle action)
+function magicLines(g, it) {
+  if (!it || !(hasMagic(it) || it.type === 'charm')) return [];
+  const ci = charmInfo(g, it);
+  const out = [...(ci?.lines || [])];
+  if (ci?.ability) out.push(`${ci.ability.name} (battle action${ci.ability.tags ? ', ' + ci.ability.tags : ''})`);
+  return out;
+}
+
+// A hover card setting a piece beside what a hero wears in its place (and the
+// shield, when it needs both hands): each side's stats and magic, with what
+// only the new piece does marked + and what only the old one did marked −
+function swapCard(g, m, it, foot) {
+  const slot = slotFor(it);
+  const cur = itemOf(g, m.equip[slot]);
+  const c = compareText(g, m, it);
+  const head = h('div.sw-head', h('span.cmp.' + c.cls, cmpArrow(c), `${m.name} ${c.text}`));
+  if (cur?.id === it.id) return h('div.swap-card', head, h('div.sw-cols.one', h('div.sw-col', swapPiece(g, it, null))));
+  const sh = it.twoHanded && slot === 'weapon' ? itemOf(g, m.equip.shield) : null;
+  const got = magicLines(g, it);
+  const had = [...magicLines(g, cur), ...magicLines(g, sh)];
+  const slotName = (SLOT_NAMES[slot] || slot).toLowerCase();
+  return h('div.swap-card', head,
+    h('div.sw-cols',
+      h('div.sw-col.new', h('div.sw-label', 'Puts on'), swapPiece(g, it, had, 'gain')),
+      h('div.sw-col.old', h('div.sw-label', cur || sh ? 'Takes off' : 'In its place'),
+        cur ? swapPiece(g, cur, got, 'lose') : h('div.sw-plain', `No ${slotName} now`),
+        sh ? swapPiece(g, sh, got, 'lose', 'shield: both hands are needed') : null)),
+    foot ? h('div.sw-foot', foot) : null);
+}
+
+// one side of a swap card: name, stats and the magic, each line marked by
+// whether the other side has it too
+function swapPiece(g, it, other, mark, note) {
+  const lines = magicLines(g, it);
+  const mg = magicalOf(it);
+  return h('div.sw-piece',
+    h('div.sw-name', { style: mg ? { color: mg.color } : null }, mg ? '✦ ' : '', it.name),
+    note ? h('div.sw-note', note) : null,
+    itemStats(it) ? h('div.sw-stats', itemStats(it)) : null,
+    lines.length ? h('ul.sw-lines', ...lines.map((l) => h('li.' + (!other ? 'same' : other.includes(l) ? 'same' : mark), l)))
+      : h('div.sw-plain', 'No magic'));
+}
 
 // how an item compares with what a hero already has in that slot
 function compareText(g, m, it) {
@@ -1476,6 +1773,8 @@ function compareText(g, m, it) {
   if (!slot) return null;
   const cur = itemOf(g, m.equip[slot]);
   if (cur?.id === it.id) return { cls: 'same', text: 'equipped' };
+  // a charm is not better or worse, only different: say what it would replace
+  if (it.type === 'charm') return cur ? { cls: 'swap', text: `instead of ${cur.name}` } : { cls: 'up', text: 'new charm' };
   if (it.type === 'weapon') {
     const d = diceAvg(it.dmg || '1d2') + (it.hit || 0) * 0.5 - (cur ? diceAvg(cur.dmg || '1d2') + (cur.hit || 0) * 0.5 : slot === 'weapon' ? 1.5 : 0);
     if (!cur && slot === 'ranged') return { cls: 'up', text: 'new: can shoot' };
@@ -1494,6 +1793,8 @@ function compareText(g, m, it) {
 // someone can use them. Everything else (potions, food, keys) always counts.
 function uselessToCompany(g, members, it) {
   const who = members.filter((m) => m.status !== 'dead');
+  // a charm is never sold off while anyone in the company could wear it
+  if (it.type === 'charm') return !who.some((m) => canEquip(g, m, it).ok);
   if (slotFor(it)) {
     return !who.some((m) => {
       if (!canEquip(g, m, it).ok) return false;
@@ -1510,13 +1811,54 @@ function uselessToCompany(g, members, it) {
 function itemName(it) {
   const mg = magicalOf(it);
   if (!mg) return h('b', it.name);
-  return h('b.magic-name', { style: { '--magic': mg.color }, title: `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim() },
+  // (charms and enchanted gear with effects: the row itself carries the whole tooltip)
+  const title = mg.charm || hasMagic(it) ? null : `Magical${mg.notes.length ? ': ' + mg.notes.join(', ') : ''}. ${it.desc || ''}`.trim();
+  return h('b.magic-name', { style: { '--magic': mg.color }, title },
     h('span.mg-star', '✦ '), it.name);
 }
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip
 function cmpArrow(c) {
-  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.text === 'equipped' ? '✓' : '=');
+  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text === 'equipped' ? '✓' : '=');
+}
+
+// when no one in the company can wear a piece: a charm for one people or
+// calling says who could ("Only a dwarf can wake its runes")
+function noOneText(g, it) {
+  return it?.only && charmInfo(g, it)?.only ? charmInfo(g, it).only : 'No one in your company can use this';
+}
+
+const CHARM_SLOT_TIP = 'A ring, an amulet, a horn or another trinket of magic. A charm works only while it is worn here: in the pack it sleeps.';
+
+// A piece's whole magic as a tooltip: what it is, what it does, its battle
+// action, who may wear it (pack: and that it sleeps there)
+export function itemTip(g, it, inPack = false) {
+  const info = charmInfo(g, it);
+  if (!info) return it?.desc || '';
+  const head = it.type === 'charm' ? `${it.name} — ${[info.rarity?.name, info.kind || 'charm'].filter(Boolean).join(' ').toLowerCase()}` : it.name;
+  const out = [head];
+  if (it.desc) out.push(it.desc);
+  for (const l of magicalOf(it)?.notes || []) out.push(`• ${l}`);
+  for (const l of info.lines) out.push(`• ${l}`);
+  if (info.ability) out.push(`⚔ Battle action: ${info.ability.name}${info.ability.tags ? ` (${info.ability.tags})` : ''}. ${info.ability.desc}`);
+  if (info.only) out.push(`✋ ${info.only}.`);
+  if (it.type === 'charm') out.push(inPack ? '☾ Asleep in the pack: it works only while worn in a hero\'s charm slot.' : '☾ Works only while worn in a hero\'s charm slot.');
+  return out.join('\n');
+}
+
+// The hero sheet's charm: what it does while worn (or what the slot is for)
+function charmPanel(g, m) {
+  const it = itemOf(g, m.equip?.charm);
+  if (!it) return h('div.sheet-charm.empty', h('span.sc-ico', { html: iconSvg('ring') }), h('span.hint', 'No charm worn. Rings, amulets, horns and other trinkets of magic work only while worn here.'));
+  const info = charmInfo(g, it);
+  const rule = wearRule(g, m, it);
+  return h('div.sheet-charm', { title: itemTip(g, it), style: { '--magic': magicalOf(it)?.color || '#c8b8ff' } },
+    itemTile(it),
+    h('div.sc-main',
+      h('div.sc-name', itemName(it), h('span.sc-kind', [info.rarity?.name, info.kind].filter(Boolean).join(' '))),
+      rule.ok ? null : h('div.sc-warn', `${rule.why} It sleeps.`),
+      h('ul.sc-lines', ...info.lines.map((l) => h('li', l)),
+        info.ability ? h('li.sc-ab', h('span', { html: iconSvg(info.ability.icon || 'star') }), h('b', info.ability.name), info.ability.tags ? ` — ${info.ability.tags}` : '') : null)));
 }
 
 // What a thing is for, in plain words: reagents name the spells that burn
@@ -1534,6 +1876,14 @@ export function itemUse(g, it) {
     const sp = byId(g.spells || [], it.spell);
     return sp ? `Copy into a spellbook to learn ${sp.name} for good (${byId(g.magic || [], sp.system)?.name || ''}, circle ${sp.level || 1})` : 'A spell scroll';
   }
+  if (it.type === 'charm' || hasMagic(it)) {
+    const info = charmInfo(g, it);
+    const parts = [...info.lines];
+    if (info.ability) parts.push(`battle action: ${info.ability.name}`);
+    if (it.type === 'charm' && !parts.length) return 'A trinket of magic, worn in the charm slot';
+    if (it.type !== 'charm') return parts.length ? `✦ ${parts.join('; ')}` : '';
+    return parts.join('; ');
+  }
   if (it.type === 'key') return 'Opens a locked door or chest (used up)';
   if (it.type === 'quest') return 'Needed for a quest';
   if (it.type === 'map') return 'Read it to see where the treasure lies';
@@ -1541,7 +1891,7 @@ export function itemUse(g, it) {
   switch (it.effect) {
     case 'heal': return `Drink to heal one hero (${it.power || '2d8'} health)`;
     case 'cure': return 'Cures one hero of poison';
-    case 'mp': return `Restores one hero's mana (${it.power || '2d6'})`;
+    case 'mp': return `Restores one hero's ${poolWords(g, it)} (${it.power || '2d6'})`;
     case 'revive': return 'Brings a fallen hero back to life';
     case 'light': return 'Light it to see in dark halls and caves';
     case 'food': return `Food for the road (+${parseInt(it.power, 10) || 25})`;
@@ -1568,13 +1918,6 @@ function magicNote(g, members, it) {
 }
 
 // Why a hero would gain nothing from a heal / cure / mana (null if they would)
-function needFor(g, effect, m) {
-  if (effect === 'heal') return m.hp >= maxHp(g, m) ? 'already at full health' : null;
-  if (effect === 'mp') return maxMp(g, m) <= 0 ? 'has no mana' : m.mp >= maxMp(g, m) ? 'mana already full' : null;
-  if (effect === 'cure') return m.status !== 'poisoned' ? 'not poisoned' : null;
-  return null;
-}
-
 function healthWord(f) {
   if (f > 0.9) return 'unhurt';
   if (f > 0.6) return 'wounded';
@@ -1592,6 +1935,7 @@ export function itemStats(it) {
     case 'scroll': return 'spell scroll';
     case 'key': return 'key';
     case 'map': return 'treasure map';
+    case 'charm': return [(RARITY_NAMES[it.rarity] || ''), (CHARM_KINDS[it.kind] || 'charm')].filter(Boolean).join(' ').toLowerCase();
     default: return it.type;
   }
 }
@@ -1601,7 +1945,7 @@ const HELP_HTML = `
 <p><b>Point at anything</b> on the map to see what it is and what a click will do. <b>Click</b> to act: click the ground to walk
 there (the dotted line shows the way), a person to walk up and talk, a shop or house to visit whoever keeps it, a monster to attack,
 a chest, shrine, door or stairs to go and use it. <b>Right-click</b> (or press and hold on a tablet) to look without moving.
-Any key stops a walk. Pinch (or scroll a mouse wheel) to zoom; on a trackpad, slide two fingers to look around — the view comes back to the company as it moves.</p>
+Any key stops a walk. Pinch (or scroll a mouse wheel, or hold Option ⌥ or Command ⌘ and scroll — handy on a Magic Mouse) to zoom; on a trackpad, slide two fingers to look around — the view comes back to the company as it moves.</p>
 <p>The <b>Nearby</b> bar over the map lists what you can do where you stand — <b>T</b> talks, <b>E</b> does the first other thing,
 <b>1–4</b> the rest. Marks over heads: <b class="hk-q">!</b> has a task for you, <b class="hk-q">?</b> wants to hear about your quest,
 <b class="hk-p">?</b> is waiting on one; coins, a bed and a cross mark shops, inns and healers; a banner, someone who might join you.</p>
@@ -1615,6 +1959,18 @@ Any key stops a walk. Pinch (or scroll a mouse wheel) to zoom; on a trackpad, sl
 <tr><td>Ctrl/⌘+S</td><td>Save</td><td>Esc</td><td>Stop walking / menu</td></tr>
 </table>
 <p>Step onto towns, caves and stairs to enter them; walk off the edge of a town to leave.</p>
+<h3>Dungeons</h3>
+<p>Caves, crypts, towers and fortresses are <b>battlegrounds</b>. Every monster stands there in the flesh, and each hero has a
+square of their own. The bar at the top of the map shows who walks: <b>All together</b> (the others fall in behind the leader),
+or one hero alone — click a hero (or their portrait), or press <b>Tab</b> for the next; <b>G</b> brings the company together again.
+Send a quiet hobbit or burglar ahead to scout; the others wait where they stand. Chests, doors and curiosities work for whoever
+reaches them; the stairs take everyone.</p>
+<p>Monsters marked <b>Zz</b> have not noticed you. They notice a hero who comes close in their sight — sooner in the light and
+when the hero carries the torch (the leader does), later in the dark and for the quiet of foot (hobbits, burglars, rangers).
+When one notices, its whole band is roused and the battle is fought right there, everyone where they stand; other bands that
+see the fight, or hear it close by, join in. Come upon a band before it sees you, or strike one that is unaware, and it may be
+<b>caught unawares</b>: every hero has a free turn before the first round. Win, and you carry on where you stand; step onto the
+stairs mid-battle to flee. What you slay stays dead.</p>
 <p><b>Treasure maps</b> turn up in chests, on beaten foes, as rewards and (for a price) from shady folk. Read one (<b>U</b>, or
 <b>Read</b> in the pack) to see a sketch of the place and its clue; your map (<b>M</b>) then rings the area in red. Find the very
 square the clue speaks of and <b>Dig here</b> appears in the Nearby bar. Some hoards are guarded.</p>
@@ -1645,11 +2001,12 @@ health, conditions, what it is up to and your <b>chance to hit</b>; hover a squa
 damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: beside a tree, rock or wall, missiles from
 that side are −3 to hit. <b>Engaged</b>: shooting with a foe beside you is −4. <b>Breaking away</b>: stepping out of a foe's reach
 gives it a free strike (amber squares warn you).</p>
-<p><b>Skills</b> (keys 1, 2) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
-battle. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
-off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee.</p>
+<p><b>Skills</b> (keys 1–9) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
+battle. Each calling learns new skills as it rises (levels 3, 5, 7 and 9 for the built-in ones), and on every second level one of
+the talents on offer is a <b>battle art</b> any hero can learn: Second Wind, Dash, First Aid, Throw Knife and more. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
+off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the field to flee (in a dungeon, step onto the stairs).</p>
 <table class="keys">
-<tr><td>F</td><td>Attack / shoot</td><td>1, 2</td><td>Skills</td></tr>
+<tr><td>F</td><td>Attack / shoot</td><td>1–9</td><td>Skills</td></tr>
 <tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>

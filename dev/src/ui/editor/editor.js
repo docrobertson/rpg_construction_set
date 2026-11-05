@@ -22,6 +22,8 @@ import { analyzeCampaign } from '../../game/checklist.js';
 import { editorHelp } from './help.js';
 import { findAnything } from './find.js';
 import { eventLook } from '../../game/events.js';
+import { chestLook } from '../../data/containers.js';
+import { isHoard } from '../../game/charms.js';
 import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
@@ -694,11 +696,11 @@ export class Editor {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid' };
       case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
-      case 'chest': return { kind: 'chest' };
+      case 'chest': return chestLook(e, this.map, isHoard(this.map, e)); // (a cart, a loose flagstone…)
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : { kind: 'marker', color: 0x60a0ff };
-      case 'event': return eventLook(e);
+      case 'event': return eventLook(e, this.map) || { kind: 'marker', color: 0x60c0ff }; // (a shipyard drawn by its harbour)
       case 'treasure': return { kind: 'marker', color: 0xd03020 };
       default: return { kind: 'marker' };
     }
@@ -1076,7 +1078,7 @@ export class Editor {
     if (inBounds(map, t.x, t.y)) {
       const td = terrain(getTile(map, t.x, t.y));
       const ents = map.entities.filter((e) => e.x === t.x && e.y === t.y).map((e) => (e.type === 'npc' ? e.name || 'person' : e.type === 'monster' ? byId(this.game.monsters, e.monster)?.name || 'monster' : e.label || e.type));
-      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch or wheel to zoom · Ctrl+Z undo`;
+      this.statusText.textContent = `${map.name} · ${t.x}, ${t.y} · ${td.name}${ents.length ? ' · ' + ents.join(', ') : ''}   —   Two fingers, right-drag or WASD to pan · pinch, wheel or ⌥/⌘+scroll to zoom · Ctrl+Z undo`;
     } else this.statusText.textContent = `${map.name} · outside the map`;
   }
 

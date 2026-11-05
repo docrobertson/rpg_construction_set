@@ -8,6 +8,8 @@ import { GOAL_TYPES, describeGoal } from '../../game/quests.js';
 import { chapterList, roman } from '../../game/story.js';
 import { EVENT_TEMPLATES, EVENT_KINDS, BLESSINGS, REQS, eventFromTemplate } from '../../game/events.js';
 import { questProblems } from '../../game/checklist.js';
+import { cacheLook, isContainer } from '../../data/containers.js';
+import { containerLookFields } from './containerFields.js';
 
 const npcOptions = (game, emptyLabel) => () => {
   const out = emptyLabel ? [['', emptyLabel]] : [];
@@ -228,6 +230,7 @@ export function choiceFields(game) {
     { key: 'effects.reveal', label: 'Reveals the land around (tiles)', type: 'number', min: 0, show: (c) => !c.leave },
     { key: 'effects.fortune', label: 'A fortune: shows an unfound place, a hoard or a great beast', type: 'check', show: (c) => !c.leave },
     { key: 'effects.fairy', label: 'Fairy magic (something unpredictable)', type: 'select', options: [['wild', 'Wild: good or mischief'], ['kind', 'Kind: only good things']], empty: '— none —', nullable: true, show: (c) => !c.leave },
+    { key: 'effects.ship', label: 'Builds and sells the ship (her name and price are set above)', type: 'check', show: (c) => !c.leave },
     { key: 'effects.fight', label: 'Then fight', type: 'select', options: monsterOpts(game), empty: '— no fight —', nullable: true, show: (c) => !c.leave, rerender: true },
     { key: 'effects.count', label: 'How many', type: 'text', placeholder: '1 or 2-4', show: (c) => !c.leave && !!c.effects?.fight },
     { type: 'section', label: 'Prize for winning the fight', show: (c) => !c.leave && !!c.effects?.fight },
@@ -247,13 +250,25 @@ export function choiceFields(game) {
   ];
 }
 
+const sellsShipHere = (o) => o.kind === 'shipyard' || (o.choices || []).some((c) => c.effects?.ship);
+
 export function eventFields(game) {
   return [
     { key: 'name', label: 'Name', type: 'text' },
-    { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]) },
+    { key: 'kind', label: 'Looks like', type: 'select', options: Object.entries(EVENT_KINDS).map(([k, v]) => [k, `${v.icon} ${v.label}`]), rerender: true },
+    // (containers) a hidden cache drawn as what it is: a cart, a loose flagstone…
+    ...containerLookFields((o) => { const k = cacheLook(o)?.kind; return { kind: k || 'chest', why: k ? 'from its words' : '' }; },
+      { label: 'Drawn as', show: (o) => o.kind === 'cache' || isContainer(o.look?.kind), hint: 'What the cache is found in. Automatic picks it from the name or description ("Overturned Cart", "beneath a loose flagstone").' }),
     { key: 'text', label: 'Description', type: 'textarea', rows: 4, hint: 'Shown when the party bumps into it.' },
     { key: 'repeat', label: 'Can be used', type: 'select', options: [['once', 'Once (then it is gone)'], ['daily', 'Once a day'], ['always', 'Any time']], rerender: true },
     { key: 'cooldown', label: 'Turns between uses', type: 'number', min: 10, show: (o) => o.repeat === 'daily', hint: 'A day is 300 turns.' },
+    // a shipyard sells a ship: a choice that "builds and sells the ship" pays for her
+    { type: 'section', label: 'The ship for sale', show: sellsShipHere },
+    { type: 'info', label: 'Once paid for, she is moored in the nearest open water beside this place (or at the square below), ready to board. Each ship is sold once.', show: sellsShipHere },
+    { key: 'ship.name', label: 'Ship\'s name', type: 'text', placeholder: 'Seahorse', show: sellsShipHere },
+    { key: 'ship.price', label: 'Price (gold)', type: 'number', min: 0, placeholder: '450', show: sellsShipHere },
+    { key: 'ship.x', label: 'Moored at X (world map)', type: 'number', nullable: true, show: sellsShipHere, hint: 'Blank: beside this place.' },
+    { key: 'ship.y', label: 'Moored at Y (world map)', type: 'number', nullable: true, show: sellsShipHere },
     { type: 'section', label: 'Choices' },
     { key: 'choices', label: 'Choices', type: 'list', wide: true, fields: choiceFields(game), rowLabel: (c, i) => `${i + 1}. ${c.label || '(choice)'}`, newRow: () => ({ label: 'Do something', text: '', effects: {} }), addLabel: '+ Add choice' },
   ];
@@ -294,7 +309,7 @@ function openQuest(ed, q) {
 // The map tool that places an event from a template
 export const EVENT_TOOL = {
   label: 'Event', icon: '✨', cursor: 'tile',
-  hint: 'Place a point of interest — a shrine, campfire, lore stone, well — or a little event with choices. Pick the kind below; edit everything in the inspector.',
+  hint: 'Place a point of interest — a shrine, a campfire, a windmill, a ruined chapel — or a little event with choices. Pick the kind below; edit everything in the inspector.',
   down(ed, t) {
     if (!inBounds(ed.map, t.x, t.y)) return;
     const existing = ed.entityAt(t.x, t.y);
@@ -309,7 +324,14 @@ export const EVENT_TOOL = {
 };
 
 export function eventTemplatePicker(ed) {
-  const sel = h('select', { title: 'What the Event tool places' }, ...Object.entries(EVENT_TEMPLATES).map(([k, t]) => h('option', { value: k }, `${EVENT_KINDS[t.kind]?.icon || ''} ${t.name}`)));
+  // filed by kind of place: the wayside first, then the countryside's
+  const groups = new Map();
+  for (const [k, t] of Object.entries(EVENT_TEMPLATES)) {
+    const g = EVENT_KINDS[t.kind]?.group || 'Wayside and wonders';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(h('option', { value: k }, `${EVENT_KINDS[t.kind]?.icon || ''} ${t.name}`));
+  }
+  const sel = h('select', { title: 'What the Event tool places' }, ...[...groups].map(([g, opts]) => h('optgroup', { label: g }, ...opts)));
   sel.value = ed.eventTemplate || 'shrine_might';
   sel.addEventListener('change', () => { ed.eventTemplate = sel.value; ed.setTool('event'); });
   return sel;

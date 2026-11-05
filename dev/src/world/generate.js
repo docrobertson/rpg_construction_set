@@ -6,6 +6,7 @@ import { fbm } from '../core/noise.js';
 import { RNG, hash2 } from '../core/rng.js';
 import { uid } from '../core/util.js';
 import { eventFromTemplate } from '../game/events.js';
+import { fitWildCache, fitCache, DUNGEON_CACHES } from '../data/containers.js';
 import { generateHarbour } from './harbour.js';
 
 const def = (id) => terrain(id);
@@ -380,6 +381,10 @@ export function scatterWonders(map, seed, opt = {}) {
     ...Array(Math.ceil(scale * 0.6)).fill('lore'),
     'well', 'cache', 'traveller', 'toll_troll', 'bandits',
     'farm', 'fortune', 'fairy_ring', 'arena', 'lighthouse',
+    // the countryside's older and wilder places, and its ruins (last, so the
+    // places above fall where they always did)
+    'tower', 'circle', 'chapel', 'statue', 'graveyard', 'bones', 'woodcutters', 'quarry', 'wreck',
+    'ruined_tower', 'ruined_chapel', 'broken_circle', 'burnt_farm', 'ruined_mill', 'toppled_statue',
   ];
   const shrines = ['shrine_might', 'shrine_ward', 'shrine_vigour', 'shrine_fortune'];
   const placed = [];
@@ -392,7 +397,17 @@ export function scatterWonders(map, seed, opt = {}) {
   // a lighthouse stands on the shore; farms and fairy rings on open grass
   const sea = (x, y) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => def(getTile(map, x + dx, y + dy)).key === 'ocean');
   const grassy = (x, y) => ['grass', 'meadow'].includes(def(getTile(map, x, y)).key);
-  const fits = { lighthouse: sea, farm: grassy, fairy_ring: grassy };
+  const beside = (x, y, keys) => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]].some(([dx, dy]) => keys.includes(def(getTile(map, x + dx, y + dy)).key));
+  // (woodcutters at the edge of a wood, a quarry under the hills, a wreck on
+  // a beach; the rest on open grass)
+  const fits = {
+    lighthouse: sea, farm: grassy, fairy_ring: grassy,
+    tower: grassy, circle: grassy, chapel: grassy, statue: grassy, graveyard: grassy,
+    ruined_tower: grassy, ruined_chapel: grassy, broken_circle: grassy, burnt_farm: grassy, ruined_mill: grassy, toppled_statue: grassy,
+    woodcutters: (x, y) => grassy(x, y) && beside(x, y, ['forest', 'pines']),
+    quarry: (x, y) => (grassy(x, y) || def(getTile(map, x, y)).key === 'hills') && beside(x, y, ['mountains', 'hills']),
+    wreck: (x, y) => def(getTile(map, x, y)).key === 'sand' && sea(x, y),
+  };
   let n = 0;
   for (const kind of want) {
     for (let a = 0; a < (fits[kind] ? 400 : 60); a++) {
@@ -401,6 +416,8 @@ export function scatterWonders(map, seed, opt = {}) {
       const tpl = kind === 'shrine' ? rng.pick(shrines) : kind;
       const e = { ...eventFromTemplate(tpl), id: opt.ids ? `${opt.ids}_${n}` : uid('ev'), x, y };
       if (kind === 'lore') { const [name, text] = rng.pick(WORLD_LORE); Object.assign(e, { name, text }); }
+      // (containers) a cache fits its ground: a hollow log in the woods, a cairn on the hills
+      if (kind === 'cache') fitWildCache(e, def(getTile(map, x, y)).key);
       // a farm has its fields about it
       if (kind === 'farm') for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [2, -1], [2, 0]]) if (grassy(x + dx, y + dy) && !map.entities.some((o) => o.x === x + dx && o.y === y + dy)) setTile(map, x + dx, y + dy, T.fields);
       map.entities.push(e);
@@ -1251,7 +1268,9 @@ export function generateDungeon(opt = {}) {
       const s = spots.splice(r2.int(0, spots.length - 1), 1)[0];
       if (s) map.entities.push({ ...eventFromTemplate(tpl), id: opt.seed != null ? `ev_${opt.seed}_${tpl}${n ? '_' + n : ''}` : uid('ev'), x: s.x, y: s.y, ...extra });
     };
-    const extraFor = (tpl) => (tpl === 'lore' ? { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) } : tpl === 'cache' ? { name: 'Loose Flagstone' } : { name: 'Forgotten Shrine' });
+    // (containers) a planned dungeon's cache suits its style: bones in a cave, a loose stone in a fortress wall
+    const styled = (c) => { const ev = fitCache(eventFromTemplate('cache'), c); return { name: ev.name, text: ev.text, choices: ev.choices }; };
+    const extraFor = (tpl) => (tpl === 'lore' ? { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) } : tpl === 'cache' ? (DUNGEON_CACHES[P?.style] ? styled(DUNGEON_CACHES[P.style]) : { name: 'Loose Flagstone' }) : { name: 'Forgotten Shrine' });
     if (!P) {
       if (spots.length) pick('lore', { name: 'Carved Pillar', text: r2.pick(PILLAR_TEXTS) });
       if (spots.length) pick('cache', { name: 'Loose Flagstone' });
@@ -1474,6 +1493,13 @@ export function nameNpcs(map, game, seed = 1) {
   }
 }
 
+// charms a shop keeps: up to n of those that pass, cheapest first, never a unique one
+const SAGE_CHARMS = ['orb', 'mirror', 'feather', 'lantern', 'ring', 'amulet'];
+function curios(items, pass, n) {
+  return items.filter((it) => it.type === 'charm' && !it.unique && (it.price || 0) > 0 && !(it.only?.races?.length || it.only?.classes?.length) && pass(it))
+    .sort((a, b) => (a.price || 0) - (b.price || 0)).slice(0, n).map((it) => it.id);
+}
+
 // What a shop sells unless the designer says otherwise: ordinary gear only.
 // The finest arms and armour are left for quests, hoards and hand-picked shops.
 export function defaultStock(game, kind) {
@@ -1484,8 +1510,11 @@ export function defaultStock(game, kind) {
     case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 130).map((it) => it.id);
     case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
     case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
-    case 'scrolls': return items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id);
-    case 'mixed': return items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id);
+    // sages keep a few curios of magic beside their scrolls, a trading post a
+    // few humble charms; a curio-seller (kind 'charms') all but the legends
+    case 'scrolls': return [...items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id), ...curios(items, (it) => ['uncommon', 'rare'].includes(it.rarity) && SAGE_CHARMS.includes(it.kind) && (it.price || 0) <= 450, 4)];
+    case 'mixed': return [...items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id), ...curios(items, (it) => it.rarity === 'common' && (it.price || 0) <= 80, 4)];
+    case 'charms': return curios(items, (it) => it.rarity !== 'legendary' && (it.price || 0) <= 700, 12);
     default: return [];
   }
 }

@@ -18,24 +18,28 @@ import fs from 'node:fs';
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEV = path.resolve(HERE, '..');
 const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places',
-  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
+  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
 
 // what each part of the source can break (paths relative to dev/src)
 const RULES = [
+  [/^(render|data)\/containers\.js$|^ui\/editor\/containerFields\.js$/, ['containers']],
+  [/^render\/landmarks\.js$|^world\/countryside\.js$/, ['landmarks']],
   [/^render\/fx\.js$/, ['combat', 'features']],
   [/^render\//, ['explore', 'places']],
-  [/^game\/combat\.js$|^ui\/combatHud\.js$/, ['combat', 'features', 'deep', 'regressions']],
-  [/^game\/rules\.js$|^data\/defaults\.js$/, ['combat', 'features', 'progress', 'magic', 'deep']],
+  [/^game\/combat\.js$|^ui\/combatHud\.js$/, ['combat', 'features', 'deep', 'regressions', 'delve', 'charms', 'skills']],
+  [/^game\/rules\.js$|^data\/defaults\.js$/, ['combat', 'features', 'progress', 'magic', 'deep', 'charms', 'skills']],
   [/^game\/magic\.js$|^ui\/spellbook\.js$/, ['magic']],
   [/^game\/(quests|events|dialog)\.js$|^ui\/journal\.js$/, ['quests', 'progress']],
   [/^game\/treasure\.js$|^ui\/treasureMap\.js$/, ['progress']],
-  [/^game\/(session|travel|walk|path|los)\.js$/, ['explore', 'progress', 'flows', 'regressions']],
+  [/^game\/(session|travel|walk|path|los)\.js$/, ['explore', 'progress', 'flows', 'regressions', 'delve']],
   [/^ui\/(explore|hoverInfo)\.js$/, ['explore']],
   [/^ui\/(play|dom|icons|levelUp|vellum)\.js$|^styles\.css$/, ['features', 'quests', 'explore']],
   [/^ui\/editor\/(places|land)\.js$|^world\/places\.js$/, ['cs_places']],
   [/^ui\/editor\/(story|quests)\.js$|^world\/storyGen\.js$/, ['cs_story']],
   [/^game\/story\.js$/, ['cs_story', 'quests', 'progress', 'cs_checklist']],
   [/^ui\/editor\/checklist\.js$|^game\/checklist\.js$|^ui\/testTools\.js$/, ['cs_checklist']],
+  [/^game\/delve\.js$/, ['delve', 'quick']],
+  [/^game\/charms\.js$/, ['charms', 'combat']],
   [/^ui\/editor\//, ['editor', 'cs_shell']],
   [/^ui\/(partyCreate|help|fonts)\.js$|^main\.js$|^index\.template\.html$/, ['smoke', 'flows']],
   [/^game\/looks\.js$/, ['smoke']],

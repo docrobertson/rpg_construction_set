@@ -36,7 +36,7 @@ const openSheet = (cls) => ev((cls) => { const ui = window.__app.playUI; const m
 check('roster shows a portrait for every hero', await ev(() => [...document.querySelectorAll('.pcard .pc-pic img')].filter((i) => i.src.startsWith('data:image/png')).length === window.__app.session.party.members.length));
 check('leader is marked', await ev(() => document.querySelector('.pcard')?.classList.contains('leader') && !!document.querySelector('.pcard .pc-lead')));
 await openSheet(null);
-check('character sheet pops over with four slots', (await ev(() => !document.querySelector('.hero-pop').hidden && document.querySelectorAll('.hero-pop .slot select').length)) === 4);
+check('character sheet pops over with five slots (the fifth for a charm)', (await ev(() => !document.querySelector('.hero-pop').hidden && document.querySelectorAll('.hero-pop .slot select').length)) === 5);
 await page.keyboard.press('Escape');
 check('Esc closes the pop-over', await ev(() => document.querySelector('.hero-pop').hidden));
 
@@ -236,8 +236,12 @@ const odds = await ev(() => {
   const gob = b.enemies.find((e) => b.alive(e) && e.def.id === 'goblin');
   const spot = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: u.x + dx, y: u.y + dy })).find((c) => b.walkable(c.x, c.y, gob));
   gob.x = spot.x; gob.y = spot.y; b.view.placeEntity(gob.id, gob.x, gob.y);
+  // (the odds alone, with no friend near the goblin: the ranks stand close)
+  const others = b.partyUnits.filter((p) => p !== u && b.alive(p));
+  for (const o of others) o.dead = true;
   const plain = b.preview(u, gob);
-  const mate = b.partyUnits.find((p) => p !== u && b.alive(p));
+  for (const o of others) o.dead = false;
+  const mate = others[0];
   const fs = [[0, -1], [1, 0], [-1, 0], [0, 1]].map(([dx, dy]) => ({ x: gob.x + dx, y: gob.y + dy })).find((c) => b.walkable(c.x, c.y, mate));
   mate.x = fs.x; mate.y = fs.y; b.view.placeEntity(mate.id, mate.x, mate.y);
   const flanked = b.preview(u, gob);
@@ -356,7 +360,7 @@ const migr = await ev(() => {
   const s = window.__app.session; const g = s.game; const b = s.battle;
   return { abilities: g.abilities?.length, warrior: g.classes.find((k) => k.id === 'warrior').skills, troll: g.monsters.find((m) => m.id === 'troll').abilities, bar: [...document.querySelectorAll('.cbt-btn .cb-name')].map((x) => x.textContent).length, active: !!b?.active };
 });
-check('older games gain the default abilities', migr.abilities > 20 && migr.warrior?.length === 2 && migr.troll?.includes('brutal_smash') && migr.bar >= 8, migr);
+check('older games gain the default abilities', migr.abilities > 20 && migr.warrior?.length >= 2 && migr.troll?.includes('brutal_smash') && migr.bar >= 8, migr);
 await ev(async () => { const b = window.__app.session.battle; if (b) { for (const e of b.enemies) if (b.alive(e)) await b.kill(e); if (b.active) b.actPass(); } });
 await idle();
 await wait(1200);

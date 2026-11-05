@@ -66,7 +66,7 @@ function roleReply(npc, word, ctx) {
   // a shipwright sells a ship: SHIP tells of her, BUY pays (the purchase writes the reply)
   if (role === 'shipwright') {
     const deal = shipDeal(npc);
-    const sold = !!ctx.state?.party.flags[`_ship_${npc.id}`];
+    const sold = !!ctx.state?.party.flags[`_${deal.id}`];
     if (k('SHIP') || k('BOAT') || k('VESSEL')) {
       return { text: sold ? deal.soldText : `${deal.pitch} ${deal.price} gold, and the ${deal.name} is thine — say BUY.` };
     }
@@ -89,11 +89,14 @@ function roleReply(npc, word, ctx) {
   return null;
 }
 
-// What a shipwright has for sale (npc.ship: { name, price, pitch, soldText, x, y })
+// What a shipwright (or a shipyard on the map) has for sale (npc.ship: { name,
+// price, pitch, soldText, x, y, id }). The id names the ship once bought, and
+// the flag that says so: ship_<seller's id> unless given.
 export function shipDeal(npc) {
   const d = npc.ship || {};
   const name = d.name || 'Seahorse';
   return {
+    id: d.id || `ship_${npc.id}`,
     name, price: Math.max(0, parseInt(d.price, 10) || 450),
     pitch: d.pitch || `Aye, I've a ship on the stocks just finished: the ${name}, oak-built and tarred, sound as a bell.`,
     soldText: d.soldText || `The ${name}'s thine already, moored at the quay. Treat her kindly.`,

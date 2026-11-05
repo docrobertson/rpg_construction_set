@@ -8,7 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember, growStat,
+  equipKit, normalizeMember, growStat, abilityOf,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -23,11 +23,15 @@ import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { ensureQuestState, checkQuests, startAutoQuests, onKill, startQuest, advanceQuest, completeQuest, npcMarker, questNeeding } from './quests.js';
 import { eventLook, eventLabel, blessingsTick, blessBattle, hasBlessing } from './events.js';
-import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH } from './travel.js';
+import { partyEase, easedCost, costNote, monsterCost, DEFAULT_LEASH, durationText } from './travel.js';
 import { findBuildings } from '../world/buildings.js';
 import { dropSpentMaps, treasureState, digTreasure } from './treasure.js';
-import { forageFind, lootTag } from './magic.js';
+import { forageFind, lootTag, restoresPool, poolWords, poolName } from './magic.js';
 import { buyShip } from './ships.js';
+import { Delve, isBattleground } from './delve.js';
+// (charms) what heroes wear: battle hooks, and the ways and paces it opens
+import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen, isHoard } from './charms.js';
+import { chestLook, containerWords } from '../data/containers.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -164,6 +168,7 @@ export class PlaySession {
     this.map = null;
     this.battle = null;
     this.ui = null; // set by PlayUI
+    this.dv = null; // (delve) the battleground the company is in, if any
     this.roamCount = 0;
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
     ensureQuestState(state); // older saves have no quest log
@@ -192,11 +197,14 @@ export class PlaySession {
     // things that arrived in play (a dug-up chest, a ship bought at the yard)
     // go where they were left, and stay gone once gone, like the rest
     for (const e of ms.added || []) map.entities.push(deepClone(e));
+    // (delve) a wandering band that turned up in a battleground is still there
+    for (const [gid, g] of Object.entries(ms.delve?.groups || {})) if (g.ent && !map.entities.some((e) => e.id === gid)) map.entities.push(deepClone(g.ent));
     map.entities = map.entities.filter((e) => !removed.has(e.id));
     for (const e of map.entities) {
       if (ms.moved[e.id]) [e.x, e.y] = ms.moved[e.id];
       e.home = { x: e.x, y: e.y };
     }
+    hideUnseen(map, ms); // (charms) things hidden from mortal eyes wait for true sight
     // a ship the company has sailed is theirs to keep, even if the map no
     // longer has it (saves from when Westhold lent its ship for nothing)
     for (const [id, at] of Object.entries(ms.moved)) {
@@ -246,8 +254,16 @@ export class PlaySession {
     const dir = opts.zoom || (this.map && map.type !== 'world' && this.map.type === 'world' ? 'in' : this.map && map.type === 'world' && this.map.type !== 'world' ? 'out' : null);
     if (dir && !opts.instant) this.view.setZoom(this.view.rig.tdist * (dir === 'in' ? 0.45 : 1.8));
     if (!opts.instant) await this.app.fade(true);
+    // (delve) a battleground: everyone on a square of their own; leaving one,
+    // nobody there hunts the company any more
+    const fresh = !!this.map;
+    if (this.dv) { this.dv.leave(); this.dv = null; }
     this.map = map;
     this.state.pos = { map: id, x, y };
+    if (isBattleground(map) && !this.state.vehicle) {
+      this.dv = new Delve(this, map);
+      this.dv.init(x, y, fresh);
+    }
     this.roamCount = 0;
     this.view.setMap(map);
     this.applyDaylight();
@@ -263,6 +279,8 @@ export class PlaySession {
     this.ui && this.ui.refresh();
     if (!opts.instant) await this.app.fade(false);
     if (!opts.quiet) this.log(map.type === 'world' ? `You are in ${map.name}.` : `You enter ${map.name}.`, 'place');
+    // (delve) the first battleground: how it works, once
+    if (this.dv && this.ui) this.tip('delve', 'A battleground: every monster here stands where it is, and each hero has a square of their own. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares. Tab sends one hero on alone, G brings the company together; the leader carries the torch.');
     this.ui && this.ui.onMapChanged();
     // quests: the opening goals on a fresh game, and "reach a place" goals
     if (this.ui && !this.state.questsBegun) { this.state.questsBegun = true; startAutoQuests(this); }
@@ -278,14 +296,18 @@ export class PlaySession {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid', race: 'human' };
       case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
-      case 'chest': return { kind: 'chest' };
+      case 'chest': return this.chestLook(e);
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
-      case 'event': return eventLook(e);
+      case 'event': return eventLook(e, this.map);
       default: return null;
     }
   }
+
+  // what a chest is drawn as (a cart, a loose flagstone…), and its words
+  chestLook(e) { return chestLook(e, this.map, isHoard(this.map, e)); }
+  chestWords(e) { return containerWords(e, this.chestLook(e).kind); }
 
   spawnVisuals() {
     this.view.clearEntities();
@@ -294,6 +316,8 @@ export class PlaySession {
   }
 
   addVisual(e) {
+    // (delve) a band in a battleground stands as its monsters, one figure each
+    if (this.dv && e.type === 'monster') { if (!this.dv.groups[e.id]) this.dv.addGroup(e, !!e.roaming); else this.dv.spawnGroup(e.id); return; }
     const look = this.entityLook(e);
     if (!look) return;
     if (this.state.vehicle && this.state.vehicle.id === e.id) return;
@@ -308,6 +332,7 @@ export class PlaySession {
   // ship carries them all.
   addPartyVisual() {
     const p = this.state.pos;
+    if (this.dv) { this.view.removeEntity('party'); this.dv.spawn(); return; }
     if (this.state.vehicle) {
       this.view.addEntity('party', { kind: 'ship', flag: 0xe0c040 }, p.x, p.y, { ring: 0xffd040, facing: this.state.facing });
       this.view.setFollowers?.([], { aboard: partyAlive(this.party).map((m) => charLook(this.game, m)) });
@@ -332,6 +357,7 @@ export class PlaySession {
   followerGround(x, y) {
     if (!this.map || !inBounds(this.map, x, y)) return false;
     const t = terrain(getTile(this.map, x, y));
+    if (charmWay(this, t)) return true; // (charms) wading the shallows, climbing a pass
     if (!t.walk || t.door || t.dmg || t.feature || (t.water && !t.deck)) return false;
     // world-map towns and castles are drawn larger than their square: keep
     // the company off their edges (else they stand on the walls)
@@ -345,6 +371,7 @@ export class PlaySession {
 
   refreshPartyVisual() {
     if (!this.map) return;
+    if (this.dv) { this.dv.refreshHeroes(); return; }
     this.view.removeEntity('party');
     this.addPartyVisual();
   }
@@ -416,10 +443,12 @@ export class PlaySession {
       for (const e of map.entities) this.view.setEntityVisible(e.id, true);
       map.explored.fill(1);
       this.visible = null;
+      this.dv?.applyVis(null);
       return;
     }
-    const { sight, light } = this.sightRadius();
-    const vis = computeVisible(map, p.x, p.y, sight, light, map.litMask);
+    const { sight, light } = charmSight(this, this.sightRadius()); // (charms) keener eyes, a charm's light
+    // (delve) in a battleground every hero sees for themselves (by what they wear too)
+    const vis = this.dv ? this.dv.computeVis() : computeVisible(map, p.x, p.y, sight, light, map.litMask);
     this.visible = vis;
     const dark = map.lighting === 'dark';
     // outdoors, land never seen is blank map vellum (drawn by the shader from
@@ -429,7 +458,7 @@ export class PlaySession {
     for (let i = 0; i < vis.length; i++) {
       if (vis[i]) { map.explored[i] = 1; levels[i] = 1; } else levels[i] = map.explored[i] ? (dark ? 0.42 : 0.55) : (dark ? 0 : vellum ? 0.55 : 0.12);
     }
-    this.view.setCarriedLight?.(this.party.light > 0);
+    this.view.setCarriedLight?.(this.party.light > 0 || charmLit(this));
     this.view.setVellum?.(vellum);
     this.view.setVisibility(levels, instant, vellum ? map.explored : null);
     this.view.setVisibilityEnabled(true);
@@ -442,6 +471,7 @@ export class PlaySession {
       const show = folk && friendly ? !!(vis[i] || map.explored[i]) : e.type === 'npc' || e.type === 'monster' ? !!vis[i] : !!map.explored[i];
       this.view.setEntityVisible(e.id, show);
     }
+    this.dv?.applyVis(vis);
     // what is in view on arrival is simply known; after that, news is news
     this.noteDiscoveries(vis, instant);
   }
@@ -505,6 +535,8 @@ export class PlaySession {
   }
 
   blockingAt(x, y) {
+    // (delve) in a battleground the monsters stand on their own squares
+    if (this.dv) return this.dv.blockerAt(x, y) || this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'sign' || e.type === 'event'));
     return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event'));
   }
 
@@ -531,9 +563,10 @@ export class PlaySession {
     const p = this.state.pos;
     const nx = p.x + dx, ny = p.y + dy;
     this.state.facing = [dx, dy];
-    this.view.face('party', dx, dy);
+    this.view.face(this.dv ? this.dv.actorFig() : 'party', dx, dy);
     const map = this.map;
     if (!inBounds(map, nx, ny)) {
+      if (map.exit && this.dv && !(await this.dv.readyToLeave())) return;
       if (map.exit) return this.leaveMap(nx < 0 ? 'W' : nx >= map.w ? 'E' : ny < 0 ? 'N' : 'S');
       this.log('You cannot travel beyond the edge of the world.');
       sfx('bump');
@@ -553,6 +586,9 @@ export class PlaySession {
       this.log(gate.lockedText || `The way is barred. You need the ${itemOf(this.game, gate.requires)?.name || gate.requires}.`, 'warn');
       return;
     }
+    // (charms) a way sealed by magic opens only to a charm of opening
+    const seal = this.map.entities.find((e) => e.type === 'portal' && e.x === nx && e.y === ny && e.sealed);
+    if (seal && !charmOpens(this, seal)) return;
     const ship = this.map.entities.find((e) => e.type === 'ship' && e.x === nx && e.y === ny);
     if (this.state.vehicle) {
       if (t.ship || (t.water && !t.deck)) {
@@ -576,6 +612,7 @@ export class PlaySession {
       sfx('bump');
       return;
     }
+    if (ship && this.dv) { sfx('bump'); this.log('The ship cannot be sailed in here.'); return; }
     if (ship) {
       this.state.vehicle = { type: 'ship', id: ship.id };
       this.view.removeEntity(ship.id);
@@ -588,7 +625,7 @@ export class PlaySession {
     // bumping a shop counter speaks with the keeper behind it
     const across = t.talkOver && this.blockingAt(nx + dx, ny + dy);
     if (!t.walk && across?.type === 'npc') return this.talkTo(across);
-    if (!t.walk) {
+    if (!t.walk && !charmWay(this, t, true)) { // (charms) unless a worn charm opens the way
       sfx('bump');
       this.log(t.water ? 'You cannot swim! (Find a ship or a bridge.)' : `Blocked by ${t.name.toLowerCase()}.`);
       return;
@@ -607,8 +644,8 @@ export class PlaySession {
   stepCost(x, y) {
     if (this.state.vehicle) return 1;
     const t = terrain(getTile(this.map, x, y));
-    if (!(t.cost > 1)) return t.cost ?? 1;
-    return easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0);
+    // (charms) wading and climbing have their own pace; quick-foot charms shorten every step
+    return charmPace(this, t, !(t.cost > 1) ? t.cost ?? 1 : easedCost(t, partyEase(this.game, this.party.members, t)?.ease || 0));
   }
 
   // quick little steps along a road, a slow trudge through sand
@@ -665,6 +702,7 @@ export class PlaySession {
   }
 
   async stepParty(x, y, dur = 0.13, hop = 0.07) {
+    if (this.dv) return this.dv.step(x, y, dur, hop); // (delve) whoever walks, and the company after them
     this.state.pos.x = x;
     this.state.pos.y = y;
     this.camFocus(x, y);
@@ -673,10 +711,11 @@ export class PlaySession {
 
   async tryUnlock(x, y) {
     const inv = this.party.inventory;
-    const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick'));
+    const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick') && (this.dv?.near(m, 2) ?? true));
     const keyItem = this.game.items.find((it) => it.type === 'key' && inv[it.id] > 0);
     if (picker && rng.chance(0.6 + picker.dex * 0.015)) {
       this.log(`${picker.name} picks the lock!`, 'good');
+    } else if (charmOpens(this)) { // (charms) a ring of opening spares the keys
     } else if (keyItem) {
       inv[keyItem.id]--;
       this.log(`You unlock the door with a ${keyItem.name}.`, 'good');
@@ -702,6 +741,7 @@ export class PlaySession {
     if (this.mode !== 'explore' || this.busy || this.transitioning) return;
     this.busy = true;
     this.log('You wait a moment.');
+    this.dv?.closeUp(); // (delve) the company closes up round its leader
     try { await this.afterStep(true); } finally { this.busy = false; }
   }
 
@@ -722,6 +762,9 @@ export class PlaySession {
       const chest = here.find((e) => e.type === 'chest');
       if (chest) await this.openChest(chest);
       const portal = here.find((e) => e.type === 'portal');
+      // (delve) the way out takes the whole company: those far off are asked after
+      const leaving = portal || (map.type !== 'world' && !st.vehicle && ['stairs_up', 'stairs_down'].includes(terrain(getTile(map, p.x, p.y)).key) && map.exit);
+      if (leaving && !st.vehicle && this.dv && !(await this.dv.readyToLeave())) { this.ui.refresh(); return; }
       if (portal && !st.vehicle) { this.passTime(ticks); return this.usePortal(portal); }
       if (map.type !== 'world' && !st.vehicle) {
         const tk = terrain(getTile(map, p.x, p.y)).key;
@@ -731,18 +774,21 @@ export class PlaySession {
     // hazards
     const t = terrain(getTile(map, p.x, p.y));
     if (!noMove && !st.vehicle) {
-      if (t.poison) for (const m of partyAlive(this.party)) {
+      // (delve) only the one who stepped there
+      const here = this.dv ? [this.dv.actor()] : partyAlive(this.party);
+      if (t.poison) for (const m of here) {
         if (m.status === 'ok' && rng.chance(t.poison) && !(hasTrait(this.game, m, 'poisonResist') && rng.chance(0.6))) {
           m.status = 'poisoned';
           this.log(`${m.name} is poisoned by the foul water!`, 'bad');
         }
       }
       if (t.dmg) {
-        for (const m of partyAlive(this.party)) this.hurtMember(m, roll(`1d${t.dmg}`), 'burns');
+        for (const m of here) if (!charmFireproof(this.game, m)) this.hurtMember(m, roll(`1d${t.dmg}`), 'burns'); // (charms) fire-walkers walk on
         this.view.burst(p.x, p.y, 0xff6020, 10);
         sfx('fire');
       }
       if (map.type === 'world') this.forage(t.key);
+      charmStep(this, t); // (charms) true sight, dowsing, food from the wild
     }
     for (let k = 0; k < ticks; k++) {
       if (k > 0) this.updateVisibility();
@@ -755,6 +801,8 @@ export class PlaySession {
       this.maybeSpawnEncounter();
     }
     if (!ticks && this.checkDefeat()) return;
+    // (delve) a half-turn step along a road is still a step monsters may notice
+    if (!ticks && this.dv && !noMove && !this.peaceful && (await this.dv.act())) return;
     this.updateVisibility();
     checkQuests(this);
     this.ui.refresh();
@@ -771,7 +819,10 @@ export class PlaySession {
       this.checkPhase();
       // poison ticks
       for (const m of partyAlive(this.party)) {
-        if (m.status === 'poisoned' && st.turn % 2 === 0) this.hurtMember(m, 1, 'poison');
+        if (m.status === 'poisoned' && st.turn % 2 === 0) {
+          this.hurtMember(m, 1, 'poison');
+          this.poisonNote(m);
+        }
       }
       // food: in the wild each hero eats one ration every FOOD_TURNS turns
       if (this.game.settings.food && (map.type === 'world' || map.type === 'dungeon')) {
@@ -779,7 +830,7 @@ export class PlaySession {
         if (st.foodTick >= FOOD_TURNS) {
           st.foodTick = 0;
           const n = partyAlive(this.party).length;
-          this.party.food = Math.max(0, this.party.food - n);
+          this.party.food = Math.max(0, this.party.food - charmRations(this, n)); // (charms) eat less
           if (this.party.food <= 0) {
             this.log('Starving! Each hero loses a little health until you find food.', 'bad');
             this.tip('starving', 'Out of food: the company weakens as it walks. Buy rations from a provisioner (every town has one), or look for farms, camps and caches along the roads.');
@@ -797,6 +848,27 @@ export class PlaySession {
       }
       blessingsTick(this);
     }
+  }
+
+  // Poison bites as the company walks: say so where it can't be missed (the
+  // figure, the hero's card, the log) without a line for every tick
+  poisonNote(m) {
+    this.ui?.onPoisonTick?.(m);
+    if (m.status === 'dead') return;
+    const mhp = maxHp(this.game, m);
+    const low = m.hp <= Math.max(2, Math.ceil(mhp * 0.3));
+    const pn = (this.state.poisonNotes ||= {});
+    const key = m.id || m.name;
+    const last = pn[key] ?? -99;
+    if (low && !(pn[key + ':low'] >= 0 && this.state.turn - pn[key + ':low'] < 20)) {
+      pn[key + ':low'] = this.state.turn;
+      this.log(`${m.name} is weak with poison: ${m.hp}/${mhp} health! Cure it — an Antidote, a healer's CURE, or a Cure Poison spell.`, 'bad');
+      sfx('hurt');
+    } else if (this.state.turn - last >= 12) {
+      pn[key] = this.state.turn;
+      this.log(`Poison burns in ${m.name}'s veins (${m.hp}/${mhp} health).`, 'bad');
+    }
+    this.tip('poison', 'A poisoned hero loses health as the company travels, until cured: drink an Antidote (U), cast Cure Poison or the Rune of Purity, or ask any town healer to CURE. Poison does not wear off by itself.');
   }
 
   hurtMember(m, dmg, why) {
@@ -886,22 +958,89 @@ export class PlaySession {
     this.autosave();
   }
 
+  // (delve) A dungeon level with no monster left alive in it (bands hidden
+  // from mortal eyes count: they are there, if unseen)
+  levelCleared(map = this.map) {
+    if (!map || !isBattleground(map)) return false;
+    if (map === this.map && this.dv) {
+      if (Object.values(this.dv.groups).some((g) => this.dv.living(g).length)) return false;
+      return !map.entities.some((e) => e.type === 'monster') && !(map.unseen || []).some((e) => e.type === 'monster');
+    }
+    const src = getMap(this.game, map.id) || map;
+    const removed = new Set(this.state.maps?.[map.id]?.removed || []);
+    return !src.entities.some((e) => e.type === 'monster' && !removed.has(e.id));
+  }
+
+  // (delve) Walking steps from the company to this level's way out (its
+  // stairs up or passage out), for the time a quick exit takes
+  stepsToWayOut() {
+    const map = this.map, p = this.state.pos;
+    const outs = map.entities.filter((e) => e.type === 'portal' && (e.target?.map === 'exit' || (map.exit && e.target?.map === map.exit.map)));
+    const reach = this.dv?.stepsFrom ? this.dv.stepsFrom(p, 200) : null;
+    let best = Infinity;
+    for (const o of outs) {
+      // (the stairs are a square of their own: the step before them will do)
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const d = reach?.get(`${o.x + dx},${o.y + dy}`);
+        if (d != null) best = Math.min(best, d + (dx || dy ? 1 : 0));
+      }
+    }
+    return Number.isFinite(best) ? best : Math.round((Math.abs(p.x - (map.entry?.x ?? p.x)) + Math.abs(p.y - (map.entry?.y ?? p.y))) * 1.3) + 4;
+  }
+
+  // (delve) Out of a cleared dungeon at once, without walking back through
+  // it: up through every cleared level above to the land outside, stopping
+  // at the first level that still has foes. The walk still takes its time.
+  async quickExit() {
+    if (this.mode !== 'explore' || this.busy || this.transitioning || this.battle || !this.levelCleared() || !this.map.exit) return false;
+    const first = this.map.name;
+    let turns = 0, levels = 0;
+    for (let guard = 0; guard < 12; guard++) {
+      if (!this.map.exit || !isBattleground(this.map) || !this.levelCleared()) break;
+      const n = this.stepsToWayOut();
+      this.passTime(n);
+      turns += n;
+      if (this.checkDefeat()) return true;
+      await this.leaveMap();
+      levels++;
+      if (!isBattleground(this.map)) break;
+    }
+    const dungeon = isBattleground(this.map);
+    this.log(`You make your way back out of ${first}${levels > 1 ? ` and the levels above it` : ''} — ${durationText(turns)} on foot through empty halls.`, 'place');
+    if (dungeon) this.log(`${this.map.name} still has foes in it: you stop at the foot of its stairs.`, 'warn');
+    this.ui?.refresh?.();
+    return true;
+  }
+
+  // (delve) When the last band on a level falls, say so and offer the way out
+  noteCleared() {
+    if (!this.levelCleared() || !this.map.exit) return;
+    const st = this.mapState(this.map.id);
+    if (st.clearedSaid) return;
+    st.clearedSaid = true;
+    this.log(`${this.map.name} is cleared — not a foe left alive. Press X (or "Leave the dungeon") to walk straight out.`, 'good');
+    this.ui?.onCleared?.(this.map.name);
+  }
+
   // ------------------------------------------------------------ chests
   async openChest(chest) {
     const st = this.state;
+    if (chest.sealed && !charmOpens(this, chest)) return; // (charms) a seal of magic
+    // (what it says follows what it looks like: "You lift the loose flagstone…")
+    const W = this.chestWords(chest);
     if (chest.locked) {
-      const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick'));
+      const picker = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick') && (this.dv?.near(m, 2) ?? true));
       const key = this.game.items.find((it) => it.type === 'key' && this.party.inventory[it.id] > 0);
-      if (picker) this.log(`${picker.name} picks the chest's lock.`);
-      else if (key) { this.party.inventory[key.id]--; this.log(`You open the chest with a ${key.name}.`); }
-      else { this.log('The chest is locked.'); return; }
+      if (picker) this.log(`${picker.name} picks ${W.the}'s lock.`);
+      else if (key) { this.party.inventory[key.id]--; this.log(`You open ${W.the} with a ${key.name}.`); }
+      else if (!charmOpens(this, chest)) { this.log(W.locked); return; }
     }
     if (chest.trap) {
-      const burglar = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick'));
+      const burglar = partyAlive(this.party).find((m) => hasAbility(this.game, m, 'lockpick') && (this.dv?.near(m, 2) ?? true));
       if (burglar && rng.chance(0.75)) this.log(`${burglar.name} disarms a trap!`, 'good');
       else {
         this.log('A trap! Poison needles!', 'bad');
-        for (const m of partyAlive(this.party)) if (rng.chance(0.5) && !hasTrait(this.game, m, 'poisonResist')) m.status = 'poisoned';
+        for (const m of partyAlive(this.party)) if ((this.dv?.near(m, 1) ?? true) && rng.chance(0.5) && !hasTrait(this.game, m, 'poisonResist')) m.status = 'poisoned';
       }
     }
     const gold = chest.gold ? roll(chest.gold) : 0;
@@ -913,9 +1052,10 @@ export class PlaySession {
       this.party.inventory[it.id] = (this.party.inventory[it.id] || 0) + (it.n || 1);
       got.push(((it.n || 1) > 1 ? `${it.n} × ${def.name}` : def.name) + lootTag(this.game, this.party.members, def));
     }
+    got.push(...charmHoard(this, chest)); // (charms) a dungeon's hoard holds a charm
     sfx('gold');
     this.view.burst(chest.x, chest.y, 0xffd040, 14, { up: 2, speed: 0.8 });
-    this.log(got.length ? `The chest holds: ${got.join(', ')}.` : 'The chest is empty.', 'good');
+    this.log(got.length ? W.opened(got.join(', ')) : W.empty(), 'good');
     this.removeEntity(chest);
     if (chest.flag) this.party.flags[chest.flag] = true;
     checkQuests(this);
@@ -929,6 +1069,17 @@ export class PlaySession {
     this.map.entities = this.map.entities.filter((x) => x !== e);
     this.view.removeEntity(e.id);
     if (persist && !e.roaming) this.mapState(this.map.id).removed.push(e.id);
+    // (delve) the last band on a level gone: once the fight is over, say so
+    if (e.type === 'monster' && this.dv) this.clearedLater();
+  }
+
+  clearedLater(tries = 12) {
+    clearTimeout(this._clearedT);
+    this._clearedT = setTimeout(() => {
+      if (this.app.session !== this) return;
+      if (this.mode === 'explore' && !this.battle) this.noteCleared();
+      else if (tries > 0) this.clearedLater(tries - 1);
+    }, 800);
   }
 
   // ------------------------------------------------------------ NPCs & monsters
@@ -946,6 +1097,7 @@ export class PlaySession {
     }
     if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship' || o.type === 'event'))) return false;
     if (e.type === 'monster' && this.map.entities.some((o) => o.type === 'portal' && o.x === x && o.y === y)) return false;
+    if (this.dv?.occupied(x, y)) return false; // (delve) a hero's or a monster's square
     return true;
   }
 
@@ -977,7 +1129,8 @@ export class PlaySession {
   // movement: a turn's worth, spent on the ground it crosses (its native
   // ground costs at most a turn a step, a road half a turn).
   async monstersAct() {
-    if (this.peaceful) return false; // (a designer's playtest: "monsters leave us alone")
+    if (this.peaceful) { this.dv?.idle(); return false; } // (a designer's playtest: "monsters leave us alone")
+    if (this.dv) return this.dv.act(); // (delve) monsters stand idle until they notice a hero
     const p = this.state.pos;
     const map = this.map;
     for (const e of [...map.entities]) {
@@ -987,7 +1140,7 @@ export class PlaySession {
         if (e.roaming && d > 30) this.removeEntity(e, false);
         continue;
       }
-      if (e.passive) continue;
+      if (e.passive || charmCalms(this, e)) continue; // (charms) a calmed beast lets the company pass
       const sees = d <= 9 && hasLOS(map, e.x, e.y, p.x, p.y) && (map.lighting !== 'dark' || this.isVisible(e.x, e.y) || d <= 4);
       const def = byId(this.game.monsters, e.monster);
       const home = e.home || (e.home = { x: e.x, y: e.y });
@@ -1085,7 +1238,7 @@ export class PlaySession {
     const tracker = partyAlive(this.party).some((m) => hasAbility(this.game, m, 'tracker'));
     const world = map.type === 'world';
     const base = world ? 0.045 : 0.03;
-    if (!rng.chance(base * rate * (tracker ? 0.75 : 1))) return;
+    if (!rng.chance(base * rate * (tracker ? 0.75 : 1) * charmEncounters(this))) return; // (charms) fewer wanderers
     if (map.entities.filter((e) => e.roaming).length >= 4) return;
     const p = st.pos;
     // the first stretch inside a dungeon is a breather: nothing new wanders
@@ -1093,16 +1246,17 @@ export class PlaySession {
     const door = map.type === 'dungeon' && map.entry;
     if (door && Math.abs(p.x - door.x) + Math.abs(p.y - door.y) < 10) return;
     const [fx, fy] = st.facing || [0, 1];
-    for (let a = 0; a < 30; a++) {
+    for (let a = 0; a < (this.dv ? 80 : 30); a++) {
       let x, y;
       if (world && a < 20) {
         // somewhere ahead and to the side, close enough to be seen coming
         const ahead = rng.int(4, 7), side = rng.int(-4, 4);
         x = p.x + fx * ahead + (fx ? 0 : side); y = p.y + fy * ahead + (fy ? 0 : side);
-      } else { x = p.x + rng.int(-9, 9); y = p.y + rng.int(-9, 9); }
+      } else { const R = this.dv ? 14 : 9; x = p.x + rng.int(-R, R); y = p.y + rng.int(-R, R); } // (delve: further off, out of every hero's way)
       const d = Math.abs(x - p.x) + Math.abs(y - p.y);
       if (d < (world ? 4 : 6) || !inBounds(map, x, y)) continue;
       if (this.isVisible(x, y) && !world) continue;
+      if (this.dv?.nearHero(x, y, 9)) continue;
       if (world && !hasLOS(map, x, y, p.x, p.y)) continue;
       const t = terrain(getTile(map, x, y));
       const habitat = map.type === 'dungeon' ? 'dungeon' : t.water ? 'water' : habitatOf(t);
@@ -1152,6 +1306,7 @@ export class PlaySession {
   }
 
   async engage(e) {
+    if (this.dv) return this.dv.engage(e); // (delve) fought on the dungeon floor
     const enemies = this.enemiesFor(e);
     if (!enemies.length) return;
     const p = this.state.pos;
@@ -1160,6 +1315,7 @@ export class PlaySession {
     let style = e.style || (this.state.vehicle ? 'water' : t.arena);
     if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
     if (this.mapIsTown() && style === 'grass') style = 'town';
+    if (style === 'water' && !this.state.vehicle) style = 'swamp'; // (charms) a fight in the shallows, wading
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
     this.state.lastEncounter = this.state.turn || 0;
     if (res.outcome === 'victory') {
@@ -1175,6 +1331,7 @@ export class PlaySession {
   }
 
   async fight(enemies, style, opts = {}) {
+    if (this.dv && !opts.arena) return this.dv.engage(opts.source || {}, enemies); // (delve) on the dungeon floor
     this.rememberZoom(); // (put back as it was once the battle is over)
     // who stands in this fight: if it is lost, only they rise again (see resurrect)
     this.lastStand = partyAlive(this.party);
@@ -1191,7 +1348,7 @@ export class PlaySession {
     const battle = this.battle;
     // shrine blessings last the whole fight (the battle clears buffs as it sets up)
     const setup = battle.setup.bind(battle);
-    battle.setup = () => { setup(); blessBattle(this, battle); };
+    battle.setup = () => { setup(); this.prepareBattle(battle); };
     this.ui.setMode('combat');
     const res = await this.battle.run();
     if (res.outcome === 'aborted') return res; // the player quit mid-fight
@@ -1236,6 +1393,22 @@ export class PlaySession {
     this.checkVictory();
     return res;
   }
+
+  // Every battle, wherever it is fought, is readied here once its field is
+  // set: shrine blessings, then the battle's 'start' hook
+  prepareBattle(battle) {
+    blessBattle(this, battle);
+    battle.hook('start');
+  }
+
+  // What heroes carry answers the battle's hooks (see Battle.hook)
+  battleHook(kind, battle, ...a) {
+    return charmHook(this, kind, battle, ...a); // (charms) game/charms.js
+  }
+
+  // (delve) how many squares closer a monster must come to notice this hero in
+  // a dungeon battleground: what they carry may quieten them (a charm answers)
+  stealthBonus(m) { void m; return 0; }
 
   onMonsterKilled(monsterId) {
     this.party.flags['killed_' + monsterId] = true;
@@ -1378,6 +1551,8 @@ export class PlaySession {
     // seasoned companions arrive with the attributes their years have grown
     for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
+    // battle arts the companion already knows (learned, as it were, on even levels)
+    c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
     // they keep their own face and hair; the class dresses them
     c.look = {};
@@ -1595,9 +1770,10 @@ export class PlaySession {
         this.log(`${target.name} is cured.`, 'good'); consume(); break;
       case 'mp': {
         if (!target) return false;
+        if (!restoresPool(this.game, item, target)) { this.log(`The ${item.name} does nothing for ${target.name}: it renews ${poolWords(this.game, item)}.`, 'warn'); return false; }
         const amt = roll(item.power || '2d6');
         target.mp = Math.min(maxMp(this.game, target), target.mp + amt);
-        this.log(`${target.name} regains ${amt} mana.`, 'good'); consume(); break;
+        this.log(`${target.name} regains ${amt} ${poolName(this.game, target).toLowerCase()}.`, 'good'); consume(); break;
       }
       case 'revive':
         if (!target || target.status !== 'dead') { this.log('Only the fallen can be revived.'); return false; }
@@ -1623,7 +1799,9 @@ export class PlaySession {
     this.queued = null;
     if (this.mapIsTown()) { this.log('Find an inn to rest in town.'); return; }
     const p = this.state.pos;
-    if (this.map.entities.some((e) => e.type === 'monster' && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) < 8 && this.isVisible(e.x, e.y))) {
+    // (delve) in a battleground: not with a monster in sight near any hero
+    const foes = this.dv ? this.dv.visibleFoes().filter((f) => this.dv.nearHero(f.x, f.y, 8)) : this.map.entities.filter((e) => e.type === 'monster' && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) < 8 && this.isVisible(e.x, e.y));
+    if (foes.length || this.battle) {
       this.log('You cannot rest with enemies nearby!', 'warn');
       return;
     }
@@ -1654,6 +1832,7 @@ export class PlaySession {
     // a hobbit's cooking: the camp mends a quarter more
     const cook = partyAlive(this.party).find((m) => hasTrait(this.game, m, 'homely'));
     if (cook) rest *= 1.25;
+    rest *= charmCamp(this, true); // (charms) a snug camp
     for (const m of partyAlive(this.party)) {
       m.hp = Math.min(maxHp(this.game, m), m.hp + Math.ceil(maxHp(this.game, m) * rest));
       m.mp = Math.min(maxMp(this.game, m), m.mp + Math.ceil(maxMp(this.game, m) * rest * 1.2));
@@ -1719,7 +1898,7 @@ export class PlaySession {
       if (!inBounds(this.map, tx, ty)) return false;
       if (bumpable && tx === x && ty === y) return true;
       const t = terrain(getTile(this.map, tx, ty));
-      if (ship ? !(t.water && !t.deck) : !t.walk) return false;
+      if (ship ? !(t.water && !t.deck) : !t.walk && !charmWay(this, t)) return false; // (charms) wading, climbing
       if (this.map.lighting === 'dark' && !this.map.explored[ty * this.map.w + tx]) return false;
       return !this.blockingAt(tx, ty);
     }, 30);
@@ -1731,14 +1910,17 @@ export class PlaySession {
     const t = terrain(getTile(this.map, x, y));
     const parts = [t.name];
     if (this.isVisible(x, y)) {
+      const mem = this.dv?.memberAt(x, y);
+      if (mem) { const d = byId(this.game.monsters, mem.mem.id); parts.push(`${d ? d.name : 'a monster'}${mem.g.aware ? '' : ' (unaware of you)'}`); }
       for (const e of this.entitiesAt(x, y)) {
+        if (this.dv && e.type === 'monster') continue;
         if (e.type === 'npc') {
           const mk = npcMarker(this, e);
           const note = mk === 'quest' ? ' (!) — has a task for you' : mk === 'turnin' ? ' (?) — about your quest' : '';
           parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
         }
         else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
-        else if (e.type === 'chest') parts.push('a chest');
+        else if (e.type === 'chest') parts.push(this.chestWords(e).a);
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');
         else if (e.type === 'event') parts.push(eventLabel(e));
