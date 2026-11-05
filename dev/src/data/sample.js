@@ -1465,9 +1465,10 @@ function addCountryside(game, w) {
     name: 'Gallows Hill',
     text: 'A gibbet creaks on the hill above the south road, an iron cage swinging from its arm. What is left of its last tenant grins down at you. A notice is nailed to the post: "SO PERISH ALL HIGHWAYMEN. BY ORDER OF MAYOR HILDA OF WESTHOLD." The bandits on the road below do not seem to have read it.',
   });
-  put('ev_dwarf_quarry', 'quarry', 36, 24, {
+  // (in the hills under the peaks west of the hold, clear of the verse-stone)
+  put('ev_dwarf_quarry', 'quarry', 24, 21, {
     name: 'Hammerdeep Quarry',
-    text: 'A raw face of cut grey stone below the dwarf-hold, a wooden crane creaking over it and blocks stacked ready for the carts. The quarry-master, a dwarf grey with dust from beard to boots, eyes your company like stone he might buy. "You lot look like you can lift."',
+    text: 'A raw face of cut grey stone where the hills meet the mountains west of the dwarf-hold, a wooden crane creaking over it and blocks stacked ready for the carts. The quarry-master, a dwarf grey with dust from beard to boots, eyes your company like stone he might buy. "You lot look like you can lift."',
   });
   put('ev_vorthax', 'bones', 60, 20, {
     name: 'Bones of Vorthax',
