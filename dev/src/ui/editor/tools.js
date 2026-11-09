@@ -240,6 +240,8 @@ export function defaultSiteName(kind) {
   const b = { town: ['ford', 'bury', 'wick', 'hold', 'by', 'ton'], castle: ['guard', 'watch', 'keep', 'hall'], village: ['stead', 'wood', 'brook', 'field'],
     cave: ['delve', 'hollow', 'barrow', 'den'], tower: ['spire', 'tower', 'needle'], fortress: ['gloom', 'fang', 'doom'], elfhall: ['glade', 'bower', 'eaves'], dwarfgate: ['deep', 'forge', 'gate'],
     harbour: ['haven', 'mouth', 'quay', 'port'], seacave: ['cove', 'grotto', 'hole'] }[kind] || ['hold'];
+  // (isles) a temple is named for its god
+  if (kind === 'temple') return `Temple of the ${r.pick(['Jade', 'Serpent', 'Sun', 'Moon', 'Jaguar', 'Feathered', 'Drowned', 'Sleeping'])} ${r.pick(['God', 'Mask', 'Eye', 'Throne', 'King', 'Mother'])}`;
   return r.pick(a) + r.pick(b);
 }
 

@@ -112,7 +112,7 @@ const defs = [
   [123, 'reef', 'Coral Reef', 'world', { walk: false, ship: true, water: true, h: -0.2, top: 0x3ec4c4, deco: 'reef', arena: 'water', habitat: 'reef' }],
   [124, 'ruins_floor', 'Ancient Paving', 'any', { h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'ruinsfloor', arena: 'temple', habitat: 'temple' }],
   [125, 'temple_wall', 'Temple Wall', 'any', { walk: false, sight: true, wall: true, h: 0.8, top: 0x6a7258, side: 0x9e967c, deco: 'templewall' }],
-  [126, 'vines', 'Overgrowth', 'world', { h: 0, top: 0x3c7428, side: 0x5a4127, deco: 'vines', cost: 1.5, arena: 'jungle', habitat: 'jungle' }],
+  [126, 'vines', 'Overgrowth', 'world', { h: 0, top: 0x2f6224, side: 0x5a4127, deco: 'vines', cost: 1.5, arena: 'jungle', habitat: 'jungle' }],
   [127, 'obsidian', 'Obsidian Flats', 'world', { h: 0.02, top: 0x2e2a34, side: 0x1a1820, deco: 'obsidian', cost: 1.25, arena: 'ash', habitat: 'ash' }],
   [128, 'temple', 'Jungle Temple', 'world', { h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'templesite', feature: true, arena: 'temple' }],
   [129, 'idol', 'Stone Idol', 'any', { walk: false, h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'idol' }],

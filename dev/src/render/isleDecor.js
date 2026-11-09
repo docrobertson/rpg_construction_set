@@ -75,9 +75,23 @@ function stoneShade(B, start, moss = 0) {
 }
 
 // double-sided triangle (thin leaves are seen from both sides)
+// (written straight through vert(): the jungle has thousands of these)
+const _tc = new THREE.Color();
+let _tcHex = -1;
 function tri2(B, a, b, c, col, ka = 1, kb = 1, kc = 1) {
-  B.tri(a, b, c, col, ka, kb, kc);
-  B.tri(a, c, b, col, ka * 0.72, kc * 0.72, kb * 0.72);
+  if (col !== _tcHex) { _tc.setHex(col); _tcHex = col; }
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  const l = Math.hypot(nx, ny, nz) || 1;
+  nx /= l; ny /= l; nz /= l;
+  const R = _tc.r, Gc = _tc.g, Bc = _tc.b;
+  B.vert(a[0], a[1], a[2], nx, ny, nz, R * ka, Gc * ka, Bc * ka);
+  B.vert(b[0], b[1], b[2], nx, ny, nz, R * kb, Gc * kb, Bc * kb);
+  B.vert(c[0], c[1], c[2], nx, ny, nz, R * kc, Gc * kc, Bc * kc);
+  const k = 0.72;
+  B.vert(a[0], a[1], a[2], -nx, -ny, -nz, R * ka * k, Gc * ka * k, Bc * ka * k);
+  B.vert(c[0], c[1], c[2], -nx, -ny, -nz, R * kc * k, Gc * kc * k, Bc * kc * k);
+  B.vert(b[0], b[1], b[2], -nx, -ny, -nz, R * kb * k, Gc * kb * k, Bc * kb * k);
 }
 
 // ---------------------------------------------------------------- foliage
@@ -629,24 +643,24 @@ export const ISLE_DECOR = {
   },
   vines(c) {
     const { B, cx, cz, r } = c;
-    // ground smothered in growth: broad leaves, ferns, creepers, a rotting log
-    if (r(1) < 0.55) {
-      const px = cx + (r(2) - 0.5) * 0.6, pz = cz + (r(3) - 0.5) * 0.6;
-      leafClump(B, px, c.gy(px, pz), pz, 0.9 + r(4) * 0.5, r(5), r(6) < 0.5 ? 0x3e8a30 : 0x4a9234);
+    // ground smothered in growth: broad leaves, ferns and creepers in every
+    // corner, now and then a bloom or a fallen trunk furred with moss
+    const spots = [[-0.24, -0.2], [0.22, -0.18], [-0.2, 0.22], [0.24, 0.2]];
+    const n = c.thin ? 1 : 3;
+    for (let i = 0; i < n; i++) {
+      const [ox, oz] = spots[(i + Math.floor(r(1) * 4)) % 4];
+      const px = cx + ox + (r(2 + i) - 0.5) * 0.12, pz = cz + oz + (r(6 + i) - 0.5) * 0.12, py = c.gy(px, pz);
+      const k = r(10 + i);
+      if (k < 0.45) leafClump(B, px, py, pz, 0.85 + r(14 + i) * 0.45, r(18 + i), k < 0.22 ? 0x3a8030 : 0x2e7028);
+      else if (k < 0.85) fern(B, px, py, pz, 0.85 + r(14 + i) * 0.4, r(18 + i), k < 0.65 ? 0x3e8a2e : 0x4a9234);
+      else bloom(B, px, py, pz, 1, r(18 + i));
     }
-    if (r(7) < 0.45) {
-      const px = cx + (r(8) - 0.5) * 0.7, pz = cz + (r(9) - 0.5) * 0.6;
-      fern(B, px, c.gy(px, pz), pz, 0.9 + r(11) * 0.4, r(12), 0x4a8e30);
-    }
-    if (r(13) < 0.5) creeper(B, cx + (r(14) - 0.5) * 0.4, 0, cz + (r(15) - 0.5) * 0.4, 0.5, r(16) * 6.28, r(17), c.gy);
-    if (r(18) < 0.1) bloom(B, cx + (r(19) - 0.5) * 0.5, c.gy(cx, cz), cz + (r(21) - 0.5) * 0.5, 1, r(22));
-    else if (r(23) < 0.06 && !c.thin) {
-      // a fallen trunk furred with moss
-      const px = cx + (r(24) - 0.5) * 0.3, pz = cz + (r(25) - 0.5) * 0.3, a = r(26) * 3;
+    creeper(B, cx + (r(22) - 0.5) * 0.4, 0, cz + (r(23) - 0.5) * 0.4, 0.55, r(24) * 6.28, r(25), c.gy);
+    if (r(26) < 0.06 && !c.thin && c.map?.type !== 'arena') {
+      const px = cx + (r(27) - 0.5) * 0.3, pz = cz + (r(28) - 0.5) * 0.3, a = r(29) * 3;
       const start = B.col.length;
       B.shape(TPL.cyl8, 0x6a5a40, { x: px, y: c.gy(px, pz) + 0.05, z: pz, sx: 0.12, sy: 0.6, sz: 0.12, rz: Math.PI / 2, ry: a, grad: 0.2 });
       stoneShade(B, start, 1);
-      fern(B, px, c.gy(px, pz) + 0.08, pz, 0.6, r(27));
     }
   },
   mangrove(c) {
@@ -892,17 +906,25 @@ export const ISLE_DECOR = {
   templesite(c) {
     const { B, G, cx, cz, r } = c;
     const y = c.g;
-    const st = 0xb0a68a;
+    const st = 0xa49a7c;
     const start = B.col.length;
-    B.shape(TPL.cyl12, 0x8a8468, { x: cx, y: y - 0.03, z: cz, sx: 0.98, sy: 0.05, sz: 0.94 });
+    B.shape(TPL.cyl12, 0x7a7a5a, { x: cx, y: y - 0.03, z: cz, sx: 0.98, sy: 0.05, sz: 0.94 });
     const tiers = [[0.74, 0.1], [0.6, 0.09], [0.46, 0.09], [0.33, 0.08]];
     let h = y;
     tiers.forEach(([w, th], i) => {
-      B.box(shade(st, 0.92 + i * 0.04), { x: cx, y: h, z: cz - 0.06, sx: w, sy: th, sz: w * 0.92 });
-      // moss along each terrace
-      B.box(0x5a8a36, { x: cx + (r(i) - 0.5) * 0.1, y: h + th - 0.004, z: cz - 0.06 + w * 0.44, sx: w * (0.5 + r(i + 4) * 0.4), sy: 0.012, sz: 0.04 });
+      const fz = cz - 0.06 + w * 0.46;
+      B.box(shade(st, 0.9 + i * 0.05), { x: cx, y: h, z: cz - 0.06, sx: w, sy: th, sz: w * 0.92 });
+      // a carved band round each tier, and moss on every terrace
+      B.box(shade(st, 0.72), { x: cx, y: h + th * 0.45, z: fz + 0.004, sx: w + 0.004, sy: th * 0.25, sz: 0.01 });
+      for (let k = 0; k < 3; k++) B.shape(TPL.cyl6, k % 2 ? 0x4e7e30 : 0x5a8a36, { x: cx + (r(i * 3 + k) - 0.5) * w * 0.8, y: h + th - 0.002, z: cz - 0.06 + (r(i * 3 + k + 20) - 0.5) * w * 0.8, sx: 0.12 + r(i + k + 9) * 0.1, sy: 0.012, sz: 0.08, ry: r(i + k) * 3 });
       h += th;
     });
+    // creepers trailing down the face
+    for (let k = 0; k < 4; k++) {
+      const vx = cx + (k < 2 ? -1 : 1) * (0.14 + r(30 + k) * 0.18);
+      const len = 0.12 + r(34 + k) * 0.16;
+      B.box(0x2e5e24, { x: vx, y: y + 0.19 - len, z: cz + 0.222, sx: 0.012, sy: len, sz: 0.012 });
+    }
     // the stair
     for (let i = 0; i < 7; i++) B.box(shade(st, 1.08 - i * 0.02), { x: cx, y: y + i * 0.052, z: cz + 0.36 - i * 0.05, sx: 0.16, sy: 0.052, sz: 0.06 });
     for (const s of [-1, 1]) B.shape(TPL.wedge, shade(st, 0.85), { x: cx + s * 0.1, y, z: cz + 0.2, sx: 0.04, sy: 0.36, sz: 0.36, ry: Math.PI });
@@ -954,12 +976,12 @@ export const ISLE_ARENA_PROPS = {
       B.box(shade(st, 1.08), { x: cx, y: y + 0.42, z: cz + 0.11, sx: 0.16, sy: 0.34, sz: 0.04 });
       for (const s of [-1, 1]) B.box(shade(st, 1.08), { x: cx + s * 0.11, y: y + 0.62, z: cz + 0.11, sx: 0.05, sy: 0.18, sz: 0.04, rz: s * 0.5 });
     } else {
-      // a toppled idol's head, half sunk, staring at the sky
-      B.shape(TPL.ball, st, { x: cx, y: y + 0.22, z: cz, sx: 0.66, sy: 0.6, sz: 0.62, rx: -0.9 });
-      B.shape(TPL.hemi, shade(st, 1.08), { x: cx, y: y + 0.2, z: cz - 0.16, sx: 0.7, sy: 0.3, sz: 0.62, rx: -2.2 });
-      for (const s of [-1, 1]) B.box(0x1c1814, { x: cx + s * 0.12, y: y + 0.45, z: cz + 0.16, sx: 0.1, sy: 0.02, sz: 0.06, rx: -0.9 });
-      B.shape(TPL.trap, shade(st, 1.05), { x: cx, y: y + 0.44, z: cz + 0.24, sx: 0.16, sy: 0.1, sz: 0.1, rx: -0.9 });
-      if (c.dark) for (const s of [-1, 1]) G.box(0x6affb8, { x: cx + s * 0.12, y: y + 0.46, z: cz + 0.17, sx: 0.06, sy: 0.012, sz: 0.04, rx: -0.9 });
+      // a tumble of carved blocks from a fallen wall, one with a glyph on it
+      B.box(st, { x: cx - 0.12, y: y - 0.02, z: cz - 0.05, sx: 0.44, sy: 0.3, sz: 0.36, ry: 0.2 });
+      B.box(shade(st, 0.92), { x: cx + 0.2, y: y - 0.02, z: cz + 0.12, sx: 0.34, sy: 0.22, sz: 0.3, ry: -0.3 });
+      B.box(shade(st, 1.05), { x: cx - 0.04, y: y + 0.26, z: cz - 0.02, sx: 0.36, sy: 0.24, sz: 0.3, ry: -0.15, rz: 0.12 });
+      B.box(shade(st, 0.7), { x: cx - 0.03, y: y + 0.32, z: cz + 0.135, sx: 0.16, sy: 0.12, sz: 0.01, ry: -0.15, rz: 0.12 });
+      if (c.dark) G.box(0x6affb8, { x: cx - 0.03, y: y + 0.36, z: cz + 0.142, sx: 0.06, sy: 0.04, sz: 0.004, ry: -0.15, rz: 0.12 });
     }
     stoneShade(B, start, 0.8);
     creeper(B, cx - 0.32, y, cz + 0.32, 0.6, -0.5, r(5), c.gy);

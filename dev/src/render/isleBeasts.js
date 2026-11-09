@@ -20,6 +20,23 @@ function metal(B, fn) {
   (B.detail.metal ||= []).push([d, B.detail.count]);
 }
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+// where each builder has got to, and turning everything outside the kept runs
+// about a vertical axis (as beasts.js does: a body swings, a head stays)
+const mark = (B, G) => [B.count, B.detail.count, G.count];
+function swing(B, G, keep, yaw, px, pz) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  [B, B.detail, G].forEach((b, k) => {
+    const P = b.pos, N = b.nor;
+    for (let i = 0; i < b.count; i++) {
+      if (keep.some(([f, t]) => i >= f[k] && i < t[k])) continue;
+      const j = i * 3;
+      const x = P[j] - px, z = P[j + 2] - pz;
+      P[j] = px + x * c + z * s; P[j + 2] = pz - x * s + z * c;
+      const nx = N[j], nz = N[j + 2];
+      N[j] = nx * c + nz * s; N[j + 2] = -nx * s + nz * c;
+    }
+  });
+}
 const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
 // a bright animal eye with a pupil (round, or a slit) and a catch-light
@@ -93,117 +110,124 @@ export function frog(spec) {
 }
 
 // ---------------------------------------------------------------- jungle cat
-// A spotted cat on the prowl: long and low, shoulders up, head forward and
-// turned to the viewer, the long tail curling up at the tip.
+// A spotted cat crouched to spring, seen three-quarters on: body turned
+// across the view, shoulders bunched, the big round head turned to stare at
+// you, the long tail curling up behind.
 export function cat(spec) {
   const { B, G } = builders();
   const c = spec.color ?? 0xd89a3a;
   const dark = spec.spots ?? 0x3a2414;
-  const pale = spec.belly ?? blend(c, 0xfff4e0, 0.6);
+  const pale = spec.belly ?? blend(c, 0xfff4e0, 0.62);
   const hi = tint(blend(c, 0xfff0c8, 0.2), 1.1), lo = deep(c, 0.65);
-  const by = 0.27, zf = 0.24, zb = -0.26;
-  tube(B, [[0, by - 0.02, zb], [0, by - 0.04, zb * 0.3], [0, by - 0.03, zf * 0.4], [0, by + 0.01, zf]], [0.085, 0.08, 0.085, 0.09], [lo, c, hi], { sq: 1.08, up: [0, 1, 0], segs: 12, steps: 12 });
-  ball(B, pale, 0, by - 0.08, 0.02, 0.07, 0.04, 0.2);
-  // legs: shoulders and haunches rolling under the skin, big soft paws
-  for (const s of [-1, 1]) {
-    ball(B, c, s * 0.07, by - 0.0, zf - 0.03, 0.07, 0.09, 0.08);
-    tube(B, [[s * 0.08, by - 0.04, zf - 0.03], [s * 0.09, by * 0.45, zf + 0.0], [s * 0.095, 0.03, zf + 0.03]], [0.042, 0.032, 0.028], [c, deep(c, 0.85)], { segs: 8 });
-    ball(B, pale, s * 0.095, 0.022, zf + 0.05, 0.034, 0.024, 0.042);
-    ball(B, c, s * 0.07, by - 0.01, zb + 0.06, 0.08, 0.1, 0.1);
-    tube(B, [[s * 0.075, by - 0.05, zb + 0.06], [s * 0.085, by * 0.55, zb + 0.13], [s * 0.085, by * 0.22, zb + 0.02], [s * 0.09, 0.03, zb + 0.05]], [0.05, 0.034, 0.026, 0.026], [c, deep(c, 0.85)], { segs: 8 });
-    ball(B, pale, s * 0.09, 0.022, zb + 0.08, 0.034, 0.024, 0.04);
-  }
-  // rosettes: dark rings of spots over the flanks and back
+  const by = 0.25, zf = 0.17, zb = -0.2;
+  // a low crouch: the haunches higher than the shoulders, ready to pounce
+  tube(B, [[0, by + 0.02, zb], [0, by - 0.01, zb * 0.3], [0, by - 0.03, zf * 0.5], [0, by - 0.02, zf]], [0.09, 0.085, 0.09, 0.095], [lo, c, hi], { sq: 1.08, up: [0, 1, 0], segs: 12, steps: 12 });
+  ball(B, pale, 0, by - 0.085, 0.0, 0.07, 0.04, 0.17);
+  // rosettes: small rings of dark spots, thick over the flanks and back
   const rosette = (p, r) => {
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2;
-      ball(B, dark, p[0] + Math.cos(a) * r * 0.2, p[1] + Math.sin(a) * r * 0.18, p[2] + Math.sin(a) * r * 0.1, r * 0.12, r * 0.1, r * 0.12);
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      ball(B, dark, p[0], p[1] + Math.sin(a) * r * 0.5, p[2] + Math.cos(a) * r * 0.5, r * 0.2, r * 0.2, r * 0.2);
     }
   };
-  for (let i = 0; i < 6; i++) for (const s of [-1, 1]) {
-    const z = zb + 0.06 + i * 0.08;
-    rosette([s * 0.08, by + 0.01 - (i % 2) * 0.03, z], 0.18);
+  for (let i = 0; i < 5; i++) for (const s of [-1, 1]) for (const lift of [0, 1]) {
+    const z = zb + 0.03 + i * 0.075 + lift * 0.035;
+    rosette([s * (0.09 - lift * 0.03), by + lift * 0.055, z], 0.06);
   }
-  for (let i = 0; i < 4; i++) ball(B, dark, 0, by + 0.075, zb + 0.1 + i * 0.1, 0.022, 0.012, 0.03);
-  // neck and head
-  const hc = [0, by + 0.12, zf + 0.1];
-  tube(B, [[0, by + 0.01, zf - 0.04], [0, by + 0.07, zf + 0.05], hc], [0.08, 0.07, 0.06], [c, hi], { segs: 10, up: [0, 1, 0] });
-  ball(B, c, hc[0], hc[1], hc[2], 0.085, 0.078, 0.08);
-  ball(B, hi, hc[0], hc[1] + 0.03, hc[2] + 0.01, 0.065, 0.045, 0.06);
+  for (let i = 0; i < 6; i++) ball(B, dark, 0, by + 0.09, zb + 0.02 + i * 0.065, 0.016, 0.01, 0.022);
+  // legs: forelegs planted under bunched shoulders, hind legs folded
+  for (const s of [-1, 1]) {
+    ball(B, c, s * 0.075, by - 0.01, zf - 0.02, 0.07, 0.085, 0.075);
+    tube(B, [[s * 0.085, by - 0.05, zf - 0.01], [s * 0.1, by * 0.42, zf + 0.04], [s * 0.105, 0.03, zf + 0.08]], [0.045, 0.034, 0.03], [c, deep(c, 0.85)], { segs: 8 });
+    ball(B, pale, s * 0.105, 0.024, zf + 0.1, 0.038, 0.026, 0.045);
+    ball(B, c, s * 0.08, by + 0.0, zb + 0.04, 0.085, 0.1, 0.105);
+    tube(B, [[s * 0.085, by - 0.04, zb + 0.03], [s * 0.1, by * 0.4, zb + 0.13], [s * 0.1, 0.05, zb + 0.02], [s * 0.1, 0.03, zb + 0.1]], [0.055, 0.04, 0.03, 0.03], [c, deep(c, 0.85)], { segs: 8 });
+    ball(B, pale, s * 0.1, 0.024, zb + 0.12, 0.036, 0.024, 0.042);
+  }
+  // the tail: low from the rump, sweeping out and curling up to a dark tip
+  const tp = [[0, by + 0.01, zb - 0.04], [0.04, by - 0.06, zb - 0.14], [0.14, by - 0.1, zb - 0.2], [0.26, by - 0.06, zb - 0.18], [0.32, by + 0.04, zb - 0.1], [0.3, by + 0.12, zb - 0.06]];
+  tube(B, tp, [0.035, 0.031, 0.027, 0.025, 0.023, 0.02], (t) => (t > 0.5 && Math.floor(t * 14) % 2 ? dark : c), { segs: 7, steps: 20 });
+  const head0 = mark(B, G);
+  // neck and a big round head, raised and turned to the viewer
+  const hc = [0, by + 0.13, zf + 0.09];
+  tube(B, [[0, by + 0.02, zf - 0.03], [0, by + 0.08, zf + 0.04], hc], [0.085, 0.075, 0.065], [c, hi], { segs: 10, up: [0, 1, 0] });
+  // a pale ruff under the jaw
+  ball(B, pale, 0, by + 0.05, zf + 0.07, 0.07, 0.06, 0.05);
+  ball(B, c, hc[0], hc[1], hc[2], 0.1, 0.09, 0.09);
+  ball(B, hi, hc[0], hc[1] + 0.035, hc[2] + 0.01, 0.075, 0.05, 0.07);
+  for (const s of [-1, 1]) ball(B, blend(c, pale, 0.5), hc[0] + s * 0.07, hc[1] - 0.025, hc[2] + 0.02, 0.045, 0.045, 0.05);
   // muzzle: white whisker pads, a pink nose, the chin
-  const mz = add(hc, [0, -0.03, 0.07]);
-  for (const s of [-1, 1]) ball(B, pale, mz[0] + s * 0.022, mz[1], mz[2], 0.03, 0.026, 0.028);
-  ball(B, pale, mz[0], mz[1] - 0.025, mz[2] - 0.01, 0.028, 0.02, 0.025);
-  ball(B, 0xc87a7a, mz[0], mz[1] + 0.018, mz[2] + 0.024, 0.014, 0.01, 0.01);
-  for (const s of [-1, 1]) for (let k = 0; k < 2; k++) tube(B, [add(mz, [s * 0.03, 0.002 - k * 0.008, 0.015]), add(mz, [s * 0.1, 0.01 - k * 0.02, 0.02])], [0.003, 0.001], 0xf0ece0, { segs: 3 });
-  // eyes: amber, slit-pupilled, with dark tear-lines
+  const mz = add(hc, [0, -0.035, 0.08]);
+  for (const s of [-1, 1]) ball(B, pale, mz[0] + s * 0.025, mz[1], mz[2], 0.033, 0.028, 0.03);
+  ball(B, pale, mz[0], mz[1] - 0.028, mz[2] - 0.012, 0.03, 0.022, 0.026);
+  ball(B, 0xc87a7a, mz[0], mz[1] + 0.02, mz[2] + 0.026, 0.016, 0.011, 0.011);
+  for (const s of [-1, 1]) for (let k = 0; k < 2; k++) tube(B, [add(mz, [s * 0.034, 0.002 - k * 0.008, 0.016]), add(mz, [s * 0.11, 0.012 - k * 0.022, 0.02])], [0.003, 0.001], 0xf0ece0, { segs: 3 });
+  // eyes: amber, slit-pupilled, ringed in black with dark tear-lines
   for (const s of [-1, 1]) {
-    eye(B, add(hc, [s * 0.035, 0.02, 0.066]), 0.018, spec.eyes ?? 0xe8b830, true, [s * 0.15, 0.1, 0.98]);
-    tube(B, [add(hc, [s * 0.04, 0.0, 0.07]), add(hc, [s * 0.035, -0.035, 0.078])], [0.005, 0.003], dark, { segs: 3 });
+    ball(B, 0x1a1210, hc[0] + s * 0.04, hc[1] + 0.022, hc[2] + 0.072, 0.026, 0.02, 0.012);
+    eye(B, add(hc, [s * 0.04, 0.022, 0.074]), 0.021, spec.eyes ?? 0xe8c030, true, [s * 0.15, 0.1, 0.98]);
+    tube(B, [add(hc, [s * 0.046, 0.0, 0.08]), add(hc, [s * 0.04, -0.04, 0.088])], [0.006, 0.003], dark, { segs: 3 });
   }
-  // ears: small and round, dark-backed
+  // ears: small and round, dark-backed with a pale spot
   for (const s of [-1, 1]) {
-    const e0 = add(hc, [s * 0.05, 0.06, -0.02]);
-    tube(B, [e0, add(e0, [s * 0.015, 0.035, 0]), add(e0, [s * 0.02, 0.055, -0.005])], [0.03, 0.026, 0.004], [c, dark], { sq: 0.4, segs: 7, up: [0, 0, 1] });
-    ball(B, 0xf0d8c8, e0[0] + s * 0.004, e0[1] + 0.025, e0[2] + 0.008, 0.012, 0.016, 0.004);
+    const e0 = add(hc, [s * 0.06, 0.065, -0.025]);
+    tube(B, [e0, add(e0, [s * 0.018, 0.04, 0]), add(e0, [s * 0.024, 0.062, -0.005])], [0.035, 0.03, 0.005], [c, dark], { sq: 0.4, segs: 7, up: [0, 0, 1] });
+    ball(B, 0xf0d8c8, e0[0] + s * 0.004, e0[1] + 0.028, e0[2] + 0.01, 0.014, 0.018, 0.004);
   }
-  // spots across the brow
-  for (let k = 0; k < 4; k++) ball(B, dark, (k - 1.5) * 0.02, hc[1] + 0.06, hc[2] + 0.025, 0.008, 0.008, 0.006);
-  // the tail: low from the rump, sweeping out and up to a dark-ringed tip
-  const tp = [[0, by - 0.02, zb - 0.02], [0.05, by - 0.08, zb - 0.14], [0.14, by - 0.1, zb - 0.22], [0.24, by - 0.02, zb - 0.22], [0.28, by + 0.08, zb - 0.16]];
-  tube(B, tp, [0.034, 0.03, 0.026, 0.024, 0.02], (t) => (t > 0.55 && Math.floor(t * 12) % 2 ? dark : c), { segs: 7, steps: 18 });
-  void G;
-  return { B, G, height: 0.5 };
+  for (let k = 0; k < 5; k++) ball(B, dark, (k - 2) * 0.022, hc[1] + 0.07 - Math.abs(k - 2) * 0.008, hc[2] + 0.03, 0.009, 0.009, 0.007);
+  for (const s of [-1, 1]) for (let k = 0; k < 3; k++) ball(B, dark, hc[0] + s * (0.08 - k * 0.004), hc[1] + 0.01 - k * 0.022, hc[2] + 0.03, 0.01, 0.008, 0.008);
+  // swing the body three-quarters on; the head keeps facing the viewer
+  swing(B, G, [[head0, mark(B, G)]], -0.85, 0, zf);
+  return { B, G, height: 0.52 };
 }
 
 // ---------------------------------------------------------------- reef shark
-// Bursting from a ring of foam: a grey back and fin arching out of the sea,
-// the head thrown up with its jaws wide, the tail flukes behind.
+// Surging through the shallows towards you: the long grey back awash, the
+// tall dorsal fin cutting the water, the tail sweeping behind, and the head
+// reared out of the sea with its jaws wide and full of teeth.
 export function shark(spec) {
   const { B, G } = builders();
   const c = spec.color ?? 0x6a7e8e;
   const belly = spec.belly ?? 0xeef0ea;
   const hi = tint(blend(c, 0xd8e8f0, 0.2), 1.15), lo = deep(c, 0.6);
-  const sea = spec.water ?? 0x3cb0c0, foam = 0xeaf8f8;
-  lathe(B, [[0.002, 0.024], [0.48, 0.016], [0.62, 0.008], [0.68, 0.0]], [deep(sea, 0.85), sea, tint(sea, 1.15)], { segs: 26, sq: 0.8 });
-  for (const [r0, w] of [[0.3, 0.025], [0.5, 0.02]]) lathe(B, [[r0, 0.016], [r0 + w, 0.028], [r0 + w * 2, 0.014]], [tint(sea, 1.35), blend(sea, foam, 0.6)], { segs: 26, sq: 0.8 });
-  // the body rises out of the water at the back and arches up to the head
-  const spine = [[0, -0.05, -0.42], [0, 0.12, -0.26], [0, 0.28, -0.04], [0, 0.42, 0.14], [0, 0.52, 0.24]];
-  tube(B, spine, [0.07, 0.12, 0.15, 0.13, 0.1], [lo, c, hi], { segs: 12, steps: 18, up: [1, 0, 0], sq: 1.15 });
-  // the pale belly along the front of the arch
-  tube(B, spine.slice(1).map((p) => [p[0], p[1] - 0.04, p[2] + 0.07]), [0.09, 0.11, 0.1, 0.07], belly, { segs: 10, steps: 14, up: [1, 0, 0], sq: 1.1 });
-  // ring of foam where it breaks the surface
-  lathe(B, [[0.13, 0.01, 0.13, -0.36], [0.2, 0.04, 0.2, -0.36], [0.27, 0.01, 0.26, -0.36]], [foam, tint(foam, 1.02)], { segs: 16 });
-  // dorsal fin
-  const df = [0, 0.37, -0.1];
-  sheet(B, (u, v) => [0, df[1] + v * (0.2 - u * 0.04) + u * 0.0, df[2] - u * 0.16 - v * v * 0.14 + v * u * 0.06], [hi, deep(c, 0.8)], { nu: 3, nv: 4, thick: 0.02 });
-  // pectoral fins, swept back
+  const foam = 0xeaf8f8;
+  // wake: foam streaming back from the shoulders, ripples round the body
+  for (const [r0, w, z] of [[0.2, 0.03, 0.16], [0.3, 0.025, -0.06], [0.22, 0.02, -0.36]]) lathe(B, [[r0, 0.005, r0 * 0.8, z], [r0 + w, 0.022, (r0 + w) * 0.8, z], [r0 + w * 2, 0.005, (r0 + w * 2) * 0.8, z]], [foam, tint(foam, 1.02)], { segs: 18 });
+  // the body along the surface, rising to the head at the front
+  const spine = [[0, 0.0, -0.56], [0, 0.04, -0.38], [0, 0.07, -0.14], [0, 0.11, 0.08], [0, 0.2, 0.24], [0, 0.3, 0.34]];
+  tube(B, spine, [0.03, 0.07, 0.12, 0.13, 0.11, 0.08], [lo, c, c, hi], { segs: 12, steps: 22, up: [0, 1, 0], sq: 0.85 });
+  // the pale underside, showing where the head lifts clear
+  tube(B, spine.slice(3).map((p) => [p[0], p[1] - 0.05, p[2] + 0.03]), [0.1, 0.09, 0.06], belly, { segs: 10, steps: 10, up: [0, 1, 0], sq: 0.9 });
+  // dorsal fin: tall and swept back
+  const df = [0, 0.14, -0.04];
+  sheet(B, (u, v) => [0, df[1] + v * (0.3 - u * 0.06), df[2] - u * 0.2 - v * v * 0.17 + u * v * 0.08], [hi, deep(c, 0.75)], { nu: 3, nv: 5, thick: 0.022 });
+  // the tail: an upright crescent, the upper lobe longer
+  const t0 = [0, 0.02, -0.58];
+  sheet(B, (u, v) => [0, t0[1] + (v - 0.3) * 0.36 * (1 - u * 0.5), t0[2] - u * 0.12 - Math.abs(v - 0.4) * 0.12], [c, deep(c, 0.7)], { nu: 2, nv: 4, thick: 0.018 });
+  // pectoral fins sweeping out over the water
   for (const s of [-1, 1]) {
-    sheet(B, (u, v) => [s * (0.1 + u * 0.18), 0.32 - u * 0.1 + v * 0.02, 0.1 - u * 0.12 - v * 0.08], [c, deep(c, 0.75)], { nu: 3, nv: 2, thick: 0.014, flipN: s < 0 });
-    // gill slits
-    for (let k = 0; k < 3; k++) tube(B, [[s * 0.115, 0.38 + k * 0.012, 0.16 - k * 0.03], [s * 0.12, 0.44 + k * 0.012, 0.15 - k * 0.03]], 0.006, deep(c, 0.4), { segs: 3 });
+    sheet(B, (u, v) => [s * (0.11 + u * 0.2), 0.07 - u * 0.04 + v * 0.01, 0.12 - u * 0.12 - v * 0.09], [c, deep(c, 0.75)], { nu: 3, nv: 2, thick: 0.014, flipN: s < 0 });
+    for (let k = 0; k < 3; k++) tube(B, [[s * 0.118, 0.17 + k * 0.012, 0.18 - k * 0.03], [s * 0.112, 0.23 + k * 0.012, 0.19 - k * 0.03]], 0.006, deep(c, 0.4), { segs: 3 });
   }
-  // the head: snout up, jaws gaping, rows of teeth, a little black eye
-  const h = [0, 0.56, 0.27];
-  tube(B, [add(h, [0, -0.04, -0.04]), add(h, [0, 0.03, 0.08]), add(h, [0, 0.07, 0.16])], [0.1, 0.075, 0.03], [c, hi], { segs: 10, up: [1, 0, 0], sq: 1.3 });
-  tube(B, [add(h, [0, -0.1, -0.02]), add(h, [0, -0.14, 0.08]), add(h, [0, -0.16, 0.13])], [0.085, 0.06, 0.025], [belly, tint(belly, 0.95)], { segs: 9, up: [1, 0, 0], sq: 1.25 });
-  ball(B, 0x6a1a20, h[0], h[1] - 0.05, h[2] + 0.05, 0.065, 0.05, 0.06);
-  for (let k = 0; k < 6; k++) {
-    const a = -1.2 + (k / 5) * 2.4;
-    const ux = Math.sin(a) * 0.06, uz = Math.cos(a) * 0.05;
-    tube(B, [add(h, [ux, -0.008, 0.06 + uz]), add(h, [ux * 0.95, -0.04, 0.065 + uz])], [0.01, 0.001], BONE, { segs: 4, outline: true });
-    tube(B, [add(h, [ux * 0.9, -0.1, 0.06 + uz * 0.9]), add(h, [ux * 0.9, -0.07, 0.065 + uz * 0.9])], [0.009, 0.001], BONE, { segs: 4, outline: true });
+  // the head: snout lifted, jaws gaping at you, rows of teeth
+  const h = [0, 0.33, 0.36];
+  tube(B, [add(h, [0, -0.02, -0.04]), add(h, [0, 0.04, 0.07]), add(h, [0, 0.07, 0.14])], [0.085, 0.065, 0.025], [c, hi], { segs: 10, up: [1, 0, 0], sq: 1.3 });
+  tube(B, [add(h, [0, -0.1, -0.03]), add(h, [0, -0.14, 0.07]), add(h, [0, -0.15, 0.12])], [0.075, 0.055, 0.022], [belly, tint(belly, 0.95)], { segs: 9, up: [1, 0, 0], sq: 1.25 });
+  ball(B, 0x6a1a20, h[0], h[1] - 0.05, h[2] + 0.04, 0.06, 0.05, 0.06);
+  for (let k = 0; k < 7; k++) {
+    const a = -1.25 + (k / 6) * 2.5;
+    const ux = Math.sin(a) * 0.055, uz = Math.cos(a) * 0.045;
+    tube(B, [add(h, [ux, -0.005, 0.05 + uz]), add(h, [ux * 0.95, -0.04, 0.055 + uz])], [0.011, 0.001], BONE, { segs: 4, outline: true });
+    tube(B, [add(h, [ux * 0.9, -0.11, 0.05 + uz * 0.9]), add(h, [ux * 0.9, -0.075, 0.055 + uz * 0.9])], [0.01, 0.001], BONE, { segs: 4, outline: true });
   }
   for (const s of [-1, 1]) {
-    ball(B, 0x0a0a0c, h[0] + s * 0.07, h[1] + 0.02, h[2] + 0.04, 0.018, 0.018, 0.012);
-    ball(B, 0xffffff, h[0] + s * 0.074, h[1] + 0.028, h[2] + 0.05, 0.005);
+    ball(B, 0x0a0a0c, h[0] + s * 0.065, h[1] + 0.025, h[2] + 0.02, 0.018, 0.018, 0.012);
+    ball(B, 0xffffff, h[0] + s * 0.069, h[1] + 0.033, h[2] + 0.03, 0.005);
   }
-  // the tail flukes flicking up from the water behind
-  const t0 = [0, 0.02, -0.5];
-  sheet(B, (u, v) => [0, t0[1] + (v - 0.4) * 0.34 * (1 - u * 0.4) + u * 0.04, t0[2] - u * 0.14 - Math.abs(v - 0.5) * 0.14], [c, deep(c, 0.7)], { nu: 2, nv: 4, thick: 0.016 });
-  lathe(B, [[0.07, 0.008, 0.07, -0.5], [0.11, 0.026, 0.11, -0.5], [0.15, 0.008, 0.15, -0.5]], foam, { segs: 12 });
+  // foam thrown up round the jaws
+  for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; ball(B, foam, Math.sin(a) * 0.16, 0.03, 0.2 + Math.cos(a) * 0.1, 0.045, 0.02, 0.04); }
   void G;
-  return { B, G, height: 0.75, ao: 0.22 };
+  return { B, G, height: 0.62, ao: 0.22 };
 }
 
 // ---------------------------------------------------------------- naga
@@ -288,7 +312,7 @@ export function naga(spec) {
 // club set with obsidian teeth, moss in its joints and light in its cracks.
 export function guardian(spec) {
   const { B, G } = builders();
-  const st = spec.color ?? 0xa8a088;
+  const st = spec.color ?? 0x8a8a70;
   const jade = spec.glow ?? 0x60ffb0;
   const hi = tint(st, 1.12), lo = deep(st, 0.72), moss = 0x5a8a34;
   const box = (col, x, y, z, sx, sy, sz, o = {}) => B.shape(TPL.box, col, { x, y, z, sx, sy, sz, ...o });

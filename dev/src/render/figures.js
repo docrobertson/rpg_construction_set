@@ -952,6 +952,12 @@ export function humanoid(spec0, TPL) {
         const a = -1.2 + k * 0.4;
         ball(B, k % 2 ? 0xf0e6d0 : 0xe8b8a0, Math.sin(a) * 0.08, shY - 0.03 - Math.cos(a) * 0.05, 0.07 + Math.cos(a) * 0.05 + hunch * 0.6, 0.016, 0.02, 0.012);
       }
+      // and wet weed hanging from her shoulders and her hem
+      for (let k = 0; k < 6; k++) {
+        const s = k % 2 ? 1 : -1, x = s * (sw * (0.5 + (k >> 1) * 0.25));
+        const y0 = k < 4 ? shY - 0.01 : hipY * 0.4, z0 = (k < 4 ? 0.06 : 0.12) + hunch * 0.5;
+        tube(B, [[x, y0, z0], [x + s * 0.02, y0 - 0.1, z0 + 0.02], [x + s * 0.01, y0 - 0.2 - (k % 3) * 0.04, z0 + 0.01]], [0.02, 0.016, 0.004], [0x4a7a3a, 0x2e5a2a], { segs: 5, sq: 0.4 });
+      }
     }
     if (race.tusks) {
       for (const s of [-1, 1]) {

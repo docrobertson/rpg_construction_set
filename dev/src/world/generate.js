@@ -1132,7 +1132,8 @@ export const DUNGEON_STYLES = {
   crypt: { wall: 'dungeon_wall', floor: 'dungeon_floor', deco: ['bones', 'rubble', 'brazier', 'web'] },
   fortress: { wall: 'dungeon_wall', floor: 'floor_stone', deco: ['brazier', 'bones', 'lava', 'rubble'] },
   // (isles) a vine-choked temple of an older people: see dressTemple
-  temple: { wall: 'temple_wall', floor: 'ruins_floor', deco: ['vines', 'rubble', 'idol', 'pool', 'vines', 'brazier'] },
+  // (its idols, pools and braziers are set down by dressTemple, never across a way through)
+  temple: { wall: 'temple_wall', floor: 'ruins_floor', deco: ['vines', 'rubble', 'vines'] },
 };
 // a plan's sizes (squares a side)
 export const DUNGEON_SIZES = { small: 28, medium: 36, large: 44 };
@@ -1162,14 +1163,15 @@ export function generateDungeon(opt = {}) {
   const styleKey = P ? (P.style === 'seacave' ? 'cave' : P.style) : opt.style;
   const style = DUNGEON_STYLES[styleKey] || DUNGEON_STYLES.cave;
   const rng = new RNG(opt.seed ?? Math.floor(Math.random() * 1e9));
-  const w = opt.w || 36, h = opt.h || 36;
+  const w = opt.w || (styleKey === 'temple' ? 40 : 36), h = opt.h || (styleKey === 'temple' ? 40 : 36);
   const map = createMap({ type: 'dungeon', w, h, name: opt.name || 'Dungeon', fill: style.wall });
   map.lighting = 'dark';
   map.level = opt.level || 1;
   const rooms = [];
   const wantRooms = P ? clampInt(P.rooms, 2, 30) : opt.rooms || 9;
   for (let i = 0; i < (P ? 1500 : 80) && rooms.length < wantRooms; i++) {
-    const rw = rng.int(4, 8), rh = rng.int(4, 7);
+    const big = styleKey === 'temple' ? 2 : 0; // (a temple's halls are grander)
+    const rw = rng.int(4, 8) + big, rh = rng.int(4, 7) + big / 2;
     const x0 = rng.int(2, w - rw - 2), y0 = rng.int(2, h - rh - 2);
     if (rooms.some((r) => x0 < r.x + r.w + 2 && x0 + rw + 2 > r.x && y0 < r.y + r.h + 2 && y0 + rh + 2 > r.y)) continue;
     rooms.push({ x: x0, y: y0, w: rw, h: rh, cx: x0 + Math.floor(rw / 2), cy: y0 + Math.floor(rh / 2) });
@@ -1217,7 +1219,7 @@ export function generateDungeon(opt = {}) {
       }
       setTile(map, x, y, T[k2]);
     }
-    if (styleKey !== 'cave' && rng.chance(0.5)) {
+    if (styleKey !== 'cave' && styleKey !== 'temple' && rng.chance(0.5)) {
       setTile(map, r.x, r.y, T.brazier);
     }
   }
@@ -1330,11 +1332,12 @@ function dressTemple(map, rooms, last, seed) {
       const px = rng.chance(0.5) ? r.x + 1 : r.x + r.w - 3, py = r.y + 1;
       tryPut([[px, py], [px + 1, py]], 'pool') || tryPut([[px, py]], 'pool');
     }
-    // idols in the corners, facing in
-    if (rng.chance(r === last ? 1 : 0.4)) {
+    // idols in the corners, facing in; a brazier burning by the far wall
+    if (rng.chance(r === last ? 1 : 0.5)) {
       tryPut([[r.x, r.y]], 'idol');
       tryPut([[r.x + r.w - 1, r.y]], 'idol');
     }
+    if (r !== last && rng.chance(0.45)) tryPut([[r.x + rng.int(1, Math.max(1, r.w - 2)), r.y]], 'brazier');
   }
   // braziers flank the sanctum, creepers find their way in along the walls
   if (last) for (const x of [last.cx - 2, last.cx + 2]) tryPut([[x, last.y]], 'brazier');

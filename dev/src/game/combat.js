@@ -98,6 +98,7 @@ export class Battle {
     if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    if (this.s.map?.mood) this.arena.mood = this.s.map.mood; // (isles: a temple's gloom follows you into the fight)
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
     // (the whole north half is open sea running off the edges, shallows at

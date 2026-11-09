@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -163,6 +163,7 @@ export function migrateGame(game) {
   ensure('monsters', MONSTERS);
   migrateCharms(game);
   migratePools(game);
+  migrateIsles(game);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   migrateMagic(game);
   // classes from before class specials existed get their default one
@@ -192,6 +193,24 @@ export function migrateCharms(game) {
     const it = game.items.find((x) => x.id === id);
     if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
   }
+}
+
+// The isles came later (ISLES_V 1): their folk and beasts, the powers they
+// fight with and the gear found there join older games once, so a designer
+// can build a tropical land in them. Their habitats are the isles' own, so
+// nothing new walks the old lands.
+export const ISLES_V = 1;
+const ISLE_MONSTERS = ['giant_frog', 'jungle_cat', 'lizardfolk', 'lizard_shaman', 'reef_shark', 'mist_wraith', 'stone_guardian', 'sea_hag', 'naga'];
+const ISLE_ABILITIES = ['tongue_lash', 'venom_spit', 'shark_lunge', 'wail', 'constrict', 'hag_curse'];
+const ISLE_ITEMS = ['coral_charm', 'jade_idol', 'hookblade', 'lizardhide'];
+export function migrateIsles(game) {
+  if ((game.settings.islesV || 0) >= ISLES_V) return;
+  game.settings.islesV = ISLES_V;
+  const add = (list, defs, ids) => { for (const id of ids) { const d = defs.find((x) => x.id === id); if (d && !list.some((x) => x.id === id)) list.push(deepClone(d)); } };
+  add(game.monsters, MONSTERS, ISLE_MONSTERS);
+  add(game.items, ITEMS, ISLE_ITEMS);
+  // (games from before battle abilities get the whole set when they load: see rules.js)
+  if (Array.isArray(game.abilities)) add(game.abilities, ABILITIES, ISLE_ABILITIES);
 }
 
 // Restoring draughts once refilled any pool, so a cleric drank Mana Tonic for

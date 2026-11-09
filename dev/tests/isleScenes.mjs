@@ -27,8 +27,8 @@ export function coastMap() {
     tiles[y * w + x] = T[k];
   }
   // the mangrove creek winding in from the sea
-  for (let y = 8; y < 26; y++) {
-    const cx = 8 + Math.round(Math.sin(y * 0.4) * 1.5);
+  for (let y = 14; y < 26; y++) {
+    const cx = 17 + Math.round(Math.sin(y * 0.4) * 1.5);
     for (let dx = -2; dx <= 2; dx++) {
       const x = cx + dx;
       if (tiles[y * w + x] === T.ocean || tiles[y * w + x] === T.reef) continue;

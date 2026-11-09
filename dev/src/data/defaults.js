@@ -801,9 +801,9 @@ export const MONSTERS = [
   // (isles) the folk and beasts of the tropical isles: their habitats are the
   // isles' own (jungle, beach, temple, reef), so they keep to that land
   { id: 'giant_frog', name: 'Giant Frog', plural: 'Giant Frogs', level: 1, hp: '2d8+2', ac: 11, hit: 3, dmg: '1d6+1', xp: 7, gold: '0', habitat: ['jungle'], group: [2, 4], beast: true, ai: 'brute', moves: 4, poison: 0.15,
-    abilities: ['tongue_lash'], look: { kind: 'frog', color: 0x5aa83a, belly: 0xe8d870, spots: 0x2a4a1a, scale: 1.05 }, desc: 'A frog as big as a pig, with a tongue that reaches further than you would like.' },
+    abilities: ['tongue_lash'], look: { kind: 'frog', color: 0x5aa83a, belly: 0xe8d870, spots: 0x2a4a1a, scale: 1.35 }, desc: 'A frog as big as a pig, with a tongue that reaches further than you would like.' },
   { id: 'jungle_cat', name: 'Jungle Cat', plural: 'Jungle Cats', level: 2, hp: '4d6+4', ac: 13, hit: 5, dmg: '1d8+2', xp: 18, gold: '0', habitat: ['jungle'], group: [1, 2], beast: true, ai: 'pack', moves: 5,
-    abilities: ['pounce'], look: { kind: 'cat', color: 0xd89a3a, spots: 0x3a2414 }, desc: 'A spotted cat that drops from the boughs without a sound.' },
+    abilities: ['pounce'], look: { kind: 'cat', color: 0xd89a3a, spots: 0x3a2414, scale: 1.2 }, desc: 'A spotted cat that drops from the boughs without a sound.' },
   { id: 'lizardfolk', name: 'Lizardfolk', plural: 'Lizardfolk', level: 2, hp: '4d8+6', ac: 13, hit: 5, dmg: '1d8+2', xp: 16, gold: '2d6', habitat: ['jungle', 'temple', 'beach'], group: [2, 4], ai: 'brute',
     escort: [{ id: 'lizard_shaman', min: 0, max: 1 }],
     look: L({ race: 'lizard', body: 0x8a5a2a, weapon: 'spear', shield: 0x9a7a4a, pennant: 0xd8b040, crest: 0xd86a2a, pose: 'raise' }), desc: 'Scaled warriors of the swamps and ruins, who hunt with spear and hide shield.' },
@@ -817,7 +817,7 @@ export const MONSTERS = [
     look: { kind: 'wraith', mist: true, color: 0x7a9a90, eyes: 0x9affd8 }, desc: 'A temple priest that would not die, drifting through the halls in a shroud of fog. Its touch drinks the warmth from you.' },
   { id: 'stone_guardian', name: 'Stone Guardian', plural: 'Stone Guardians', level: 5, hp: '10d10+20', ac: 17, hit: 7, dmg: '2d6+4', xp: 95, gold: '0', habitat: ['temple'], group: [1, 2], ai: 'brute', moves: 2, init: -4,
     hardened: 2, sleepImmune: true, poisonImmune: true, immune: ['afraid', 'poisoned', 'charmed', 'burning'], abilities: ['brutal_smash', 'taunt'],
-    look: { kind: 'guardian', color: 0xa8a088, glow: 0x60ffb0 }, desc: 'A temple statue that rises when trespassers pass: slow, and very hard to break (it shrugs off 2 of every blow).' },
+    look: { kind: 'guardian', color: 0x8a8a70, glow: 0x60ffb0, scale: 1.12 }, desc: 'A temple statue that rises when trespassers pass: slow, and very hard to break (it shrugs off 2 of every blow).' },
   { id: 'sea_hag', name: 'Sea Hag', plural: 'Sea Hags', level: 6, hp: '12d8+12', ac: 13, hit: 6, dmg: '1d8+3', xp: 170, gold: '6d10', habitat: ['beach'], group: [1, 1], ai: 'caster',
     spells: ['drain_life'], castChance: 0.3, abilities: ['hag_curse', 'tidal_surge', 'mend'], escort: [{ id: 'giant_frog', min: 0, max: 2 }],
     look: L({ race: 'hag', body: 0x3a5a4a, robe: true, scarf: 0x6a8a3a, weapon: 'staff', weaponColor: 0x9a8a6a, weaponGlow: 0x60e0c0, pose: 'cast' }), desc: 'A crone of the tide-pools, hung with weed and shells, who curses ships and drowns sailors. Can stand as a boss.' },
