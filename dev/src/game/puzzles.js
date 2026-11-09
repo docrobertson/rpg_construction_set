@@ -15,7 +15,7 @@
 //   moved[boulder id] = [x, y]  (a pushed boulder stays where it was pushed)
 //   tiles[i] = t                (a trigger's bridge, a wall that crumbled)
 import { terrain, T } from '../data/terrain.js';
-import { getMap, byId } from '../data/schema.js';
+import { getMap } from '../data/schema.js';
 import { getTile, inBounds } from '../world/map.js';
 import { roll } from '../core/rng.js';
 import { sfx } from '../core/sound.js';
@@ -77,6 +77,70 @@ export function needTerms(need) {
     .map((t) => (t[0] === '!' ? { flag: t.slice(1).trim(), not: true } : { flag: t, not: false }))).filter((l) => l.length);
 }
 
+// ------------------------------------------------------------ the realm's flags
+// Every story flag something in the realm can set, and what sets it:
+// Map(flag → [{ what, map, e }]). (Flags named killed_<monster> are set by
+// the slaying itself and are not listed.)
+export function flagSources(game) {
+  const out = new Map();
+  const add = (f, what, map = null, e = null) => {
+    for (const x of String(f ?? '').split(/[,|]/).map((t) => t.trim()).filter(Boolean)) {
+      if (!out.has(x)) out.set(x, []);
+      out.get(x).push({ what, map, e });
+    }
+  };
+  for (const q of game.quests || []) {
+    add(q.reward?.flag, `the reward for “${q.name || 'a quest'}”`);
+    for (const st of q.stages || []) add(st.reward?.flag, `a step of “${q.name || 'a quest'}”`);
+  }
+  // (intrigue: a mystery solved, or a wrong accusation)
+  for (const my of game.mysteries || []) { add(my.right?.flag, `solving “${my.name || 'a mystery'}”`); add(my.wrong?.flag, `a wrong accusation in “${my.name || 'a mystery'}”`); }
+  for (const m of game.maps || []) {
+    for (const e of m.entities || []) {
+      const who = e.name || '';
+      switch (e.type) {
+        case 'npc':
+          for (const k of e.keywords || []) if (k.action?.type === 'set_flag') add(k.action.value, `${who || 'someone'}’s words (${String(k.key || '').toUpperCase()})`, m, e);
+          break;
+        case 'chest': add(e.flag, `${who || 'a chest'}, opened`, m, e); break;
+        case 'monster': add(e.flag, 'monsters, beaten', m, e); break;
+        case 'event':
+          for (const c of e.choices || []) for (const fx of [c.effects, c.failEffects, c.win]) if (fx?.flag) add(String(fx.flag).split('{id}').join(e.id), who || 'a curiosity', m, e);
+          break;
+        case 'lever': add(flagOf(e), `${who || 'a lever'}, pulled`, m, e); break;
+        case 'plate': add(flagOf(e), `${who || 'a pressure plate'}, held down`, m, e); break;
+        case 'brazier': add(flagOf(e), `${who || 'a brazier'}, lit`, m, e); if (e.group && e.order) add(e.group, 'braziers lit in order', m, e); break;
+        case 'riddle': add(flagOf(e), `${who || 'a riddle'}, answered`, m, e); if (e.reward?.flag) add(e.reward.flag, `${who || 'a riddle'}, answered`, m, e); break;
+        case 'rune': if (!out.has(e.group)) add(e.group, 'runes trodden in order', m, e); break;
+        default:
+      }
+    }
+  }
+  return out;
+}
+
+// A need written out for people: "lever1 and (plate1 or plate2) and not alarm"
+export function needText(need) {
+  const terms = needTerms(need);
+  if (!terms.length) return 'nothing';
+  return terms.map((any) => {
+    const t = any.map((x) => (x.not ? `not ${x.flag}` : x.flag)).join(' or ');
+    return any.length > 1 && terms.length > 1 ? `(${t})` : t;
+  }).join(' and ');
+}
+
+// The flags of a need nothing in the realm sets, where that leaves it unmeetable
+// ([] when it can be met)
+export function needUnmet(need, sources) {
+  const missing = [];
+  for (const any of needTerms(need)) {
+    // a group is met if any of it can be: a "not" always can (flags start clear)
+    if (any.some((x) => x.not || sources.has(x.flag) || /^killed_/.test(x.flag))) continue;
+    missing.push(...any.map((x) => x.flag));
+  }
+  return missing;
+}
+
 // ------------------------------------------------------------ riddles
 // "A River!", "it's a river", "the river" and "river" are all the river
 export function normAnswer(s) {
@@ -91,8 +155,10 @@ export function normAnswer(s) {
 export function answerMatches(answers, input) {
   const a = normAnswer(input);
   if (!a) return false;
-  const sing = (w) => w.replace(/(?<=[a-z]{3})s$/, '');
-  return (answers || []).some((x) => { const n = normAnswer(x); return !!n && (n === a || sing(n) === sing(a)); });
+  // (a plural will do: "echoes" for echo, "rivers" for river)
+  const forms = (w) => [w, w.replace(/(?<=[a-z]{2})es$/, ''), w.replace(/(?<=[a-z]{2})s$/, '')];
+  const mine = forms(a);
+  return (answers || []).some((x) => { const n = normAnswer(x); return !!n && forms(n).some((f) => mine.includes(f)); });
 }
 
 // ------------------------------------------------------------ looks
@@ -705,4 +771,3 @@ function triggerWords(tiles) {
 }
 
 if (typeof window !== 'undefined') window.__puzzles = { needMet, needFlags, answerMatches, normAnswer, isPuzzle, puzzleSolid, PUZZLE_TYPES };
-void byId;

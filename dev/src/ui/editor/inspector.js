@@ -13,6 +13,8 @@ import { isHoard } from '../../game/charms.js';
 import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.js';
 import { containerLookFields } from './containerFields.js';
 import { battleArts } from '../../game/rules.js';
+import { isPuzzle } from '../../game/puzzles.js';
+import { inspectPuzzle } from './puzzles.js'; // (puzzles)
 
 const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
@@ -265,7 +267,8 @@ export function inspectEntity(ed, ent, container) {
       break;
     }
     default:
-      container.appendChild(head(ent.type));
+      if (isPuzzle(ent)) inspectPuzzle(ed, ent, container, head, changed); // (puzzles)
+      else container.appendChild(head(ent.type));
   }
   container.appendChild(h('div.insp-foot', del));
 }

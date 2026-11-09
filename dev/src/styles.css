@@ -2272,3 +2272,22 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .riddle-pic.riddle-glow { box-shadow: 0 0 0 1px #3a2208, 0 0 0 4px #e8c060, 0 0 0 5px #3a2208, 0 0 22px 6px rgba(255,210,90,.7); transition: box-shadow .6s; }
 .riddle-shake { animation: riddle-shake .45s; }
 @keyframes riddle-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-9px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }
+
+/* (puzzles) the editor: tags over gates, triggers and runes; the need helper */
+.pz-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 3; }
+.pz-tag { position: absolute; left: 0; top: 0; white-space: nowrap; font: 600 11px var(--font-ui); color: #fff4d8; background: rgba(30, 22, 12, .82);
+  border: 1px solid #c9a252; border-radius: 8px; padding: 1px 7px; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.pz-tag.trigger { border-color: #c070ff; color: #ecd8ff; }
+.pz-tag.rune { border-radius: 10px; padding: 0 6px; font-size: 10.5px; }
+.pz-tag.bad { border-color: #ff6a4a; color: #ffc8b8; background: rgba(70, 14, 6, .86); }
+.pz-need input { width: 100%; font-family: var(--font-mono, monospace); }
+.pz-need-read { margin-top: 5px; font-size: 12.5px; line-height: 1.4; }
+.pz-src code, .pz-reads b { font-family: var(--font-mono, monospace); }
+.pz-src.ok code { color: #8ad070; }
+.pz-src.bad code { color: #ff8a6a; }
+.pz-warn { color: #ff9a7a; font-weight: 600; margin-top: 3px; }
+.pz-flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
+.pz-flags .hint { width: 100%; }
+.pz-flags .chip.small { padding: 2px 8px; font-size: 11px; }
+.pz-tiles { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.pz-tile { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }

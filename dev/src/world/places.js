@@ -17,7 +17,8 @@
 //     counts: { id: '2-4' } (how many in a band), boss: id|null,
 //     treasure: { gold, items: [{ id, n }] } (the hoard in the last room),
 //     chests (more chests along the way), wonders (carved pillars, hidden
-//     caches and shrines), seed }
+//     caches and shrines), puzzles (0-3 gated side rooms: a lever, a boulder
+//     on a plate, runes), seed }
 import { FEATURE_KINDS, T, terrain } from '../data/terrain.js';
 import { getTile, setTile, inBounds } from './map.js';
 import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, defaultStock, STAMPS, PATHS, line4 } from './generate.js';
@@ -128,6 +129,7 @@ export function normalizePlan(plan, kind = plan?.kind) {
     p.treasure = { gold: p.treasure?.gold ?? base.treasure.gold, items: Array.isArray(p.treasure?.items) ? p.treasure.items : [] };
     p.chests = clampInt(p.chests, 0, 12);
     p.wonders = clampInt(p.wonders, 0, 6);
+    p.puzzles = clampInt(p.puzzles ?? 0, 0, 3); // (puzzles)
     return p;
   }
   if (!SETTLEMENT_STYLE_NAMES[p.style]) p.style = base.style;
@@ -260,6 +262,7 @@ function inferDungeon(map, kind) {
   plan.treasure = final ? { gold: final.gold ?? 0, items: clone(final.items || []) } : { gold: 0, items: [] };
   plan.chests = map.entities.filter((e) => e.type === 'chest' && e !== final && madeChest(e)).length;
   plan.wonders = map.entities.filter(madeEvent).length;
+  plan.puzzles = map.entities.filter((e) => e.made === 'puzzle' && e.type === 'gate').length; // (puzzles)
   plan.seed = seedOf(map.id);
   return normalizePlan(plan);
 }
@@ -301,7 +304,7 @@ const goldValue = (g) => {
 
 // The hoard at the end: by the boss if there is one, else the richest chest
 export function finalChest(map) {
-  const chests = map.entities.filter((e) => e.type === 'chest');
+  const chests = map.entities.filter((e) => e.type === 'chest' && e.made !== 'puzzle'); // (a puzzle's vault is not the hoard)
   if (!chests.length) return null;
   const boss = map.entities.find((e) => e.type === 'monster' && e.boss);
   if (boss) {
@@ -621,7 +624,7 @@ function mergeDungeon(ctx, plan) {
   for (const e of old.entities) {
     if (used.has(e)) continue;
     // what the generator made goes, and comes again from the plan
-    if ((e.type === 'monster' && (madeMonster(e) || madeBoss(e))) || (e.type === 'chest' && (e === oldFinal || madeChest(e))) || madeEvent(e)) continue;
+    if ((e.type === 'monster' && (madeMonster(e) || madeBoss(e))) || (e.type === 'chest' && (e === oldFinal || madeChest(e))) || madeEvent(e) || e.made === 'puzzle') continue;
     if (e.type === 'portal' && e.target?.map === 'exit') continue;
     // the rest is the designer's: by the stairs, by the hoard, or about where it was
     const anchor = near(e, old.entry, 4) ? fresh.entry : oldFinal && near(e, oldFinal, 3) ? newFinal || fresh.entry : { x: Math.round(e.x * sx), y: Math.round(e.y * sy) };
