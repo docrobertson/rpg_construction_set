@@ -33,6 +33,7 @@ import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
 import { reagentUse, scrollUse, canCopy, copyScroll, hasBook, restoresPool, poolWords, poolName, noNeed } from '../game/magic.js';
 import { heroKey } from '../game/delve.js';
 import { EVENT_DOTS, eventDot } from '../game/events.js';
+import { PuzzleUI } from './puzzleUI.js'; // (puzzles) the riddle window
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -65,6 +66,7 @@ export class PlayUI {
     this.quests = new QuestUI(this); // tracker, journal, quest offers, events
     this.explore = new Explorer(this); // hover info, click to act, the Nearby bar, marks over heads
     this.levelUp = new LevelUpCard(this); // the talent choice after a level gained outside battle
+    this.puzzleUI = new PuzzleUI(this); // (puzzles) riddles: this.openRiddle(e)
     this.bindInput();
     this.setMode('explore');
   }

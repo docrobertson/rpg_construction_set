@@ -438,7 +438,7 @@ export class TerrainView {
     const w = TW * R, h = TH * R;
     const acc = new Float32Array(w * h * 3);
     let any = false;
-    for (const L of [...this.chunks.flatMap((ch) => ch.lights || []), ...(this.extraLights || [])]) {
+    for (const L of [...this.chunks.flatMap((ch) => ch.lights || []), ...(this.extraLights || []), ...(this.puzzleLights || [])]) { // (puzzles: burning braziers)
       any = true;
       const [px, pz, rad, c, s] = L;
       const gx = (px + M) * R, gz = (pz + M) * R, gr = rad * R;

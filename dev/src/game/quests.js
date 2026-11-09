@@ -347,6 +347,7 @@ export function checkQuests(session) {
     if (!moved) break;
   }
   checkChapters(session); // (a story flag set in passing can end a chapter too)
+  session.puzzles?.evaluate?.(); // (puzzles) a flag set in passing can open a gate or raise a bridge
 }
 
 // Begin-of-game: open the first chapter, then start every auto quest without a prerequisite

@@ -23,8 +23,10 @@ export function hasLOS(map, x0, y0, x1, y1) {
 // Mask of tiles lit by light-emitting terrain (braziers, lava, crystals...)
 export function computeLitMask(map) {
   const mask = new Uint8Array(map.w * map.h);
+  // (puzzles) a burning brazier lights its room like a brazier tile
+  const lit = (map.entities || []).some((e) => e.type === 'brazier' && e.lit) ? new Set(map.entities.filter((e) => e.type === 'brazier' && e.lit).map((e) => e.y * map.w + e.x)) : null;
   for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
-    const L = terrain(getTile(map, x, y)).light;
+    const L = terrain(getTile(map, x, y)).light || (lit && lit.has(y * map.w + x) ? 3 : 0);
     if (!L) continue;
     for (let dy = -L; dy <= L; dy++) for (let dx = -L; dx <= L; dx++) {
       const nx = x + dx, ny = y + dy;

@@ -2260,3 +2260,15 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
   font: 700 11px var(--font-ui); color: #10200a; background: #9ee880; box-shadow: 0 1px 3px rgba(0,0,0,.6); }
 .pcard .pc-why { position: absolute; right: 7px; top: 6px; max-width: 58%; padding: 1px 7px; border-radius: 8px; font: italic 600 10.5px var(--font-ui); color: #ffd8c8; background: rgba(20,12,6,.85); text-align: right; }
 .pcard.pick-ok .pc-lead, .pcard.pick-no .pc-lead, .pcard.pick-no .pc-status { visibility: hidden; }
+
+/* (puzzles) the riddle: the talk parchment, the stone's words in a carved hand */
+.riddle-modal .talk-log { height: 220px; }
+.riddle-text { font: italic 600 18px var(--font-display); color: #3a2410; border-left: 3px solid #b89c64; padding-left: 10px; }
+.riddle-text::before, .riddle-text::after { content: none; }
+.riddle-right { color: #2a5a1a; }
+.riddle-wrong { color: #8a1e0a; }
+.riddle-input { text-transform: none !important; }
+.riddle-pic { background: radial-gradient(ellipse at 50% 40%, #6a6458, #1a1612 82%); }
+.riddle-pic.riddle-glow { box-shadow: 0 0 0 1px #3a2208, 0 0 0 4px #e8c060, 0 0 0 5px #3a2208, 0 0 22px 6px rgba(255,210,90,.7); transition: box-shadow .6s; }
+.riddle-shake { animation: riddle-shake .45s; }
+@keyframes riddle-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-9px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }

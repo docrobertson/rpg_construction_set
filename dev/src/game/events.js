@@ -301,6 +301,7 @@ export function applyEffects(session, e, fx) {
   if (fx.fortune) { const f = fortuneFor(session, e); res.vision = f.text; if (f.at) session.reveal?.(3, f.at, true); }
   if (fx.fairy) fairyMagic(session, e, fx.fairy === 'kind', res);
   if (fx.quest) startQuest(session, fx.quest);
+  if (fx.reset) session.puzzles?.reset?.(fx.reset); // (puzzles) boulders of a group roll back home
   if (fx.fight) res.fight = { monster: fx.fight, count: String(fx.count || '1') };
   if (fx.ship) {
     const r = {};
