@@ -206,7 +206,7 @@ const mapNamed = (n) => game.maps.find((m) => m.name === n);
   const map = mapNamed('Gannet Rock Light');
   const order = map.entities.filter((e) => e.type === 'brazier').sort((a, b) => a.order - b.order).map((b) => b.glyph);
   check('the Gannet Rock braziers follow the shanty (gannet, morning, lost, drowned)', order.join() === 'gannet,sun,mast,eye', order);
-  const hob = all((e) => e.type === 'npc' && /SHANT/.test((e.keywords || []).map((k) => k.key).join())).length;
+  const hob = all((e) => e.type === 'npc' && (e.keywords || []).some((k) => /FIRST light the gannet/.test(k.text || ''))).length;
   check('…and the shanty is sung in Pebblewick and by the keeper', hob >= 3, hob);
   // the riddles have fair answers
   const face = all((e) => e.id === 'abbey_face')[0], sphinx = all((e) => e.id === 'ember_sphinx')[0];
@@ -226,7 +226,8 @@ await page.goto('file://' + path.resolve(HERE, '../../index.html'));
 await page.waitForFunction(() => !!window.__app, null, { timeout: 60000 });
 const ev = (fn, a) => page.evaluate(fn, a);
 const wait = (ms) => page.waitForTimeout(ms);
-const shot = async (name) => { await page.screenshot({ path: `${OUT}/adv2-${name}.png` }); console.log('shot', `adv2-${name}`); };
+// (the whole world at once is a heavy frame for a software renderer: give it time)
+const shot = async (name) => { await page.screenshot({ path: `${OUT}/adv2-${name}.png`, timeout: 240000 }); console.log('shot', `adv2-${name}`); };
 const closeModals = () => ev(async () => { for (let i = 0; i < 10 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await new Promise((r) => setTimeout(r, 120)); } });
 
 try {
@@ -360,9 +361,11 @@ try {
       await s.enterMap(m.id, m.entry.x, m.entry.y);
       for (let i = 0; i < 200 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25));
       s.map.explored?.fill(1);
-      s.view.setVisibilityEnabled(false);
+      s.view.reach = null;
+      // (a town from above its square; a dungeon by torchlight, round the company at its door)
+      if (m.type !== 'dungeon') { s.view.setVisibilityEnabled(false); s.view.focus(m.w / 2, m.h / 2 + 2, true); } else s.view.focus(s.state.pos.x, s.state.pos.y - 3, true);
       s.view.setZoom(zoom, true);
-      s.view.focus(m.w / 2, m.h / 2 + 2, true);
+      s.camFocus = () => {};
       await new Promise((r) => setTimeout(r, 1500));
     }, { map, zoom });
     await closeModals();
@@ -372,8 +375,8 @@ try {
   await placeShot('pebblewick', 'Pebblewick', 30);
   await placeShot('saltcombe', 'Saltcombe', 36);
   await placeShot('tzalka', 'Tzal-Ka', 30);
-  await placeShot('abbey', 'Mistwatch Abbey', 34);
-  await placeShot('temple', 'Sunken Temple of the Sun', 40);
+  await placeShot('abbey', 'Mistwatch Abbey', 16);
+  await placeShot('temple', 'Sunken Temple of the Sun', 16);
   // a frame's cost on the big world, against the sample's
   const cost = await ev(async () => {
     const s = window.__app.session;

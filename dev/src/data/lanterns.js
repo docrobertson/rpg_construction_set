@@ -298,6 +298,14 @@ function paintWorld(w) {
   stamp('forest', 66, 112, 3, 39);
   stamp('lake', 46, 113, 2, 40);
   stamp('lake', 24, 34, 2, 41);
+  // copses and knolls scattered over the open farmland, as real country has
+  for (let y = 0; y < w.h; y++) for (let x = 0; x < 80; x++) {
+    const k = getTile(w, x, y);
+    if (k !== T.grass && k !== T.meadow) continue;
+    const c = fbm(x * 0.32, y * 0.32, 83, 2), kn = fbm(x * 0.27, y * 0.27, 84, 2);
+    if (c > 0.74) tile(x, y, hash2(x, y, 85) < 0.25 ? 'pines' : 'forest');
+    else if (kn > 0.76) tile(x, y, 'hills');
+  }
   // the Pebble Brook, down from the downs to the sea west of the village
   path('river', [[38, 112], [32, 118], [26, 124], [18, 126], [10, 127]], 1);
   // the river Wend, out of the Greyspine to the sea at Saltcombe
@@ -840,6 +848,9 @@ function dressTzalKa(game, map, MON) {
   const base = game.monsters.find((m) => m.id === MON('lizardfolk', '__none'))?.look;
   const liz = (extra = {}) => (base ? { ...JSON.parse(JSON.stringify(base)), weapon: undefined, ...extra } : { kind: 'humanoid', race: 'goblin', skin: 0x4a8a5a, hair: 0x2a4a2a, body: 0x6a5a2a, ...extra });
   for (const e of map.entities) if (e.type === 'npc') { e.look = liz({ body: e.look.body }); e.lizard = true; }
+  // the village stands in the jungle: its open ground is overgrown
+  const VINES = TT('vines', 'meadow');
+  for (let i = 0; i < map.tiles.length; i++) if (map.tiles[i] === T.grass && hash2(i % map.w, Math.floor(i / map.w), 130) < 0.7) map.tiles[i] = VINES;
   cast(map, 'healer', { name: 'Ssi\'leth the Shaman', desc: 'a lizardfolk shaman hung with shells and feathers', greeting: 'Sss. Warm-blood. You are hurt? Sit by the fire-stones.' });
   cast(map, 'provisions', { name: 'Kesh', desc: 'a lizardfolk trader with baskets of fruit and smoked fish', greeting: 'Fruit! Fish! Good trade for warm-bloods.' });
   cast(map, 'reagents', { name: 'Old Ussk', desc: 'an ancient lizardfolk herbalist', greeting: 'Roots and leaves. The jungle gives. You BUY.' });
