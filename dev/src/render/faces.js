@@ -277,6 +277,9 @@ const SHAPES = {
   goblin: { w: 0.98, d: 0.9, taper: 0.55, jawLen: 0.06, chin: 0.05, crown: 1.05, ridge: 0.04, flat: 0.04, jaw: 0.0 },
   troll: { w: 0.86, d: 0.95, taper: 0.2, jawLen: 0.32, chin: 0.2, crown: 0.9, ridge: 0.12, flat: 0.03, jaw: 0.2 },
   skull: { w: 0.86, d: 0.95, taper: 0.45, jawLen: 0.12, chin: 0.08, crown: 1.06, ridge: 0.06, flat: 0.05, jaw: 0.0 },
+  // (isles) a lizard's flat, ridged skull (its snout is added on); a crone's long pointed chin
+  lizard: { w: 0.86, d: 1.02, taper: 0.3, jawLen: 0.02, chin: 0.02, crown: 0.82, ridge: 0.22, flat: 0.0, jaw: 0.1 },
+  hag: { w: 0.86, d: 0.92, taper: 0.62, jawLen: 0.22, chin: 0.2, crown: 1.0, ridge: 0.08, flat: 0.04, jaw: 0.0 },
 };
 
 // Heads tip back a little (chin up) so faces present to the high game camera.

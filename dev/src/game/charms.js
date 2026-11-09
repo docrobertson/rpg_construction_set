@@ -80,6 +80,7 @@ export const isBeast = (def) => !!def && (def.beast ?? BEASTS.includes(def.id));
 // ground a worn charm opens: the terrain key, the effect it needs, the turns a step takes
 export const WAYS = {
   shallows: { type: 'wade', cost: 2, verb: 'wade out into the shallows' },
+  reef: { type: 'wade', cost: 2.5, verb: 'wade out over the reef' }, // (isles)
   mountains: { type: 'climb', cost: 3, verb: 'climb into the mountains' },
   peaks: { type: 'climb', cost: 4, verb: 'climb onto the snowy peaks' },
 };

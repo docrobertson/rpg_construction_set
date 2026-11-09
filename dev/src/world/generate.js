@@ -65,7 +65,7 @@ export function line4(x0, y0, x1, y1) {
 }
 
 // ---------------------------------------------------------------- stamps
-const NATURAL_LAND = new Set(['grass', 'meadow', 'forest', 'pines', 'hills', 'swamp', 'sand', 'desert', 'snow', 'ash', 'mountains', 'peaks']);
+const NATURAL_LAND = new Set(['grass', 'meadow', 'forest', 'pines', 'hills', 'swamp', 'sand', 'desert', 'snow', 'ash', 'mountains', 'peaks', 'jungle', 'palms', 'vines', 'obsidian']);
 
 function natural(id) { return NATURAL_LAND.has(def(id).key); }
 
@@ -152,6 +152,11 @@ export const STAMPS = {
   meadow: {
     label: 'Meadow', icon: '🌼', desc: 'Flowering meadows and open grass.', defaultSize: 4,
     apply(map, cx, cy, r, seed) { return paintNatural(map, cx, cy, r, seed, (x, y) => (hash2(x, y, seed) < 0.6 ? 'meadow' : 'grass')); },
+  },
+  // (isles)
+  jungle: {
+    label: 'Jungle', icon: '🌿', desc: 'Steaming jungle — giant trees, creepers and ferns. Slow going, and it hides what moves in it.', defaultSize: 5,
+    apply(map, cx, cy, r, seed) { return paintNatural(map, cx, cy, r, seed, (x, y, d) => (d > 0.86 ? (hash2(x, y, seed) < 0.5 ? 'vines' : null) : d > 0.7 || hash2(x, y, seed + 2) < 0.07 ? 'vines' : 'jungle'), ['mountains', 'peaks']); },
   },
   clear: {
     label: 'Clear Land', icon: '🟩', desc: 'Reset land to plain grassland.', defaultSize: 4,
@@ -1126,6 +1131,9 @@ export const DUNGEON_STYLES = {
   cave: { wall: 'cave_wall', floor: 'cave_floor', deco: ['rubble', 'bones', 'web', 'crystal', 'pit_water'] },
   crypt: { wall: 'dungeon_wall', floor: 'dungeon_floor', deco: ['bones', 'rubble', 'brazier', 'web'] },
   fortress: { wall: 'dungeon_wall', floor: 'floor_stone', deco: ['brazier', 'bones', 'lava', 'rubble'] },
+  // (isles) a vine-choked temple of an older people: see dressTemple
+  // (its idols, pools and braziers are set down by dressTemple, never across a way through)
+  temple: { wall: 'temple_wall', floor: 'ruins_floor', deco: ['vines', 'rubble', 'vines'] },
 };
 // a plan's sizes (squares a side)
 export const DUNGEON_SIZES = { small: 28, medium: 36, large: 44 };
@@ -1155,14 +1163,15 @@ export function generateDungeon(opt = {}) {
   const styleKey = P ? (P.style === 'seacave' ? 'cave' : P.style) : opt.style;
   const style = DUNGEON_STYLES[styleKey] || DUNGEON_STYLES.cave;
   const rng = new RNG(opt.seed ?? Math.floor(Math.random() * 1e9));
-  const w = opt.w || 36, h = opt.h || 36;
+  const w = opt.w || (styleKey === 'temple' ? 40 : 36), h = opt.h || (styleKey === 'temple' ? 40 : 36);
   const map = createMap({ type: 'dungeon', w, h, name: opt.name || 'Dungeon', fill: style.wall });
   map.lighting = 'dark';
   map.level = opt.level || 1;
   const rooms = [];
   const wantRooms = P ? clampInt(P.rooms, 2, 30) : opt.rooms || 9;
   for (let i = 0; i < (P ? 1500 : 80) && rooms.length < wantRooms; i++) {
-    const rw = rng.int(4, 8), rh = rng.int(4, 7);
+    const big = styleKey === 'temple' ? 2 : 0; // (a temple's halls are grander)
+    const rw = rng.int(4, 8) + big, rh = rng.int(4, 7) + big / 2;
     const x0 = rng.int(2, w - rw - 2), y0 = rng.int(2, h - rh - 2);
     if (rooms.some((r) => x0 < r.x + r.w + 2 && x0 + rw + 2 > r.x && y0 < r.y + r.h + 2 && y0 + rh + 2 > r.y)) continue;
     rooms.push({ x: x0, y: y0, w: rw, h: rh, cx: x0 + Math.floor(rw / 2), cy: y0 + Math.floor(rh / 2) });
@@ -1205,12 +1214,12 @@ export function generateDungeon(opt = {}) {
       if (getTile(map, x, y) !== T[style.floor]) continue;
       const k2 = rng.pick(style.deco);
       // keep impassable decor away from corridors
-      if (['brazier', 'crystal', 'pit_water', 'lava'].includes(k2)) {
+      if (['brazier', 'crystal', 'pit_water', 'lava', 'idol', 'pool'].includes(k2)) {
         if (!rectFree(map, x, y, 1, 1, (t) => t === T[style.floor] || def(t).wall)) continue;
       }
       setTile(map, x, y, T[k2]);
     }
-    if (styleKey !== 'cave' && rng.chance(0.5)) {
+    if (styleKey !== 'cave' && styleKey !== 'temple' && rng.chance(0.5)) {
       setTile(map, r.x, r.y, T.brazier);
     }
   }
@@ -1276,7 +1285,172 @@ export function generateDungeon(opt = {}) {
       if (spots.length) pick('cache', { name: 'Loose Flagstone' });
     } else for (let i = 0; i < want && spots.length; i++) pick(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length], extraFor(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length]), i >= 2 ? i : 0);
   }
+  // (puzzles) side rooms behind a gate, only when the plan asks (so a plan
+  // without them makes exactly the dungeon it always made)
+  if (P && P.puzzles > 0) puzzleRooms(map, rooms, style, clampInt(P.puzzles, 0, 3), opt.seed, last);
+  if (styleKey === 'temple') dressTemple(map, rooms, last, (opt.seed ?? 1) + 909);
   return { map, rooms, last };
+}
+
+// (puzzles) Up to three small vaults cut into the rock beside the rooms,
+// each behind a gate with a chest inside, and in the room beside it what
+// opens the gate: a lever; a boulder to roll onto a pressure plate (with a
+// lever that sets it back); three runes to tread in an order a carved pillar
+// gives. Everything made here is marked made: 'puzzle' (a rebuild makes it
+// afresh). Its own random numbers, so nothing else in the dungeon changes.
+const PUZZLE_GLYPHS = ['sun', 'moon', 'star', 'wave', 'flame', 'leaf', 'eye', 'crown'];
+function puzzleRooms(map, rooms, style, n, seed, last) {
+  const rng = new RNG((seed ?? 7) * 31 + 991);
+  const floor = T[style.floor];
+  const isFloor = (x, y) => inBounds(map, x, y) && getTile(map, x, y) === floor;
+  const solid = (x, y) => inBounds(map, x, y) && x > 0 && y > 0 && x < map.w - 1 && y < map.h - 1 && !def(getTile(map, x, y)).walk;
+  const taken = (x, y) => map.entities.some((e) => e.x === x && e.y === y);
+  // keep clear of what stands about (and the squares next to monsters)
+  const clear = (x, y) => isFloor(x, y) && !taken(x, y) && !map.entities.some((e) => e.type === 'monster' && Math.abs(e.x - x) + Math.abs(e.y - y) <= 1);
+  const inRoom = (r, x, y) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+  const id = (k, i) => (seed != null ? `pz_${seed}_${k}${i}` : uid('pz'));
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  // a door square D off a room square F, into solid rock with room beyond for
+  // a 3×3 vault (rad 1) or, where the rock is thin, an alcove (rad 0)
+  const vaultSpot = (r, rad) => {
+    const cands = [];
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      if (!clear(x, y)) continue;
+      for (const [dx, dy] of DIRS) {
+        const Dx = x + dx, Dy = y + dy;
+        if (!solid(Dx, Dy) || !solid(Dx + dy, Dy + dx) || !solid(Dx - dy, Dy - dx)) continue;
+        const cx = Dx + dx * (rad + 1), cy = Dy + dy * (rad + 1);
+        let ok = true;
+        for (let oy = -rad - 1; oy <= rad + 1 && ok; oy++) for (let ox = -rad - 1; ox <= rad + 1 && ok; ox++) {
+          const vx = cx + ox, vy = cy + oy;
+          if (vx === Dx && vy === Dy) continue;
+          if (!solid(vx, vy)) ok = false;
+        }
+        if (ok) cands.push({ F: [x, y], D: [Dx, Dy], C: [cx, cy], d: [dx, dy], rad });
+      }
+    }
+    return cands.length ? cands[rng.int(0, cands.length - 1)] : null;
+  };
+  const hosts = rng.shuffle(rooms.filter((r, i) => i > 0 && r !== last));
+  if (!hosts.length) hosts.push(...rooms.filter((r) => r !== last));
+  const used = new Set();
+  const kinds = ['lever', 'plate', 'runes'];
+  for (let k = 0; k < n; k++) {
+    const kind = kinds[k % 3];
+    const tries = [1, 0].flatMap((rad) => hosts.map((r) => [r, rad]));
+    for (const [r, rad] of tries) {
+      if (used.has(r)) continue;
+      const v = vaultSpot(r, rad);
+      if (!v) continue;
+      const flag = id(kind === 'runes' ? 'runes' : 'open', k);
+      const made = [];
+      const inside = (x, y) => inRoom(r, x, y) && clear(x, y) && Math.abs(x - v.D[0]) + Math.abs(y - v.D[1]) > 1 && !made.some((e) => e.x === x && e.y === y);
+      const spots = [];
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (inside(x, y)) spots.push([x, y]);
+      const byWall = spots.filter(([x, y]) => DIRS.some(([dx, dy]) => solid(x + dx, y + dy)));
+      if (kind === 'lever') {
+        const s = byWall.length ? byWall[rng.int(0, byWall.length - 1)] : null;
+        if (!s) continue;
+        made.push({ id: id('lever', k), type: 'lever', x: s[0], y: s[1], flag, text: 'An old lever, its handle worn smooth by other hands.' });
+      } else if (kind === 'plate') {
+        // a plate, the boulder beside it and room behind the boulder to push from
+        const lines = [];
+        for (const [x, y] of spots) for (const [dx, dy] of DIRS) {
+          const b = [x + dx, y + dy], st = [x + dx * 2, y + dy * 2];
+          if (inside(...b) && inside(...st) && DIRS.some(([ex, ey]) => inside(st[0] + ex, st[1] + ey))) lines.push({ p: [x, y], b, st });
+        }
+        if (!lines.length) continue;
+        const L = lines[rng.int(0, lines.length - 1)];
+        made.push({ id: id('plate', k), type: 'plate', x: L.p[0], y: L.p[1], flag, text: 'A flagstone that rocks underfoot. Something heavy might hold it down.' });
+        made.push({ id: id('boulder', k), type: 'boulder', x: L.b[0], y: L.b[1], group: flag });
+        const rs = byWall.filter(([x, y]) => inside(x, y) && Math.abs(x - L.b[0]) + Math.abs(y - L.b[1]) > 2 && Math.abs(x - L.p[0]) + Math.abs(y - L.p[1]) > 1 && !(x === L.st[0] && y === L.st[1]));
+        if (rs.length) { const q = rs[rng.int(0, rs.length - 1)]; made.push({ id: id('reset', k), type: 'lever', x: q[0], y: q[1], reset: flag, flag: id('reset', k), text: 'A lever marked with a curling arrow: it sets the boulders back.' }); }
+      } else {
+        // three runes in a row, every other square, and a carved pillar with the order
+        const rows = [];
+        for (const [x, y] of spots) for (const [dx, dy] of [[1, 0], [0, 1]]) {
+          const sq = [0, 1, 2].map((i) => [x + dx * i * 2, y + dy * i * 2]);
+          if (sq.every((p) => inside(...p)) && inside(x + dx, y + dy) && inside(x + dx * 3, y + dy * 3)) rows.push(sq);
+        }
+        if (!rows.length) continue;
+        const row = rows[rng.int(0, rows.length - 1)];
+        const glyphs = rng.shuffle([...PUZZLE_GLYPHS]).slice(0, 3);
+        const order = rng.shuffle([1, 2, 3]);
+        row.forEach(([x, y], i) => made.push({ id: id('rune', k * 3 + i), type: 'rune', x, y, group: flag, order: order[i], glyph: glyphs[i] }));
+        const seq = [1, 2, 3].map((o) => glyphs[order.indexOf(o)]);
+        const ps = byWall.filter(([x, y]) => inside(x, y) && !row.some(([rx, ry]) => Math.abs(rx - x) + Math.abs(ry - y) <= 1));
+        if (!ps.length) continue;
+        const q = ps[rng.int(0, ps.length - 1)];
+        made.push({ ...eventFromTemplate('lore'), id: id('pillar', k), x: q[0], y: q[1], name: 'Carved Pillar', text: `Carved under a picture of a door: first the ${seq[0]}, then the ${seq[1]}, and last the ${seq[2]}.` });
+      }
+      // the vault and its gate
+      setTile(map, v.D[0], v.D[1], floor);
+      for (let oy = -v.rad; oy <= v.rad; oy++) for (let ox = -v.rad; ox <= v.rad; ox++) setTile(map, v.C[0] + ox, v.C[1] + oy, floor);
+      made.push({ id: id('gate', k), type: 'gate', x: v.D[0], y: v.D[1], need: flag, style: style.floor === 'cave_floor' ? 'bars' : kind === 'runes' ? 'stone' : 'portcullis' });
+      made.push({ id: id('vault', k), type: 'chest', x: v.C[0], y: v.C[1], gold: 25 + (map.level || 1) * 25, items: [{ id: rng.chance(0.5) ? 'healing_draught' : 'mana_tonic', n: 2 }] });
+      for (const e of made) { e.made = 'puzzle'; map.entities.push(e); }
+      used.add(r);
+      break;
+    }
+  }
+}
+
+// (isles) A temple's halls: sacred pools in the larger rooms, idols keeping
+// watch in pairs, braziers either side of the inner sanctum, the jungle's
+// creepers crawling in along the walls. Nothing is set down where it would
+// cut a way through (every square that could be reached still can be). Its
+// own mood (render/view.js) and its own wild things (habitat 'temple').
+function dressTemple(map, rooms, last, seed) {
+  const rng = new RNG(seed);
+  map.mood = 'temple';
+  map.habitat = 'temple';
+  const floor = T.ruins_floor;
+  const taken = (x, y) => map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2);
+  const reach = () => {
+    const e = map.entry, seen = new Uint8Array(map.w * map.h), st = [e.y * map.w + e.x];
+    seen[st[0]] = 1;
+    let n = 0;
+    while (st.length) {
+      const i = st.pop(); n++;
+      const x = i % map.w, y = (i - x) / map.w;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const j = (y + dy) * map.w + x + dx;
+        if (!seen[j] && def(map.tiles[j]).walk) { seen[j] = 1; st.push(j); }
+      }
+    }
+    return n;
+  };
+  let base = reach();
+  // set tiles down only if the way stays open for all
+  const tryPut = (cells, key) => {
+    if (cells.some(([x, y]) => getTile(map, x, y) !== floor || taken(x, y))) return false;
+    const old = cells.map(([x, y]) => getTile(map, x, y));
+    for (const [x, y] of cells) setTile(map, x, y, T[key]);
+    const now = reach();
+    if (now === base - cells.length) { base = now; return true; }
+    cells.forEach(([x, y], i) => setTile(map, x, y, old[i]));
+    return false;
+  };
+  for (let i = 1; i < rooms.length; i++) {
+    const r = rooms[i];
+    // a pool off to one side of a big room
+    if (r.w >= 6 && r.h >= 5 && rng.chance(0.55)) {
+      const px = rng.chance(0.5) ? r.x + 1 : r.x + r.w - 3, py = r.y + 1;
+      tryPut([[px, py], [px + 1, py]], 'pool') || tryPut([[px, py]], 'pool');
+    }
+    // idols in the corners, facing in; a brazier burning by the far wall
+    if (rng.chance(r === last ? 1 : 0.5)) {
+      tryPut([[r.x, r.y]], 'idol');
+      tryPut([[r.x + r.w - 1, r.y]], 'idol');
+    }
+    if (r !== last && rng.chance(0.45)) tryPut([[r.x + rng.int(1, Math.max(1, r.w - 2)), r.y]], 'brazier');
+  }
+  // braziers flank the sanctum, creepers find their way in along the walls
+  if (last) for (const x of [last.cx - 2, last.cx + 2]) tryPut([[x, last.y]], 'brazier');
+  for (let y = 1; y < map.h - 1; y++) for (let x = 1; x < map.w - 1; x++) {
+    if (getTile(map, x, y) !== floor || !def(getTile(map, x, y - 1)).wall) continue;
+    if (rng.chance(0.12)) setTile(map, x, y, T.vines);
+  }
 }
 
 // A smugglers' sea cave: a short cave whose black water reaches in from the
@@ -1343,8 +1517,10 @@ export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   } else if (kind === 'seacave') {
     sub = smugglersCave(game, name, s).map;
   } else if (fk.mapType === 'dungeon') {
-    const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : 'cave';
-    sub = generateDungeon({ name, seed: s, style, monsters: kind === 'fortress' ? ['orc', 'orc_archer', 'skeleton'] : ['goblin', 'giant_rat', 'skeleton', 'giant_spider'] }).map;
+    const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : kind === 'temple' ? 'temple' : 'cave';
+    const have = (id) => !game || game.monsters.some((m) => m.id === id);
+    const monsters = kind === 'fortress' ? ['orc', 'orc_archer', 'skeleton'] : kind === 'temple' ? ['lizardfolk', 'stone_guardian', 'mist_wraith', 'skeleton'].filter(have) : ['goblin', 'giant_rat', 'skeleton', 'giant_spider'];
+    sub = generateDungeon({ name, seed: s, style, monsters }).map;
   } else {
     const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : kind === 'harbour' ? 'harbour' : 'town';
     sub = generateSettlement(style, { name, seed: s }).map;
@@ -1529,6 +1705,7 @@ export function generateArena(style, seed, opt = {}) {
   const base = {
     grass: 'grass', forest: 'grass', hills: 'hills', swamp: 'swamp', desert: 'sand', snow: 'snow',
     water: 'ocean', bridge: 'grass', town: 'cobble', indoor: 'floor_stone', cave: 'cave_floor', ash: 'ash', ruins: 'grass',
+    jungle: 'vines', beach: 'sand', temple: 'ruins_floor',
   }[style] || 'grass';
   const map = createMap({ type: 'arena', w: W, h: H, name: 'Battle', fill: base });
   map.lighting = opt.lighting || 'day';
@@ -1576,6 +1753,26 @@ export function generateArena(style, seed, opt = {}) {
       break;
     }
     case 'bridge': for (let y = 0; y < H; y++) for (const x of [0, 1, W - 2, W - 1]) setTile(map, x, y, T.shallows); break;
+    // (isles) thick jungle on the flanks, a few giants for cover between
+    case 'jungle':
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = x <= 1 || x >= W - 2 ? 0.45 : y >= 3 && y <= H - 4 ? 0.1 : 0;
+        if (rng.chance(p)) setTile(map, x, y, T[rng.pick(['jungle_tree', 'jungle_tree', 'jungle'])]);
+      }
+      break;
+    // palms along a strand of sand, the sea beyond the far edge
+    case 'beach':
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = x <= 1 || x >= W - 2 ? 0.3 : y >= 3 && y <= H - 4 ? 0.07 : 0;
+        if (rng.chance(p)) setTile(map, x, y, T[rng.pick(['palm_tree', 'palm_tree', 'palms'])]);
+      }
+      break;
+    // a ruined court: broken pillars in rows, an idol, creepers over the stones
+    case 'temple':
+      for (let y = 3; y < H - 2; y += 2) for (let x = 2; x < W - 2; x += 3) if (rng.chance(0.5)) setTile(map, x, y, T.temple_wall);
+      scatter(['vines', 'vines', 'idol'], 0.06);
+      for (let y = 0; y < H; y++) for (const x of [0, W - 1]) if (rng.chance(0.4)) setTile(map, x, y, T.jungle_tree);
+      break;
     default: break;
   }
   // make sure spawn rows are walkable
@@ -1585,3 +1782,6 @@ export function generateArena(style, seed, opt = {}) {
   if (style !== 'water') for (let y = 0; y < 2; y++) for (let x = 2; x < W - 2; x++) clear(partyFloor)(x, y);
   return map;
 }
+
+// (isles) for the tests and screenshots: build places and battlefields in the page
+if (typeof window !== 'undefined') window.__generate = { generateDungeon, generateArena, generateSettlement, placeFeature, smugglersCave };

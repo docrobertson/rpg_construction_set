@@ -26,6 +26,7 @@ import { sfx } from '../core/sound.js';
 import { playMusic } from '../core/music.js';
 import { confirmDialog } from '../ui/dom.js';
 import { charmWay, charmCalms, companyEffects } from './charms.js';
+import { puzzleSolid, puzzleFloor } from './puzzles.js';
 
 // A map is fought over like this when the designer says so, or (unsaid) when
 // it is a dungeon: caves, crypts, towers, fortresses, the deeper levels
@@ -142,7 +143,7 @@ export class Delve {
         if (!spot) break;
         taken.add(sq(spot.x, spot.y));
         const hp = Math.max(1, roll(def.hp || '2d8'));
-        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1] });
+        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1], ...(k === 0 && roster.find((r) => r.id === id)?.as ? { as: roster.find((r) => r.id === id).as } : {}) }); // (company: a turncoat by name)
       }
     }
     if (e.roaming) g.ent = { ...e };
@@ -158,7 +159,7 @@ export class Delve {
     this.applyVis(this.s.visible);
   }
 
-  def(mm) { return byId(this.game.monsters, mm.id); }
+  def(mm) { const d = byId(this.game.monsters, mm.id); return d && mm.as ? { ...d, ...mm.as } : d; } // (company: a turncoat keeps their name and face)
   living(g) { return (g?.m || []).filter((mm) => !mm.dead); }
   entityOf(gid) { return this.map.entities.find((e) => e.id === gid) || this.groups[gid]?.ent || this.groups[gid]?.src || null; }
   mainDef(gid) {
@@ -189,7 +190,8 @@ export class Delve {
 
   // things that hold a square: people, signs, curiosities, chests, passages
   entityBlocks(x, y, except = null) {
-    return this.map.entities.some((e) => e !== except && e.x === x && e.y === y && e.type !== 'monster' && e.type !== 'treasure');
+    // (puzzles: plates, runes and an open gate are floor to stand on)
+    return this.map.entities.some((e) => e !== except && e.x === x && e.y === y && e.type !== 'monster' && e.type !== 'treasure' && !puzzleFloor(e));
   }
 
   memberAt(x, y, alsoAware = true) {
@@ -223,7 +225,7 @@ export class Delve {
   heroPass(x, y) {
     if (!this.walkable(x, y)) return false;
     if (this.memberAt(x, y)) return false;
-    return !this.map.entities.some((e) => e.x === x && e.y === y && ['npc', 'sign', 'event', 'ship'].includes(e.type));
+    return !this.map.entities.some((e) => e.x === x && e.y === y && (['npc', 'sign', 'event', 'ship'].includes(e.type) || puzzleSolid(e))); // (puzzles)
   }
 
   // what bumping into this square means: a monster (a hero striking it)
@@ -822,7 +824,7 @@ export class Delve {
     for (const g of Object.values(this.groups)) if (!g.aware) for (const mm of g.m) if (!mm.dead) all.add(mm.y * w + mm.x);
     for (const u of this.battle?.units || []) if (u.fled && u.side === 'enemy' && !u.dead) all.add(u.y * w + u.x);
     for (const e of this.map.entities) {
-      if (['npc', 'sign', 'event', 'ship'].includes(e.type) && e !== this.hidden) all.add(e.y * w + e.x);
+      if ((['npc', 'sign', 'event', 'ship'].includes(e.type) || puzzleSolid(e)) && e !== this.hidden) all.add(e.y * w + e.x); // (puzzles: a boulder, a shut gate)
       if (e.type === 'portal') foe.add(e.y * w + e.x);
     }
     if (this.map.exit) for (let i = 0; i < this.map.tiles.length; i++) { const t = terrain(this.map.tiles[i]); if (t.key === 'stairs_up' || t.key === 'stairs_down') foe.add(i); }

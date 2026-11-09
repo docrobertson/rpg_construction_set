@@ -1,5 +1,6 @@
 // Construction Set: the Quests tab, the inspector for events / points of
 // interest, the event placing tool, and quest roles on the person inspector.
+import { recruitables } from '../../game/company.js';
 import { h, clear, confirmDialog } from '../dom.js';
 import { buildForm } from './forms.js';
 import { uniqueId, deepClone, uid, slugify } from '../../core/util.js';
@@ -228,6 +229,9 @@ export function choiceFields(game) {
     { key: 'effects.flag', label: 'Sets story flag', type: 'text', show: (c) => !c.leave },
     { key: 'effects.quest', label: 'Starts quest', type: 'select', options: questOpts(game), empty: '— none —', nullable: true, show: (c) => !c.leave },
     { key: 'effects.reveal', label: 'Reveals the land around (tiles)', type: 'number', min: 0, show: (c) => !c.leave },
+    // (company) a companion parts ways, by their own leaving rule
+    { key: 'effects.leave', label: 'A companion leaves the company', type: 'select', options: () => recruitables(game), empty: '— none —', nullable: true, show: (c) => !c.leave },
+    { key: 'effects.reset', label: 'Rolls the boulders of group back home', type: 'text', placeholder: 'e.g. rocks1', show: (c) => !c.leave }, // (puzzles)
     { key: 'effects.fortune', label: 'A fortune: shows an unfound place, a hoard or a great beast', type: 'check', show: (c) => !c.leave },
     { key: 'effects.fairy', label: 'Fairy magic (something unpredictable)', type: 'select', options: [['wild', 'Wild: good or mischief'], ['kind', 'Kind: only good things']], empty: '— none —', nullable: true, show: (c) => !c.leave },
     { key: 'effects.ship', label: 'Builds and sells the ship (her name and price are set above)', type: 'check', show: (c) => !c.leave },

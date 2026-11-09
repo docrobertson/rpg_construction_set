@@ -28,6 +28,11 @@ const LIGHTING = {
   night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, vellum: 0.5, fogNear: 1.3, fogFar: 3.6 },
   dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
+// (isles) a map's mood tints its light: a temple's dark is green and close,
+// its haze the colour of wet stone, its torchlight warmer
+const MOODS = {
+  temple: { dark: { bg: 0x0a120e, sky: 0x1a3a30, hemiSky: 0x8cc4a8, hemiGround: 0x2a3a1e, hemi: 1.12, sun: 0.7, sunColor: 0xb8e0c4, light: 1.2, fogNear: 1.3, fogFar: 3.8 } },
+};
 const WORLD_FIGURE = 0.78;
 // (how much larger each point of interest is drawn there; the other things
 // treasure is found in are drawn larger too, like a chest)
@@ -151,7 +156,7 @@ export class View {
   setLighting(name) {
     const L = LIGHTING[name] || LIGHTING.day;
     this.lighting = name;
-    this._applyLight({ ...L });
+    this._applyLight({ ...L, ...(MOODS[this.map?.mood]?.[name] || {}) });
   }
 
   // Blend the outdoor light through the day: 0 = full day, 0.5 = dusk, 1 = night
@@ -176,6 +181,7 @@ export class View {
     // buildings claim their walls before the terrain is built round them
     this.buildings.prepare(map);
     this.terrain.extraLights = []; // the last map's glows (build() adds this map's)
+    this.terrain.puzzleLights = []; // (puzzles) and its braziers' (the session adds this map's)
     this.terrain.setMap(map);
     this.buildings.build();
     this._buildingsDirty = false;

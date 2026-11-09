@@ -21,6 +21,10 @@ export const RACE_LOOKS = {
   goblin: { scale: 0.8, skin: 0x8cc43c, hair: 0x2a2a1a, leg: 0.22, torso: 0.2, sw: 0.12, hw: 0.062, headR: 0.205, limb: 0.8, shape: 'goblin', ears: 'goblin', nose: 'goblin', hunch: 0.04 },
   troll: { scale: 1.5, skin: 0x8a948a, hair: 0x3a3a2a, leg: 0.34, torso: 0.32, sw: 0.2, hw: 0.08, headR: 0.1, limb: 1.25, shape: 'troll', tusks: true, ears: 'troll', nose: 'troll', hunch: 0.11, mohawk: true, longArms: true },
   skeleton: { scale: 1, skin: 0xece4cc, hair: null, leg: 0.35, torso: 0.25, sw: 0.15, hw: 0.068, headR: 0.158, limb: 0.6, shape: 'skull', bones: true },
+  // (isles) lizardfolk: bare scales, a long toothy snout, a crest of spines,
+  // clawed feet and a heavy tail; hags: hunched crones with a hook nose
+  lizard: { scale: 1.02, skin: 0x6a9a40, hair: null, leg: 0.32, torso: 0.27, sw: 0.17, hw: 0.078, headR: 0.118, limb: 1.15, shape: 'lizard', nose: 'snout', ears: 'none', hunch: 0.07, scaly: true, tail: true, claws: true, ownEyes: true },
+  hag: { scale: 0.95, skin: 0x9aae8a, hair: 0xc8ccc0, leg: 0.32, torso: 0.24, sw: 0.15, hw: 0.07, headR: 0.132, limb: 0.92, shape: 'hag', nose: 'hag', ears: 'goblin', faceRow: 'goblin', hunch: 0.13, longHair: true, longArms: true, crone: true, claws: true },
 };
 
 export const HAIR_STYLES = ['short', 'long', 'ponytail', 'braids', 'topknot', 'bald'];
@@ -525,7 +529,7 @@ export function humanoid(spec0, TPL) {
   const hsh = hashLook(spec0);
   const spec = folk(spec0, race, hsh);
   const bones = !!race.bones;
-  const fair = spec.face ? spec.face === 'fair' : (!race.tusks && !bones && spec.race !== 'goblin' && hsh > 0.55 && spec.beard == null && !race.beard);
+  const fair = spec.face ? spec.face === 'fair' : (!race.tusks && !bones && spec.race !== 'goblin' && !race.crone && !race.scaly && hsh > 0.55 && spec.beard == null && !race.beard);
   const skin = spec.eyes != null && !race.bones ? blend(spec.skin ?? race.skin, 0x2a2a3a, 0.55) : spec.skin ?? race.skin;
   const hair = spec.hair ?? race.hair;
   const body = spec.body ?? 0x7a2a2a;
@@ -544,8 +548,10 @@ export function humanoid(spec0, TPL) {
   const legs = spec.legs ?? (robe ? deep(body, 0.5) : blend(deep(body, 0.45), 0x4a3a2a, 0.5));
   const bootC = spec.boots ?? (plate ? metal : leatherA || !armour ? LEATHER : DARKLEATHER);
   const ankleY = 0.07, hipY = ankleY + race.leg, shY = hipY + race.torso;
-  const shirt = bones ? skin : chain ? 0x9aa0a8 : body;
-  const sleeve = bones ? skin : plate ? metal : chain ? 0x9aa0a8 : body;
+  // (isles) a lizard goes bare-scaled above a loincloth unless armoured or robed
+  const bare = !!race.scaly && !armour && !robe;
+  const shirt = bones || bare ? skin : chain ? 0x9aa0a8 : body;
+  const sleeve = bones || bare ? skin : plate ? metal : chain ? 0x9aa0a8 : body;
   const tabard = spec.tabard ?? (plate || chain ? (spec.cape ?? body) : null);
   const bodyHi = tint(body, 1.12), bodyLo = deep(body, 0.62);
 
@@ -569,6 +575,15 @@ export function humanoid(spec0, TPL) {
       ball(B, hair ?? 0x6a4020, fx, 0.064, 0.03, 0.048 * limb, 0.026, 0.065 * limb);
     } else if (bones) {
       ball(B, BONE, fx, 0.025, 0.04, 0.035, 0.025, 0.07);
+    } else if (race.claws && !race.crone) {
+      // (isles) a lizard's splayed foot: three long clawed toes and a spur behind
+      ball(B, skin, fx, 0.04, 0.03, 0.055 * limb, 0.04, 0.07 * limb);
+      for (let k = -1; k <= 1; k++) {
+        const t0 = [fx + k * 0.022, 0.03, 0.06], t1 = [fx + k * 0.04, 0.016, 0.13 * limb + 0.02];
+        tube(B, [t0, t1], [0.022, 0.014], [skin, deep(skin, 0.8)], { segs: 6 });
+        tube(B, [t1, add(t1, [k * 0.008, -0.012, 0.03])], [0.01, 0.001], 0x2a2420, { segs: 4, outline: true });
+      }
+      tube(B, [[fx, 0.035, -0.02], [fx, 0.012, -0.07]], [0.016, 0.002], deep(skin, 0.7), { segs: 4 });
     } else if (robe) {
       // just the toes of the shoes peep out from under a robe
       ball(B, bootC, fx, 0.04, 0.07, 0.055 * limb, 0.045, 0.085 * limb, { grad: 0.3 });
@@ -612,7 +627,7 @@ export function humanoid(spec0, TPL) {
       [sw * 0.8, shY + 0.01, 0.075],
       [0.05, shY + 0.04, 0.045],
     ].map(([a, y, b, dz = 0]) => [a, y, b, dz + hunch * Math.max(0, (y - hipY) / race.torso) * 0.6]);
-    const torsoCol = plate ? [deep(metal, 0.62), metal, tint(metal, 1.12)] : chain ? [deep(shirt, 0.7), shirt] : leatherA ? [deep(LEATHER, 0.7), LEATHER, tint(LEATHER, 1.1)] : [bodyLo, body, bodyHi];
+    const torsoCol = plate ? [deep(metal, 0.62), metal, tint(metal, 1.12)] : chain ? [deep(shirt, 0.7), shirt] : leatherA ? [deep(LEATHER, 0.7), LEATHER, tint(LEATHER, 1.1)] : bare ? [deep(skin, 0.66), skin, tint(skin, 1.1)] : [bodyLo, body, bodyHi];
     MT(B, () => lathe(B, prof, torsoCol, { segs: 16 }), plate || chain);
     if (bellyK) ball(B, leatherA ? LEATHER : body, 0, hipY + 0.1, 0.035 + bellyK, sw * 0.62, 0.1, 0.07);
     // chest plate details: a raised breastplate with a central ridge
@@ -624,7 +639,14 @@ export function humanoid(spec0, TPL) {
       // laced front
       for (let k = 0; k < 3; k++) tube(B, [[-0.03, hipY + 0.1 + k * 0.045, 0.098], [0.03, hipY + 0.12 + k * 0.045, 0.098]], 0.006, 0xd8c8a0, { segs: 4 });
     }
-    if (!plate && !chain && !leatherA && !robe) {
+    if (bare) {
+      // pale belly scales down the front, a hide harness across the chest
+      const bellyC = blend(skin, 0xf0e0a0, 0.55);
+      ball(B, bellyC, 0, hipY + race.torso * 0.5, 0.06 + hunch * 0.5, sw * 0.62, race.torso * 0.48, 0.06);
+      for (let k = 0; k < 3; k++) tube(B, [[-sw * 0.45, hipY + race.torso * (0.25 + k * 0.2), 0.105 + hunch * (0.3 + k * 0.1)], [sw * 0.45, hipY + race.torso * (0.25 + k * 0.2), 0.105 + hunch * (0.3 + k * 0.1)]], 0.006, deep(bellyC, 0.8), { segs: 4 });
+      tube(B, [[sw * 0.85, shY + 0.0, 0.0 + hunch * 0.6], [0, hipY + race.torso * 0.55, 0.115 + hunch * 0.5], [-sw * 0.85, hipY + 0.06, 0.03]], 0.02, [LEATHER, DARKLEATHER], { segs: 6, sq: 0.45 });
+      MT(B, () => ball(B, spec.trim ?? 0xd8b850, 0, hipY + race.torso * 0.55, 0.12 + hunch * 0.5, 0.026, 0.026, 0.014));
+    } else if (!plate && !chain && !leatherA && !robe) {
       // a tunic's V-neck in a lighter undershirt
       ball(B, blend(body, 0xf0e4c8, 0.55), 0, shY - 0.025, 0.06 + hunch * 0.5, 0.045, 0.035, 0.02);
     }
@@ -642,6 +664,15 @@ export function humanoid(spec0, TPL) {
     }
   }
 
+  // (isles) a heavy tail sweeping down behind and out to the side
+  if (race.tail) {
+    const tz = -0.06 - hunch * 0.2;
+    tube(B, [[0, hipY + 0.02, tz], [0.03, hipY * 0.62, tz - 0.14], [0.11, 0.07, tz - 0.3], [0.24, 0.03, tz - 0.36], [0.33, 0.03, tz - 0.32]], [0.075 * limb, 0.062 * limb, 0.042 * limb, 0.024 * limb, 0.006], [skin, deep(skin, 0.75)], { segs: 9, steps: 16 });
+    if (spec.crest !== false) for (let k = 0; k < 4; k++) {
+      const p = [0.02 + k * 0.03, hipY * (0.6 - k * 0.15) + 0.04, tz - 0.14 - k * 0.07];
+      tube(B, [p, add(p, [0, 0.05 - k * 0.008, -0.03])], [0.018, 0.002], spec.crest ?? 0xd86a2a, { segs: 4, sq: 0.35 });
+    }
+  }
   // ---- skirts and robes
   if (robe) {
     // a full robe: bell from the waist to the ground, with a trimmed hem
@@ -793,18 +824,18 @@ export function humanoid(spec0, TPL) {
   else tube(B, [[0, shY, -0.02], [0, hd.y - headR * 0.7, hd.z - 0.02]], 0.018, BONE, { segs: 5 });
   // face paint choice
   const elfish = spec.race === 'elf';
-  const row = bones ? null : race.shape === 'orc' ? FACE_ROWS.orc : race.shape === 'goblin' ? FACE_ROWS.goblin : race.shape === 'troll' ? FACE_ROWS.troll
+  const row = bones || race.ownEyes ? null : race.faceRow ? FACE_ROWS[race.faceRow] : race.shape === 'orc' ? FACE_ROWS.orc : race.shape === 'goblin' ? FACE_ROWS.goblin : race.shape === 'troll' ? FACE_ROWS.troll
     : elfish ? (fair ? FACE_ROWS.elfFair : FACE_ROWS.elf) : fair ? FACE_ROWS.fair : FACE_ROWS.bold;
   const irisPool = elfish ? [1, 2, 5, 3] : [0, 0, 1, 2, 3, 4];
   const iris = spec.iris ?? irisPool[Math.floor(hashLook({ ...spec, race: 'x' + spec.race }) * irisPool.length)];
-  const browName = race.shape === 'orc' || race.shape === 'goblin' || race.shape === 'troll' ? 'angry' : spec.race === 'dwarf' ? 'bushy' : elfish ? (fair ? 'fair' : 'elf') : fair ? 'fair' : 'bold';
+  const browName = race.shape === 'orc' || race.shape === 'goblin' || race.shape === 'troll' || race.crone ? 'angry' : spec.race === 'dwarf' ? 'bushy' : elfish ? (fair ? 'fair' : 'elf') : fair ? 'fair' : 'bold';
   const browCol = row == null ? null : race.tusks || race.shape === 'goblin' ? deep(skin, 0.35) : hair != null ? deep(hair, (hair & 0xff) > 0xa0 ? 0.7 : 0.8) : 0x3a2a1a;
   const human = row != null && !race.tusks && race.shape !== 'goblin' && race.shape !== 'troll';
   const lashes = human && spec.eyes == null && (spec.lashes ?? fair) ? LASHES[elfish ? 'elf' : 'human'] : null;
-  sculptHead(B, spec.eyes != null && !bones ? null : F, {
+  sculptHead(B, (spec.eyes != null && !bones) || race.ownEyes ? null : F, {
     x: hd.x, y: hd.y, z: hd.z, r: headR, skin: bones ? BONE : skin, shape: hd.shape,
     row, iris, brow: row == null ? null : BROWS[browName], browColor: browCol, lashes,
-    blush: bones || race.tusks || spec.eyes != null || race.shape === 'goblin' ? 0 : fair ? 0.32 : 0.2,
+    blush: bones || race.tusks || spec.eyes != null || race.shape === 'goblin' || race.crone || race.scaly ? 0 : fair ? 0.32 : 0.2,
     form: bones ? 0 : 1, skinTag: !bones && spec.eyes == null,
   });
   const r = headR;
@@ -831,7 +862,27 @@ export function humanoid(spec0, TPL) {
       }
     }
     const nose = race.nose;
-    if (nose === 'goblin') {
+    if (nose === 'snout') {
+      // (isles) a long flat lizard's snout, jaws a little apart, a row of teeth
+      const a = onHead(hd, 1.78, 0, -0.08);
+      const tip = add(a, [0, -0.12 * r, 1.0 * r]);
+      tube(B, [a, add(a, [0, -0.02 * r, 0.55 * r]), tip], [0.5 * r, 0.4 * r, 0.24 * r], [skin, tint(skin, 1.06)], { segs: 10, sq: 0.62, up: [0, 1, 0] });
+      const j0 = add(a, [0, -0.32 * r, -0.05 * r]), jt = add(tip, [0, -0.3 * r, -0.08 * r]);
+      tube(B, [j0, add(j0, [0, -0.08 * r, 0.5 * r]), jt], [0.42 * r, 0.32 * r, 0.18 * r], [blend(skin, 0xf0e0a0, 0.45), blend(skin, 0xf0e0a0, 0.3)], { segs: 9, sq: 0.5, up: [0, 1, 0] });
+      ball(B, 0x6a2a24, ...lerp3(add(a, [0, -0.2 * r, 0.3 * r]), add(tip, [0, -0.2 * r, -0.1 * r]), 0.4), 0.3 * r, 0.06 * r, 0.42 * r);
+      for (let k = 0; k < 4; k++) for (const s of [-1, 1]) {
+        const p = lerp3(add(a, [s * 0.32 * r, -0.2 * r, 0.25 * r]), add(tip, [s * 0.14 * r, -0.16 * r, -0.08 * r]), k / 3);
+        tube(B, [p, add(p, [0, -0.1 * r, 0])], [0.04 * r, 0.004 * r], 0xf4ecd8, { segs: 4, outline: true });
+      }
+      for (const s of [-1, 1]) ball(B, 0x1a1410, tip[0] + s * 0.09 * r, tip[1] + 0.12 * r, tip[2] - 0.02 * r, 0.04 * r, 0.03 * r, 0.03 * r);
+    } else if (nose === 'hag') {
+      // a long hooked nose with a wart, and one snaggle tooth
+      const a = onHead(hd, 1.72, 0, -0.02);
+      tube(B, [a, add(a, [0, 0.02 * r, 0.42 * r]), add(a, [0, -0.2 * r, 0.72 * r]), add(a, [0, -0.38 * r, 0.7 * r])], [0.17 * r, 0.14 * r, 0.09 * r, 0.03 * r], [skin, tint(skin, 1.04)], { segs: 8 });
+      ball(B, deep(skin, 0.8), a[0] + 0.07 * r, a[1] - 0.02 * r, a[2] + 0.5 * r, 0.05 * r);
+      const t = onHead(hd, 2.25, 0.25, 0.02);
+      tube(B, [t, add(t, [0, -0.16 * r, 0.06 * r])], [0.05 * r, 0.02 * r], 0xe8dcb0, { segs: 5 });
+    } else if (nose === 'goblin') {
       const a = onHead(hd, 1.75, 0, 0.0);
       tube(B, [a, add(a, [0, -0.1 * r, 0.45 * r]), add(a, [0, -0.3 * r, 0.75 * r])], [0.2 * r, 0.14 * r, 0.04 * r], [skin, tint(skin, 1.05)], { segs: 8 });
     } else if (nose === 'troll') {
@@ -864,8 +915,48 @@ export function humanoid(spec0, TPL) {
       } else if (ears === 'orc' || ears === 'troll') {
         const L = ears === 'troll' ? 1.0 : 0.5;
         tube(B, [e, add(e, [s * 0.3 * L * r, 0.12 * r, -0.12 * r]), add(e, [s * 0.75 * L * r, (ears === 'troll' ? -0.05 : 0.3) * r, -0.28 * r])], [0.2 * r, 0.16 * r, 0.02 * r], skin, { sq: 0.4, segs: 8, up: [0, 1, 0] });
-      } else if (!tucked) {
+      } else if (!tucked && ears !== 'none') {
         ball(B, tint(skin, 0.95), e[0] + s * 0.04 * r, e[1], e[2], 0.12 * r, 0.2 * r, 0.12 * r);
+      }
+    }
+    if (race.ownEyes) {
+      // (isles) a reptile's eyes, set high at the sides: amber, slit-pupilled,
+      // under a scaly brow; and a crest of spines from brow to nape
+      for (const s of [-1, 1]) {
+        const e = onHead(hd, 1.42, s * 0.62, 0.02);
+        ball(B, 0x2a2018, e[0], e[1], e[2], 0.25 * r, 0.21 * r, 0.18 * r);
+        ball(B, 0xf0c030, e[0] + s * 0.03 * r, e[1], e[2] + 0.06 * r, 0.2 * r, 0.17 * r, 0.14 * r);
+        ball(B, 0x140c08, e[0] + s * 0.035 * r, e[1], e[2] + 0.16 * r, 0.05 * r, 0.15 * r, 0.04 * r);
+        ball(B, 0xffffff, e[0] - s * 0.04 * r, e[1] + 0.08 * r, e[2] + 0.17 * r, 0.04 * r, 0.04 * r, 0.02 * r);
+        const b = onHead(hd, 1.25, s * 0.58, 0.06);
+        tube(B, [add(b, [-s * 0.15 * r, 0.02 * r, 0.05 * r]), b, add(b, [s * 0.18 * r, -0.04 * r, -0.12 * r])], [0.08 * r, 0.1 * r, 0.04 * r], deep(skin, 0.85), { segs: 6 });
+      }
+      if (spec.crest !== false) {
+        const cc = spec.crest ?? 0xd86a2a;
+        for (let k = 0; k < 6; k++) {
+          const th = 0.55 + k * 0.38;
+          const p = onHead(hd, th, Math.PI, -0.05);
+          const q = onHead(hd, th - 0.25, Math.PI, 0.7 - k * 0.06);
+          tube(B, [p, add(q, [0, 0.12 * r, 0])], [0.13 * r, 0.01 * r], [cc, tint(cc, 1.25)], { segs: 5, sq: 0.3, up: [1, 0, 0] });
+        }
+        // and the first spines over the brow, where the camera sees them
+        for (let k = 0; k < 2; k++) {
+          const p = onHead(hd, 0.25 + k * 0.3, 0, 0.0);
+          tube(B, [p, add(p, [0, 0.36 * r - k * 0.08 * r, -0.1 * r])], [0.12 * r, 0.01 * r], [cc, tint(cc, 1.25)], { segs: 5, sq: 0.3, up: [1, 0, 0] });
+        }
+      }
+    }
+    if (race.crone) {
+      // a necklace of shells and teeth
+      for (let k = 0; k < 7; k++) {
+        const a = -1.2 + k * 0.4;
+        ball(B, k % 2 ? 0xf0e6d0 : 0xe8b8a0, Math.sin(a) * 0.08, shY - 0.03 - Math.cos(a) * 0.05, 0.07 + Math.cos(a) * 0.05 + hunch * 0.6, 0.016, 0.02, 0.012);
+      }
+      // and wet weed hanging from her shoulders and her hem
+      for (let k = 0; k < 6; k++) {
+        const s = k % 2 ? 1 : -1, x = s * (sw * (0.5 + (k >> 1) * 0.25));
+        const y0 = k < 4 ? shY - 0.01 : hipY * 0.4, z0 = (k < 4 ? 0.06 : 0.12) + hunch * 0.5;
+        tube(B, [[x, y0, z0], [x + s * 0.02, y0 - 0.1, z0 + 0.02], [x + s * 0.01, y0 - 0.2 - (k % 3) * 0.04, z0 + 0.01]], [0.02, 0.016, 0.004], [0x4a7a3a, 0x2e5a2a], { segs: 5, sq: 0.4 });
       }
     }
     if (race.tusks) {

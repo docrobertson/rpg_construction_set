@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -57,6 +57,8 @@ export function newGame(opts = {}) {
     quests: [],
     // the designer's outline: chapters that group quests (see game/story.js)
     story: { chapters: [] },
+    // (company) whodunits: clues, suspects and a judge (see game/company.js)
+    mysteries: [],
     maps: [],
   };
   let world;
@@ -163,6 +165,7 @@ export function migrateGame(game) {
   ensure('monsters', MONSTERS);
   migrateCharms(game);
   migratePools(game);
+  migrateIsles(game);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   migrateMagic(game);
   // classes from before class specials existed get their default one
@@ -174,8 +177,35 @@ export function migrateGame(game) {
   if (!game.story || typeof game.story !== 'object') game.story = { chapters: [] };
   if (!Array.isArray(game.story.chapters)) game.story.chapters = [];
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
+  migrateCompany(game);
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// (company) Starting heroes, companions' words and mysteries came later.
+// startHeroes is left unset in older games: party creation then makes four
+// and lets the player take more or fewer, as it always did.
+export function migrateCompany(game) {
+  const st = game.settings;
+  if (st.startHeroes != null && st.startHeroes !== '') {
+    const n = parseInt(st.startHeroes, 10);
+    if (n > 0) st.startHeroes = Math.min(8, n); else delete st.startHeroes;
+  }
+  if (!Array.isArray(game.mysteries)) game.mysteries = [];
+  game.mysteries = game.mysteries.filter((my) => my && typeof my === 'object');
+  for (const my of game.mysteries) {
+    if (!my.id) my.id = uid('mystery');
+    if (!Array.isArray(my.suspects)) my.suspects = [];
+    if (!Array.isArray(my.clues)) my.clues = [];
+    if (!my.right || typeof my.right !== 'object') my.right = {};
+    if (!my.wrong || typeof my.wrong !== 'object') my.wrong = {};
+  }
+  for (const m of game.maps) for (const e of m.entities || []) {
+    const r = e.type === 'npc' && e.recruit;
+    if (!r) continue;
+    if (r.banter != null && !Array.isArray(r.banter)) delete r.banter;
+    if (r.leaves != null && (typeof r.leaves !== 'object' || Array.isArray(r.leaves))) delete r.leaves;
+  }
 }
 
 // Charms came later (a fifth equipment slot and the trinkets worn in it).
@@ -192,6 +222,24 @@ export function migrateCharms(game) {
     const it = game.items.find((x) => x.id === id);
     if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
   }
+}
+
+// The isles came later (ISLES_V 1): their folk and beasts, the powers they
+// fight with and the gear found there join older games once, so a designer
+// can build a tropical land in them. Their habitats are the isles' own, so
+// nothing new walks the old lands.
+export const ISLES_V = 1;
+const ISLE_MONSTERS = ['giant_frog', 'jungle_cat', 'lizardfolk', 'lizard_shaman', 'reef_shark', 'mist_wraith', 'stone_guardian', 'sea_hag', 'naga'];
+const ISLE_ABILITIES = ['tongue_lash', 'venom_spit', 'shark_lunge', 'thrash', 'wail', 'constrict', 'hag_curse'];
+const ISLE_ITEMS = ['coral_charm', 'jade_idol', 'hookblade', 'lizardhide'];
+export function migrateIsles(game) {
+  if ((game.settings.islesV || 0) >= ISLES_V) return;
+  game.settings.islesV = ISLES_V;
+  const add = (list, defs, ids) => { for (const id of ids) { const d = defs.find((x) => x.id === id); if (d && !list.some((x) => x.id === id)) list.push(deepClone(d)); } };
+  add(game.monsters, MONSTERS, ISLE_MONSTERS);
+  add(game.items, ITEMS, ISLE_ITEMS);
+  // (games from before battle abilities get the whole set when they load: see rules.js)
+  if (Array.isArray(game.abilities)) add(game.abilities, ABILITIES, ISLE_ABILITIES);
 }
 
 // Restoring draughts once refilled any pool, so a cleric drank Mana Tonic for

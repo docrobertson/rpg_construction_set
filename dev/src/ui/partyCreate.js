@@ -13,6 +13,7 @@ import { byId } from '../data/schema.js';
 import { heroSchool } from '../game/magic.js';
 import { sfx } from '../core/sound.js';
 import { randomPerson, randomOutfit, SKINS, HAIRS, OUTFITS, STYLE_NAMES, FACE_NAMES, EYE_COLOURS } from '../game/looks.js';
+import { startHeroes } from '../game/company.js';
 
 const BASE = 8, MAXBASE = 17;
 
@@ -26,6 +27,10 @@ export function partyCreation(app, game, { onDone, onBack }) {
   const view = app.view;
   const rng = new RNG();
   const maxParty = Math.max(1, Math.min(8, game.settings.maxParty || 6));
+  // (company) how many set out: a number the designer chose is exactly that
+  // many (one: "Create your hero"); unset, four, and the player may change it
+  const start = startHeroes(game);
+  const lone = start.fixed && start.n === 1;
   const points = game.settings.creationPoints ?? 24;
   const races = game.races;
   const classes = game.classes.filter((c) => classAvailable(game, c));
@@ -48,7 +53,9 @@ export function partyCreation(app, game, { onDone, onBack }) {
     const left = wide && l ? l.right + 4 : 10, right = wide && r ? innerWidth - r.left + 4 : 10;
     const top = wide ? 74 : 10, bottom = wide ? 10 : (r ? innerHeight - r.top + 4 : 10);
     const x0 = 7 - Math.floor(n / 2);
-    view.frameArea(x0 - 0.3, 2.4, x0 + Math.max(3, n) + 0.3, 5.2, { left, right, top, bottom });
+    // (a lone hero stands in the middle, nearer: there is only one to look at)
+    if (n === 1) view.frameArea(x0 - 0.9, 2.9, x0 + 1.9, 4.9, { left, right, top, bottom });
+    else view.frameArea(x0 - 0.3, 2.4, x0 + Math.max(3, n) + 0.3, 5.2, { left, right, top, bottom });
   };
 
   const heroes = [];
@@ -102,11 +109,11 @@ export function partyCreation(app, game, { onDone, onBack }) {
     heroes.length = 0;
     const want = [['dwarf', 'warrior'], ['elf', 'ranger'], ['human', 'wizard'], ['human', 'cleric'], ['dwarf', 'runesmith'], ['elf', 'minstrel']];
     for (const [r, c] of want) {
-      if (heroes.length >= Math.min(4, maxParty)) break;
+      if (heroes.length >= start.n) break;
       if (!byId(classes, c)) continue;
       heroes.push(newHero(byId(races, r) ? r : races[0].id, c));
     }
-    while (heroes.length < Math.min(4, maxParty)) heroes.push(newHero(rng.pick(races).id, rng.pick(classes).id));
+    while (heroes.length < start.n) heroes.push(newHero(rng.pick(races).id, rng.pick(classes).id));
     sel = heroes[0];
   }
 
@@ -114,7 +121,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
   // front), races that suit them, varied attributes and looks
   function randomParty() {
     heroes.length = 0;
-    const n = Math.min(4, maxParty);
+    const n = start.n;
     const pool = rng.shuffle(classes.slice());
     const front = pool.filter((k) => (k.hpBase || 10) >= 14 || k.shields);
     const picks = front.length ? [rng.pick(front)] : [];
@@ -188,24 +195,35 @@ export function partyCreation(app, game, { onDone, onBack }) {
     const scroll = root.querySelector('.create-hero')?.scrollTop || 0;
     clear(root);
     const head = h('div.create-head',
-      h('div.ch-title', 'Gather Your Company'),
-      h('div.ch-steps',
-        h('span', h('b', '1'), ' Pick up to ', String(maxParty), ' heroes'),
-        h('span', h('b', '2'), ' Choose each one’s race and calling'),
-        h('span', h('b', '3'), ' Begin the adventure')));
-    const roster = h('div.create-roster.panel',
-      h('h2', ico('party'), ' Your Company'),
-      h('p.hint', `Up to ${maxParty} heroes. The first leads the way; click one to shape them.`),
-      h('div.roster-list', ...heroes.map((hero, i) => {
+      h('div.ch-title', lone ? 'Create Your Hero' : 'Gather Your Company'),
+      lone ? h('div.ch-steps',
+        h('span', h('b', '1'), ' Choose a race and a calling'),
+        h('span', h('b', '2'), ' Shape their look and name'),
+        h('span', h('b', '3'), ' Set out alone'))
+        : h('div.ch-steps',
+          h('span', h('b', '1'), start.fixed ? ` Make your ${start.n} heroes` : ` Pick up to ${maxParty} heroes`),
+          h('span', h('b', '2'), ' Choose each one’s race and calling'),
+          h('span', h('b', '3'), ' Begin the adventure')));
+    const k0 = lone && byId(classes, heroes[0]?.cls), r0 = lone && byId(races, heroes[0]?.race);
+    const roster = h('div.create-roster.panel' + (lone ? '.lone' : ''),
+      h('h2', ico(lone ? 'crown' : 'party'), lone ? ' Your Hero' : ' Your Company'),
+      h('p.hint', lone ? 'You set out alone. Others may join you on the road, if you earn their trust.'
+        : start.fixed ? `${start.n} heroes set out. The first leads the way; click one to shape them.` : `Up to ${maxParty} heroes. The first leads the way; click one to shape them.`),
+      // (company) a lone hero: one large card rather than a list
+      lone ? h('div.lone-card',
+        h('span.lone-pic', picImg(heroes[0])),
+        h('b.lone-name', heroes[0].name || 'Nameless'),
+        h('span.lone-line', ico(classIcon(k0), '.rr-ico'), ` Level ${Math.max(1, game.settings.startLevel || 1)} ${r0?.name || ''} ${k0?.name || ''}`))
+        : h('div.roster-list', ...heroes.map((hero, i) => {
         const r = byId(races, hero.race), k = byId(classes, hero.cls);
         return h('div.roster-row' + (hero === sel ? '.on' : ''), { onclick: () => { sel = hero; sfx('click'); render(); } },
           h('span.rr-pic', picImg(hero), i === 0 ? h('span.rr-lead', { title: 'Leads the company', html: iconSvg('crown') }) : null),
           h('span.rr-text', h('b', hero.name || 'Nameless'), h('span', ico(classIcon(k), '.rr-ico'), ` ${r?.name || ''} ${k?.name || ''}`)),
-          heroes.length > 1 ? h('button.x', { title: 'Remove from the company', onclick: (e) => { e.stopPropagation(); heroes.splice(i, 1); if (sel === hero) sel = heroes[0]; render(); }, html: iconSvg('close') }) : null);
+          heroes.length > 1 && !start.fixed ? h('button.x', { title: 'Remove from the company', onclick: (e) => { e.stopPropagation(); heroes.splice(i, 1); if (sel === hero) sel = heroes[0]; render(); }, html: iconSvg('close') }) : null);
       })),
-      heroes.length < maxParty ? h('button.add-hero', { title: 'A new hero with a random calling', onclick: () => { const k = rng.pick(classes); const nh = newHero(raceFor(k), k.id, true); heroes.push(nh); sel = nh; sfx('click'); render(); } }, ico('plus'), ' Add a hero') : null,
-      h('button.random-co', { title: 'New callings, races, names, looks and attributes for everyone', onclick: () => { randomParty(); sfx('click'); render(); } },
-        ico('dice', '.big'), h('span', h('b', 'Random company'), h('small', 'A fresh band of heroes, ready to go'))),
+      heroes.length < maxParty && !start.fixed ? h('button.add-hero', { title: 'A new hero with a random calling', onclick: () => { const k = rng.pick(classes); const nh = newHero(raceFor(k), k.id, true); heroes.push(nh); sel = nh; sfx('click'); render(); } }, ico('plus'), ' Add a hero') : null,
+      h('button.random-co', { title: lone ? 'A new calling, race, name, look and attributes' : 'New callings, races, names, looks and attributes for everyone', onclick: () => { randomParty(); sfx('click'); render(); } },
+        ico('dice', '.big'), lone ? h('span', h('b', 'A random hero'), h('small', 'Someone new, ready to go')) : h('span', h('b', 'Random company'), h('small', 'A fresh band of heroes, ready to go'))),
       h('div.grow'),
       h('div.create-go',
         h('button.primary.big.begin', { onclick: () => begin() }, 'Begin the Adventure ', ico('chevron')),
@@ -310,6 +328,8 @@ export function partyCreation(app, game, { onDone, onBack }) {
   }
 
   function rosterNameUpdate() {
+    const one = root.querySelector('.lone-name');
+    if (one) one.textContent = heroes[0]?.name || 'Nameless';
     const rows = root.querySelectorAll('.roster-row .rr-text b');
     heroes.forEach((hero, i) => { if (rows[i]) rows[i].textContent = hero.name; });
   }
@@ -331,7 +351,7 @@ export function partyCreation(app, game, { onDone, onBack }) {
 export function quickParty(game) {
   const rng = new RNG(7);
   const classes = game.classes.filter((c) => classAvailable(game, c));
-  const want = [['dwarf', 'warrior'], ['elf', 'ranger'], ['human', 'wizard'], ['human', 'cleric']];
+  const want = [['dwarf', 'warrior'], ['elf', 'ranger'], ['human', 'wizard'], ['human', 'cleric'], ['dwarf', 'runesmith'], ['elf', 'minstrel'], ['hobbit', 'burglar'], ['human', 'paladin']];
   const out = [];
   const taken = npcNameWords(game);
   for (const [r, c] of want) {
@@ -345,7 +365,7 @@ export function quickParty(game) {
     const name = randomName(race.look?.race || race.id, rng, taken, look);
     for (const w of nameWords(name)) taken.add(w);
     out.push(createCharacter(game, { name, race: race.id, cls: cls.id, stats, look }));
-    if (out.length >= Math.min(4, game.settings.maxParty || 6)) break;
+    if (out.length >= startHeroes(game).n) break; // (company) as many as set out
   }
   return out;
 }

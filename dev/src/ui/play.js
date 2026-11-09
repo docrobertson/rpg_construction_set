@@ -33,6 +33,8 @@ import { castWindow, sheetSpells, resourceLine } from './spellbook.js';
 import { reagentUse, scrollUse, canCopy, copyScroll, hasBook, restoresPool, poolWords, poolName, noNeed } from '../game/magic.js';
 import { heroKey } from '../game/delve.js';
 import { EVENT_DOTS, eventDot } from '../game/events.js';
+import { companyUI } from './company.js';
+import { PuzzleUI } from './puzzleUI.js'; // (puzzles) the riddle window
 
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
@@ -65,6 +67,7 @@ export class PlayUI {
     this.quests = new QuestUI(this); // tracker, journal, quest offers, events
     this.explore = new Explorer(this); // hover info, click to act, the Nearby bar, marks over heads
     this.levelUp = new LevelUpCard(this); // the talent choice after a level gained outside battle
+    this.puzzleUI = new PuzzleUI(this); // (puzzles) riddles: this.openRiddle(e)
     this.bindInput();
     this.setMode('explore');
   }
@@ -168,6 +171,26 @@ export class PlayUI {
     this.logToEnd();
   }
 
+  // (company) the world is quiet: no battle, no window, nothing on the move
+  calm() { const s = this.s; return s.mode === 'explore' && !s.battle && !s.transitioning && !anyModal(); }
+
+  // (company) a companion says something: their small portrait and name lead the line
+  banter(m, text, cls = 'banter') {
+    const pic = portrait(this.view, charLook(this.s.game, m));
+    const line = { text, cls };
+    this.logLines.push(line);
+    if (this.logLines.length > 400) this.logLines.shift();
+    this.logEl.appendChild(line.el = h('div.log-line.banter' + (cls !== 'banter' ? '.' + cls : ''),
+      pic ? h('img.log-pic', { src: pic, alt: '' }) : h('i.log-ico', { html: iconSvg('talk') }),
+      h('b.log-who', m.name), h('span.log-said', `“${text}”`)));
+    while (this.logEl.childNodes.length > 400) this.logEl.removeChild(this.logEl.firstChild);
+    sfx('click');
+    this.logToEnd();
+  }
+
+  onClue(my, cl) { companyUI.onClue(this, my, cl); }
+  onParting(m, hostile) { companyUI.onParting(this, m, hostile); }
+
   // show the newest line (unless the player is reading back just now)
   logToEnd() {
     const el = this.logEl;
@@ -179,6 +202,8 @@ export class PlayUI {
   }
 
   refresh() {
+    // (company) banter or a parting that waited for a quiet moment
+    if (this.s.companyPending && this.calm()) setTimeout(() => this.s.companyTick?.(), 0);
     this.refreshStatus();
     this.refreshDelveBar();
     this.refreshParty();
@@ -1092,6 +1117,8 @@ export class PlayUI {
       clear(chips);
       const words = new Set(['NAME', 'JOB', ...asked]);
       for (const k of knownKeywords(npc)) if (['BUY', 'ROOM', 'HEAL', 'RUMOURS', 'JOIN'].includes(k)) words.add(k);
+      if (s.state.company?.left?.[npc.id]) words.delete('JOIN'); // (company) gone their own way
+      if (s.dialogContext().judgeOf(npc.id)) words.add('ACCUSE'); // (company) a mystery's judge
       for (const w of words) chips.appendChild(h('button.chip', { onclick: () => ask(w) }, w));
       chips.appendChild(h('button.chip.bye', { onclick: () => ask('BYE') }, 'BYE'));
     };
@@ -1123,6 +1150,7 @@ export class PlayUI {
           if (out && out.outcome === 'victory' && s.map.entities.includes(npc)) s.removeEntity(npc);
         }, 600);
       }
+      if (res.accuse) companyUI.accusePicker(this, res.accuse, { add, sayLine, close: () => { finished = true; m.close(); } });
       if (res.teleport) {
         finished = true;
         setTimeout(async () => { m.close(); await s.enterMap(res.teleport.map || s.map.id, +res.teleport.x || 0, +res.teleport.y || 0); }, 600);

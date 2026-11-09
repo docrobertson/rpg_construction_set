@@ -6,9 +6,11 @@ import { GeoBuilder, TPL, shade } from './builder.js';
 import { humanoid as figure, RACE_LOOKS, HAIR_STYLES } from './figures.js';
 import { WHITE_UV, METAL_UV, SKIN_UV } from './faces.js';
 import { quadruped, spider, wraith, bat, serpent, dragon, blob, ent } from './beasts.js';
+import { ISLE_BEASTS } from './isleBeasts.js';
 import { tube, lathe, sheet, ball, extrude, mat, tint, deep } from './sculpt.js';
 import { CONTAINER_BUILDERS } from './containers.js';
 import { LANDMARK_BUILDERS } from './landmarks.js';
+import { PUZZLE_BUILDERS } from './puzzles.js'; // (puzzles) levers, plates, gates, runes…
 
 const cache = new Map();
 // camera distance beyond which figures lose their ink outline
@@ -653,7 +655,8 @@ function marker(spec) {
 const humanoid = (spec) => figure(spec, TPL);
 
 const BUILDERS = { humanoid, quadruped, spider, wraith, bat, serpent, dragon, blob, ent, chest, ship, waygate, sign, campfire, marker, shrine, lorestone, well, lodge, crab, farmstead, arena, caravan, fairyring, lighthouse,
-  ...CONTAINER_BUILDERS, ...LANDMARK_BUILDERS };
+  ...CONTAINER_BUILDERS, ...LANDMARK_BUILDERS,
+  ...PUZZLE_BUILDERS, ...ISLE_BEASTS };
 
 // The outline shell needs one normal per corner, or blocky parts split open
 // at their edges: average the normals of every vertex sharing a position.

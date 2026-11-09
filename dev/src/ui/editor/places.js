@@ -262,6 +262,8 @@ export class PlacesEditor {
     grid.appendChild(this.counter('Rooms', '🚪', 'chambers, joined by passages', () => plan.rooms, (v) => { plan.rooms = v; }, 2, 24, () => this.changed(sel)));
     grid.appendChild(this.counter('Chests', '🧰', 'along the way, besides the hoard', () => plan.chests, (v) => { plan.chests = v; }, 0, 12, () => this.changed(sel)));
     grid.appendChild(this.counter('Curiosities', '🗿', 'carved pillars, hidden caches, shrines', () => plan.wonders, (v) => { plan.wonders = v; }, 0, 6, () => this.changed(sel)));
+    // (puzzles) side rooms behind a gate, opened by a lever, a boulder on a plate or runes
+    grid.appendChild(this.counter('Puzzles', '🗝', 'side rooms behind a gate: a lever, a boulder on a plate, runes', () => plan.puzzles || 0, (v) => { plan.puzzles = v; }, 0, 3, () => this.changed(sel)));
     this.section(M, 'Rooms and riches', null, grid);
     // monsters: who lurks in the rooms, and how many to a band
     const monName = (id) => g.monsters.find((m) => m.id === id)?.name || id;
@@ -270,7 +272,7 @@ export class PlacesEditor {
       n.addEventListener('input', () => { if (n.value && n.value !== '2-4') plan.counts[id] = n.value; else delete plan.counts[id]; this.changed(sel); });
       return h('span.pl-mon', h('span', monName(id)), h('i', '×'), n, h('button.small.link', { title: 'Remove', 'aria-label': `Remove ${monName(id)}`, onclick: () => { plan.monsters.splice(i, 1); delete plan.counts[id]; this.changed(sel, true); } }, '✕'));
     }));
-    const dungeonFolk = g.monsters.filter((m) => !m.boss && (m.habitat || []).includes('dungeon'));
+    const dungeonFolk = g.monsters.filter((m) => !m.boss && (m.habitat || []).includes(plan.style === 'temple' ? 'temple' : 'dungeon')); // (isles: a temple's own)
     const others = g.monsters.filter((m) => !m.boss && !dungeonFolk.includes(m));
     const add = h('select', { 'aria-label': 'Add a monster' }, h('option', { value: '' }, '+ Add a monster…'),
       h('optgroup', { label: 'Dungeon dwellers' }, ...dungeonFolk.filter((m) => !plan.monsters.includes(m.id)).map((m) => h('option', { value: m.id }, `${m.name} (level ${m.level || 1})`))),

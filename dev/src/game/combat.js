@@ -98,6 +98,7 @@ export class Battle {
     if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    if (this.s.map?.mood) this.arena.mood = this.s.map.mood; // (isles: a temple's gloom follows you into the fight)
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
     // (the whole north half is open sea running off the edges, shallows at
@@ -132,15 +133,17 @@ export class Battle {
     for (const grp of this.enemyList) {
       const def = byId(this.game.monsters, grp.id);
       if (!def) continue;
-      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(def)) break;
+      // (company) grp.as: the first of them is someone in particular — a
+      // turncoat companion fights under their own name and face
+      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(k === 0 && grp.as ? { ...def, ...grp.as } : def)) break;
     }
     // tell several foes of one kind apart in the log and the turn strip
     const counts = {};
-    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
+    for (const e of this.enemies) if (!e.def.named) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
     const seen = {};
-    for (const e of this.enemies) if (counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
-    const names = this.enemyList.map((g) => {
-      const d = byId(this.game.monsters, g.id);
+    for (const e of this.enemies) if (!e.def.named && counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
+    const names = this.enemyList.flatMap((g) => (g.as && g.n > 1 ? [{ ...g, n: 1 }, { id: g.id, n: g.n - 1 }] : [g])).map((g) => {
+      const d = g.as ? { ...byId(this.game.monsters, g.id), ...g.as, boss: true } : byId(this.game.monsters, g.id);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean);
     this.log(`Battle! You face ${names.join(' and ')}.`, 'bad');
@@ -217,7 +220,7 @@ export class Battle {
   // tell several foes of one kind apart (letters stay with whoever had them)
   retag() {
     const byDef = {};
-    for (const e of this.enemies) (byDef[e.def.id] ||= []).push(e);
+    for (const e of this.enemies) if (!e.def.named) (byDef[e.def.id] ||= []).push(e);
     for (const list of Object.values(byDef)) {
       if (list.length < 2) continue;
       const used = new Set(list.map((e) => e.tag).filter(Boolean));
@@ -322,7 +325,7 @@ export class Battle {
   foesOf(u) { return this.units.filter((x) => x.side !== u.side && this.alive(x)); }
   friendsOf(u) { return this.units.filter((x) => x.side === u.side && this.alive(x)); }
   label(u) { return u.tag ? `${u.name} ${u.tag}` : u.name; }
-  the(u) { return !u.member && !u.def?.boss ? `the ${this.label(u)}` : this.label(u); }
+  the(u) { return !u.member && !u.def?.boss && !u.def?.named ? `the ${this.label(u)}` : this.label(u); }
   The(u) { const t = this.the(u); return t[0].toUpperCase() + t.slice(1); }
 
   unitAt(x, y) { return this.units.find((u) => this.alive(u) && u.x === x && u.y === y); }
@@ -420,6 +423,8 @@ export class Battle {
 
   resists(t, id) {
     if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
+    // (isles) a monster may be proof against some conditions (a statue does not bleed venom or fear)
+    if (t.def?.immune?.includes(id)) return true;
     const iron = !!t.member && perkCount(t.member, 'iron_will');
     const stout = !!t.member && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
@@ -1105,6 +1110,8 @@ export class Battle {
 
   async damage(t, dmg, opts = {}) {
     if (!this.alive(t)) return;
+    // (isles) hard hides and stone shrug off part of every blow
+    if (t.def?.hardened && dmg > 1 && !opts.dot) dmg = Math.max(1, dmg - t.def.hardened);
     if (t.sleep > 0 && dmg > 0) t.sleep = 0;
     // whoever harms a foe leaves the sanctuary's light
     const by = opts.by || (opts.from?.side ? opts.from : null);
@@ -1728,7 +1735,7 @@ export class Battle {
       this.log(`${u.name} calls down ${ab.name}… it lands on the marked squares when ${u.name} next acts.`, 'magic');
       this.fx.ring(c.x, c.y, ab.fx ?? 0xffb030, 0.3, (ab.radius ?? 0) + 0.9, 0.5);
     } else {
-      const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
+      const verb = ab.windupVerb || (ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high'); // (isles: or its own words)
       this.log(u.side === 'party' ? `${this.The(u)} ${verb}!` : `${this.The(u)} ${verb}… get clear of the marked squares!`, u.side === 'party' ? 'good' : 'bad');
     }
     this.emit('update');

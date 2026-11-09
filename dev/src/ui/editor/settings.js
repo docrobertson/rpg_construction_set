@@ -19,6 +19,11 @@ export function renderSettings(ed, left, main) {
 
   main.appendChild(section('set-rules', '⚖ Rules', buildForm(game, [
     { key: 'settings.maxParty', label: 'Largest party', type: 'number', min: 1, max: 8 },
+    // (company) a lone hero, or a set number, and an easier road for a small company
+    { key: 'settings.startHeroes', label: 'Heroes who set out', type: 'number', min: 1, max: 8, nullable: true, placeholder: '4 — the player chooses',
+      hint: '1: the player creates a lone hero, and companions join along the road. A number: exactly that many. Blank: four, and the player may take more or fewer.' },
+    { key: 'settings.gentleStart', label: 'Gentle first fights', type: 'number', min: 0, max: 20, nullable: true, placeholder: '3',
+      hint: 'While the company is under four strong, its first this-many wandering bands come sized for it, without escorts. 0: never.' },
     { key: 'settings.creationPoints', label: 'Attribute points at creation', type: 'number', min: 0, max: 60 },
     { key: 'settings.startLevel', label: 'Heroes start at level', type: 'number', min: 1, max: 20 },
     { key: 'settings.startGold', label: 'Starting gold', type: 'number', min: 0 },

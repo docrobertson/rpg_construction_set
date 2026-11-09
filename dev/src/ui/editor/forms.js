@@ -179,7 +179,8 @@ function fieldInput(obj, f, changed) {
     case 'dice':
     case 'text':
     default: {
-      const el = h('input', { type: 'text', value: val ?? '', placeholder: f.placeholder || '' });
+      // (f.list: the id of a <datalist> of suggestions, e.g. the story flags in use)
+      const el = h('input', { type: 'text', value: val ?? '', placeholder: f.placeholder || '', list: f.list });
       el.addEventListener('input', () => {
         if (f.type === 'dice') el.classList.toggle('bad', !/^\s*(\d*d\d+([+-]\d+)?|\d+)\s*$/i.test(el.value));
         set(el.value);

@@ -28,8 +28,10 @@ import { buryTreasures, forgetLostMaps } from '../../game/treasure.js';
 import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
 import { attachGestures, attachWheel } from '../../render/gestures.js';
+import { PUZZLE_TOOLS, PUZZLE_TOOL_IDS, addPuzzleVisual, showPuzzleLinks, PuzzleLabels } from './puzzles.js'; // (puzzles)
+import { isPuzzle } from '../../game/puzzles.js';
 
-const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
+const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'jungle', 'clear'];
 const TOWN_STAMPS = ['forest', 'meadow', 'clear', 'lake'];
 const WORLD_PATHS = ['road', 'river', 'ridge'];
 const TOWN_PATHS = ['road', 'wall', 'palisade', 'hedge', 'river'];
@@ -77,7 +79,7 @@ export class Editor {
     this.dirty = this.neverSaved;
     this.mouse = { down: false, panning: false };
     this.keys = new Set();
-    this.tools = { ...PAINT_TOOLS, ...ENTITY_TOOLS };
+    this.tools = { ...PAINT_TOOLS, ...ENTITY_TOOLS, ...PUZZLE_TOOLS }; // (puzzles)
     for (const k of Object.keys(STAMPS)) this.tools['stamp_' + k] = stampTool(k);
     for (const k of Object.keys(PATHS)) this.tools['path_' + k] = pathTool(k);
     for (const k of Object.keys(ROOMS)) this.tools['room_' + k] = roomTool(k);
@@ -172,6 +174,7 @@ export class Editor {
   goTo(go) {
     if (!go) return;
     const tab = TAB_ALIAS[go.tab] || go.tab || 'map';
+    if (tab === 'story' && go.mystery) { this.setTab('story'); this.story.selectMystery(go.mystery); return; } // (company)
     if (tab === 'story' && (go.quest || go.chapter)) {
       this.setTab('story');
       const q = go.quest && (this.game.quests || []).find((x) => x.id === go.quest);
@@ -389,6 +392,9 @@ export class Editor {
       h('div.tool-grid', ...ents.map(toolBtn))));
     L.appendChild(section('Points of interest', 'Shrines, campfires, lore stones and little events with choices. Pick one, then click the map.',
       h('div.tool-grid', toolBtn('event')), eventTemplatePicker(this)));
+    // (puzzles) levers, plates, boulders, gates, riddles, runes, braziers and hidden triggers
+    L.appendChild(section('Puzzles', 'Levers, pressure plates, boulders, gates, riddles, runes, braziers and hidden triggers. They work through story flags: a gate opens when the flags it waits on are set. Pick one, then click the map.',
+      h('div.tool-grid', ...PUZZLE_TOOL_IDS.map(toolBtn))));
     L.appendChild(section('Generate', 'Replace this whole map with a freshly generated one.',
       h('button', { onclick: () => this.regenerateDialog() }, '🎲 Regenerate this map…'),
       isDungeon ? h('button', { onclick: () => this.addDeeperLevel(), title: 'Generate a new level below this one, linked by stairs' }, '⬇ Add a deeper level') : null));
@@ -501,7 +507,7 @@ export class Editor {
   makeMap(type, gen, name, seed = Math.floor(Math.random() * 1e9)) {
     let m;
     if (gen === 'world') { m = generateWorld(80, 80, seed); buryTreasures(this.game, m, seed); }
-    else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes('dungeon') && x.level <= 3).map((x) => x.id) }).map;
+    else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes(gen === 'temple' ? 'temple' : 'dungeon') && x.level <= 3).map((x) => x.id) }).map;
     else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; nameNpcs(m, this.game, seed); }
     else m = createMap({ type, name });
     m.name = name;
@@ -625,9 +631,9 @@ export class Editor {
     }
     if (!far) { toast('No room for a staircase on this level.', 'warn'); return; }
     this.beginEdit();
-    const style = map.fill === 'dungeon_wall' ? 'crypt' : 'cave';
+    const style = map.fill === 'dungeon_wall' ? 'crypt' : map.fill === 'temple_wall' ? 'temple' : 'cave';
     const level = (map.level || 1) + 1;
-    const monsters = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes('dungeon') && (m.level || 1) <= level + 2).map((m) => m.id);
+    const monsters = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(style === 'temple' ? 'temple' : 'dungeon') && (m.level || 1) <= level + 2).map((m) => m.id);
     const { map: deeper } = generateDungeon({ style, seed: Math.floor(Math.random() * 1e9), name: `${map.name.replace(/ \(level \d+\)$/, '')} (level ${level})`, level, monsters });
     deeper.exit = { map: map.id, x: far[0], y: far[1] };
     this.game.maps.push(deeper);
@@ -709,6 +715,7 @@ export class Editor {
   refreshEntities() {
     this.view.clearEntities();
     for (const e of this.map.entities) this.addVisual(e);
+    (this.labels ||= new PuzzleLabels(this)).refresh(); // (puzzles) tags over gates, triggers and runes
     const s = this.game.settings.start;
     if (s.map === this.map.id) this.view.addEntity('__start', { kind: 'marker', color: 0xffd040 }, s.x, s.y);
     if (this.map.type !== 'world' && this.map.entry) this.view.addEntity('__entry', { kind: 'marker', color: 0x40e080 }, this.map.entry.x, this.map.entry.y);
@@ -717,6 +724,7 @@ export class Editor {
   }
 
   addVisual(e) {
+    if (isPuzzle(e) && addPuzzleVisual(this, e)) return; // (puzzles) with its moving part
     const look = this.entityLook(e);
     const def = e.type === 'monster' ? byId(this.game.monsters, e.monster) : null;
     this.view.addEntity(e.id, look, e.x, e.y, { ring: e.type === 'monster' ? 0xd03030 : 0xffe040, scale: e.boss ? 1.2 : 1, idle: true });
@@ -752,6 +760,7 @@ export class Editor {
     this.selected = e;
     if (e) this.view.setRing(e.id, 0xffe040);
     this.inspect();
+    showPuzzleLinks(this, e); // (puzzles) what a gate waits on, what a lever opens
   }
 
   inspect() {

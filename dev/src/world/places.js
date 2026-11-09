@@ -13,11 +13,12 @@
 //     about the streets), guards, walls: stone|palisade|hedge|trees|none,
 //     gates: ['n','s','e','w'] (the roads out), seed }
 // A dungeon's plan:
-//   { kind, style: cave|crypt|fortress|seacave, size, rooms, monsters: [ids],
+//   { kind, style: cave|crypt|fortress|seacave|temple, size, rooms, monsters: [ids],
 //     counts: { id: '2-4' } (how many in a band), boss: id|null,
 //     treasure: { gold, items: [{ id, n }] } (the hoard in the last room),
 //     chests (more chests along the way), wonders (carved pillars, hidden
-//     caches and shrines), seed }
+//     caches and shrines), puzzles (0-3 gated side rooms: a lever, a boulder
+//     on a plate, runes), seed }
 import { FEATURE_KINDS, T, terrain } from '../data/terrain.js';
 import { getTile, setTile, inBounds } from './map.js';
 import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, defaultStock, STAMPS, PATHS, line4 } from './generate.js';
@@ -25,7 +26,7 @@ import { findBuildings } from './buildings.js';
 import { RNG, hash2 } from '../core/rng.js';
 
 // ------------------------------------------------------------ the catalogue
-export const PLACE_ICONS = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏', harbour: '⚓', seacave: '🌊', dungeon: '🕳', world: '🗺' };
+export const PLACE_ICONS = { town: '🏘', castle: '🏰', village: '🛖', cave: '🕳', tower: '🗼', fortress: '🏯', elfhall: '🌳', dwarfgate: '⛏', harbour: '⚓', seacave: '🌊', temple: '🛕', dungeon: '🕳', world: '🗺' };
 
 // The key buildings a settlement's plan can ask for, as the player knows them
 //   [key, name, icon, what it offers]
@@ -46,17 +47,19 @@ export const BUILDINGS = [
 const BUILDING_KEYS = BUILDINGS.map((b) => b[0]);
 
 export const SETTLEMENT_STYLE_NAMES = { town: 'Town', village: 'Village', castle: 'Castle', elfhall: 'Elven hall', dwarfgate: 'Dwarf hold', harbour: 'Harbour' };
-export const DUNGEON_STYLE_NAMES = { cave: 'Cave', crypt: 'Crypt of stone halls', fortress: 'Fortress', seacave: 'Sea cave' };
+export const DUNGEON_STYLE_NAMES = { cave: 'Cave', crypt: 'Crypt of stone halls', fortress: 'Fortress', seacave: 'Sea cave', temple: 'Jungle temple' };
 export const WALL_NAMES = { stone: 'Stone walls', palisade: 'A palisade', hedge: 'A fence', trees: 'A ring of trees', none: 'No walls' };
 export const SIZE_NAMES = { small: 'Small', medium: 'Medium', large: 'Large' };
 
-const KIND_STYLE = { town: 'town', castle: 'castle', village: 'village', elfhall: 'elfhall', dwarfgate: 'dwarfgate', harbour: 'harbour', cave: 'cave', tower: 'crypt', fortress: 'fortress', seacave: 'seacave' };
-const STYLE_KIND = { town: 'town', castle: 'castle', village: 'village', elfhall: 'elfhall', dwarfgate: 'dwarfgate', harbour: 'harbour', cave: 'cave', crypt: 'tower', fortress: 'fortress', seacave: 'seacave' };
+const KIND_STYLE = { town: 'town', castle: 'castle', village: 'village', elfhall: 'elfhall', dwarfgate: 'dwarfgate', harbour: 'harbour', cave: 'cave', tower: 'crypt', fortress: 'fortress', seacave: 'seacave', temple: 'temple' };
+const STYLE_KIND = { town: 'town', castle: 'castle', village: 'village', elfhall: 'elfhall', dwarfgate: 'dwarfgate', harbour: 'harbour', cave: 'cave', crypt: 'tower', fortress: 'fortress', seacave: 'seacave', temple: 'temple' };
 const DUNGEON_DEFAULTS = {
   cave: { style: 'cave', size: 'medium', rooms: 9, monsters: ['goblin', 'giant_rat', 'skeleton', 'giant_spider'], gold: 140, items: [], chests: 2, wonders: 2 },
   tower: { style: 'crypt', size: 'small', rooms: 6, monsters: ['skeleton', 'bat_swarm', 'giant_rat'], gold: 160, items: [], chests: 1, wonders: 1 },
   fortress: { style: 'fortress', size: 'large', rooms: 11, monsters: ['orc', 'orc_archer', 'skeleton'], gold: 300, items: [], chests: 3, wonders: 2 },
   seacave: { style: 'seacave', size: 'small', rooms: 6, monsters: ['bandit', 'giant_rat', 'bat_swarm'], gold: 180, items: [{ id: 'healing_draught', n: 2 }, { id: 'mana_tonic', n: 1 }], chests: 1, wonders: 1 },
+  // (isles) monsters a game lacks are left out when it is built
+  temple: { style: 'temple', size: 'medium', rooms: 8, monsters: ['lizardfolk', 'lizard_shaman', 'stone_guardian', 'mist_wraith', 'skeleton'], gold: 260, items: [], chests: 2, wonders: 2 },
 };
 
 export const isDungeonKind = (kind) => FEATURE_KINDS[kind]?.mapType === 'dungeon';
@@ -128,6 +131,7 @@ export function normalizePlan(plan, kind = plan?.kind) {
     p.treasure = { gold: p.treasure?.gold ?? base.treasure.gold, items: Array.isArray(p.treasure?.items) ? p.treasure.items : [] };
     p.chests = clampInt(p.chests, 0, 12);
     p.wonders = clampInt(p.wonders, 0, 6);
+    p.puzzles = clampInt(p.puzzles ?? 0, 0, 3); // (puzzles)
     return p;
   }
   if (!SETTLEMENT_STYLE_NAMES[p.style]) p.style = base.style;
@@ -228,6 +232,7 @@ function inferDungeon(map, kind) {
   let style;
   if (kind === 'seacave') style = 'seacave';
   else if (map.fill === 'cave_wall') style = 'cave';
+  else if (map.fill === 'temple_wall' || map.mood === 'temple') style = 'temple';
   else {
     let stone = 0, crypt = 0;
     for (const t of map.tiles) { if (t === T.floor_stone) stone++; else if (t === T.dungeon_floor) crypt++; }
@@ -260,6 +265,7 @@ function inferDungeon(map, kind) {
   plan.treasure = final ? { gold: final.gold ?? 0, items: clone(final.items || []) } : { gold: 0, items: [] };
   plan.chests = map.entities.filter((e) => e.type === 'chest' && e !== final && madeChest(e)).length;
   plan.wonders = map.entities.filter(madeEvent).length;
+  plan.puzzles = map.entities.filter((e) => e.made === 'puzzle' && e.type === 'gate').length; // (puzzles)
   plan.seed = seedOf(map.id);
   return normalizePlan(plan);
 }
@@ -301,7 +307,7 @@ const goldValue = (g) => {
 
 // The hoard at the end: by the boss if there is one, else the richest chest
 export function finalChest(map) {
-  const chests = map.entities.filter((e) => e.type === 'chest');
+  const chests = map.entities.filter((e) => e.type === 'chest' && e.made !== 'puzzle'); // (a puzzle's vault is not the hoard)
   if (!chests.length) return null;
   const boss = map.entities.find((e) => e.type === 'monster' && e.boss);
   if (boss) {
@@ -621,7 +627,7 @@ function mergeDungeon(ctx, plan) {
   for (const e of old.entities) {
     if (used.has(e)) continue;
     // what the generator made goes, and comes again from the plan
-    if ((e.type === 'monster' && (madeMonster(e) || madeBoss(e))) || (e.type === 'chest' && (e === oldFinal || madeChest(e))) || madeEvent(e)) continue;
+    if ((e.type === 'monster' && (madeMonster(e) || madeBoss(e))) || (e.type === 'chest' && (e === oldFinal || madeChest(e))) || madeEvent(e) || e.made === 'puzzle') continue;
     if (e.type === 'portal' && e.target?.map === 'exit') continue;
     // the rest is the designer's: by the stairs, by the hoard, or about where it was
     const anchor = near(e, old.entry, 4) ? fresh.entry : oldFinal && near(e, oldFinal, 3) ? newFinal || fresh.entry : { x: Math.round(e.x * sx), y: Math.round(e.y * sy) };
@@ -751,6 +757,7 @@ export function autoPlaceSites(game, world, wants, opt = {}) {
   const open = density(world, (t) => LAND_OPEN.has(t.key));
   const woods = density(world, (t) => WOODS.has(t.key));
   const hills = density(world, (t) => t.key === 'hills');
+  const jungle = density(world, (t) => t.key === 'jungle' || t.key === 'vines' || t.key === 'mangrove'); // (isles)
   let land = 0;
   for (let i = 0; i < N; i++) { const t = terrain(world.tiles[i]); if (t.walk && !t.water) land++; }
   // how far apart: the land shared out among all its places
@@ -826,7 +833,7 @@ export function autoPlaceSites(game, world, wants, opt = {}) {
         const coastal = COASTAL.has(kind);
         if (coastal && dSea[i] !== 1) continue;
         if (!coastal && !reach[i] && pass < 4) continue;
-        const fit = suits(kind, { i, t, dSea, dDeep, dHigh, dBlight, open, woods, hills, walk, far, reach }, strict);
+        const fit = suits(kind, { i, t, dSea, dDeep, dHigh, dBlight, open, woods, hills, walk, far, reach, jungle }, strict);
         if (fit == null) continue;
         const score = fit + Math.min(1.5, gap / spacing) * 1.2 + rng.float(0, 0.3);
         if (score > bestScore) { bestScore = score; best = i; }
@@ -901,6 +908,8 @@ function suits(kind, f, strict) {
       if (strict && dDeep[i] > 3) return null;
       return 1 + open[i] + (f.reach[i] ? 1 : -1) - (dHigh[i] < 2 ? 0.6 : 0);
     case 'seacave': return 0.5 + (dHigh[i] <= 2 ? 0.6 : 0) + hills[i] * 0.6 + away * 0.6 + (f.reach[i] ? 0 : 0.6);
+    // (isles) deep in the jungle, far from the start
+    case 'temple': return (f.jungle?.[i] ?? 0) * 2 + woods[i] * 0.5 + away * 0.8 - open[i] * 0.3;
     default: return open[i];
   }
 }
