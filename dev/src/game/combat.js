@@ -98,6 +98,7 @@ export class Battle {
     if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
     this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    if (this.s.map?.mood) this.arena.mood = this.s.map.mood; // (isles: a temple's gloom follows you into the fight)
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
     // (the whole north half is open sea running off the edges, shallows at
@@ -422,6 +423,8 @@ export class Battle {
 
   resists(t, id) {
     if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
+    // (isles) a monster may be proof against some conditions (a statue does not bleed venom or fear)
+    if (t.def?.immune?.includes(id)) return true;
     const iron = !!t.member && perkCount(t.member, 'iron_will');
     const stout = !!t.member && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
@@ -1107,6 +1110,8 @@ export class Battle {
 
   async damage(t, dmg, opts = {}) {
     if (!this.alive(t)) return;
+    // (isles) hard hides and stone shrug off part of every blow
+    if (t.def?.hardened && dmg > 1 && !opts.dot) dmg = Math.max(1, dmg - t.def.hardened);
     if (t.sleep > 0 && dmg > 0) t.sleep = 0;
     // whoever harms a foe leaves the sanctuary's light
     const by = opts.by || (opts.from?.side ? opts.from : null);
@@ -1730,7 +1735,7 @@ export class Battle {
       this.log(`${u.name} calls down ${ab.name}… it lands on the marked squares when ${u.name} next acts.`, 'magic');
       this.fx.ring(c.x, c.y, ab.fx ?? 0xffb030, 0.3, (ab.radius ?? 0) + 0.9, 0.5);
     } else {
-      const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
+      const verb = ab.windupVerb || (ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high'); // (isles: or its own words)
       this.log(u.side === 'party' ? `${this.The(u)} ${verb}!` : `${this.The(u)} ${verb}… get clear of the marked squares!`, u.side === 'party' ? 'good' : 'bad');
     }
     this.emit('update');

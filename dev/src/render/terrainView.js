@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { GeoBuilder } from './builder.js';
 import { DECOR, ARENA_PROPS, AuxBuilder, wallTorchAt } from './decor.js';
+import { templeWall, ISLE_SURROUND } from './isleDecor.js';
 import { shared } from './materials.js';
 import { TERRAIN, T, terrain } from '../data/terrain.js';
 import { hash2 } from '../core/rng.js';
@@ -43,9 +44,9 @@ function isBlendable(t) {
 const isPit = (t) => t.key === 'chasm' || t.key === 'void';
 
 // how much larger than its square each world-map site is drawn
-const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55, harbour: 1.7, seacave: 1.5 };
+const SITE_SCALE = { town: 1.7, castle: 1.75, village: 1.85, fortress: 1.6, tower: 1.3, elfhall: 1.3, ruins: 1.35, cave: 1.55, harbour: 1.7, seacave: 1.5, templesite: 1.6 };
 // small scenery cleared from the squares round a site, so nothing grows through its walls
-const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks']);
+const CLUTTER = new Set(['trees', 'pines', 'tufts', 'flowers', 'hill', 'reeds', 'pebbles', 'dunes', 'snowdrift', 'ashrocks', 'jungle', 'palms', 'vines', 'obsidian', 'mangrove']);
 // rock too tall to clear: in front of a point of interest it is drawn low
 const CRAGS = new Set(['mountain', 'peak']);
 // things on the world map that stand in a little clearing of their own
@@ -75,6 +76,9 @@ const GROUND = {
   ocean: -0.72, shallows: -0.36, bridge: -0.38, pier: -0.42, pit_water: -0.44,
   hills: 0.3, mountains: 0.62, peaks: 0.8, cave: 0.24, dwarfgate: 0.5,
   swamp: -0.08, sand: -0.03, desert: 0.02, chasm: 0, void: 0, lava: -0.34,
+  // (isles) a reef is shallower than the shallows, so it shows bright; the
+  // mangroves' mud lies a hand under the water; a sacred pool is a basin
+  reef: -0.25, mangrove: -0.24, pool: -0.42, palms: -0.03,
 };
 export function groundOf(t) {
   if (t.key in GROUND) return GROUND[t.key];
@@ -82,7 +86,7 @@ export function groundOf(t) {
   return t.h;
 }
 // how bumpy natural ground is
-const ROUGH = { hills: 0.1, mountains: 0.2, peaks: 0.24, desert: 0.05, snow: 0.05, ash: 0.05, swamp: 0.02, ocean: 0.1, shallows: 0.04, cave_floor: 0.03, rubble: 0.05 };
+const ROUGH = { hills: 0.1, mountains: 0.2, peaks: 0.24, desert: 0.05, snow: 0.05, ash: 0.05, swamp: 0.02, ocean: 0.1, shallows: 0.04, cave_floor: 0.03, rubble: 0.05, reef: 0.05, mangrove: 0.05, obsidian: 0.06, jungle: 0.04 };
 function roughOf(t) {
   if (t.key in ROUGH) return ROUGH[t.key];
   return isBlendable(t) ? 0.03 : 0;
@@ -95,6 +99,9 @@ const DARK_DEEP = lin(0x081620), DARK_SHALLOW = lin(0x1c4656);
 // murky bog water for swamp battles (clear blue pools there read as ice)
 const BOG_DEEP = lin(0x262c14), BOG_SHALLOW = lin(0x434521), BOG_SHORE = lin(0x55552c);
 const WET_SAND = lin(0xb9a878);
+// (isles) a jade-green sacred pool, brimming to just under its rim
+export const POOL_Y = 0.02;
+const JADE_SHALLOW = lin(0x3a8a78), JADE_DEEP = lin(0x0e3a3a);
 
 // light-giving tiles: colour and reach
 const LIGHTS = {
@@ -172,14 +179,18 @@ export class TerrainView {
     const oi = i & 1, oj = j & 1;
     const xs = oi ? [(i - 1) / 2 - M] : [i / 2 - 1 - M, i / 2 - M];
     const ys = oj ? [(j - 1) / 2 - M] : [j / 2 - 1 - M, j / 2 - M];
-    let h = 0, r = 0, n = 0;
+    let h = 0, r = 0, n = 0, pool = 0, hp = 0;
     for (const y of ys) for (const x of xs) {
       const t = this.tileAt(x, y);
-      h += groundOf(t);
+      const g = groundOf(t);
+      h += g;
       r += roughOf(t);
       n++;
+      if (t.key === 'pool') { pool++; hp += g; }
     }
-    h /= n;
+    // (isles) a sacred pool is a basin with a sharp rim: the paving round it
+    // stays level instead of sloping down into the water
+    if (pool && pool < n) { h = (h - hp) / (n - pool); r = 0; } else h /= n;
     r /= n;
     if (oi && oj) {
       const t = this.tileAt(xs[0], ys[0]);
@@ -376,6 +387,8 @@ export class TerrainView {
       case 'water':
         return fill;
       default:
+        // (isles) jungle, beach and temple battlefields
+        if (ISLE_SURROUND[this.style]) return ISLE_SURROUND[this.style]({ x, y, d, near, south, r, r2, tk, fill, tall, seaNorth: m.seaNorth });
         return fill;
     }
   }
@@ -564,7 +577,8 @@ export class TerrainView {
     if (wet) {
       const darkW = dark || t.key === 'pit_water';
       const bog = !darkW && this.map.type === 'arena' && this.style === 'swamp';
-      const deep = darkW ? DARK_DEEP : bog ? BOG_DEEP : DEEP, shallow = darkW ? DARK_SHALLOW : bog ? BOG_SHALLOW : SHALLOW;
+      const jade = t.key === 'pool';
+      const deep = jade ? JADE_DEEP : darkW ? DARK_DEEP : bog ? BOG_DEEP : DEEP, shallow = jade ? JADE_SHALLOW : darkW ? DARK_SHALLOW : bog ? BOG_SHALLOW : SHALLOW;
       const softDepth = (i, j) => {
         let sum = 0;
         for (let v = -2; v <= 2; v += 2) for (let u = -2; u <= 2; u += 2) sum += this.gh(i + u, j + v);
@@ -572,9 +586,9 @@ export class TerrainView {
       };
       this._emitTile(W, x, y, (di, dj) => {
         const k = Math.max(0, Math.min(1, softDepth(i0 + di, j0 + dj) / 0.5));
-        const c = k < 0.3 && !darkW ? mix3(bog ? BOG_SHORE : SHORE, shallow, k / 0.3) : mix3(shallow, deep, Math.min(1, (k - 0.3) / 0.7 + (darkW ? 0.3 : 0)));
+        const c = k < 0.3 && !darkW && !jade ? mix3(bog ? BOG_SHORE : SHORE, shallow, k / 0.3) : mix3(shallow, deep, Math.min(1, (k - 0.3) / 0.7 + (darkW && !jade ? 0.3 : 0)));
         return c;
-      }, () => WATER_Y, bog ? () => 0 : (i, j) => Math.max(0, Math.min(1, 1 - (WATER_Y - this.gh(i, j)) / 0.2))); // (no foam on a bog)
+      }, () => (jade ? POOL_Y : WATER_Y), bog || jade ? () => 0 : (i, j) => Math.max(0, Math.min(1, 1 - (WATER_Y - this.gh(i, j)) / 0.2))); // (no foam on a bog)
     }
 
     // --- molten surface: fills the lava basin and laps at its banks
@@ -595,6 +609,7 @@ export class TerrainView {
       const base = Math.min(this.gh(i0, j0), this.gh(i0 + 2, j0), this.gh(i0, j0 + 2), this.gh(i0 + 2, j0 + 2), center) - 0.06;
       if (t.key === 'cave_wall') this._rockWall(P, x, y, t, base, top, nb);
       else if (t.key === 'dungeon_wall') this._masonry(P, x, y, t, base, top, nb);
+      else if (t.key === 'temple_wall') templeWall(P, x, y, t, base, top, nb, dark);
       else this._block(P, x, y, t, base, top, nb);
     }
 
@@ -824,13 +839,16 @@ function inferStyle(map) {
       return 'grass';
     case 'hills': return 'hills';
     case 'swamp': return 'swamp';
-    case 'sand': return 'desert';
+    case 'sand': return count('palm_tree') ? 'beach' : 'desert';
     case 'snow': return 'snow';
     case 'ocean': return 'water';
     case 'cobble': return 'town';
     case 'floor_stone': return 'indoor';
     case 'cave_floor': return 'cave';
     case 'ash': return 'ash';
+    // (isles)
+    case 'vines': return 'jungle';
+    case 'ruins_floor': return 'temple';
     default: return 'grass';
   }
 }

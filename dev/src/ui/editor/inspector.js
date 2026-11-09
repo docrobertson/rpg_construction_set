@@ -18,7 +18,7 @@ import { flagDatalist } from './flagList.js';
 import { isPuzzle } from '../../game/puzzles.js';
 import { inspectPuzzle } from './puzzles.js'; // (puzzles)
 
-const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
+const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton'], ['lizard', 'Lizardfolk'], ['hag', 'Hag']]; // (isles: lizardfolk and hags)
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
 const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
