@@ -255,7 +255,7 @@ const shot = async (name, keep = false) => {
   await page.screenshot({ path: `${OUT}/adv2-${name}.png`, timeout: 240000 }); console.log('shot', `adv2-${name}`);
 };
 // a town from above its square, its people about it
-const townView = (zoom = 30) => page.evaluate((zoom) => { const s = window.__app.session; s.view.reach = null; s.view.setZoom(zoom, true); s.view.focus(s.map.w / 2, s.map.h / 2 + 1, true); s.camFocus = () => {}; }, zoom);
+const townView = (zoom = 30) => page.evaluate((zoom) => { const s = window.__app.session; s.map.explored?.fill(1); s.view.setVisibilityEnabled(false); window.__L?.day(); s.view.reach = null; s.view.setZoom(zoom, true); s.view.focus(s.map.w / 2, s.map.h / 2 + 1, true); s.camFocus = () => {}; }, zoom);
 const closeModals = () => ev(async () => { for (let i = 0; i < 10 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await new Promise((r) => setTimeout(r, 120)); } });
 
 const installHelpers = () => installPlayHelpers(page);
@@ -566,7 +566,7 @@ try {
   check('stepped in the rhyme\'s order — wave, moon, star, sun, flame — the Door of the Sun sinks', ['wave', 'moon', 'star', 'sun', 'flame'].every((g) => r[g]) && r.runes && r.door, r);
   check('one hero alone: the sun-stone rolled onto one plate, the hero on the other, and the sanctum opens', r.pushed && r.plateA && r.onB && r.sanctum, r);
   check('the Tide Stone, the Sun-Key and Liesl\'s locket', r.stone && r.key && r.locket && r.items.every((n) => n === 1) && r.stage === 11, r);
-  await wait(900);
+  await wait(5000); // (the chapter's banner fades)
   await shot('temple-puzzle');
 
   // the waygate home and back; the Drowned Causeway
@@ -624,6 +624,7 @@ try {
   await closeModals();
 
   // ---------------------------------------------------------- pictures
+  await ev(() => { const s = window.__app.session; for (const m of s.party.members) { m.status = 'ok'; m.hp = window.__skills.maxHp(s.game, m); } s.ui?.refresh?.(); });
   const overview = async (name, x, y, zoom, pitch = 60) => {
     await ev(async ({ x, y, zoom, pitch }) => {
       const s = window.__app.session, v = s.view;

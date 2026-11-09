@@ -354,6 +354,10 @@ function paintWorld(w) {
   path('ridge', [[132, 22], [140, 26], [146, 30]], 1, 95);
   path('ridge', [[156, 40], [160, 50], [158, 60]], 1, 96);
   region(150, 44, 5, 97, (x, y, d, cur) => (cur === 'mountains' || cur === 'peaks' ? null : OBSIDIAN));
+  // old lava, still glowing in its runnels down the black flank
+  for (const [x0, y0, x1, y1] of [[149, 37, 147, 45], [153, 38, 156, 46], [151, 39, 151, 48]]) {
+    for (const [x, y] of line4(x0, y0, x1, y1)) if (getTile(w, x, y) === OBSIDIAN && hash2(x, y, 112) < 0.8) tile(x, y, 'lava');
+  }
   // the spine of the isle, and the old ruins in the jungle
   path('ridge', [[124, 64], [132, 70], [140, 72]], 1, 98);
   region(138, 56, 6, 99, (x, y, d) => (hash2(x, y, 100) < 0.55 ? RUINS : VINES));

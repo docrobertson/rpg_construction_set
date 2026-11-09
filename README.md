@@ -2,7 +2,7 @@
 
 A tool for making (and playing!) RPGs in the style of the early Ultima games — in 3D, right in your browser.
 
-**Just open `index.html`.** Everything — the 3D engine, the game, the construction set and a sample adventure — is in that one file. No install, no server, works offline.
+**Just open `index.html`.** Everything — the 3D engine, the game, the construction set and two ready-made adventures — is in that one file. No install, no server, works offline.
 
 ## What's inside
 
@@ -25,6 +25,7 @@ A tool for making (and playing!) RPGs in the style of the early Ultima games —
 - **Treasure that looks like what it is**: an overturned cart, a loose flagstone, a heron's nest, a skeleton with its satchel, a sarcophagus, a half-buried sea chest, a dwarven rune-chest and a dozen more, each opened in its own words ("You lift the loose flagstone…").
 - **Skills to grow into**: every calling learns a new battle skill at levels 1, 3, 5, 7 and 9 plus its ★ special — a summoned spirit wolf, rune traps, arc lightning, a song that turns a foe on its friends — and on even levels any hero may learn a *battle art* instead of a talent: Second Wind, First Aid, Dash, Throw Knife, Shove and more.
 - **Sample adventure — *Shadow over Eldmark***: recover the stolen Rune-Key and break the Shadow Lord in Dol Garoth, with side quests, hidden places and treasure along the way — among them a miller who wants his strongbox and his cat back, two brothers' oath-rings to reunite, and a haunted chapel on the Barrow Downs.
+- **Second adventure — *The Lanterns of the Glass Sea***: wash up alone from a wreck and find a company on the road — a fisher-girl, a dwarf paid in pies, a lanternwright's apprentice, a smuggler captain, a knight of one, an elven scholar. Two lands across the Glass Sea: the kingdom of Merrow and the jungle isle of Ixara. Unmask whoever is putting out the great sea-lanterns before the Harbour Magistrate (one companion is not what she seems), solve a lighthouse's braziers by a sea-shanty, a riddling stone saint, a bell-book-and-candle lever maze, a temple door opened by a lizardfolk nursery rhyme and pressure plates held by two heroes or a boulder, raise a drowned causeway at low tide, and face the Drowned Queen.
 
 ### Construct
 The Construction Set walks you through building a realm in six steps. None of them waits on another — jump between them whenever you like — and the number on each step counts what the checklist still finds there.
@@ -82,7 +83,7 @@ dev/
   src/
     main.js            app shell: title screen, play, construction set, export
     core/              rng & dice, noise, storage, sound, music, utilities
-    data/              terrain types, default rules content, game schema, sample adventure
+    data/              terrain types, default rules content, game schema, the two adventures
     world/             map helpers and generators (stamps, settlements, dungeons, arenas)
     render/            three.js view, chunked terrain, decorations, procedural models
     game/              rules, exploration session, combat, quests, events, magic, travel, treasure, dialogue
