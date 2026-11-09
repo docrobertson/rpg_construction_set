@@ -94,6 +94,9 @@ export function renderMystery(se, my) {
     { key: 'suspects', label: 'Suspects', type: 'ids', options: people, hint: 'People the company may accuse. Each should be someone they can meet.' },
     { key: 'culprit', label: 'The guilty one', type: 'select', options: (o) => (o.suspects || []).filter(Boolean).map((id) => [id, findNpc(game, id)?.npc.name || id]), empty: '— choose one of the suspects —' },
     { key: 'judge', label: 'Judge', type: 'select', options: people, empty: '— nobody yet —', hint: 'The one the company accuses to: say ACCUSE to them.' },
+    // (adventure) a judge who will not hear anyone until…
+    { key: 'requires', label: 'The judge listens once', type: 'text', list: 'cs-flags', placeholder: 'e.g. has_warrant (blank: as soon as there are clues enough)', hint: 'Story flags that must be set before an accusation is heard.' },
+    { key: 'requiresText', label: 'Until then, says', type: 'textarea', rows: 2, placeholder: 'Bring me the Queen\'s warrant first.' },
     { key: 'opens', label: 'Shown in the journal once', type: 'text', list: 'cs-flags', placeholder: 'e.g. heard_of_murder', hint: 'Story flags (blank: once the first clue is found).' },
     { key: 'clues', label: 'Clues', type: 'list', wide: true, addLabel: '+ Add a clue', newRow: () => ({ flag: '', text: '' }),
       rowLabel: (r, i) => `${i + 1}. ${r.flag || '(no flag yet)'}`,

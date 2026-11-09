@@ -395,6 +395,21 @@ export function walkStory(game, opt = {}) {
         for (const k of e.keywords || []) if (k.action?.type === 'set_flag' && k.action.value) state.party.flags[k.action.value] = true;
         moved = true;
       }
+      // (adventure) levers, plates, braziers, riddles and runes set their flags (and groups theirs) where the company can go
+      for (const e of map.entities || []) {
+        if (!['lever', 'plate', 'brazier', 'riddle', 'rune'].includes(e.type)) continue;
+        const f = e.type === 'rune' ? e.group : e.flag || e.id;
+        for (const x of [f, e.type === 'brazier' && e.order ? e.group : null, e.reward?.flag]) if (x && !state.party.flags[x]) { state.party.flags[x] = true; moved = true; }
+      }
+    }
+    // (adventure) a mystery is solved once enough of its clues are found (and the judge will listen)
+    for (const my of game.mysteries || []) {
+      const flags = state.party.flags;
+      if (!my.right?.flag || flags[my.right.flag]) continue;
+      const found = (my.clues || []).filter((c) => flags[c.flag]).length;
+      const want = Math.min((my.clues || []).length, parseInt(my.need, 10) >= 0 ? parseInt(my.need, 10) : 2);
+      const listens = !my.requires || String(my.requires).split(',').every((t) => (t.trim()[0] === '!' ? !flags[t.trim().slice(1)] : !!flags[t.trim()]));
+      if (found >= want && listens) { flags[my.right.flag] = true; moved = true; }
     }
     // accept every quest on offer from someone the company can reach
     for (const q of game.quests || []) {

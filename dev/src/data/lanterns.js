@@ -9,7 +9,6 @@
 // entities, companions' banter and leaving, and the mystery. They are written
 // here as plain data; where the engine does not know them yet, TT() and MON()
 // fall back to what it has, so the adventure builds and plays either way.
-// Places marked PHASE2 stand in for a puzzle until the puzzles are wired up.
 import { newGame } from './schema.js';
 import { createMap, setTile, getTile, inBounds } from '../world/map.js';
 import { STAMPS, PATHS, line4, placeFeature, nameNpcs, npcLook, uniqueTownsfolk, DUNGEON_STYLES } from '../world/generate.js';
@@ -315,12 +314,24 @@ function paintWorld(w) {
   // ---------------------------------------------------------- Ixara, the jungle isle
   const JUNGLE = TT('jungle', 'forest'), PALMS = TT('palms', 'sand'), MANGROVE = TT('mangrove', 'swamp');
   const VINES = TT('vines', 'meadow'), RUINS = TT('ruins_floor', 'ruins'), OBSIDIAN = TT('obsidian', 'ash');
+  // (deep jungle in the noise's high ground, overgrown glades about it, open
+  // grass and meadow in the clearings: never one green from coast to coast)
+  const coastOf = (x, y, r) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (inBounds(w, x + dx, y + dy) && terrain(getTile(w, x + dx, y + dy)).water && Math.abs(dx) + Math.abs(dy) <= r) return true; return false; };
   for (let y = 0; y < w.h; y++) for (let x = 97; x < w.w; x++) {
     const k = getTile(w, x, y);
-    const n = fbm(x * 0.08, y * 0.08, 91, 3);
-    if (k === T.grass) tile(x, y, n > 0.42 ? JUNGLE : n > 0.34 ? VINES : 'grass');
-    else if (k === T.sand && hash2(x, y, 92) < 0.45) tile(x, y, PALMS);
+    const n = fbm(x * 0.08, y * 0.08, 91, 3), m = fbm(x * 0.2, y * 0.2, 89, 2);
+    if (k === T.grass) {
+      // the beaches are fringed with palms a square or two inland
+      if (coastOf(x, y, 2) && hash2(x, y, 93) < 0.7) tile(x, y, PALMS);
+      else tile(x, y, n > 0.53 ? JUNGLE : n > 0.46 ? (m > 0.5 ? JUNGLE : VINES) : n > 0.4 ? VINES : m > 0.55 ? 'meadow' : 'grass');
+    } else if (k === T.sand && hash2(x, y, 92) < 0.75) tile(x, y, PALMS);
   }
+  // little ruined plazas of the sun-priests here and there in the jungle
+  for (const [rx, ry, s] of [[118, 44, 2], [126, 100, 2], [150, 80, 2], [112, 118, 1], [140, 108, 2], [124, 30, 2]]) {
+    region(rx, ry, s + 1, 110 + rx, (x, y, d) => (d < 0.6 ? RUINS : hash2(x, y, 111) < 0.5 ? VINES : null), 0.2);
+  }
+  // a second river, out of the spine to the south coast
+  path('river', [[142, 74], [146, 84], [144, 94], [148, 104], [152, 112]], 1);
   // Mount Ashkar, the smoking mountain, in the north-east
   region(150, 30, 11, 93, (x, y, d) => (d < 0.22 ? 'lava' : d < 0.42 ? OBSIDIAN : d < 0.7 ? (hash2(x, y, 94) < 0.5 ? 'mountains' : 'peaks') : 'hills'), 0.25);
   path('ridge', [[132, 22], [140, 26], [146, 30]], 1, 95);
@@ -339,6 +350,14 @@ function paintWorld(w) {
   const REEF = TT('reef', 'shallows');
   for (let y = 116; y < w.h - 3; y++) for (let x = 140; x < w.w - 3; x++) {
     if (getTile(w, x, y) === T.ocean && hash2(x, y, 106) < 0.35 && fbm(x * 0.2, y * 0.2, 107) > 0.5) tile(x, y, REEF);
+  }
+  // coral in the warm shallows all round the isle, mangroves on its southern shore
+  // (the sea's shallows, not a river's)
+  const nearOcean = (x, y) => { for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (getTile(w, x + dx, y + dy) === T.ocean) return true; return false; };
+  for (let y = 3; y < w.h - 3; y++) for (let x = 100; x < w.w - 3; x++) {
+    const k = getTile(w, x, y);
+    if (k === T.shallows && fbm(x * 0.25, y * 0.25, 108) > 0.52 && nearOcean(x, y)) tile(x, y, REEF);
+    else if (y > 104 && (k === T.grass || k === PALMS || k === VINES || k === T.sand) && coastOf(x, y, 1) && hash2(x, y, 109) < 0.55) tile(x, y, MANGROVE);
   }
 }
 
@@ -652,10 +671,6 @@ function dressSaltcombe(game, map) {
       kw('PROOF|CLUES', 'Gather what you find — the journal keeps it, under Mysteries. When you have enough, come to me and say ACCUSE.'),
       kw('GRELL', 'A rogue, and a drunkard, and he knows every boat in this harbour. If he is guilty of anything, it will be in his books.'),
       kw('MAGS', 'Mags Corrigan, of the Black Gull. Caught with a hold full of brandy the night the Saltcombe light flickered. She says the WRECKERS of the south cliffs are the ones to blame.'),
-      // PHASE2: stands in for the mystery's accusation (ACCUSE) until the engine hears it
-      kw('VANE|AURELIAN', '', { cond: { type: 'flag', value: 'clue_letter' }, once: true, phase2Bypass: true, action: { type: 'set_flag', value: 'vane_unmasked' },
-        text: '"Aurelian Vane." The Magistrate is silent a long moment. "Then God help him." Her guards run for the Guild hall — but the study is empty, and the Guild launch a speck on the Glass Sea, steering for Ixara.',
-        elseText: 'Master Vane? The kindest man in Saltcombe. You will need more than a feeling to accuse him.', afterText: 'Vane is fled. Follow him, if you can.' }),
       kw('WRECKERS', 'Gaff Hollis and his crew hang false lights on the south cliffs to lure ships onto the rocks. They have a hole down there by the sea. I have hanged two of them; Gaff I have never caught.'),
     ],
   }, { face: 'fair', hairStyle: 'braids', hair: 0x2a2018, body: 0x1a1a24, robe: true, trim: 0xc8c8d0, hat: 'none', cape: 0x2a2a3a });
@@ -846,7 +861,7 @@ function dressTzalKa(game, map, MON) {
   map.name = 'Tzal-Ka';
   // lizardfolk look as the engine draws them, or green-scaled folk until it can
   const base = game.monsters.find((m) => m.id === MON('lizardfolk', '__none'))?.look;
-  const liz = (extra = {}) => (base ? { ...JSON.parse(JSON.stringify(base)), weapon: undefined, ...extra } : { kind: 'humanoid', race: 'goblin', skin: 0x4a8a5a, hair: 0x2a4a2a, body: 0x6a5a2a, ...extra });
+  const liz = (extra = {}) => (base ? { ...JSON.parse(JSON.stringify(base)), weapon: undefined, shield: undefined, pennant: undefined, pose: undefined, ...extra } : { kind: 'humanoid', race: 'goblin', skin: 0x4a8a5a, hair: 0x2a4a2a, body: 0x6a5a2a, ...extra });
   for (const e of map.entities) if (e.type === 'npc') { e.look = liz({ body: e.look.body }); e.lizard = true; }
   // the village stands in the jungle: its open ground is overgrown
   const VINES = TT('vines', 'meadow');
@@ -990,10 +1005,6 @@ function buildDungeons(game, w, P, MON) {
         kw('KIT|NAN|HOME', 'Tell them I\'m alive. Tell Kit to stop sharpening that harpoon. ...No, don\'t. She\'ll want to come. Let her come.'),
       ],
     });
-    // PHASE2: stands in for the brazier puzzle until braziers can be lit in play
-    ev(map, 'ev_gannet_bypass', 'lore', freeSpot(map, m.A[0].x - 2, m.A[0].y + 1), { name: 'The Great Lamp', phase2Bypass: true, repeat: 'always',
-      text: 'The great lamp of Gannet Rock stands cold on its pedestal, ringed by four cold braziers.',
-      choices: [{ label: 'Light the braziers in the shanty\'s order', text: 'Gannet, morning, lost, drowned. The fires roar up, and the great lamp catches! Light floods out over the sea.', effects: { flag: 'lantern_gannet', xp: 40 }, hideFlag: 'lantern_gannet' }, leave('Leave it')] });
   }
 
   // ---------------------------------------------------------- the Hollin Warren
@@ -1120,10 +1131,6 @@ function buildDungeons(game, w, P, MON) {
       text: 'A little room under the lamp, with a child\'s bed still in it, the blanket folded. Carved into the bedpost: LIESL, and a lantern. On the pillow, fresh, a sprig of sea-lavender. Someone has been here, and recently.',
       choices: [{ label: 'Look closer', text: 'Under the pillow: a wedge of driftwood like the one in the windlass, and a scrap of Guild oil-cloth.', effects: { lore: true, xp: 30 } }, leave('Leave it')] });
     put(map, { id: 'chest_midway', type: 'chest', ...freeSpot(map, m.k[0].x + 2, m.k[0].y), name: 'Keeper\'s Locker', look: { kind: 'chest' }, gold: '60', items: [{ id: 'keepers_lantern', n: 1 }] });
-    // PHASE2: the lamp-chain does not turn yet
-    ev(map, 'ev_midway_bypass', 'lore', freeSpot(map, m.l[0].x + 2, m.l[0].y), { name: 'The Lamp-chain', phase2Bypass: true, repeat: 'always',
-      text: 'A great chain runs up into the lamp-cage, jammed with a wedge of driftwood.',
-      choices: [{ label: 'Knock out the wedge and haul on the chain', text: 'The Midway Light blazes out over the Glass Sea!', effects: { flag: 'lantern_midway', xp: 80 }, hideFlag: 'lantern_midway' }, leave('Leave it')] });
     if (h) Object.assign(h, { name: 'Drowned Crew\'s Sea-chest', look: { kind: 'seachest' }, items: [{ id: 'greater_draught', n: 2 }, { id: 'mistglass_pendant', n: 1 }] });
   }
 
@@ -1442,10 +1449,13 @@ function placeWild(game, w, P, MON) {
   {
     const last = way[way.length - 1];
     const landing = last && [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: last[0] + dx, y: last[1] + dy })).find((q) => !terrain(getTile(w, q.x, q.y)).water);
+    // (the landing, and the way up from it to the palace gate, stay open: paved)
+    const lane = new Set(landing ? line4(landing.x, landing.y, pal.x, pal.y).map(([x, y]) => `${x},${y}`) : []);
+    for (const k of lane) { const [x, y] = k.split(',').map(Number); if (!terrain(getTile(w, x, y)).feature) setTile(w, x, y, TT('ruins_floor', 'road')); }
     for (let y = pal.y - 9; y <= pal.y + 9; y++) for (let x = pal.x - 9; x <= pal.x + 9; x++) {
       if (!inBounds(w, x, y) || Math.hypot(x - pal.x, y - pal.y) > 8.5) continue;
       const t = terrain(getTile(w, x, y));
-      if (t.water || t.feature || (landing && x === landing.x && y === landing.y)) continue;
+      if (t.water || t.feature || lane.has(`${x},${y}`)) continue;
       if ([[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([dx, dy]) => terrain(getTile(w, x + dx, y + dy)).water)) setTile(w, x, y, hash2(x, y, 120) < 0.3 ? T.peaks : T.mountains);
     }
   }
@@ -1459,16 +1469,18 @@ function placeWild(game, w, P, MON) {
       { label: 'Set the Tide Stone in the hollow', text: 'The stone fits as if it grew there. It begins to hum, and the sea begins to move.', effects: { flag: 'tide_low', xp: 60 }, req: { type: 'item', value: 'tide_stone' }, lockedText: 'The hollow wants a disc of green stone', hideFlag: 'tide_low' },
       leave(),
     ] }, (t) => t.walk && !t.water && !t.feature);
-  // PHASE2: until the trigger raises the causeway, the tide-priest ferries the company across
+  // the tide-priest who watches the reef for the Elder
+  const lizLook = game.monsters.find((m) => m.id === 'lizardfolk')?.look || {};
   addWorldNpc(w, shoreAt.x - 2, shoreAt.y - 1, {
-    id: 'npc_tidepriest', name: 'Tide-priest Ossik', race: 'human', wander: 0, desc: 'a lizardfolk priest in a cloak of woven kelp, watching the reef', phase2Bypass: true,
-    lookExtra: { kind: 'humanoid', race: 'goblin', skin: 0x3a7a6a, body: 0x2a4a3a, robe: true, weapon: 'staff' },
-    greeting: 'Sss. The Queen\'s house. You go there? Then you need the low tide.',
-    job: 'I watch the reef for the Elder. When the Tide Stone is set, the old road rises. Say CROSS when the sea has drawn back.',
-    keywords: [kw('CROSS', 'The sea is back. Go, warm-blood. Go quickly.', { cond: { type: 'flag', value: 'tide_low' }, elseText: 'The sea is high. Set the Tide Stone in the plinth first.', action: { type: 'teleport', map: w.id, ...spot(pal.x - 1, pal.y + 1, (t) => t.walk && !t.water && !t.feature) } })],
+    id: 'npc_tidepriest', name: 'Tide-priest Ossik', race: 'human', wander: 0, desc: 'a lizardfolk priest in a cloak of woven kelp, watching the reef',
+    lookExtra: { ...lizLook, skin: 0x3a7a6a, body: 0x2a4a3a, robe: true, mantle: 0x3a6a4a, weapon: 'staff', weaponGlow: 0x60e0c0, shield: undefined, pennant: undefined, pose: undefined },
+    greeting: 'Sss. The Queen\'s house, out on the reef. You go there? Then you need the low tide.',
+    job: 'I watch the reef for the Elder. The old road lies under the black water. Only the TIDE STONE lays it bare.',
+    keywords: [
+      kw('TIDE STONE|STONE|PLINTH', 'Set the green stone in the plinth by my feet. The sea will draw back like a breath, and the old road will rise.', { cond: { type: 'flag', value: 'tide_low' }, text: 'The sea is back. Go, warm-blood. Go quickly, and do not listen when she sings.', elseText: 'Set the green stone in the plinth by my feet. The sea will draw back like a breath, and the old road will rise.' }),
+      kw('QUEEN|PALACE', 'She sings at night. The young ones wake and walk to the water. I sit here and sing louder.'),
+    ],
   });
-  const ppos = spot(pal.x + 2, pal.y, (t) => t.walk && !t.water && !t.feature);
-  void ppos;
   P.causewayShore = shoreAt;
   mon(MON('mist_wraith', 'barrow_wight'), shoreAt.x - 4, shoreAt.y - 3, '2', { wander: 3 });
 }
@@ -1496,10 +1508,10 @@ function buildQuests(game, P) {
           reward: { gold: 40, xp: 40, items: [{ id: 'nan_letter', n: 1 }] } },
         { text: 'Take Nan\'s letter to Magistrate Thorne in Saltcombe, east along the coast road past Thornby', goal: { type: 'deliver', npc: 'npc_thorne', item: 'nan_letter' },
           say: 'Watered oil under the Guild seal. Four lights out, four ships lost. Someone is doing this, and someone who knows how. Find me proof — and a NAME. But hear me: a guild master is beyond this court without the Queen\'s WARRANT. Fetch it from Highcrown, north over the Kestrel Pass. And ask me about the SUSPECTS.',
-          reward: { xp: 60 } },
+          reward: { xp: 60, flag: 'case_opened' } },
         { text: 'Ask Queen Rosamund for her warrant, in Highcrown castle — north from Thornby, over the Kestrel Pass', goal: talk('npc_rosamund'),
           say: 'Magistrate Thorne writes that my lanterns are being murdered. Then here is my warrant: whoever is doing this, guild master or beggar, answers to the Harbour Court. Go carefully. Anyone who can put out a lantern can put out a life.',
-          reward: { gold: 100, xp: 80, items: [{ id: 'queens_warrant', n: 1 }] } },
+          reward: { gold: 100, xp: 80, flag: 'warrant_given', items: [{ id: 'queens_warrant', n: 1 }] } },
         { text: 'Gather proof of who is putting out the lanterns, then ACCUSE them before Magistrate Thorne in Saltcombe', goal: flagGoal('vane_unmasked'),
           log: 'Master Vane is gone, across the Glass Sea in the Guild launch — and the Midway Light still dark.' },
         { text: 'Get a ship in Saltcombe and relight the Midway Light on the Teeth, the islets halfway across the Glass Sea', goal: flagGoal('lantern_midway'),
@@ -1691,6 +1703,9 @@ function buildMysteries() {
     ],
     need: 3,
     judge: 'npc_thorne',
+    opens: 'case_opened',
+    requires: 'warrant_given', // (Thorne cannot touch a guild master without the Queen's warrant)
+    requiresText: 'Not without the Queen\'s warrant. The Guild holds a royal charter, and I will not drag an innocent master before this court on a guess and then have the charter thrown at me. Highcrown first — over the Kestrel Pass.',
     right: { text: '"Aurelian Vane." The Magistrate is silent a long moment. "Then God help him, and God help Merrow." Her guards run for the Guild hall — but the Master\'s study is empty, the boathouse open, and the Guild launch a speck on the Glass Sea, steering for the Mist and Ixara beyond.', flag: 'vane_unmasked', reward: { xp: 150, gold: 100 } },
     wrong: { text: 'The Magistrate hears you out, and has the accused taken in irons. That night, out on the Glass Sea, another light goes dark. In the morning Thorne sends for you, white with anger. "You were wrong. Bring me the truth next time — not a guess."', flag: 'accused_wrong', effects: { loseGold: 40 } },
   }];
@@ -1737,21 +1752,25 @@ function companions(game, P) {
       { need: 'clue_letter,!vane_unmasked', text: 'Wren reads the abbey letter twice. "My little lamp," she whispers. "That\'s what he used to call Liesl." Then, too brightly: "Lots of people say that. It\'s a common sort of thing to say."', once: true },
       { map: P.abbey.id, need: '!vane_unmasked', text: '"I\'ve been down here before," Wren says — and then, quickly, "I mean, I\'ve HEARD of it. Uncle used to tell me about it."', once: true },
       { need: 'lantern_gannet,!vane_unmasked', text: 'In the night you wake to find Wren\'s bedroll empty. She comes back before dawn with wet boots and says she went for a walk by the water.', once: true },
-      { need: '_said_npc_wren_LOCKET', text: 'Wren holds Liesl\'s locket tight. "When this is over I\'m going to light every lamp in Merrow myself. Every single one."', once: true },
+      { need: 'wren_forgives', text: 'Wren holds Liesl\'s locket tight. "When this is over I\'m going to light every lamp in Merrow myself. Every single one."', once: true },
     ],
     // she runs when her uncle is unmasked, to his side in the Queen's palace; Liesl's locket brings her back
     leaves: {
-      need: 'vane_unmasked,!_said_npc_wren_LOCKET',
+      need: 'vane_unmasked',
+      rejoin: 'wren_forgives',
+      notAgain: 'Join you? After what I did? ...No. Not unless you can show me I was wrong to believe him.',
       text: 'Wren goes white. "I knew," she whispers. "Not all of it — not the ships — but I knew he went out at night, and I told him everything we found. He\'s all the family I have." Before anyone can stop her she is gone, running for the harbour.',
       hostile: false,
-      goTo: { map: P.palace.id, x: P.palace.wrenAt.x, y: P.palace.wrenAt.y },
+      goTo: { map: P.palace.id, x: P.palace.wrenAt.x, y: P.palace.wrenAt.y,
+        greeting: 'You came. Of course you came. ...She has him chained like a dog, and she laughs at him. She said she had Liesl. She SAID.',
+        job: 'I was a lanternwright. Now I don\'t know what I am. Ask me about LIESL, if you must.' },
     },
   });
   delete P.palace.wrenAt; // (only a builder's note)
   if (wren) wren.keywords.push(
-    kw('LOCKET', '', { cond: { type: 'item', value: 'liesl_locket' }, once: true, action: { type: 'join' },
-      text: 'Liesl\'s locket. From the Queen\'s own offering-bowl. Then she never had her — she never had her at all, and Uncle... Oh, Uncle. ...I\'m coming with you. For Liesl. For all of them.',
-      elseText: 'Liesl had a silver locket. Uncle gave it to — to someone. As a token.', afterText: 'For Liesl.' }),
+    kw('LOCKET|LIESL', '', { cond: { type: 'item', value: 'liesl_locket' }, action: { type: 'set_flag', value: 'wren_forgives' },
+      text: 'Liesl\'s locket. From the Queen\'s own offering-bowl. Then she never had her — she never had her at all, and Uncle... Oh, Uncle. ...I\'m coming with you, if you\'ll have me. Ask me to JOIN. For Liesl. For all of them.',
+      elseText: 'Liesl had a silver locket. Uncle gave it to — to someone. As a token.' }),
     kw('SORRY|WHY', 'He said she was alive. Down there, in the Queen\'s court. He said if the lights went out she could come home. I wanted it to be true as much as he did.', { cond: { type: 'flag', value: 'vane_unmasked' }, elseText: 'Sorry? For what? You haven\'t done anything. Have you?' }),
   );
   set('npc_mags', {

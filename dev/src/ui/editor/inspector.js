@@ -128,6 +128,11 @@ export function companionFields(game, mapId = null) {
     { key: 'recruit.leaves.goTo.map', label: 'Goes to', type: 'select', options: maps, show: (o) => how(o) === 'goTo' },
     { key: 'recruit.leaves.goTo.x', label: 'X', type: 'number', show: (o) => how(o) === 'goTo' },
     { key: 'recruit.leaves.goTo.y', label: 'Y', type: 'number', show: (o) => how(o) === 'goTo', hint: 'They keep their words there; give them some that wait on the flag left_<their id>.' },
+    { key: 'recruit.leaves.goTo.greeting', label: 'Greets the company there with', type: 'textarea', rows: 2, show: (o) => how(o) === 'goTo', hint: 'Blank: their usual greeting.' },
+    // (adventure) one who went somewhere may be won back
+    { key: 'recruit.leaves.rejoin', label: 'Will join again when', type: 'text', list: 'cs-flags', placeholder: 'blank: never  ·  yes: any time  ·  or story flags', show: (o) => how(o) === 'goTo',
+      get: (o) => (lv(o)?.rejoin === true ? 'yes' : lv(o)?.rejoin || ''), put: (o, v) => { const t = String(v || '').trim(); if (!t) delete o.recruit.leaves.rejoin; else o.recruit.leaves.rejoin = t === 'yes' ? true : t; },
+      hint: 'Asked to JOIN again once these flags are set, they come back as they were when they left (their level, their own kit). They never leave a second time.' },
   ];
 }
 
@@ -139,6 +144,8 @@ export function npcFields(game) {
     { key: 'role', label: 'Role', type: 'select', options: NPC_ROLES, rerender: true },
     { key: 'shopName', label: 'Name over the door', type: 'text', placeholder: 'The Gilded Griffin', show: (o) => !['villager', 'guard'].includes(o.role || 'villager'), hint: 'Names the building this person keeps (blank: a name is made up).' },
     { key: 'wander', label: 'Wanders up to', type: 'number', min: 0, max: 30, hint: 'tiles from home (0 = stays put)' },
+    // (adventure) someone who comes and goes with the story
+    { key: 'need', label: 'Here only while', type: 'text', list: 'cs-flags', placeholder: 'blank: always  ·  flag  ·  a,b  ·  !a', hint: 'Story flags: while they hold, this person is here; otherwise they are gone (a traitor fled once unmasked: !unmasked).' },
     { type: 'section', label: 'Conversation' },
     { key: 'greeting', label: 'Greeting', type: 'textarea', rows: 2 },
     { key: 'job', label: 'Answer to JOB', type: 'textarea', rows: 2 },

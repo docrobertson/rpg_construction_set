@@ -195,6 +195,8 @@ export function leaveCompany(session, npcId, opts = {}) {
     unequip(m, slot, session.party.inventory, g);
     back.push(byId(g.items, id)?.name || id);
   }
+  // (adventure) one who may come back is kept as they were, to return so
+  if (lv.rejoin && lv.goTo) (c.gone ||= {})[npcId] = deepClone(m);
   if (resting) {
     st.reserve.splice(st.reserve.indexOf(resting), 1);
     const fig = session.map?.entities.find((e) => e.reserveOf === m.id);
@@ -205,7 +207,7 @@ export function leaveCompany(session, npcId, opts = {}) {
   session.log(`${m.name} ${resting ? 'is gone from the inn' : 'leaves the company'}.${back.length ? ` What the company gave them is back in the pack: ${back.join(', ')}.` : ''}`, hostile ? 'bad' : 'warn');
   session.ui?.onParting?.(m, !!hostile);
   // reappearing somewhere else, as a person to talk to
-  if (!hostile && lv.goTo && lv.goTo.map) placeAgain(session, f, lv.goTo);
+  if (!hostile && lv.goTo && lv.goTo.map) placeAgain(session, f, lv.goTo, !!lv.rejoin);
   session.refreshPartyVisual?.();
   session.ui?.refresh();
   if (hostile && !resting) {
@@ -221,7 +223,7 @@ export function leaveCompany(session, npcId, opts = {}) {
 
 // The one who left stands at goTo, the same person (their words, their
 // quest parts) but no longer one to JOIN
-function placeAgain(session, f, at) {
+function placeAgain(session, f, at, rejoin = false) {
   const id = f.npc.id;
   const x = +at.x || 0, y = +at.y || 0;
   const target = at.map;
@@ -231,18 +233,21 @@ function placeAgain(session, f, at) {
     ms.moved[id] = [x, y];
   } else {
     const ms = session.mapState(target);
-    const e = { ...deepClone(f.npc), x, y };
-    delete e.recruit;
+    const e = { ...deepClone(f.npc), x, y, ...words(at) };
+    if (!rejoin) delete e.recruit; // (adventure) one who may come back keeps their recruiting
     (ms.added ||= []).push(e);
   }
   // here and now: stand them on the live map
   if (session.map?.id === target && !session.map.entities.some((e) => e.id === id)) {
-    const e = { ...deepClone(f.npc), x, y, home: { x, y } };
-    delete e.recruit;
+    const e = { ...deepClone(f.npc), x, y, home: { x, y }, ...words(at) };
+    if (!rejoin) delete e.recruit;
     session.map.entities.push(e);
     session.addVisual?.(e);
   }
 }
+
+// (adventure) what they say there, if the leaving rule gives them new words (goTo.greeting, goTo.job)
+const words = (at) => Object.fromEntries(['greeting', 'job'].filter((k) => String(at[k] || '').trim()).map((k) => [k, at[k]]));
 
 // people who can join the company, for the editor's pickers: [[id, name]]
 export function recruitables(game) {
@@ -260,6 +265,15 @@ export function peopleOptions(game) {
 
 // a person who has left the company is not asked to JOIN again
 export const hasLeft = (state, npcId) => !!state?.company?.left?.[npcId];
+
+// (adventure) ...unless their leaving rule says they may come back
+// (leaves.rejoin: true, or a need), once it holds; they never leave twice
+export function mayRejoin(state, npc) {
+  if (!hasLeft(state, npc?.id)) return true;
+  const rj = npc?.recruit?.leaves?.rejoin;
+  if (!rj) return false;
+  return rj === true || needMet(state.party?.flags || {}, rj);
+}
 
 // ------------------------------------------------------------ mysteries
 export const mysteriesOf = (game) => (Array.isArray(game.mysteries) ? game.mysteries : []);
@@ -301,6 +315,8 @@ export function canAccuse(session, my) {
   const ms = mysteryState(session.state, my.id);
   if (ms.solved === 'right') return { ok: false, why: 'Solved.', solved: true };
   if (ms.solved === 'wrong') return { ok: false, why: 'The chance to name the guilty one has passed.', closed: true };
+  // (adventure) the judge may want something first (a warrant, a hearing): mystery.requires, story flags
+  if (my.requires && !needMet(session.state.party.flags, my.requires)) return { ok: false, reason: 'requires', why: my.requiresText || 'The judge will not hear an accusation yet.' };
   const need = cluesNeeded(my);
   const found = ms.found.length;
   if (found < need) return { ok: false, reason: 'clues', left: need - found, why: `${need - found} more clue${need - found === 1 ? '' : 's'} needed before anyone will listen.` };
@@ -353,4 +369,4 @@ export function accuse(session, mysteryId, suspectId) {
 }
 
 // for the tests and the browser console
-if (typeof window !== 'undefined') window.__company = { needMet, startHeroes, gentleBand, companyTick, leaveCompany, findNpc, mysteryState, canAccuse, accuse, knownMysteries, mysteryOfJudge, cluesNeeded, hasLeft, BANTER_GAP };
+if (typeof window !== 'undefined') window.__company = { needMet, startHeroes, gentleBand, companyTick, leaveCompany, findNpc, mysteryState, canAccuse, accuse, knownMysteries, mysteryOfJudge, cluesNeeded, hasLeft, mayRejoin, BANTER_GAP };

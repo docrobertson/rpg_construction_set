@@ -33,7 +33,7 @@ import { Delve, isBattleground } from './delve.js';
 import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen, isHoard } from './charms.js';
 import { chestLook, containerWords } from '../data/containers.js';
 // (company) banter, partings, mysteries and the gentle start for a small company
-import { companyTick, gentleBand, leaveCompany, hasLeft, mysteryOfJudge, canAccuse } from './company.js';
+import { companyTick, gentleBand, leaveCompany, hasLeft, mayRejoin, mysteryOfJudge, canAccuse, needMet as flagsMet } from './company.js';
 // (puzzles) levers, plates, boulders, gates, riddles, runes, braziers, triggers
 import { Puzzles, isPuzzle, puzzleSolid, puzzleLook, applyPuzzleState } from './puzzles.js';
 
@@ -210,6 +210,7 @@ export class PlaySession {
       e.home = { x: e.x, y: e.y };
     }
     hideUnseen(map, ms); // (charms) things hidden from mortal eyes wait for true sight
+    this.presence(map, true); // (adventure) people about only while their story says so
     // a ship the company has sailed is theirs to keep, even if the map no
     // longer has it (saves from when Westhold lent its ship for nothing)
     for (const [id, at] of Object.entries(ms.moved)) {
@@ -240,7 +241,26 @@ export class PlaySession {
   }
 
   // (company) banter, partings and clues: see game/company.js
-  companyTick(trigger = null) { companyTick(this, trigger); }
+  companyTick(trigger = null) { companyTick(this, trigger); this.presence(); }
+
+  // (adventure) A person with a need (npc.need: story flags) is about only
+  // while it holds: a traitor gone from his hall once unmasked, a prisoner
+  // in the palace only once he has fled there. Asked as the flags move.
+  presence(map = this.map, quiet = false) {
+    if (!map?.entities) return;
+    const flags = this.state.party.flags;
+    const away = (map._absent ||= []);
+    for (const e of map.entities.filter((x) => x.type === 'npc' && x.need && !flagsMet(flags, x.need))) {
+      map.entities.splice(map.entities.indexOf(e), 1);
+      away.push(e);
+      if (!quiet) this.view?.removeEntity(e.id);
+    }
+    for (const e of away.filter((x) => flagsMet(flags, x.need))) {
+      away.splice(away.indexOf(e), 1);
+      map.entities.push(e);
+      if (!quiet) this.addVisual(e);
+    }
+  }
 
   // the zoom the player last chose for this kind of place (remembered across
   // games), else a comfortable default
@@ -1567,30 +1587,36 @@ export class PlaySession {
   // toInn: the company is full, so the newcomer waits at the inn instead
   recruit(npc, { toInn = false } = {}) {
     if (!this.map.entities.includes(npc) && !npc.mapId) return `${npc.name} has already joined thee.`;
-    if (hasLeft(this.state, npc.id)) return `${npc.name} has gone their own way.`; // (company)
+    if (!mayRejoin(this.state, npc)) return `${npc.name} has gone their own way.`; // (company; adventure: unless they may come back)
     const max = this.game.settings.maxParty || 6;
     if (this.party.members.length >= max && !(toInn && this.lodging())) return `Thy company is full (${max}).`;
     const busy = questNeeding(this, npc.id);
     if (busy) return `${npc.name} cannot leave yet — there is still the matter of “${busy.name}”.`;
     const r = npc.recruit || {};
-    const c = createCharacter(this.game, {
+    // (adventure) one coming back returns as they were when they left
+    const was = this.state.company?.gone?.[npc.id];
+    if (was) delete this.state.company.gone[npc.id];
+    const c = was || createCharacter(this.game, {
       name: npc.name,
       race: r.race || npc.look?.race || 'human',
       cls: r.cls || 'warrior',
       stats: r.stats || { str: 13, dex: 13, int: 12, wis: 12 },
     });
-    c.level = Math.max(1, parseInt(r.level, 10) || 1);
-    c.xp = xpForLevel(c.level);
-    // seasoned companions arrive with the attributes their years have grown
-    for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
+    if (!was) {
+      c.level = Math.max(1, parseInt(r.level, 10) || 1);
+      c.xp = xpForLevel(c.level);
+      // seasoned companions arrive with the attributes their years have grown
+      for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
+      // battle arts the companion already knows (learned, as it were, on even levels)
+      c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
+      equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
+      c.ownKit = Object.values(c.equip).filter(Boolean); // (company) theirs to take if they leave
+      // they keep their own face and hair; the class dresses them
+      c.look = {};
+      for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    }
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
-    // battle arts the companion already knows (learned, as it were, on even levels)
-    c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
-    equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
-    c.ownKit = Object.values(c.equip).filter(Boolean); // (company) theirs to take if they leave
-    // they keep their own face and hair; the class dresses them
-    c.look = {};
-    for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    if (c.status === 'dead') c.status = 'ok';
     if (this.party.members.length >= max) {
       const lodge = this.lodging();
       (this.state.reserve ||= []).push({ member: c, map: lodge.map, since: this.state.turn || 0 });

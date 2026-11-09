@@ -21,7 +21,7 @@ import { chapterList, questsInChapter, questSpans, walkStory } from './story.js'
 import { GOAL_TYPES } from './quests.js';
 import { mooringFor, sellsShip } from './ships.js';
 import { mysteriesOf, needFlags, startHeroes } from './company.js';
-import { isPuzzle, puzzleName, flagSources, needUnmet } from './puzzles.js'; // (puzzles)
+import { isPuzzle, puzzleName, flagSources, needUnmet, tileId } from './puzzles.js'; // (puzzles)
 
 export const AREAS = [
   ['campaign', 'Campaign'], ['land', 'Land'], ['places', 'Places'], ['story', 'Story'], ['map', 'Details'], ['test', 'Test'],
@@ -97,8 +97,20 @@ function tileHash(map) {
 // squares the party cannot stand on). Water the party can sail is labelled
 // too (sea[i]), with the land patches each stretch of water touches.
 const TILE_CACHE = new WeakMap();
+// (adventure) the squares a map's triggers may change, and to what: a
+// causeway that rises from the sea counts as a road (index → tile)
+function raisedTiles(map) {
+  const out = new Map();
+  for (const e of map.entities || []) {
+    if (e.type !== 'trigger') continue;
+    for (const t of e.tiles || []) { const id = tileId(t.t); if (id != null && inBounds(map, +t.x, +t.y)) out.set(+t.y * map.w + +t.x, id); }
+  }
+  return out;
+}
+
 function mapPatches(map) {
-  const sig = tileHash(map);
+  const raised = raisedTiles(map);
+  const sig = tileHash(map) + (raised.size ? ':' + [...raised].join(';') : '');
   const hit = TILE_CACHE.get(map);
   if (hit && hit.sig === sig && hit.tiles === map.tiles) return hit;
   const { w, h } = map;
@@ -106,7 +118,7 @@ function mapPatches(map) {
   const kind = new Uint8Array(n); // 1 walk, 2 sail, 0 neither
   const stairs = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    const t = terrain(map.tiles[i]);
+    const t = terrain(raised.get(i) ?? map.tiles[i]);
     kind[i] = walkable(t) ? 1 : sailable(t) ? 2 : 0;
     if (t.key === 'stairs_up' || t.key === 'stairs_down') stairs[i] = 1;
   }

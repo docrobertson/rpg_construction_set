@@ -1,4 +1,5 @@
 // NPC conversation: Ultima-style keyword talk with simple conditions and actions.
+import { mayRejoin } from './company.js';
 
 export const ACTIONS = {
   none: 'No action',
@@ -88,11 +89,12 @@ function roleReply(npc, word, ctx) {
     const { my, can } = judge;
     if (can.solved) return { text: 'That matter is settled, and justice done. I thank thee again.' };
     if (can.closed) return { text: 'Thou hadst thy chance to name the guilty one. It is out of my hands now.' };
+    if (can.reason === 'requires') return { text: can.why }; // (adventure)
     if (can.reason === 'again') return { text: 'Thou hast named the wrong one already, and shamed an honest soul. Bring me something new before thou accusest anyone again.' };
     if (!can.ok) return { text: `Accuse someone${my.name ? ` in the matter of ${my.name}` : ''}? On what proof? Bring me more — ${can.left} more clue${can.left === 1 ? '' : 's'} at the least.` };
     return { text: 'Then speak plainly. Whom dost thou accuse?', action: { type: 'accuse' } };
   }
-  if (ctx.state?.company?.left?.[npc.id] && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) return { text: 'Our roads have parted. I will not follow thee again.' };
+  if (ctx.state?.company?.left?.[npc.id] && (k('JOIN') || k('COMPANY') || k('FOLLOW')) && !mayRejoin(ctx.state, npc)) return { text: npc.recruit?.leaves?.notAgain || 'Our roads have parted. I will not follow thee again.' }; // (adventure) unless they may come back
   if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) {
     const after = npc.recruit.after;
     if (after && ctx.state?.quests?.[after]?.status !== 'done') return { text: npc.recruit.notYet || 'Join thee? Perhaps one day, when there is less to keep me here.' };
