@@ -286,7 +286,11 @@ export class PlaySession {
     if (!opts.instant) await this.app.fade(false);
     if (!opts.quiet) this.log(map.type === 'world' ? `You are in ${map.name}.` : `You enter ${map.name}.`, 'place');
     // (delve) the first battleground: how it works, once
-    if (this.dv && this.ui) this.tip('delve', 'A battleground: every monster here stands where it is, and each hero has a square of their own. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares. Tab sends one hero on alone, G brings the company together; the leader carries the torch.');
+    if (this.dv && this.ui) {
+      // (company) a lone hero has nobody to split from
+      this.tip('delve', this.party.members.length > 1 ? 'A battleground: every monster here stands where it is, and each hero has a square of their own. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares. Tab sends one hero on alone, G brings the company together; the leader carries the torch.'
+        : 'A battleground: every monster here stands where it is. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares (you get a free turn).');
+    }
     this.ui && this.ui.onMapChanged();
     // quests: the opening goals on a fresh game, and "reach a place" goals
     if (this.ui && !this.state.questsBegun) { this.state.questsBegun = true; startAutoQuests(this); }

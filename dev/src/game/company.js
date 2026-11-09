@@ -207,7 +207,7 @@ export function leaveCompany(session, npcId, opts = {}) {
   session.ui?.refresh();
   if (hostile && !resting) {
     const look = charLook(g, m);
-    const fight = { id: '__turncoat_' + npcId, monster: hostile.monster, count: String(hostile.count || '1'), roaming: true, as: { name: m.name, look, boss: true }, flag: 'defeated_' + npcId };
+    const fight = { id: '__turncoat_' + npcId, monster: hostile.monster, count: String(hostile.count || '1'), roaming: true, as: { name: m.name, look, named: true }, flag: 'defeated_' + npcId };
     // the fight comes once the moment is quiet (a conversation or an event closed)
     session.turncoat = fight;
     setTimeout(() => session.companyTick?.(), 900);

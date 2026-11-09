@@ -2325,3 +2325,6 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .ed-suspects .my-suspect { width: 104px; }
 .ed-suspects .my-suspect button { margin-top: 2px; padding: 0 6px; }
 .my-sum { margin: 0 0 8px; }
+.st-myform > .form { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 14px; max-width: 900px; align-items: start; }
+.st-myform > .form > .form-section, .st-myform > .form > .field:has(textarea), .st-myform > .form > .field.wide, .st-myform > .form > .field.check, .st-myform > .form > .hint { grid-column: 1 / -1; }
+.st-myform > .form > .field select { min-width: 0; text-overflow: ellipsis; }

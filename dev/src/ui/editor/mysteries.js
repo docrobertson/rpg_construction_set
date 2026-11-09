@@ -89,12 +89,12 @@ export function renderMystery(se, my) {
   const people = () => peopleOptions(game);
   const fields = [
     { key: 'name', label: 'Name', type: 'text', placeholder: 'The Poisoned Chalice' },
+    { key: 'need', label: 'Clues before an accusation', type: 'number', min: 0, max: 20, placeholder: '2' },
     { key: 'intro', label: 'What happened', type: 'textarea', rows: 3, placeholder: 'The harbour-master lies dead in his chair, his wine cup still warm…', hint: 'The journal\'s Mysteries page opens with this.' },
     { key: 'suspects', label: 'Suspects', type: 'ids', options: people, hint: 'People the company may accuse. Each should be someone they can meet.' },
     { key: 'culprit', label: 'The guilty one', type: 'select', options: (o) => (o.suspects || []).filter(Boolean).map((id) => [id, findNpc(game, id)?.npc.name || id]), empty: '— choose one of the suspects —' },
     { key: 'judge', label: 'Judge', type: 'select', options: people, empty: '— nobody yet —', hint: 'The one the company accuses to: say ACCUSE to them.' },
-    { key: 'need', label: 'Clues before an accusation', type: 'number', min: 0, max: 20, placeholder: '2' },
-    { key: 'opens', label: 'In the journal from the start once', type: 'text', list: 'cs-flags', placeholder: 'flag (blank: once the first clue is found)', hint: 'A need of story flags, e.g. heard_of_murder.' },
+    { key: 'opens', label: 'Shown in the journal once', type: 'text', list: 'cs-flags', placeholder: 'e.g. heard_of_murder', hint: 'Story flags (blank: once the first clue is found).' },
     { key: 'clues', label: 'Clues', type: 'list', wide: true, addLabel: '+ Add a clue', newRow: () => ({ flag: '', text: '' }),
       rowLabel: (r, i) => `${i + 1}. ${r.flag || '(no flag yet)'}`,
       fields: [
@@ -125,5 +125,5 @@ export function renderMystery(se, my) {
     if (k === 'suspects' || k === 'culprit' || k === 'judge') { const top = M.scrollTop; se.render(); M.scrollTop = top; }
   });
   const need = cluesNeeded(my);
-  M.appendChild(h('div.st-section.st-chform', h('p.hint.my-sum', `${plural((my.clues || []).length, 'clue')} to find; the company may accuse after ${plural(need, 'clue')}.`), form));
+  M.appendChild(h('div.st-section.st-myform', h('p.hint.my-sum', `${plural((my.clues || []).length, 'clue')} to find; the company may accuse after ${plural(need, 'clue')}.`), form));
 }
