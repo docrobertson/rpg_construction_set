@@ -740,7 +740,7 @@ export const ISLE_DECOR = {
     // great slabs laid long ago, heaved and cracked by roots; one has gone,
     // and the earth and weeds show through
     const start = B.col.length;
-    const gone = r(1) < 0.14 ? Math.floor(r(2) * 4) : -1;
+    const gone = r(1) < (wild ? 0.1 : 0.05) ? Math.floor(r(2) * 4) : -1;
     for (let qj = 0; qj < 2; qj++) for (let qi = 0; qi < 2; qi++) {
       const k = qj * 2 + qi;
       const px = x + 0.25 + qi * 0.5 + (r(10 + k) - 0.5) * 0.03, pz = z + 0.25 + qj * 0.5 + (r(20 + k) - 0.5) * 0.03;

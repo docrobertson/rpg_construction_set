@@ -81,6 +81,7 @@ const abilityFields = () => [
   { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
   { key: 'free', label: 'Free action (does not end the turn)', type: 'check' },
   { key: 'windup', label: 'Telegraphed: lands next turn on the marked squares', type: 'check' },
+  { key: 'windupVerb', label: 'What a monster is seen to do as it winds up', type: 'text', placeholder: 'raises its weapon high', show: (o) => !!o.windup },
   { type: 'section', label: 'Look' },
   { key: 'vfx', label: 'Effect', type: 'select', options: ABILITY_VFX },
   { key: 'fx', label: 'Colour', type: 'color' },

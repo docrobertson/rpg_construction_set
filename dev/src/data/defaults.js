@@ -209,7 +209,7 @@ export const ABILITIES = [
     desc: 'Spits green venom at a foe within 5: it burns, and keeps on burning (2 a turn for three turns).' },
   { id: 'shark_lunge', name: 'Lunge', icon: 'claw', monster: true, target: 'enemy', range: 4, move: 'charge', attack: 'melee', mult: 1, bonus: '1d6', cooldown: 3, vfx: 'impact', fx: 0xd0e8f0,
     desc: 'Surges through the water at a foe up to 4 squares off and bites deep.' },
-  { id: 'thrash', name: 'Thrash', icon: 'frost', monster: true, target: 'tile', range: 4, radius: 1, windup: true, damage: '2d6', cooldown: 3, knockback: 1, vfx: 'frost', fx: 0x80d8e8,
+  { id: 'thrash', name: 'Thrash', icon: 'frost', monster: true, target: 'tile', range: 4, radius: 1, windup: true, windupVerb: 'circles, churning the shallows into foam', damage: '2d6', cooldown: 3, knockback: 1, vfx: 'frost', fx: 0x80d8e8,
     desc: 'Churns the shallows into foam — next turn a wave of thrashing water and snapping jaws breaks over the marked squares. Step back from the water\'s edge!' },
   { id: 'wail', name: 'Grave Wail', icon: 'skull', monster: true, target: 'nearbyFoes', radius: 2, damage: '1d4', cooldown: 4, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'shadow', fx: 0xa8d8c8,
     desc: 'A thin, terrible wail: every foe within 2 is chilled and weakened.' },

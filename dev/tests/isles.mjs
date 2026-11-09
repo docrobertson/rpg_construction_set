@@ -230,8 +230,13 @@ const inside = await ev(async (C) => {
   await s.enterMap(m.id, m.entry.x, m.entry.y, { instant: true, quiet: true });
   s.game.settings.lineOfSight = false; s.updateVisibility(true);
   v.setZoom(11, true);
-  // look along the hall north of the stairs
-  v.focus(m.entry.x, m.entry.y - 2.5, true);
+  // look into the hall with a sacred pool (or the one north of the stairs)
+  const T = window.__travel.T;
+  let at = null;
+  for (let i = 0; i < m.tiles.length && !at; i++) if (m.tiles[i] === T.pool) at = { x: i % m.w, y: Math.floor(i / m.w) };
+  at ||= { x: m.entry.x, y: m.entry.y - 2.5 };
+  v.setZoom(9.5, true);
+  v.focus(at.x + 0.5, at.y + 1.5, true);
   return { mood: s.map.mood, bg: v.light?.bg, dark: v.lighting === 'dark', torches: v.terrain.chunks.reduce((n, ch) => n + ch.lights.length, 0) };
 }, coast);
 check('inside the temple: dark, with its own green gloom, torches and glowing idols', inside.mood === 'temple' && inside.dark && inside.bg === 0x0a120e && inside.torches > 3, inside);
@@ -239,7 +244,7 @@ await page.waitForTimeout(1200);
 await shot('temple_inside');
 
 // ---- each new monster in battle: it builds, takes its turns, uses its powers
-const STYLE = { giant_frog: 'jungle', jungle_cat: 'jungle', lizardfolk: 'jungle', lizard_shaman: 'temple', reef_shark: 'water', mist_wraith: 'temple', stone_guardian: 'temple', sea_hag: 'beach', naga: 'temple' };
+const STYLE = { giant_frog: 'jungle', jungle_cat: 'jungle', lizardfolk: 'beach', lizard_shaman: 'temple', reef_shark: 'water', mist_wraith: 'temple', stone_guardian: 'temple', sea_hag: 'beach', naga: 'temple' };
 const fought = {};
 for (const id of ISLE_MONSTERS) {
   const res = await ev(async ([id, style, C]) => {
@@ -267,7 +272,7 @@ for (const id of ISLE_MONSTERS) {
   }, [id, STYLE[id], coast]);
   await page.waitForTimeout(500);
   // (it may have moved on its first turn: look at where it stands now)
-  await ev(() => { const s = window.__app.session, v = s.view, u = s.battle.units.find((x) => x.side === 'enemy'); v.focus(u.x + 0.5, u.y + 0.35, true); });
+  await ev(() => { const s = window.__app.session, v = s.view, u = s.battle.units.find((x) => x.side === 'enemy'); v.focus(u.x + 0.5, u.y - 0.45, true); });
   await page.waitForTimeout(250);
   await hideUi();
   await page.screenshot({ path: path.join(OUT, `isles_mon_${id}.png`), clip: { x: 160, y: 90, width: 640, height: 470 } });
@@ -287,8 +292,11 @@ for (const id of ISLE_MONSTERS) {
     const mine = lines.filter((l) => l.includes(name));
     // (a shark that cannot reach anyone on the sand still swims up to the shallows' edge)
     if (en && (en.x !== x0 || en.y !== y0)) mine.push(`${name} moves to ${en.x},${en.y}`);
-    b.over = true;
-    await new Promise((r) => setTimeout(r, 1200));
+    // (stop the fight where it stands, as a quit would, ready for the next)
+    b.abort();
+    s.battle = null;
+    s.mode = 'explore';
+    await new Promise((r) => setTimeout(r, 300));
     s.log = log0;
     return mine.slice(0, 6);
   }, id);

@@ -1733,7 +1733,7 @@ export class Battle {
       this.log(`${u.name} calls down ${ab.name}… it lands on the marked squares when ${u.name} next acts.`, 'magic');
       this.fx.ring(c.x, c.y, ab.fx ?? 0xffb030, 0.3, (ab.radius ?? 0) + 0.9, 0.5);
     } else {
-      const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
+      const verb = ab.windupVerb || (ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high'); // (isles: or its own words)
       this.log(u.side === 'party' ? `${this.The(u)} ${verb}!` : `${this.The(u)} ${verb}… get clear of the marked squares!`, u.side === 'party' ? 'good' : 'bad');
     }
     this.emit('update');

@@ -106,7 +106,7 @@ export function frog(spec) {
     }
   }
   void G;
-  return { B, G, height: 0.42 };
+  return { B, G, height: 0.52 };
 }
 
 // ---------------------------------------------------------------- jungle cat
