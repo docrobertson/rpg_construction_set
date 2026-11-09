@@ -79,8 +79,11 @@ export function findNpc(game, id) {
 // company (and those resting at an inn) who came from a person with words
 function companions(session) {
   const out = [];
+  // (asked every step: the people of the realm are looked up once a session)
+  const ix = (session._npcIx ||= new Map());
+  const find = (id) => { if (!ix.has(id)) ix.set(id, findNpc(session.game, id)); return ix.get(id); };
   const add = (m, resting) => {
-    const f = m.fromNpc && findNpc(session.game, m.fromNpc);
+    const f = m.fromNpc && find(m.fromNpc);
     if (f?.npc.recruit) out.push({ m, npc: f.npc, r: f.npc.recruit, resting });
   };
   for (const m of session.party.members) add(m, false);
