@@ -176,6 +176,7 @@ export class View {
     // buildings claim their walls before the terrain is built round them
     this.buildings.prepare(map);
     this.terrain.extraLights = []; // the last map's glows (build() adds this map's)
+    this.terrain.puzzleLights = []; // (puzzles) and its braziers' (the session adds this map's)
     this.terrain.setMap(map);
     this.buildings.build();
     this._buildingsDirty = false;

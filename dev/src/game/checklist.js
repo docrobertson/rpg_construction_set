@@ -21,6 +21,7 @@ import { chapterList, questsInChapter, questSpans, walkStory } from './story.js'
 import { GOAL_TYPES } from './quests.js';
 import { mooringFor, sellsShip } from './ships.js';
 import { mysteriesOf, needFlags, startHeroes } from './company.js';
+import { isPuzzle, puzzleName, flagSources, needUnmet } from './puzzles.js'; // (puzzles)
 
 export const AREAS = [
   ['campaign', 'Campaign'], ['land', 'Land'], ['places', 'Places'], ['story', 'Story'], ['map', 'Details'], ['test', 'Test'],
@@ -381,6 +382,9 @@ function indexGame(game) {
     for (const c of e.choices || []) for (const fx of [c.effects, c.failEffects]) if (fx?.leave) leavers.add(fx.leave);
   }
   for (const id of leavers) ix.flagSrc.add('left_' + id);
+  // (puzzles) levers, plates, runes, braziers and riddles set flags too: a
+  // clue or a companion's line may wait on one
+  for (const f of flagSources(game).keys()) ix.flagSrc.add(f);
   for (const my of mysteriesOf(game)) {
     reward(my.right?.reward, `solving ${my.name || 'a mystery'}`);
     flag(my.right?.flag);
@@ -688,6 +692,7 @@ export function analyzeCampaign(game, opt = {}) {
     }
     if (plain >= 3 && plain * 2 >= people) add(`plain:${m.id}`, 'map', 'todo', `${plain} of the ${people} people in ${m.name} still say only the words they were made with: give a few of them something to tell.`, { tab: 'map', map: m.id });
   }
+  puzzleChecks(game, add, goEnt, ix);
 
   // ---------------------------------------------------------- test
   const cov = opt.coverage;
@@ -709,6 +714,56 @@ export function analyzeCampaign(game, opt = {}) {
   const ignored = new Set(game.meta?.checklistIgnore || []);
   for (const f of out) if (ignored.has(f.id)) f.ignored = true;
   return opt.withIgnored ? out : out.filter((f) => !f.ignored);
+}
+
+// (puzzles) gates and triggers that wait on flags nothing sets, rune groups
+// with a gap in their order, riddles with no answer
+function puzzleChecks(game, add, goEnt, ix) {
+  let src = null;
+  const sources = () => {
+    if (src) return src;
+    src = flagSources(game);
+    for (const f of ix.flagSrc) if (!src.has(f)) src.set(f, [{ what: 'elsewhere' }]);
+    return src;
+  };
+  let gates = 0;
+  for (const m of game.maps) {
+    const groups = new Map();
+    for (const e of m.entities || []) {
+      if (!isPuzzle(e)) continue;
+      const name = puzzleName(e).replace(/^A /, 'a ').replace(/^An /, 'an ');
+      if (e.type === 'gate' || e.type === 'trigger' || (e.type === 'lever' && e.need)) {
+        if (e.type === 'gate') gates++;
+        if (e.type === 'trigger' && !String(e.need || '').trim()) { add(`pz-noneed:${e.id}`, 'map', 'todo', `A trigger in ${m.name} waits on nothing, so it never fires: give it a need.`, goEnt(m, e)); continue; }
+        if (e.type === 'trigger' && !(e.tiles || []).length) add(`pz-notiles:${e.id}`, 'map', 'todo', `A trigger in ${m.name} changes no tiles: pick the squares it changes.`, goEnt(m, e));
+        const missing = needUnmet(e.need, sources());
+        if (missing.length) {
+          const what = e.type === 'gate' ? `${name} in ${m.name} can never open` : e.type === 'trigger' ? `A trigger in ${m.name} can never fire` : `${name} in ${m.name} stays locked for ever`;
+          add(`pz-never:${e.id}`, 'map', 'warn', `${what.replace(/^./, (c) => c.toUpperCase())}: nothing sets ${missing.map((f) => `“${f}”`).join(', ')} (a lever, a plate, runes, a brazier, a riddle, a chest, a conversation or an event could).`, goEnt(m, e));
+        }
+      } else if (e.type === 'rune') {
+        if (!String(e.group || '').trim()) { add(`pz-rune-nogroup:${e.id}`, 'map', 'warn', `A rune in ${m.name} belongs to no group, so treading it does nothing: name its group.`, goEnt(m, e)); continue; }
+        let g = groups.get(e.group);
+        if (!g) groups.set(e.group, g = []);
+        g.push(e);
+      } else if (e.type === 'riddle') {
+        if (!(e.answers || []).some((a) => String(a).trim())) add(`pz-noanswer:${e.id}`, 'map', 'warn', `${name.replace(/^./, (c) => c.toUpperCase())} in ${m.name} asks a riddle with no answer: write the answers it takes.`, goEnt(m, e));
+        if (!String(e.text || '').trim()) add(`pz-noriddle:${e.id}`, 'map', 'todo', `${name.replace(/^./, (c) => c.toUpperCase())} in ${m.name} has no riddle to ask.`, goEnt(m, e));
+      }
+    }
+    for (const [g, list] of groups) {
+      const orders = list.map((r) => +r.order || 0);
+      const n = list.length;
+      const gap = [];
+      for (let i = 1; i <= n; i++) if (!orders.includes(i)) gap.push(i);
+      const twice = orders.filter((o, i) => o && orders.indexOf(o) !== i);
+      if (gap.length || twice.length || orders.some((o) => !o)) {
+        const why = [gap.length ? `no rune is number ${gap.join(', ')}` : '', twice.length ? `${[...new Set(twice)].join(', ')} is used twice` : ''].filter(Boolean).join(' and ') || 'some have no number';
+        add(`pz-order:${m.id}:${g}`, 'map', 'warn', `The runes “${g}” in ${m.name} cannot be trodden in order: ${why} (number them 1 to ${n}).`, goEnt(m, list.find((r) => !r.order) || list[0]));
+      }
+    }
+  }
+  if (gates) add('ok-puzzles', 'map', 'ok', `${gates} gate${gates === 1 ? '' : 's'} with a way to open ${gates === 1 ? 'it' : 'them'}.`);
 }
 
 // Does a map (once reached) lead anywhere else?

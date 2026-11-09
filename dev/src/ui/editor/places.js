@@ -262,6 +262,8 @@ export class PlacesEditor {
     grid.appendChild(this.counter('Rooms', '🚪', 'chambers, joined by passages', () => plan.rooms, (v) => { plan.rooms = v; }, 2, 24, () => this.changed(sel)));
     grid.appendChild(this.counter('Chests', '🧰', 'along the way, besides the hoard', () => plan.chests, (v) => { plan.chests = v; }, 0, 12, () => this.changed(sel)));
     grid.appendChild(this.counter('Curiosities', '🗿', 'carved pillars, hidden caches, shrines', () => plan.wonders, (v) => { plan.wonders = v; }, 0, 6, () => this.changed(sel)));
+    // (puzzles) side rooms behind a gate, opened by a lever, a boulder on a plate or runes
+    grid.appendChild(this.counter('Puzzles', '🗝', 'side rooms behind a gate: a lever, a boulder on a plate, runes', () => plan.puzzles || 0, (v) => { plan.puzzles = v; }, 0, 3, () => this.changed(sel)));
     this.section(M, 'Rooms and riches', null, grid);
     // monsters: who lurks in the rooms, and how many to a band
     const monName = (id) => g.monsters.find((m) => m.id === id)?.name || id;

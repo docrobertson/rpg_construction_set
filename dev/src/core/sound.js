@@ -91,6 +91,19 @@ const SFX = {
   error: () => tone(130, 0.15, 'square', 0.05, -40),
   portal: () => { tone(300, 0.5, 'sine', 0.05, 600); tone(450, 0.5, 'sine', 0.03, 900, 0.1); },
   splash: () => noise(0.25, 0.06, 1200),
+  // (puzzles) levers, plates, gates, runes and braziers
+  lever: () => { tone(140, 0.08, 'square', 0.05, -40); noise(0.08, 0.06, 900, 0.04); tone(70, 0.18, 'triangle', 0.07, -20, 0.1); },
+  plate: () => { tone(90, 0.14, 'triangle', 0.08, -30); noise(0.12, 0.07, 500); tone(180, 0.05, 'square', 0.03, 0, 0.12); },
+  plateUp: () => { tone(120, 0.08, 'triangle', 0.05, 30); noise(0.06, 0.04, 700); },
+  gateOpen: () => { for (let i = 0; i < 6; i++) { tone(70 + i * 6, 0.12, 'sawtooth', 0.025, 10, i * 0.09); noise(0.08, 0.04, 1600, i * 0.09); } tone(55, 0.6, 'triangle', 0.06, 20); },
+  gateShut: () => { tone(160, 0.1, 'sawtooth', 0.04, -100); noise(0.3, 0.12, 600, 0.05); tone(50, 0.4, 'triangle', 0.08, -10, 0.06); },
+  rumble: () => { noise(0.7, 0.1, 260); tone(45, 0.7, 'triangle', 0.07, -10); },
+  wrong: () => { tone(220, 0.18, 'sawtooth', 0.05, -90); tone(165, 0.3, 'sawtooth', 0.05, -60, 0.14); },
+  solved: () => [523, 659, 784, 1047, 1319].forEach((f, i) => { tone(f, 0.5, 'sine', 0.045, 0, i * 0.09); tone(f * 2, 0.3, 'sine', 0.012, 0, i * 0.09 + 0.02); }),
+  chime: () => { tone(1568, 0.5, 'sine', 0.035); tone(2093, 0.4, 'sine', 0.015, 0, 0.03); },
+  ignite: () => { noise(0.5, 0.1, 1400); tone(90, 0.4, 'sawtooth', 0.03, 60); noise(0.3, 0.05, 3000, 0.15); },
+  // runes: a rising scale, so a sequence is heard as it is walked
+  ...Object.fromEntries([523, 587, 659, 784, 880, 1047, 1175, 1319].map((f, i) => ['rune' + (i + 1), () => { tone(f, 0.55, 'sine', 0.05); tone(f * 1.5, 0.4, 'sine', 0.018, 0, 0.02); tone(f / 2, 0.3, 'triangle', 0.02); }])),
 };
 
 export function sfx(name) {
