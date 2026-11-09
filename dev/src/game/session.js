@@ -32,6 +32,8 @@ import { Delve, isBattleground } from './delve.js';
 // (charms) what heroes wear: battle hooks, and the ways and paces it opens
 import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen, isHoard } from './charms.js';
 import { chestLook, containerWords } from '../data/containers.js';
+// (company) banter, partings, mysteries and the gentle start for a small company
+import { companyTick, gentleBand, leaveCompany, hasLeft, mysteryOfJudge, canAccuse } from './company.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -230,7 +232,11 @@ export class PlaySession {
       this.transitioning = false;
       this.queued = null;
     }
+    this.companyTick('map'); // (company) a companion may have a word for this place
   }
+
+  // (company) banter, partings and clues: see game/company.js
+  companyTick(trigger = null) { companyTick(this, trigger); }
 
   // the zoom the player last chose for this kind of place (remembered across
   // games), else a comfortable default
@@ -1265,6 +1271,9 @@ export class PlaySession {
       if (!mon) return;
       const e = { id: uid('roam'), type: 'monster', monster: mon.id, x, y, roaming: true, count: encounterCount(mon, partyLevel(this.party)), wander: 99 };
       if (!this.passableFor(e, x, y)) continue;
+      // (company) a lone hero's first few bands come sized for them
+      const share = gentleBand(this);
+      if (share < 1) e.gentle = share;
       e.home = { x, y };
       map.entities.push(e);
       this.addVisual(e);
@@ -1297,7 +1306,10 @@ export class PlaySession {
     // a big company draws a bigger crowd (the numbers were made for four)
     const company = this.party ? partyAlive(this.party).length : 4;
     if (!def.boss && company > 4) n += Math.round(n * (company - 4) * 0.2);
+    if (e.gentle > 0 && e.gentle < 1) n = Math.max(1, Math.round(n * e.gentle)); // (company) a gentle band
     const list = [{ id: def.id, n: Math.max(1, Math.min(n, 12)) }];
+    if (e.as) list[0].as = e.as; // (company) a turncoat at their head
+    if (e.gentle) return list; // (company) a gentle band comes without its escort
     for (const esc of def.escort || []) {
       const k = rng.int(esc.min || 0, esc.max || 0);
       if (k > 0 && byId(this.game.monsters, esc.id)) list.push({ id: esc.id, n: k });
@@ -1461,6 +1473,8 @@ export class PlaySession {
       partyLevel: partyLevel(this.party),
       leaderName: this.leader?.name,
       rumour: () => (rumours.length ? rng.pick(rumours) : null),
+      // (company) the mystery this person judges, and whether it may be put to them now
+      judgeOf: (npcId) => { const my = mysteryOfJudge(this, npcId); return my ? { my, can: canAccuse(this, my) } : null; },
     };
   }
 
@@ -1524,6 +1538,10 @@ export class PlaySession {
       case 'inn': res.inn = true; break;
       case 'healer': res.healer = true; break;
       case 'buy_ship': ok = buyShip(this, npc, res); break;
+      // (company) a companion leaves (this person, or the one named)
+      case 'leave_party': ok = leaveCompany(this, a.value || npc.id); if (!ok) res.note = `${npc.name || 'They'} ${hasLeft(this.state, a.value || npc.id) ? 'has already gone' : 'is not in the company'}.`; break;
+      // (company) name the guilty one: the window with the suspects opens
+      case 'accuse': { const my = mysteryOfJudge(this, npc.id); if (my && canAccuse(this, my).ok) res.accuse = my.id; else ok = false; break; }
       default: break;
     }
     checkQuests(this);
@@ -1535,6 +1553,7 @@ export class PlaySession {
   // toInn: the company is full, so the newcomer waits at the inn instead
   recruit(npc, { toInn = false } = {}) {
     if (!this.map.entities.includes(npc) && !npc.mapId) return `${npc.name} has already joined thee.`;
+    if (hasLeft(this.state, npc.id)) return `${npc.name} has gone their own way.`; // (company)
     const max = this.game.settings.maxParty || 6;
     if (this.party.members.length >= max && !(toInn && this.lodging())) return `Thy company is full (${max}).`;
     const busy = questNeeding(this, npc.id);
@@ -1554,6 +1573,7 @@ export class PlaySession {
     // battle arts the companion already knows (learned, as it were, on even levels)
     c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
     equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
+    c.ownKit = Object.values(c.equip).filter(Boolean); // (company) theirs to take if they leave
     // they keep their own face and hair; the class dresses them
     c.look = {};
     for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];

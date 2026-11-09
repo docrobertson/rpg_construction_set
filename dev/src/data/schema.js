@@ -57,6 +57,8 @@ export function newGame(opts = {}) {
     quests: [],
     // the designer's outline: chapters that group quests (see game/story.js)
     story: { chapters: [] },
+    // (company) whodunits: clues, suspects and a judge (see game/company.js)
+    mysteries: [],
     maps: [],
   };
   let world;
@@ -174,8 +176,35 @@ export function migrateGame(game) {
   if (!game.story || typeof game.story !== 'object') game.story = { chapters: [] };
   if (!Array.isArray(game.story.chapters)) game.story.chapters = [];
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
+  migrateCompany(game);
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// (company) Starting heroes, companions' words and mysteries came later.
+// startHeroes is left unset in older games: party creation then makes four
+// and lets the player take more or fewer, as it always did.
+export function migrateCompany(game) {
+  const st = game.settings;
+  if (st.startHeroes != null && st.startHeroes !== '') {
+    const n = parseInt(st.startHeroes, 10);
+    if (n > 0) st.startHeroes = Math.min(8, n); else delete st.startHeroes;
+  }
+  if (!Array.isArray(game.mysteries)) game.mysteries = [];
+  game.mysteries = game.mysteries.filter((my) => my && typeof my === 'object');
+  for (const my of game.mysteries) {
+    if (!my.id) my.id = uid('mystery');
+    if (!Array.isArray(my.suspects)) my.suspects = [];
+    if (!Array.isArray(my.clues)) my.clues = [];
+    if (!my.right || typeof my.right !== 'object') my.right = {};
+    if (!my.wrong || typeof my.wrong !== 'object') my.wrong = {};
+  }
+  for (const m of game.maps) for (const e of m.entities || []) {
+    const r = e.type === 'npc' && e.recruit;
+    if (!r) continue;
+    if (r.banter != null && !Array.isArray(r.banter)) delete r.banter;
+    if (r.leaves != null && (typeof r.leaves !== 'object' || Array.isArray(r.leaves))) delete r.leaves;
+  }
 }
 
 // Charms came later (a fifth equipment slot and the trinkets worn in it).

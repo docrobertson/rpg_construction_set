@@ -142,7 +142,7 @@ export class Delve {
         if (!spot) break;
         taken.add(sq(spot.x, spot.y));
         const hp = Math.max(1, roll(def.hp || '2d8'));
-        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1] });
+        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1], ...(k === 0 && roster.find((r) => r.id === id)?.as ? { as: roster.find((r) => r.id === id).as } : {}) }); // (company: a turncoat by name)
       }
     }
     if (e.roaming) g.ent = { ...e };
@@ -158,7 +158,7 @@ export class Delve {
     this.applyVis(this.s.visible);
   }
 
-  def(mm) { return byId(this.game.monsters, mm.id); }
+  def(mm) { const d = byId(this.game.monsters, mm.id); return d && mm.as ? { ...d, ...mm.as } : d; } // (company: a turncoat keeps their name and face)
   living(g) { return (g?.m || []).filter((mm) => !mm.dead); }
   entityOf(gid) { return this.map.entities.find((e) => e.id === gid) || this.groups[gid]?.ent || this.groups[gid]?.src || null; }
   mainDef(gid) {

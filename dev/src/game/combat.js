@@ -132,15 +132,17 @@ export class Battle {
     for (const grp of this.enemyList) {
       const def = byId(this.game.monsters, grp.id);
       if (!def) continue;
-      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(def)) break;
+      // (company) grp.as: the first of them is someone in particular — a
+      // turncoat companion fights under their own name and face
+      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(k === 0 && grp.as ? { ...def, ...grp.as } : def)) break;
     }
     // tell several foes of one kind apart in the log and the turn strip
     const counts = {};
-    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
+    for (const e of this.enemies) if (!e.def.named) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
     const seen = {};
-    for (const e of this.enemies) if (counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
-    const names = this.enemyList.map((g) => {
-      const d = byId(this.game.monsters, g.id);
+    for (const e of this.enemies) if (!e.def.named && counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
+    const names = this.enemyList.flatMap((g) => (g.as && g.n > 1 ? [{ ...g, n: 1 }, { id: g.id, n: g.n - 1 }] : [g])).map((g) => {
+      const d = g.as ? { ...byId(this.game.monsters, g.id), ...g.as, boss: true } : byId(this.game.monsters, g.id);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean);
     this.log(`Battle! You face ${names.join(' and ')}.`, 'bad');
@@ -217,7 +219,7 @@ export class Battle {
   // tell several foes of one kind apart (letters stay with whoever had them)
   retag() {
     const byDef = {};
-    for (const e of this.enemies) (byDef[e.def.id] ||= []).push(e);
+    for (const e of this.enemies) if (!e.def.named) (byDef[e.def.id] ||= []).push(e);
     for (const list of Object.values(byDef)) {
       if (list.length < 2) continue;
       const used = new Set(list.map((e) => e.tag).filter(Boolean));
@@ -322,7 +324,7 @@ export class Battle {
   foesOf(u) { return this.units.filter((x) => x.side !== u.side && this.alive(x)); }
   friendsOf(u) { return this.units.filter((x) => x.side === u.side && this.alive(x)); }
   label(u) { return u.tag ? `${u.name} ${u.tag}` : u.name; }
-  the(u) { return !u.member && !u.def?.boss ? `the ${this.label(u)}` : this.label(u); }
+  the(u) { return !u.member && !u.def?.boss && !u.def?.named ? `the ${this.label(u)}` : this.label(u); }
   The(u) { const t = this.the(u); return t[0].toUpperCase() + t.slice(1); }
 
   unitAt(x, y) { return this.units.find((u) => this.alive(u) && u.x === x && u.y === y); }

@@ -17,6 +17,7 @@ export const ACTIONS = {
   advance_quest: 'Complete the current step of a quest',
   complete_quest: 'Complete a quest',
   victory: 'Win the game!',
+  leave_party: 'A companion leaves the company', // (company) this person, or the one named
 };
 
 export const CONDITIONS = {
@@ -81,6 +82,17 @@ function roleReply(npc, word, ctx) {
     return { text: r || 'Quiet times, friend. Quiet times.' };
   }
   if (role === 'lord' && (k('HEAL'))) return { text: 'Rest, and be whole.', action: { type: 'heal' } };
+  // (company) the judge of a mystery hears an accusation
+  const judge = ctx.judgeOf?.(npc.id);
+  if (judge && (k('ACCUSE') || k('CULPRIT') || k('GUILTY'))) {
+    const { my, can } = judge;
+    if (can.solved) return { text: 'That matter is settled, and justice done. I thank thee again.' };
+    if (can.closed) return { text: 'Thou hadst thy chance to name the guilty one. It is out of my hands now.' };
+    if (can.reason === 'again') return { text: 'Thou hast named the wrong one already, and shamed an honest soul. Bring me something new before thou accusest anyone again.' };
+    if (!can.ok) return { text: `Accuse someone${my.name ? ` in the matter of ${my.name}` : ''}? On what proof? Bring me more — ${can.left} more clue${can.left === 1 ? '' : 's'} at the least.` };
+    return { text: 'Then speak plainly. Whom dost thou accuse?', action: { type: 'accuse' } };
+  }
+  if (ctx.state?.company?.left?.[npc.id] && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) return { text: 'Our roads have parted. I will not follow thee again.' };
   if (npc.recruit && (k('JOIN') || k('COMPANY') || k('FOLLOW'))) {
     const after = npc.recruit.after;
     if (after && ctx.state?.quests?.[after]?.status !== 'done') return { text: npc.recruit.notYet || 'Join thee? Perhaps one day, when there is less to keep me here.' };

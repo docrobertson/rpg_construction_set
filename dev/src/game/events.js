@@ -25,6 +25,7 @@ import { terrain } from '../data/terrain.js';
 import { getTile, inBounds } from '../world/map.js';
 import { buyShip, shipBought } from './ships.js';
 import { shipDeal } from './dialog.js';
+import { leaveCompany, findNpc } from './company.js';
 
 export const EVENT_KINDS = {
   shrine: { label: 'Shrine', icon: '⛩' },
@@ -302,6 +303,8 @@ export function applyEffects(session, e, fx) {
   if (fx.fairy) fairyMagic(session, e, fx.fairy === 'kind', res);
   if (fx.quest) startQuest(session, fx.quest);
   if (fx.fight) res.fight = { monster: fx.fight, count: String(fx.count || '1') };
+  // (company) a companion leaves: by their own leaving rule (its text, a fight, where they go)
+  if (fx.leave && leaveCompany(session, fx.leave)) got.push(`${findNpc(g, fx.leave)?.npc.name || 'a companion'} leaves the company`);
   if (fx.ship) {
     const r = {};
     if (buyShip(session, e, r, { quiet: true })) got.push(r.note);
@@ -865,6 +868,7 @@ export function describeEffects(game, fx) {
   if (fx.rest) out.push('rest');
   if (fx.heal) out.push('healing');
   if (fx.fight) out.push(`fight ${byId(game.monsters, fx.fight)?.name || fx.fight}`);
+  if (fx.leave) out.push('a companion leaves');
   return out.join(', ');
 }
 

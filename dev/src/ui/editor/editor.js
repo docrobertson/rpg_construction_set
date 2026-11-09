@@ -172,6 +172,7 @@ export class Editor {
   goTo(go) {
     if (!go) return;
     const tab = TAB_ALIAS[go.tab] || go.tab || 'map';
+    if (tab === 'story' && go.mystery) { this.setTab('story'); this.story.selectMystery(go.mystery); return; } // (company)
     if (tab === 'story' && (go.quest || go.chapter)) {
       this.setTab('story');
       const q = go.quest && (this.game.quests || []).find((x) => x.id === go.quest);

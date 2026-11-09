@@ -19,6 +19,8 @@ import { LANDMARK_KEEPERS } from '../render/landmarks.js';
 import { serializeGame, deserializeGame, cloneGame } from '../data/schema.js';
 import { chapterList, chapterLabel, currentChapter, chapterOfQuestNow, questSpans, roman } from '../game/story.js';
 import * as Story from '../game/story.js';
+import { mysteriesOf, knownMysteries } from '../game/company.js';
+import { companyUI } from './company.js';
 
 // handles for tests and the browser console
 if (typeof window !== 'undefined') {
@@ -78,7 +80,7 @@ export class QuestUI {
     // the session talks to the PlayUI; these land here
     ui.openEvent = (e) => this.openEvent(e);
     ui.onQuestEvent = (kind, q, extra) => this.onQuestEvent(kind, q, extra);
-    ui.openJournal = () => this.openJournal();
+    ui.openJournal = (tab, focus) => this.openJournal(tab, focus);
   }
 
   destroy() {
@@ -313,14 +315,18 @@ export class QuestUI {
     sfx('click');
     const body = h('div.journal');
     let sel = focus || trackedQuest(s);
+    let mystSel = null; // (company) the mystery open on its page
     const render = () => {
       clear(body);
       const act = activeQuests(s), done = doneQuests(s);
       body.appendChild(h('div.tabs',
         h('button' + (tab === 'active' ? '.on' : ''), { onclick: () => { tab = 'active'; sel = trackedQuest(s); render(); } }, `Under way (${act.length})`),
         h('button' + (tab === 'done' ? '.on' : ''), { onclick: () => { tab = 'done'; sel = done[done.length - 1] || null; render(); } }, `Completed (${done.length})`),
-        h('button' + (tab === 'lore' ? '.on' : ''), { onclick: () => { tab = 'lore'; render(); } }, `Lore & blessings (${s.state.lore.length})`)));
+        h('button' + (tab === 'lore' ? '.on' : ''), { onclick: () => { tab = 'lore'; render(); } }, `Lore & blessings (${s.state.lore.length})`),
+        // (company) only in a game that has mysteries
+        mysteriesOf(g).length ? h('button.j-tab-myst' + (tab === 'mysteries' ? '.on' : ''), { onclick: () => { tab = 'mysteries'; render(); } }, `Mysteries (${knownMysteries(s).length})`) : null));
       if (tab === 'lore') return renderLore();
+      if (tab === 'mysteries') return companyUI.renderMysteries(this.ui, body, mystSel, (my) => { mystSel = my; render(); });
       const list = tab === 'active' ? act : done;
       if (!list.includes(sel)) sel = list[0] || null;
       const left = h('div.j-list');
