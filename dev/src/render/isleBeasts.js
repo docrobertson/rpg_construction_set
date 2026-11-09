@@ -312,7 +312,7 @@ export function naga(spec) {
 // club set with obsidian teeth, moss in its joints and light in its cracks.
 export function guardian(spec) {
   const { B, G } = builders();
-  const st = spec.color ?? 0x8a8a70;
+  const st = spec.color ?? 0x767a66;
   const jade = spec.glow ?? 0x60ffb0;
   const hi = tint(st, 1.12), lo = deep(st, 0.72), moss = 0x5a8a34;
   const box = (col, x, y, z, sx, sy, sz, o = {}) => B.shape(TPL.box, col, { x, y, z, sx, sy, sz, ...o });

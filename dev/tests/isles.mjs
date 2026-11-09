@@ -261,7 +261,10 @@ for (const id of ISLE_MONSTERS) {
     const pic = document.querySelector('.cbt-chip.enemy img')?.src || '';
     return { arena: b.arena?.fill, x: u.x, y: u.y, hasModel: !!model, name: u.name, pic, water: s.battle.arena?.tiles?.some((t) => window.__travel.terrain(t).water) };
   }, [id, STYLE[id], coast]);
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(500);
+  // (it may have moved on its first turn: look at where it stands now)
+  await ev(() => { const s = window.__app.session, v = s.view, u = s.battle.units.find((x) => x.side === 'enemy'); v.focus(u.x + 0.5, u.y + 0.35, true); });
+  await page.waitForTimeout(250);
   await hideUi();
   await page.screenshot({ path: path.join(OUT, `isles_mon_${id}.png`), clip: { x: 160, y: 90, width: 640, height: 470 } });
   // let the fight run: the heroes stand and wait, the monster acts
@@ -269,13 +272,17 @@ for (const id of ISLE_MONSTERS) {
     const s = window.__app.session, b = s.battle;
     const lines = [];
     const log0 = s.log;
+    const e0 = b.units.find((x) => x.side === 'enemy'), x0 = e0?.x, y0 = e0?.y;
     s.log = (t, c) => { lines.push(String(t)); return log0(t, c); };
     for (let k = 0; k < 90 && lines.filter((l) => l.includes(b.units.find((x) => x.side === 'enemy')?.name ?? '#')).length < 3 && !b.over; k++) {
       if (b.active?.side === 'party' && b.awaiting !== false) { b.active.member.hp = Math.max(b.active.member.hp, 120); try { b.actPass(); } catch { /* not its turn yet */ } }
       await new Promise((r) => setTimeout(r, 200));
     }
-    const name = b.units.find((x) => x.side === 'enemy')?.name || id;
+    const en = b.units.find((x) => x.side === 'enemy');
+    const name = en?.name || id;
     const mine = lines.filter((l) => l.includes(name));
+    // (a shark that cannot reach anyone on the sand still swims up to the shallows' edge)
+    if (en && (en.x !== x0 || en.y !== y0)) mine.push(`${name} moves to ${en.x},${en.y}`);
     b.over = true;
     await new Promise((r) => setTimeout(r, 1200));
     s.log = log0;
@@ -341,7 +348,14 @@ const painted = await ev(async () => {
   }
   const tool = (id) => ed.tools[id];
   ed.stampSize = 4;
-  tool('land_jungle').down(ed, { x: 20, y: 20 }); tool('land_jungle').up(ed);
+  // (and a stretch of open grassland for the jungle)
+  let open = null;
+  for (let y = 6; y < m.h - 6 && !open; y++) for (let x = 6; x < m.w - 6 && !open; x++) {
+    let n = 0;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (m.tiles[(y + dy) * m.w + x + dx] === T.grass || m.tiles[(y + dy) * m.w + x + dx] === T.meadow) n++;
+    if (n >= 40) open = { x, y };
+  }
+  tool('land_jungle').down(ed, open); tool('land_jungle').up(ed);
   if (spot) { tool('land_tropical').down(ed, spot); tool('land_tropical').drag(ed, { x: spot.x + 6, y: spot.y }); tool('land_tropical').up(ed); }
   const count = (k) => m.tiles.filter((v, i) => v === T[k] && before[i] !== T[k]).length;
   return { jungle: count('jungle'), palms: count('palms') + count('reef'), spot };
