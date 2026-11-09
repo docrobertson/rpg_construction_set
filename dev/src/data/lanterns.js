@@ -65,7 +65,7 @@ function build() {
   defineFoes(game, MON);
 
   const w = game.maps[0];
-  w.name = 'The Glass Sea';
+  w.name = 'The Glass Sea Lands';
   w.tiles.fill(T.ocean);
   paintWorld(w);
   w.encounterRate = 0.8;
@@ -287,6 +287,19 @@ function paintWorld(w) {
   stamp('forest', 30, 120, 4, 29);
   stamp('meadow', 22, 128, 5, 30);
   stamp('hills', 10, 143, 3, 31);
+  // woods, downs and meres between, so no stretch of the kingdom is empty grass
+  stamp('forest', 12, 110, 5, 32);
+  stamp('pines', 16, 96, 4, 33);
+  stamp('forest', 54, 120, 4, 34);
+  stamp('forest', 34, 40, 4, 35);
+  stamp('forest', 66, 34, 4, 36);
+  stamp('hills', 64, 62, 4, 37);
+  stamp('hills', 14, 122, 4, 38);
+  stamp('forest', 66, 112, 3, 39);
+  stamp('lake', 46, 113, 2, 40);
+  stamp('lake', 24, 34, 2, 41);
+  // the Pebble Brook, down from the downs to the sea west of the village
+  path('river', [[38, 112], [32, 118], [26, 124], [18, 126], [10, 127]], 1);
   // the river Wend, out of the Greyspine to the sea at Saltcombe
   path('river', [[52, 55], [51, 62], [53, 70], [52, 78], [55, 86], [60, 92], [66, 96], [72, 99], [80, 101]], 1);
   path('river', [[32, 76], [36, 84], [42, 90], [48, 92], [55, 87]], 1);
@@ -639,7 +652,8 @@ function dressSaltcombe(game, map) {
     ],
   }, { face: 'fair', hairStyle: 'braids', hair: 0x2a2018, body: 0x1a1a24, robe: true, trim: 0xc8c8d0, hat: 'none', cape: 0x2a2a3a });
   const sage = cast(map, 'sage', {
-    id: 'npc_vane', name: 'Master Aurelian Vane', desc: 'the Master of the Lanternwrights\' Guild, grey and kindly, with ink on his fingers',
+    id: 'npc_vane', name: 'Master Aurelian Vane', need: '!vane_unmasked', // (gone once unmasked: an NPC `need` is asked of the engine)
+    desc: 'the Master of the Lanternwrights\' Guild, grey and kindly, with ink on his fingers',
     shop: { kind: 'mixed', stock: ['torch', 'glowworm_jar', 'votive_candle', 'mana_tonic', 'scroll_seeing'], priceMod: 1 },
     greeting: 'Come in, come in. You\'re the castaway from the Cormorant! I am so very sorry. So very sorry.',
     job: 'I am Master of the Lanternwrights\' Guild. We build the LANTERNS, and we keep them lit. Or we did. Lamps and oil to BUY, if you need them.',
@@ -1251,8 +1265,9 @@ function placeWild(game, w, P, MON) {
         clue: `${paces[0].toUpperCase()}${paces.slice(1)} of the wreck of the Cormorant, above the tide-line. The purser always said the box would float.` });
     }
   }
-  mon('shore_crab', pw.x - 5, pw.y + 6, '1', { wander: 3 }, (t) => t.key === 'sand');
-  mon('shore_crab', pw.x + 6, pw.y + 4, '1', { wander: 3 }, (t) => t.key === 'sand');
+  // (a crab or two on the strand, a little way off: a lone hero's first fight should be one they choose)
+  mon('shore_crab', pw.x - 11, pw.y + 9, '1', { wander: 2 }, (t) => t.key === 'sand');
+  mon('shore_crab', pw.x + 14, pw.y + 6, '1', { wander: 2 }, (t) => t.key === 'sand');
   mon('giant_rat', at('gannet').x + 5, at('gannet').y - 4, '1-2', { wander: 3 });
   sign('sign_pebble_road', pw.x + 3, pw.y - 3, 'North-east: Thornby, and the coast road to Saltcombe.  South-west: Gannet Head and the Light.');
   put('ev_pebble_shrine', 'shrine_ward', pw.x + 6, pw.y - 6, { name: 'Shrine of the Sea-Mother', text: 'A little stone woman with a lantern in her hands looks out to sea from a cairn of white pebbles. Fishermen leave shells at her feet.' });
@@ -1364,7 +1379,7 @@ function placeWild(game, w, P, MON) {
     for (const [x, y] of line4(coast.x, coast.y + 1, rock.x, rock.y)) if (terrain(getTile(w, x, y)).key === 'ocean') setTile(w, x, y, T.shallows);
     const p = spot(rock.x, rock.y, (t) => t.walk && !t.water && !t.feature);
     w.entities.push({ id: 'chest_seal_rock', type: 'chest', x: p.x, y: p.y, name: 'Selkie\'s Cache', look: { kind: 'nest', color: 0xa8a8a0 }, gold: '70', items: [{ id: 'menders_pendant', n: 1 }, { id: 'healing_draught', n: 1 }] });
-    sign('sign_seal_rock', coast.x, coast.y - 1, 'SEAL ROCK. The seals bask out there on the shallows; no boat can get in past the rocks. Something shines in the seals\' nest. (Only a wader could reach it.)');
+    sign('sign_seal_rock', coast.x, coast.y - 1, 'SEAL ROCK. The seals bask out there beyond the shallows. Something shines in the seals\' nest. (A wader might reach it on foot, or a sailor by sea.)');
   }
 
   // ---------------------------------------------------------- Ixara
@@ -1410,7 +1425,19 @@ function placeWild(game, w, P, MON) {
   const pal = at('palace');
   const shoreAt = spot(pal.x - 10, pal.y - 10, (t, x, y) => t.walk && !t.water && !t.feature && [[1, 0], [0, 1]].some(([dx, dy]) => terrain(getTile(w, x + dx, y + dy)).water));
   const way = line4(shoreAt.x, shoreAt.y, pal.x, pal.y).slice(1, -1).filter(([x, y]) => terrain(getTile(w, x, y)).water);
-  for (const [x, y] of way) setTile(w, x, y, TT('reef', 'shallows'));
+  // (black water, deeper than any keel can find: no ship lands there before the tide goes out)
+  for (const [x, y] of way) setTile(w, x, y, T.pit_water);
+  // the palace isle is walled by cliffs, all but the causeway's landing
+  {
+    const last = way[way.length - 1];
+    const landing = last && [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({ x: last[0] + dx, y: last[1] + dy })).find((q) => !terrain(getTile(w, q.x, q.y)).water);
+    for (let y = pal.y - 9; y <= pal.y + 9; y++) for (let x = pal.x - 9; x <= pal.x + 9; x++) {
+      if (!inBounds(w, x, y) || Math.hypot(x - pal.x, y - pal.y) > 8.5) continue;
+      const t = terrain(getTile(w, x, y));
+      if (t.water || t.feature || (landing && x === landing.x && y === landing.y)) continue;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([dx, dy]) => terrain(getTile(w, x + dx, y + dy)).water)) setTile(w, x, y, hash2(x, y, 120) < 0.3 ? T.peaks : T.mountains);
+    }
+  }
   const causeway = TT('ruins_floor', 'bridge');
   w.entities.push({ id: 'causeway_trigger', type: 'trigger', x: shoreAt.x, y: shoreAt.y - 1, need: 'tide_low', once: true,
     tiles: way.map(([x, y]) => ({ x, y, t: terrain(causeway).key })),
@@ -1608,12 +1635,12 @@ function buildChapters(game) {
   return {
     chapters: [
       { id: 'ch_ashore', name: 'Washed Ashore',
-        summary: 'The lone survivor of the Cormorant wakes on the strand at Pebblewick. The Gannet Rock light is dark and its keeper missing; the hero climbs the Rock, relights the lamp — and finds the oil was watered.',
+        summary: 'The lone survivor of the Cormorant wakes on the strand at Pebblewick. Up on the Head the Gannet Rock light stands dark, and its keeper has not come down.',
         notes: 'One hero, alone. Pebblewick is safe and its shore gentle; Gannet Rock is a short dungeon for a single level-one hero (crabs, rats, bats, and Old Snapper if they go looking). The shanty that orders the braziers is sung by Hob in the tavern, by Kit and by Tobias himself. Kit joins after "Bring Da Home".',
         cast: [{ npc: 'npc_nan', note: 'Sends the hero up the Rock, then to Saltcombe' }, { npc: 'npc_kit', note: 'The first companion: joins after Bring Da Home' }, { npc: 'npc_tobias', note: 'The keeper, holed up in the lamp-room' }],
         ends: { type: 'stage', quest: 'q_main', stage: 5 } },
       { id: 'ch_lights', name: 'Who Darkened the Lights?',
-        summary: 'Magistrate Thorne opens the case of the lanterns. With the Queen\'s warrant from Highcrown, the company gathers clues across Merrow — the oil, the wreckers\' ledger, the abbey letter, an apprentice\'s word, the Master\'s own tide-tables — and accuses the saboteur.',
+        summary: 'Someone is putting out the lanterns of Merrow. Magistrate Thorne of Saltcombe will hear an accusation — with the Queen\'s warrant, and with proof. Four names are whispered in the port.',
         notes: 'The mystery (Story → Mysteries) needs three clues of six. Vane is the culprit; Grell, Mags and Cadoc are red herrings, each cleared by a clue. Wren joins in the Guild hall at once and leaves the company when Vane is unmasked. Thrain, Mags and Garrick join after their quests.',
         cast: [{ npc: 'npc_thorne', note: 'The judge: hears the accusation' }, { npc: 'npc_rosamund', note: 'Gives the Queen\'s Warrant' }],
         ends: { type: 'stage', quest: 'q_main', stage: 8 } },
@@ -1623,12 +1650,12 @@ function buildChapters(game) {
         cast: [],
         ends: { type: 'stage', quest: 'q_main', stage: 10 } },
       { id: 'ch_isle', name: 'The Jade Isle',
-        summary: 'Among the lizardfolk of Tzal-Ka the company learns what the lanterns were really for — a prison for the Drowned Queen — and goes into the Sunken Temple of the Sun for the Tide Stone, past a door that answers to a hatchlings\' rhyme.',
+        summary: 'Ixara: jungle, ruins and a mountain that smokes. The lizardfolk of Tzal-Ka remember what the lanterns were for, and what waits in the Sunken Temple of the Sun.',
         notes: 'The rhyme is the Hatch-mother\'s reward for her eggs; Elowen (after her journal) explains it. The temple\'s sanctum needs both plates pressed: two heroes, or the fallen sun-stone and one hero. Liesl\'s locket lies in the Queen\'s offering-bowl. The Sun-Key opens the waygate home to Mistwatch Abbey.',
         cast: [{ npc: 'npc_ssura', note: 'Tells of the Queen and the Tide Stone' }, { npc: 'npc_ithiss', note: 'Knows the hatchlings\' rhyme' }, { npc: 'npc_elowen', note: 'Companion; translates the rhyme' }],
         ends: { type: 'stage', quest: 'q_main', stage: 12 } },
       { id: 'ch_queen', name: 'The Drowned Queen',
-        summary: 'The Tide Stone draws the sea back from the Drowned Causeway. In the palace on the reef, Vane waits in chains, and Wren with him; and at its heart, Nhalia the Drowned Queen.',
+        summary: 'The Tide Stone draws the sea back from the Drowned Causeway. On the reef, the palace of drowned Ixara stands open, and at its heart its queen is singing.',
         notes: 'Vane waits in chains by the palace door (repentant: he tells how to fight her), and Wren beside him if she ran. Showing Wren Liesl\'s locket brings her back for the last fight. Slaying Nhalia wins the game (Campaign → How it ends).',
         cast: [],
         ends: { type: 'stage', quest: 'q_main', stage: 14 } },
@@ -1709,6 +1736,7 @@ function companions(game, P) {
       goTo: { map: P.palace.id, x: P.palace.wrenAt.x, y: P.palace.wrenAt.y },
     },
   });
+  delete P.palace.wrenAt; // (only a builder's note)
   if (wren) wren.keywords.push(
     kw('LOCKET', '', { cond: { type: 'item', value: 'liesl_locket' }, once: true, action: { type: 'join' },
       text: 'Liesl\'s locket. From the Queen\'s own offering-bowl. Then she never had her — she never had her at all, and Uncle... Oh, Uncle. ...I\'m coming with you. For Liesl. For all of them.',
