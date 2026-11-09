@@ -296,7 +296,8 @@ for (const id of MONS) {
     const log0 = s.log;
     const e0 = b.units.find((x) => x.side === 'enemy'), x0 = e0?.x, y0 = e0?.y;
     s.log = (t, c) => { lines.push(String(t)); return log0.call(s, t, c); };
-    for (let k = 0; k < 90 && lines.filter((l) => l.includes(b.units.find((x) => x.side === 'enemy')?.name ?? '#')).length < 3 && !b.over; k++) {
+    // (a generous wait: on a busy machine a slow monster's turn comes late)
+    for (let k = 0; k < 180 && lines.filter((l) => l.includes(b.units.find((x) => x.side === 'enemy')?.name ?? '#')).length < 3 && !b.over; k++) {
       if (b.active?.side === 'party' && b.awaiting !== false) { b.active.member.hp = Math.max(b.active.member.hp, 120); try { b.actPass(); } catch { /* not its turn yet */ } }
       await new Promise((r) => setTimeout(r, 200));
     }
