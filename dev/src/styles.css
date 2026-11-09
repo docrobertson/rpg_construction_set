@@ -235,6 +235,12 @@ select option { background: #1a120b; }
 .tbtn.cta .tb-label { font: 700 19px/1.15 var(--font-title); letter-spacing: .4px; white-space: normal; }
 .tbtn.cta .tb-sub { color: #5a3a12; font-weight: 600; white-space: normal; }
 .tbtn.cont .tb-ico { color: #b8e8ff; }
+/* (adventure) the second built-in adventure: a sea-blue voyage beside the red quest */
+.tbtn.voyage { padding: 11px 15px; background: linear-gradient(180deg, rgba(40,92,120,.55), rgba(10,32,48,.75)), var(--btn-bg, #2a1d10); border-color: rgba(120,190,220,.55); }
+.tbtn.voyage:hover { border-color: #9ad8f0; box-shadow: 0 0 14px rgba(110,200,240,.35); }
+.tbtn.voyage .tb-ico { width: 40px; height: 40px; font-size: 19px; color: #e8f8ff; background: radial-gradient(circle at 40% 35%, #2f88b4, #072238 78%); box-shadow: 0 0 0 1px #02101a, 0 0 0 3px #9ad8f0, 0 2px 6px rgba(0,0,0,.6); }
+.tbtn.voyage .tb-label { font: 700 15.5px/1.15 var(--font-title); letter-spacing: .1px; color: #eaf6ff; white-space: normal; }
+.tbtn.voyage .tb-sub { color: #a8d4e8; white-space: normal; }
 .cont-sub { display: block; }
 .embedded-title { font-size: 22px; margin-bottom: 18px; color: #fff; text-shadow: 0 2px 6px #000; }
 .title-foot { position: absolute; bottom: 22px; right: 30px; color: rgba(236,226,204,.72); font: 12.5px var(--font-ui); text-shadow: 0 1px 3px #000; display: flex; align-items: center; gap: 6px; }

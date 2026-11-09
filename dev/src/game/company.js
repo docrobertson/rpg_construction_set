@@ -17,7 +17,7 @@
 import { byId } from '../data/schema.js';
 import { deepClone } from '../core/util.js';
 import { charLook, partyAlive, unequip } from './rules.js';
-import { applyReward } from './quests.js';
+import { applyReward, checkQuests } from './quests.js';
 import { applyEffects } from './events.js';
 
 // turns between two lines of banter (from anyone), and before the same line again
@@ -352,6 +352,7 @@ export function accuse(session, mysteryId, suspectId) {
     const r = my.right || {};
     const got = applyReward(session, { ...(r.reward || {}), flag: r.flag });
     session.log(`Mystery solved — ${my.name}: ${findNpc(session.game, suspectId)?.npc.name || 'the guilty one'} is unmasked.`, 'quest');
+    checkQuests(session); // (adventure) a quest waiting on the solution moves on at once
     session.autosave?.();
     return { right: true, text: r.text || 'The truth is out at last.', got };
   }

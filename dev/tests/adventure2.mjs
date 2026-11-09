@@ -1,10 +1,16 @@
 // The second built-in adventure, "The Lanterns of the Glass Sea"
 // (src/data/lanterns.js): built and checked in node first — the brief's
 // checklist, the Construction Set's own checklist, every map reachable, the
-// puzzles solvable from their hints — then played in the page: the main
-// quest walked step by step (teleporting and resolving events by script),
-// every companion recruited, and screenshots of the world, both lands, the
-// starting village, a town and a dungeon.
+// puzzles solvable from their hints, and the key fights fought out
+// (tests/adventure2_sim.mjs) — then played in the page with a lone
+// castaway: the main quest from the strand to the Drowned Queen, every
+// puzzle solved by real steps (bumping levers and braziers, stepping runes
+// and plates, pushing the boulder, typing the riddle), the companions found
+// and their banter, the wrong and right accusations, Wren leaving and coming
+// back; and screenshots of the world, both lands, towns and dungeons.
+// (Between the places the company is set down where it would walk to, and
+// the dungeons' monsters are left out of the walk: their fights are the
+// simulation's.)  NO_SIM=1 skips the fights, SIM_ONLY=1 runs only node.
 //
 //   node --require ./tests/fast.cjs tests/adventure2.mjs
 // Prints ok/FAIL per check, screenshots to tests/out/adv2-*.png, exit code 1 on failure.
@@ -16,6 +22,8 @@ import { buildLanternsGame, LANTERNS_ID } from '../src/data/lanterns.js';
 import { analyzeCampaign, reachability } from '../src/game/checklist.js';
 import { terrain, T } from '../src/data/terrain.js';
 import { serializeGame } from '../src/data/schema.js';
+import { simulate } from './adventure2_sim.mjs';
+import { installPlayHelpers } from './adventure2_play.mjs';
 
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const require = createRequire(import.meta.url);
@@ -213,6 +221,21 @@ const mapNamed = (n) => game.maps.find((m) => m.name === n);
   check('the riddles take sensible answers', face.answers.includes('lantern') && sphinx.answers.includes('footsteps'), null);
 }
 
+// ------------------------------------------------------------ the difficulty, fought out
+// (real battles at each point of the story, with the company a player has there)
+if (!process.env.NO_SIM) {
+  const rows = await simulate(parseInt(process.env.SIM_N, 10) || 12, 4242);
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  for (const r of rows) console.log(`   ${r.name.padEnd(38)} L${r.level} ×${1 + r.with.length}  win ${pct(r.win).padStart(4)}  health lost ${pct(r.lost).padStart(4)}  fallen ${r.dead.toFixed(1)}`);
+  const solo = rows.filter((r) => r.with.length === 0);
+  check('the first hour alone is gentle: a lone castaway wins its fights', solo.every((r) => r.win >= r.min), solo.map((r) => [r.name, r.win]));
+  const off = rows.filter((r) => r.win < r.min || r.win > r.max || (r.lostMin && r.lost < r.lostMin));
+  check('every key fight is winnable but not trivial for the company a player has there', !off.length, off.map((r) => [r.name, Math.round(r.win * 100), Math.round(r.lost * 100)]));
+  const bosses = rows.filter((r) => /Snapper|Grubnose|Gaff|Jory|Morcant|Serpent|Nhalia the/.test(r.name));
+  check('…and the bosses cost the company real blood (a fifth of its health or more)', bosses.every((r) => r.lost >= 0.2), bosses.map((r) => [r.name, Math.round(r.lost * 100)]));
+}
+if (process.env.SIM_ONLY) process.exit(fails ? 1 : 0);
+
 // ------------------------------------------------------------ in the page
 let pw;
 try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g').toString().trim() + '/playwright'); }
@@ -227,117 +250,387 @@ await page.waitForFunction(() => !!window.__app, null, { timeout: 60000 });
 const ev = (fn, a) => page.evaluate(fn, a);
 const wait = (ms) => page.waitForTimeout(ms);
 // (the whole world at once is a heavy frame for a software renderer: give it time)
-const shot = async (name) => { await page.screenshot({ path: `${OUT}/adv2-${name}.png`, timeout: 240000 }); console.log('shot', `adv2-${name}`); };
+const shot = async (name, keep = false) => {
+  if (!keep) await page.evaluate(async () => { if (window.__L) await window.__L.close(); });
+  await page.screenshot({ path: `${OUT}/adv2-${name}.png`, timeout: 240000 }); console.log('shot', `adv2-${name}`);
+};
+// a town from above its square, its people about it
+const townView = (zoom = 30) => page.evaluate((zoom) => { const s = window.__app.session; s.view.reach = null; s.view.setZoom(zoom, true); s.view.focus(s.map.w / 2, s.map.h / 2 + 1, true); s.camFocus = () => {}; }, zoom);
 const closeModals = () => ev(async () => { for (let i = 0; i < 10 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await new Promise((r) => setTimeout(r, 120)); } });
 
+const installHelpers = () => installPlayHelpers(page);
+
 try {
-  // the title screen offers the new voyage beside the old one
+  // ---------------------------------------------------------- the title, and a lone hero's creation
   await wait(800);
   const titleBtns = await ev(() => [...document.querySelectorAll('.title-menu button')].map((b) => b.textContent));
   check('the title screen offers both adventures', titleBtns.some((t) => /Shadow over Eldmark/.test(t)) && titleBtns.some((t) => /Lanterns of the Glass Sea/.test(t)), titleBtns);
+  await shot('title');
   const listed = await ev(() => window.__app.allAdventures().filter((a) => a.builtin).map((a) => a.game.id));
   check('the adventure list has both built-in adventures', listed.includes('sample_shadow_over_eldmark') && listed.includes('sample_lanterns_of_the_glass_sea'), listed);
+  await ev(() => { const app = window.__app; app.playGame(app.lanterns, {}); });
+  await wait(2500);
+  const create = await ev(() => document.querySelector('.ch-title')?.textContent || '');
+  check('a new game asks for one hero ("Create Your Hero")', /Create Your Hero/.test(create), create);
+  await shot('create', true);
+  await page.getByRole('button', { name: 'Back', exact: true }).first().click();
+  await wait(800);
 
-  // ---------------------------------------------------------- a quick game, walked through
+  // ---------------------------------------------------------- the walk, with a lone castaway
   await ev(async () => {
     const app = window.__app;
     app.playGame(app.lanterns, { quick: true, noSave: true });
-    for (let i = 0; i < 1200; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 50)); }
+    for (let i = 0; i < 1600; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 50)); }
   });
   await closeModals();
+  await installHelpers();
   await wait(600);
-  const begin = await ev(() => { const s = window.__app.session; return { map: s.map.name, q: s.state.quests.q_main, heroes: s.party.members.length, chapter: Object.keys(s.state.chapters || {}) }; });
-  check('the game begins on the strand with the main quest', begin.map === 'The Glass Sea Lands' && begin.q?.stage === 0 && begin.chapter.includes('ch_ashore'), begin);
+  const begin = await ev(() => { const s = window.__app.session; return { map: s.map.name, q: s.state.quests.q_main, heroes: s.party.members.length, cls: s.party.members[0].cls, chapter: Object.keys(s.state.chapters || {}) }; });
+  check('one castaway on the strand, the main quest begun', begin.heroes === 1 && begin.map === 'The Glass Sea Lands' && begin.q?.stage === 0 && begin.chapter.includes('ch_ashore'), begin);
   await shot('start');
 
-  // the walk: each step done by script, the quest's step checked after it
-  const walk = await ev(async () => {
-    const s = window.__app.session, g = s.game, Q = window.__quests, E = window.__events;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    const mapOf = (name) => g.maps.find((m) => m.name === name);
-    const go = async (name, at) => { const m = mapOf(name); await s.enterMap(m.id, at?.x ?? m.entry.x, at?.y ?? m.entry.y); for (let i = 0; i < 200 && s.transitioning; i++) await sleep(25); };
-    const find = (id) => s.map.entities.find((e) => e.id === id);
-    const talk = (id) => Q.onTalk(s, find(id));
-    const choose = (id, label) => { const e = find(id); const c = e.choices.find((x) => x.label.startsWith(label)); return E.resolveChoice(s, e, c); };
-    const stage = () => (s.state.quests.q_main.status === 'done' ? 'done' : s.state.quests.q_main.stage);
-    const log = [];
-    const step = async (what, fn) => { try { await fn(); } catch (e) { log.push(`${what}: ${e.message}`); } Q.checkQuests(s); log.push([what, stage()]); };
-    // (a lone hero, as the company stream will make it)
-    s.party.members.length = 1;
-    for (const m of s.party.members) { m.level = 8; m.hp = 999; }
-    await step('nan', async () => { await go('Pebblewick'); talk('npc_nan'); });
-    await step('gannet', async () => go('Gannet Rock Light'));
-    await step('lamp', async () => choose('ev_gannet_bypass', 'Light')); // PHASE2: the braziers themselves
-    await step('tobias', async () => { talk('npc_tobias'); s.onMonsterKilled('old_snapper'); s.openChest(find('chest_gannet_oil')); });
-    await step('nan again', async () => { await go('Pebblewick'); talk('npc_nan'); talk('npc_kit'); talk('npc_ezra'); });
-    await step('magistrate', async () => { await go('Saltcombe'); talk('npc_thorne'); });
-    await step('queen', async () => { await go('Highcrown'); talk('npc_rosamund'); });
-    await step('clues', async () => {
-      await go('Mistwatch Abbey');
-      choose('ev_abbey_letter', 'Take');
-      await go('Saltcombe');
-      s.say(find('npc_pip'), 'LAUNCH');
-      s.say(find('npc_thorne'), 'VANE'); // PHASE2: the mystery's ACCUSE
-    });
-    await step('midway', async () => { await go('The Midway Light'); choose('ev_midway_bypass', 'Knock'); }); // PHASE2: the lamp-chain lever
-    await step('landfall', async () => go('Landfall'));
-    await step('elder', async () => { await go('Tzal-Ka'); talk('npc_ssura'); });
-    await step('tide stone', async () => { await go('Sunken Temple of the Sun'); s.openChest(find('chest_tide_stone')); s.openChest(find('chest_sun_key')); });
-    const world = g.maps[0];
-    const plinth = world.entities.find((e) => e.id === 'ev_tide_plinth');
-    await step('plinth', async () => { await go(world.name, { x: plinth.x, y: plinth.y + 1 }); choose('ev_tide_plinth', 'Set'); });
-    const cross = s.say(find('npc_tidepriest'), 'CROSS'); // PHASE2: the causeway trigger
-    await sleep(100);
-    await step('palace', async () => { await go('The Drowned Palace'); s.onMonsterKilled('drowned_queen'); });
-    return { log, cross: cross.action?.type, flags: Object.keys(s.party.flags).filter((f) => !f.startsWith('_')) };
+  // Pebblewick: Nan, Kit (not yet), Ezra
+  let r = await ev(async () => {
+    const L = window.__L, s = L.S(), Q = window.__quests;
+    s.party.food = 900; // (the walk covers weeks of road in minutes: no starving on the way)
+    await L.enter('Pebblewick');
+    L.talk('npc_nan');
+    Q.startQuest(s, 'q_tobias'); Q.startQuest(s, 'q_nets');
+    const kitSays = await L.join('npc_kit');
+    return { stage: L.stage(), kitSays, party: s.party.members.length };
   });
-  console.log('   walk:', walk.log.map((x) => (Array.isArray(x) ? `${x[0]}→${x[1]}` : x)).join('  '));
-  const at = (what) => walk.log.find((x) => Array.isArray(x) && x[0] === what)?.[1];
-  check('Nan sets the hero on the road', at('nan') === 1, walk.log);
-  check('reaching Gannet Rock, relighting it, and back to Nan', at('gannet') === 2 && at('lamp') === 3 && at('nan again') === 4, walk.log);
-  check('the letter to the Magistrate, then the Queen\'s warrant', at('magistrate') === 5 && at('queen') === 6, walk.log);
-  check('the clues and the accusation unmask Vane', at('clues') === 7 && walk.flags.includes('vane_unmasked') && walk.flags.includes('clue_letter') && walk.flags.includes('clue_pip') && walk.flags.includes('clue_oil'), walk);
-  check('the Midway Light, Landfall and the Elder', at('midway') === 8 && at('landfall') === 9 && at('elder') === 10, walk.log);
-  check('the Tide Stone and the causeway', at('tide stone') === 11 && at('plinth') === 12 && walk.cross === 'teleport', walk);
-  check('slaying the Drowned Queen finishes the tale', at('palace') === 'done', walk.log);
-  const won = await ev(() => !!document.querySelector('.victory, .modal-back') || window.__app.session?.state?.won);
-  check('…and the game is won', !!won, won);
-  await closeModals();
+  check('Nan sends the castaway up Gannet Rock', r.stage === 1, r);
+  check('Kit will not come until her father is found', /Da/.test(r.kitSays) && r.party === 1, r);
+  await townView(26);
+  await wait(1200);
+  await shot('pebblewick');
 
-  // ---------------------------------------------------------- every companion can be found and joins
-  await ev(async () => { const app = window.__app; if (app.session) app.endPlay(false); app.playGame(app.lanterns, { quick: true, noSave: true }); for (let i = 0; i < 1200; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 50)); } });
-  await closeModals();
-  const joins = await ev(async () => {
-    const s = window.__app.session, g = s.game, Q = window.__quests;
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    s.party.members.length = 1;
-    const go = async (name) => { const m = g.maps.find((x) => x.name === name); await s.enterMap(m.id, m.entry.x, m.entry.y); for (let i = 0; i < 200 && s.transitioning; i++) await sleep(25); };
-    const find = (id) => s.map.entities.find((e) => e.id === id);
-    const out = {};
-    const join = (id) => { const n = find(id); const said = s.say(n, 'JOIN'); if (said.action?.type === 'join') s.recruit(n); out[id] = s.party.members.some((m) => m.fromNpc === id); };
-    // (the chapters each companion's quest belongs to, opened)
-    for (const ch of g.story.chapters) s.state.chapters[ch.id] = 0;
-    const finish = (qid) => { Q.startQuest(s, qid); Q.completeQuest(s, qid); };
-    await go('Pebblewick'); finish('q_tobias'); join('npc_kit');
-    await go('Thornby'); finish('q_warren'); join('npc_thrain');
-    await go('Saltcombe'); join('npc_wren'); finish('q_mags'); join('npc_mags');
-    await go('Highcrown'); finish('q_jory'); join('npc_garrick');
-    await go('Landfall');
-    // (the company is full at six: the scholar waits at the inn)
-    const lodged = () => (s.state.reserve || []).some((r) => r.member.fromNpc === 'npc_elowen');
-    finish('q_notes'); { const n = find('npc_elowen'); const said = s.say(n, 'JOIN'); if (said.action?.type === 'join') s.recruit(n, { toInn: true }); out.npc_elowen = s.party.members.some((m) => m.fromNpc === 'npc_elowen') || lodged(); }
-    out.size = s.party.members.length;
+  // Gannet Rock: the braziers, lit wrong and then right
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    await L.enter('Gannet Rock Light');
+    const out = { stage0: L.stage() };
+    await L.bump('gannet_br_dawn'); // the morning first: out of turn
+    out.wrong = { lit: L.ent('gannet_br_dawn').lit, flag: L.flag('lantern_gannet'), seq: s.mapState(s.map.id).pz?.['seq:lantern_gannet'] || 0 };
+    for (const id of ['gannet_br_gannet', 'gannet_br_dawn', 'gannet_br_gone', 'gannet_br_drowned']) { out[id] = await L.bump(id); await L.sleep(200); }
+    const lamp = L.ent('gannet_lamp');
+    out.lit = ['gannet_br_gannet', 'gannet_br_dawn', 'gannet_br_gone', 'gannet_br_drowned'].map((id) => L.ent(id).lit);
+    out.flag = L.flag('lantern_gannet');
+    out.lampTile = window.__travel.terrain(s.map.tiles[(lamp.y - 1) * s.map.w + lamp.x]).key;
+    await L.sleep(300);
+    out.stage = L.stage();
+    L.talk('npc_tobias');
+    out.oil = await L.stepOn('chest_gannet_oil');
+    out.clue = L.flag('clue_oil');
+    L.kill('old_snapper');
+    s.view.focus(lamp.x, lamp.y - 1, true); s.view.setZoom(13, true);
     return out;
   });
-  check('every companion joins once their reason is met', ['npc_kit', 'npc_thrain', 'npc_wren', 'npc_mags', 'npc_garrick', 'npc_elowen'].every((id) => joins[id]) && joins.size === 6, joins);
+  check('a brazier lit out of turn gutters out (the shanty\'s order matters)', !r.wrong.lit && !r.wrong.flag && r.wrong.seq === 0, r.wrong);
+  check('lit in the shanty\'s order — gannet, morning, lost, drowned — the great lamp catches', r.lit.every(Boolean) && r.flag && r.lampTile === 'brazier' && r.stage === 3, r);
+  check('the oil casks give the first clue', r.oil && r.clue, r);
+  await wait(900);
+  await shot('gannet-lamp');
+
+  // home: Nan's letter; Kit joins, Ezra pays
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    await L.enter('Pebblewick');
+    L.talk('npc_nan'); L.talk('npc_kit'); L.talk('npc_ezra');
+    const kit = await L.join('npc_kit');
+    return { stage: L.stage(), letter: s.party.inventory.nan_letter, kit, party: s.party.members.map((m) => m.name), shell: s.party.inventory.selkie_shell };
+  });
+  check('Nan gives her letter, and Kit joins the company', r.stage === 4 && r.letter === 1 && r.kit === 'joined' && r.party.includes('Kit Penhallow'), r);
+  check('Ezra pays for Old Snapper with the selkie\'s shell', r.shell === 1, r);
+
+  // Thornby: the goblin-king, and Thrain
+  r = await ev(async () => {
+    const L = window.__L, s = L.S(), Q = window.__quests;
+    await L.enter('Thornby');
+    Q.startQuest(s, 'q_warren');
+    L.kill('grubnose');
+    L.talk('npc_reeve');
+    return { thrain: await L.join('npc_thrain'), party: s.party.members.length };
+  });
+  check('Thrain joins once the warren is cleared', r.thrain === 'joined' && r.party === 3, r);
+
+  // Saltcombe: the letter to the Magistrate, Wren, Pip; the judge will not hear an accusation yet
+  r = await ev(async () => {
+    const L = window.__L, s = L.S(), Q = window.__quests;
+    await L.enter('Saltcombe');
+    await L.sleep(400);
+    s.companyTick('map'); await L.sleep(200);
+    const said = Object.keys(s.state.company?.said || {});
+    L.talk('npc_thorne');
+    const early = L.say('npc_thorne', 'ACCUSE').text;
+    const wren = await L.join('npc_wren');
+    L.say('npc_pip', 'LAUNCH');
+    Q.startQuest(s, 'q_mags');
+    const known = window.__company.knownMysteries(s).map((m) => m.id);
+    return { stage: L.stage(), early, wren, pip: L.flag('clue_pip'), said, known };
+  });
+  check('the Magistrate takes Nan\'s letter and opens the case', r.stage === 5 && r.known.includes('mys_lanterns'), r);
+  check('…but will hear no accusation without the Queen\'s warrant', /warrant/i.test(r.early), r.early);
+  check('Wren joins at once; Pip tells of the launch (a clue)', r.wren === 'joined' && r.pip, r);
+  check('Kit has a word as the company comes into Saltcombe (banter)', r.said.includes('npc_kit#1'), r.said);
+  await townView(28);
+  await wait(1200);
+  await shot('saltcombe');
+
+  // the Wreckers' Hole: two heroes on two plates raise the flood-gate
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    await L.enter('The Wreckers\' Hole');
+    const gate = L.ent('wh_gate');
+    const out = { shut: !gate._open };
+    // (all together into the plate room, then each to a plate)
+    out.there = await L.walk(L.ent('wh_boulder').x, L.ent('wh_boulder').y + 1);
+    const pa = L.ent('wh_plate_a'), pb = L.ent('wh_plate_b');
+    const first = L.aloneTo(pa.x, pa.y);
+    out.a = await L.stepOn('wh_plate_a');
+    out.half = gate._open;
+    L.aloneTo(pb.x, pb.y, [first]);
+    out.b = await L.stepOn('wh_plate_b');
+    out.open = gate._open;
+    L.aloneTo(L.ent('chest_ledger').x, L.ent('chest_ledger').y);
+    out.ledger = await L.walk(L.ent('chest_ledger').x, L.ent('chest_ledger').y);
+    out.clue = L.flag('clue_ledger'); out.item = s.party.inventory.wreckers_ledger;
+    L.kill('gaff_hollis');
+    L.alone(null);
+    return out;
+  });
+  check('the flood-gate stays shut with one plate pressed, and rises with two heroes on both', r.shut && r.a && !r.half && r.b && r.open, r);
+  check('Gaff\'s strongbox holds the ledger (a clue)', r.ledger && r.clue && r.item === 1, r);
+
+  // Mags walks free; the Queen's warrant; Red Jory, and Sir Garrick
+  r = await ev(async () => {
+    const L = window.__L, s = L.S(), Q = window.__quests;
+    await L.enter('Saltcombe');
+    L.talk('npc_mags');
+    const mags = await L.join('npc_mags');
+    await L.enter('Highcrown');
+    L.talk('npc_rosamund');
+    Q.startQuest(s, 'q_jory'); L.kill('red_jory'); L.talk('npc_garrick');
+    const garrick = await L.join('npc_garrick');
+    return { mags, garrick, stage: L.stage(), warrant: L.flag('warrant_given'), party: s.party.members.length };
+  });
+  check('Mags joins once her name is cleared; the Queen gives her warrant; Sir Garrick joins after Red Jory', r.mags === 'joined' && r.garrick === 'joined' && r.stage === 6 && r.warrant && r.party === 6, r);
+
+  // Mistwatch Abbey: the riddle typed at the stone face, then bell, book and candle
+  r = await ev(async () => {
+    const L = window.__L;
+    await L.enter('Mistwatch Abbey');
+    await L.bump('abbey_face');
+    await L.sleep(400);
+    return { open: !!document.querySelector('.riddle-input'), hp: L.S().party.members.reduce((t, m) => t + m.hp, 0) };
+  });
+  check('bumping the face of St Aldhelm asks its riddle', r.open, r);
+  await page.fill('.riddle-input', 'a candle');
+  await page.press('.riddle-input', 'Enter');
+  await wait(400);
+  const hurt = await ev(() => ({ hp: window.__L.S().party.members.reduce((t, m) => t + m.hp, 0), solved: window.__L.flag('abbey_riddle') }));
+  await page.fill('.riddle-input', 'A Lantern!');
+  await page.press('.riddle-input', 'Enter');
+  await wait(400);
+  await shot('abbey-riddle', true);
+  const right = await ev(async () => { const L = window.__L; const ok = L.flag('abbey_riddle'); await L.close(); await L.idle(); return { ok, door: L.ent('abbey_crypt_door')._open }; });
+  check('a wrong answer costs blood; "A Lantern!" opens the crypt door', hurt.hp < r.hp && !hurt.solved && right.ok && right.door, { r, hurt, right });
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    const out = { x0: L.ent('abbey_gate_crypt')._open };
+    // the rite on the wall: ring the bell, close the book, snuff the candle
+    out.bell = await L.bump('abbey_bell');
+    out.book = await L.bump('abbey_book');
+    out.candle = await L.bump('abbey_candle');
+    out.x1 = L.ent('abbey_gate_crypt')._open;
+    const lec = L.ent('ev_abbey_letter');
+    out.reach = await L.walk(lec.x, lec.y, true);
+    L.choose('ev_abbey_letter', 'Take');
+    out.clue = L.flag('clue_letter');
+    L.kill('abbot_morcant');
+    s.companyTick('map'); await L.sleep(100);
+    out.said = Object.keys(s.state.company.said);
+    return out;
+  });
+  check('bell, book and candle, pulled in the rite\'s order, open the Abbot\'s gate', !r.x0 && r.bell && r.book && r.candle && r.x1 && r.reach, r);
+  check('the abbot\'s lectern holds the letter (a clue)', r.clue, r);
+  check('Wren lets slip she has been in the abbey before (banter)', r.said.includes('npc_wren#3'), r.said);
+  await shot('abbey-maze');
+
+  // the accusation: wrong, then right; Wren runs; Vane is gone from his hall
+  r = await ev(async () => {
+    const L = window.__L, s = L.S(), C = window.__company;
+    await L.enter('Saltcombe');
+    const ask = L.say('npc_thorne', 'ACCUSE');
+    const gold0 = s.party.gold;
+    const wrong = C.accuse(s, 'mys_lanterns', 'npc_grell');
+    const lost = gold0 - s.party.gold;
+    const again = C.canAccuse(s, C.mysteryById ? C.mysteryById(s.game, 'mys_lanterns') : s.game.mysteries[0]);
+    const desk = L.ent('chest_grell_books');
+    await L.walk(desk.x, desk.y);
+    const grell = L.flag('clue_grell');
+    const right = C.accuse(s, 'mys_lanterns', 'npc_vane');
+    s.companyTick(); await L.sleep(1200); s.companyTick(); await L.sleep(300);
+    return { ask: ask.action?.type, wrong: { right: wrong.right, lost, flag: L.flag('accused_wrong') }, again: again.reason, grell, right: right.right, stage: L.stage(),
+      wrenGone: !L.member('npc_wren'), left: L.flag('left_npc_wren'), vaneHere: !!L.ent('npc_vane') };
+  });
+  check('with clues enough and the warrant, the Magistrate hears an accusation', r.ask === 'accuse', r);
+  check('a wrong accusation costs gold, and the judge wants a new clue before the next', r.wrong.right === false && r.wrong.lost === 40 && r.wrong.flag && r.again === 'again', r);
+  check('a new clue (Grell\'s desk), then the right name: Vane is unmasked and flees', r.grell && r.right && r.stage === 7 && !r.vaneHere, r);
+  check('Wren leaves the company when her uncle is unmasked (the betrayal)', r.wrenGone && r.left, r);
+
+  // the Black Gull, the Midway Light
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    const w = s.game.maps[0], gull = w.entities.find((e) => e.id === 'ev_black_gull');
+    await L.enter(w.name, { x: gull.x, y: gull.y + 1 });
+    const res = L.choose('ev_black_gull', 'Take');
+    const ship = s.map.entities.find((e) => e.type === 'ship');
+    await L.enter('The Midway Light');
+    const chain = await L.bump('midway_chain');
+    const lamp = L.ent('midway_lamp');
+    await L.sleep(300);
+    return { bought: !!ship && res.success !== false, chain, flag: L.flag('lantern_midway'), tile: window.__travel.terrain(s.map.tiles[(lamp.y - 1) * s.map.w + lamp.x]).key, stage: L.stage() };
+  });
+  check('Mags\'s Black Gull, for a crown', r.bought, r);
+  check('the lamp-chain lights the Midway Light', r.chain && r.flag && r.tile === 'brazier' && r.stage === 8, r);
+
+  // Ixara: Landfall and Elowen; Tzal-Ka, the eggs and the rhyme
+  r = await ev(async () => {
+    const L = window.__L, s = L.S(), Q = window.__quests;
+    const w = s.game.maps[0];
+    await L.enter('Landfall');
+    const stage = L.stage();
+    Q.startQuest(s, 'q_notes');
+    const sat = w.entities.find((e) => e.id === 'chest_elowen');
+    const spots = w.entities.find((e) => e.monster === 'old_spots'); if (spots) s.mapState(w.id).removed.push(spots.id);
+    await L.enter(w.name, { x: sat.x + 1, y: sat.y }); const got = await L.walk(sat.x, sat.y);
+    await L.enter('Landfall');
+    L.talk('npc_elowen');
+    s.restMember(L.member('npc_thrain'));
+    const elowen = await L.join('npc_elowen');
+    await L.enter('Tzal-Ka');
+    L.talk('npc_ssura');
+    Q.startQuest(s, 'q_eggs');
+    const eggs = w.entities.find((e) => e.id === 'chest_eggs');
+    const mother = w.entities.find((e) => e.monster === 'fen_mother'); if (mother) s.mapState(w.id).removed.push(mother.id);
+    await L.enter(w.name, { x: eggs.x + 1, y: eggs.y }); const egg = await L.walk(eggs.x, eggs.y);
+    await L.enter('Tzal-Ka');
+    L.talk('npc_ithiss');
+    const rhyme = L.say('npc_ithiss', 'RHYME').text;
+    const look = L.ent('npc_ssura').look;
+    return { stage, got, elowen, egg, rhyme, heard: L.flag('heard_rhyme'), stage2: L.stage(), look: look.race, party: s.party.members.map((m) => m.name) };
+  });
+  check('landfall on Ixara; Elowen\'s journal from the Old Lantern, and she joins', r.stage === 9 && r.got && r.elowen === 'joined', r);
+  check('the Elder of Tzal-Ka (a lizardfolk, drawn as one)', r.stage2 === 10 && r.look === 'lizard', r);
+  check('the stolen eggs home, and the Hatch-mother sings the rhyme', r.egg && r.heard && /WAVE.*MOON.*STAR.*SUN.*FLAME/.test(r.rhyme), r);
+  await townView(28);
+  await wait(1200);
+  await shot('tzalka');
+
+  // the Sunken Temple: the rhyme stepped wrong, then right; one hero and the sun-stone on the plates
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    await L.enter('Sunken Temple of the Sun');
+    const out = {};
+    // (all together into the glyph hall, then the castaway steps it out alone)
+    const door = L.ent('temple_door');
+    out.there = await L.walk(door.x, door.y + 2);
+    const hp0 = s.party.members.reduce((t, m) => t + m.hp, 0);
+    out.sunFirst = await L.stepOn('temple_rune_sun');
+    out.reset = (s.mapState(s.map.id).pz?.['seq:temple_runes'] || 0) === 0 && !L.ent('temple_rune_sun').lit;
+    out.hurt = s.party.members.reduce((t, m) => t + m.hp, 0) < hp0;
+    L.alone(0);
+    for (const g of ['wave', 'moon', 'star', 'sun', 'flame']) out[g] = await L.stepOn('temple_rune_' + g);
+    out.runes = L.flag('temple_runes');
+    out.door = L.ent('temple_door')._open;
+    // the fallen sun-stone onto the sun-plate, the castaway alone on the moon-plate
+    const pa = L.ent('temple_plate_a');
+    out.pushed = await L.push('temple_boulder', pa.x, pa.y + 1) && await L.push('temple_boulder', pa.x, pa.y);
+    out.plateA = L.flag('temple_plate_a');
+    out.onB = await L.stepOn('temple_plate_b');
+    out.sanctum = L.ent('temple_sanctum')._open;
+    L.kill('serpent_priest');
+    const ts = L.ent('chest_tide_stone');
+    out.stone = await L.walk(ts.x, ts.y);
+    const sk = L.ent('chest_sun_key');
+    out.key = await L.walk(sk.x, sk.y);
+    const offer = s.map.entities.find((e) => e.type === 'chest' && (e.items || []).some((i) => i.id === 'liesl_locket'));
+    out.locket = await L.walk(offer.x, offer.y);
+    out.items = ['tide_stone', 'sun_key', 'liesl_locket'].map((id) => s.party.inventory[id] || 0);
+    out.stage = L.stage();
+    s.view.focus(L.ent('temple_door').x, L.ent('temple_door').y + 2, true); s.view.setZoom(14, true);
+    return out;
+  });
+  check('a glyph stepped out of turn puts them all out, and stings', r.sunFirst && r.reset && r.hurt, r);
+  check('stepped in the rhyme\'s order — wave, moon, star, sun, flame — the Door of the Sun sinks', ['wave', 'moon', 'star', 'sun', 'flame'].every((g) => r[g]) && r.runes && r.door, r);
+  check('one hero alone: the sun-stone rolled onto one plate, the hero on the other, and the sanctum opens', r.pushed && r.plateA && r.onB && r.sanctum, r);
+  check('the Tide Stone, the Sun-Key and Liesl\'s locket', r.stone && r.key && r.locket && r.items.every((n) => n === 1) && r.stage === 11, r);
+  await wait(900);
+  await shot('temple-puzzle');
+
+  // the waygate home and back; the Drowned Causeway
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    const w = s.game.maps[0];
+    const wg = w.entities.find((e) => e.id === 'waygate_temple');
+    await L.enter(w.name, { x: wg.x, y: wg.y + 1 });
+    await L.go(0, -1); await L.sleep(600); await L.idle();
+    const ab = w.entities.find((e) => e.id === 'waygate_abbey');
+    const home = Math.abs(L.pos().x - ab.x) + Math.abs(L.pos().y - ab.y) <= 2;
+    const plinth = w.entities.find((e) => e.id === 'ev_tide_plinth');
+    await L.enter(w.name, { x: plinth.x + 1, y: plinth.y });
+    L.choose('ev_tide_plinth', 'Set');
+    s.puzzles.evaluate(); await L.sleep(1500);
+    const trig = w.entities.find((e) => e.id === 'causeway_trigger');
+    const mid = trig.tiles[Math.floor(trig.tiles.length / 2)];
+    const tile = window.__travel.terrain(s.map.tiles[mid.y * s.map.w + mid.x]).key;
+    const pal = w.entities.find((e) => e.type === 'portal' && e.label === 'The Drowned Palace');
+    const across = await L.walk(pal.x, pal.y, true);
+    L.day(); s.view.focus(mid.x, mid.y, true); s.view.setZoom(22, true);
+    return { home, stage: L.stage(), tile, across, pos: L.pos() };
+  });
+  check('the Sun-Key wakes the waygate: from the temple to Mistwatch Abbey in a step', r.home, r);
+  check('the Tide Stone in its plinth: the sea draws back and the causeway rises', r.stage === 12 && r.tile === 'ruins_floor', r);
+  check('…and the company walks across it to the palace on the reef', r.across, r);
+  await wait(1200);
+  await shot('causeway');
+
+  // the Drowned Palace: Vane in chains, Wren, the locket, and the Queen
+  r = await ev(async () => {
+    const L = window.__L, s = L.S();
+    await L.enter('The Drowned Palace');
+    const out = { vane: !!L.ent('npc_vane_chained'), wren: !!L.ent('npc_wren'), greet: L.ent('npc_wren')?.greeting };
+    out.before = await L.join('npc_wren');
+    L.say('npc_wren', 'LOCKET');
+    out.forgives = L.flag('wren_forgives');
+    out.after = await L.join('npc_wren');
+    out.wrenLevel = L.member('npc_wren')?.level;
+    s.companyTick(); await L.sleep(200);
+    s.state.company.lastBanter = -999; s.companyTick(); await L.sleep(200);
+    out.said = Object.keys(s.state.company.said);
+    L.kill('drowned_queen');
+    await L.sleep(800);
+    out.stage = L.stage();
+    out.won = !!document.querySelector('.victory, .modal-back');
+    return out;
+  });
+  check('in the palace: Vane in chains (now he is here), and Wren, with new words', r.vane && r.wren && /came/.test(r.greet || ''), r);
+  check('Wren will not come back without proof; Liesl\'s locket brings her back as she was', /show me/.test(r.before) && r.forgives && r.after === 'joined' && r.wrenLevel >= 3, r);
+  check('slaying the Drowned Queen ends the tale, and the game is won', r.stage === 'done' && r.won, r);
+  const said = r.said.length;
+  check('companions spoke on the road (banter): at least six lines', said >= 6, r.said);
+  await shot('victory', true);
+  await closeModals();
 
   // ---------------------------------------------------------- pictures
-  // the whole world from high above, then each land, with the fog lifted
   const overview = async (name, x, y, zoom, pitch = 60) => {
     await ev(async ({ x, y, zoom, pitch }) => {
       const s = window.__app.session, v = s.view;
-      if (s.map.type !== 'world') { await s.enterMap(s.game.maps[0].id, s.game.settings.start.x, s.game.settings.start.y); for (let i = 0; i < 200 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25)); }
+      if (s.map.type !== 'world') { await s.enterMap(s.game.maps[0].id, s.game.settings.start.x, s.game.settings.start.y); for (let i = 0; i < 400 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25)); }
       s.map.explored?.fill(1);
+      // (pictures by mid-morning light)
+      s.state.turn = Math.floor((s.state.turn || 0) / 300) * 300 + 375; s.applyDaylight?.();
       v.reach = null;
       v.setVisibilityEnabled(false);
       v.setPitch(pitch);
@@ -346,49 +639,46 @@ try {
       s.camFocus = () => {};
       await new Promise((r) => setTimeout(r, 1500));
     }, { x, y, zoom, pitch });
+    await closeModals();
     await wait(1500);
     await shot(name);
   };
-  await closeModals();
-  await ev(() => { document.querySelector('.play-ui, #ui')?.classList.add('shot-hide'); });
   await overview('world', 88, 84, 175, 70);
   await overview('merrow', 40, 82, 100, 62);
   await overview('ixara', 134, 80, 100, 62);
-  await overview('glass-sea', 92, 64, 40, 52);
-  const placeShot = async (name, map, zoom = 22) => {
-    await ev(async ({ map, zoom }) => {
+  await overview('ixara-coast', 106, 96, 22, 50);
+  await overview('volcano', 148, 36, 30, 50);
+  await overview('reef', 156, 132, 30, 52);
+  const placeShot = async (name, map, zoom, at) => {
+    await ev(async ({ map, zoom, at }) => {
       const s = window.__app.session, m = s.game.maps.find((x) => x.name === map);
       await s.enterMap(m.id, m.entry.x, m.entry.y);
-      for (let i = 0; i < 200 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25));
-      s.map.explored?.fill(1);
+      for (let i = 0; i < 400 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25));
       s.view.reach = null;
-      // (a town from above its square; a dungeon by torchlight, round the company at its door)
-      if (m.type !== 'dungeon') { s.view.setVisibilityEnabled(false); s.view.focus(m.w / 2, m.h / 2 + 2, true); } else s.view.focus(s.state.pos.x, s.state.pos.y - 3, true);
+      s.state.turn = Math.floor((s.state.turn || 0) / 300) * 300 + 375; s.applyDaylight?.();
       s.view.setZoom(zoom, true);
+      if (at) s.view.focus(at.x, at.y, true); else s.view.focus(s.state.pos.x, s.state.pos.y - 4, true);
       s.camFocus = () => {};
       await new Promise((r) => setTimeout(r, 1500));
-    }, { map, zoom });
+    }, { map, zoom, at });
     await closeModals();
     await wait(1200);
     await shot(name);
   };
-  await placeShot('pebblewick', 'Pebblewick', 30);
-  await placeShot('saltcombe', 'Saltcombe', 36);
-  await placeShot('tzalka', 'Tzal-Ka', 30);
-  await placeShot('abbey', 'Mistwatch Abbey', 16);
-  await placeShot('temple', 'Sunken Temple of the Sun', 16);
-  // a frame's cost on the big world, against the sample's
+  await placeShot('palace', 'The Drowned Palace', 16);
+  await placeShot('ember', 'The Ember Vault', 16);
+  // a frame's cost on the big world
   const cost = await ev(async () => {
     const s = window.__app.session;
     await s.enterMap(s.game.maps[0].id, s.game.settings.start.x, s.game.settings.start.y);
-    for (let i = 0; i < 200 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 400 && s.transitioning; i++) await new Promise((r) => setTimeout(r, 25));
     await new Promise((r) => setTimeout(r, 1500));
     const info = s.view.renderer?.info?.render;
     return { calls: info?.calls, triangles: info?.triangles };
   });
   console.log('   world frame:', JSON.stringify(cost));
 } catch (e) {
-  check('the page run finished', false, e.message);
+  check('the page run finished', false, e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' | '));
 }
 check('no errors in the page', !errors.length, errors.slice(0, 6));
 await browser.close();

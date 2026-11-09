@@ -51,6 +51,7 @@ function build() {
   const S = game.settings;
   Object.assign(S, {
     startHeroes: 1, // (one hero, washed ashore alone: the company is found on the way)
+    gentleStart: 5, // (the first wandering bands come sized for a lone hero and a small company)
     maxParty: 6,
     startGold: 30,
     startFood: 40,
@@ -181,6 +182,22 @@ function defineFoes(game, MON) {
     phaseText: '"Come to me, my drowned!" Nhalia\'s song rises to a scream — and the Mist pours in through every crack, full of reaching hands!',
     desc: 'The last queen of Ixara, drowned with her city a thousand years ago. She has never stopped wanting it back.' },
   { kind: 'wraith', color: 0x1e3a44, eyes: 0x60ffe0, hat: 'crown', crownColor: 0x60c0a0, weapon: 'staff', weaponGlow: 0x60ffe0, scale: 1.6 });
+  // the Drowned Queen is the sea-hag of all sea-hags: crowned, taller, glowing
+  const q = monster('drowned_queen');
+  if (q.look?.race === 'hag') Object.assign(q.look, { scale: 1.5, hat: 'crown', crownColor: 0x7ae0c0, body: 0x1e3a44, robe: true, weaponGlow: 0x60ffe0, eyes: 0x60ffe0 });
+  // Each a real fight for the company a player has by then, tuned against
+  // tests/adventure2_sim.mjs (winnable, not trivial: see its table)
+  const tune = {
+    old_snapper: { hp: '6d8+6' },
+    grubnose: { escort: [{ id: 'goblin', min: 2, max: 2 }, { id: 'goblin_shaman', min: 0, max: 1 }] },
+    gaff_hollis: { hp: '18d8+24', ac: 15, hit: 8, dmg: '1d12+5', escort: [{ id: 'bandit', min: 4, max: 4 }], phaseAdds: [{ id: 'bandit', min: 2, max: 2 }] },
+    red_jory: { hp: '20d8+28', ac: 16, hit: 9, dmg: '1d12+5', escort: [{ id: 'bandit', min: 3, max: 3 }, { id: 'warg', min: 2, max: 2 }] },
+    abbot_morcant: { hp: '18d8+24', ac: 16, hit: 9, dmg: '1d12+5', escort: [{ id: 'skeleton', min: 3, max: 3 }], phaseAdds: [{ id: 'skeleton', min: 3, max: 3 }] },
+    serpent_priest: { hp: '32d8+48', ac: 17, hit: 12, dmg: '2d10+6', escort: [{ id: MON('stone_guardian', 'skeleton'), min: 2, max: 2 }, { id: MON('lizard_shaman', 'goblin_shaman'), min: 2, max: 2 }], phaseAdds: [{ id: MON('lizardfolk', 'orc'), min: 4, max: 4 }] },
+    cinderwing: { hp: '48d8+70', ac: 18, hit: 13, dmg: '3d8+9', escort: [{ id: 'drake', min: 2, max: 2 }] },
+    drowned_queen: { hp: '60d8+90', ac: 18, hit: 13, dmg: '2d10+9', escort: [{ id: MON('mist_wraith', 'barrow_wight'), min: 4, max: 4 }, { id: MON('naga', 'skeleton'), min: 1, max: 1 }, { id: MON('sea_hag', 'dark_sorcerer'), min: 1, max: 1 }], phaseAdds: [{ id: MON('mist_wraith', 'barrow_wight'), min: 3, max: 3 }] },
+  };
+  for (const [id, t] of Object.entries(tune)) Object.assign(monster(id), t);
 }
 
 // ------------------------------------------------------------ the land
@@ -397,12 +414,12 @@ function placePlaces(game, w, MON) {
     P[key] = placeFeature(game, w, p.x, p.y, kind, name, seed, { kind, ...plan, seed });
     return P[key];
   };
-  dungeon('gannet', 'tower', 7, 146, 'Gannet Rock Light', 401, { style: 'crypt', size: 'small', rooms: 5, monsters: ['giant_rat', 'bat_swarm', 'shore_crab'], counts: { giant_rat: '1-2', bat_swarm: '1-2', shore_crab: '1' }, boss: 'old_snapper', treasure: { gold: 40, items: [{ id: 'healing_draught', n: 1 }] }, chests: 1, wonders: 1 }, coastal);
+  dungeon('gannet', 'tower', 7, 146, 'Gannet Rock Light', 401, { style: 'crypt', size: 'small', rooms: 5, monsters: ['giant_rat', 'bat_swarm', 'shore_crab'], counts: { giant_rat: '1-2', bat_swarm: '1', shore_crab: '1' }, boss: 'old_snapper', treasure: { gold: 40, items: [{ id: 'healing_draught', n: 1 }] }, chests: 1, wonders: 1 }, coastal);
   dungeon('warren', 'cave', 25, 101, 'The Hollin Warren', 402, { style: 'cave', size: 'small', rooms: 7, monsters: ['goblin', 'giant_rat', 'goblin_shaman'], counts: { goblin: '2-3', giant_rat: '2-3', goblin_shaman: '1' }, boss: 'grubnose', treasure: { gold: 90, items: [{ id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 1 });
   dungeon('wreckers', 'seacave', 47, 147, 'The Wreckers\' Hole', 403, { style: 'seacave', size: 'small', rooms: 7, monsters: ['bandit', 'giant_rat'], counts: { bandit: '2-3', giant_rat: '2-3' }, boss: 'gaff_hollis', treasure: { gold: 160, items: [{ id: 'wreckers_hook', n: 1 }, { id: 'saltwake_leathers', n: 1 }, { id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 1 }, coastal);
   dungeon('abbey', 'tower', 19, 70, 'Mistwatch Abbey', 404, { style: 'crypt', size: 'medium', rooms: 8, monsters: ['skeleton', 'bat_swarm', 'giant_rat'], counts: { skeleton: '2-3', bat_swarm: '2-3', giant_rat: '2-3' }, boss: null, treasure: { gold: 120, items: [{ id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 2 });
-  dungeon('midway', 'tower', 90, 62, 'The Midway Light', 405, { style: 'crypt', size: 'small', rooms: 6, monsters: [MON('mist_wraith', 'barrow_wight'), 'skeleton'], counts: { [MON('mist_wraith', 'barrow_wight')]: '1-2', skeleton: '2-3' }, boss: null, treasure: { gold: 200, items: [{ id: 'greater_draught', n: 2 }] }, chests: 1, wonders: 1 });
-  dungeon('temple', templeKind, 138, 54, 'Sunken Temple of the Sun', 406, { style: temple, size: 'large', rooms: 10, monsters: [MON('lizardfolk', 'orc'), MON('stone_guardian', 'troll'), MON('lizard_shaman', 'goblin_shaman'), MON('giant_frog', 'bog_lurker')], counts: { [MON('lizardfolk', 'orc')]: '2-3', [MON('stone_guardian', 'troll')]: '1', [MON('lizard_shaman', 'goblin_shaman')]: '1-2', [MON('giant_frog', 'bog_lurker')]: '2' }, boss: null, treasure: { gold: 300, items: [{ id: 'greater_draught', n: 2 }] }, chests: 3, wonders: 2 });
+  dungeon('midway', 'tower', 90, 62, 'The Midway Light', 405, { style: 'crypt', size: 'small', rooms: 6, monsters: [MON('mist_wraith', 'barrow_wight'), 'skeleton'], counts: { [MON('mist_wraith', 'barrow_wight')]: '2', skeleton: '3-4' }, boss: null, treasure: { gold: 200, items: [{ id: 'greater_draught', n: 2 }] }, chests: 1, wonders: 1 });
+  dungeon('temple', templeKind, 138, 54, 'Sunken Temple of the Sun', 406, { style: temple, size: 'large', rooms: 10, monsters: [MON('lizardfolk', 'orc'), MON('stone_guardian', 'troll'), MON('lizard_shaman', 'goblin_shaman'), MON('giant_frog', 'bog_lurker')], counts: { [MON('lizardfolk', 'orc')]: '3-4', [MON('stone_guardian', 'troll')]: '1-2', [MON('lizard_shaman', 'goblin_shaman')]: '1-2', [MON('giant_frog', 'bog_lurker')]: '3-4' }, boss: null, treasure: { gold: 300, items: [{ id: 'greater_draught', n: 2 }] }, chests: 3, wonders: 2 });
   dungeon('ember', 'cave', 147, 40, 'The Ember Vault', 407, { style: 'cave', size: 'medium', rooms: 8, monsters: [MON('lizardfolk', 'orc'), 'drake', MON('jungle_cat', 'warg')], counts: { [MON('lizardfolk', 'orc')]: '2-3', drake: '1', [MON('jungle_cat', 'warg')]: '2' }, boss: 'cinderwing', treasure: { gold: 500, items: [{ id: 'emberheart', n: 1 }, { id: 'phoenix_feather', n: 1 }] }, chests: 2, wonders: 1 });
   dungeon('palace', templeKind, 161, 142, 'The Drowned Palace', 408, { style: temple, size: 'large', rooms: 11, monsters: [MON('mist_wraith', 'barrow_wight'), MON('sea_hag', 'dark_sorcerer'), MON('naga', 'skeleton'), 'skeleton'], counts: { [MON('mist_wraith', 'barrow_wight')]: '2', [MON('sea_hag', 'dark_sorcerer')]: '1', [MON('naga', 'skeleton')]: '1-2', skeleton: '2-3' }, boss: 'drowned_queen', treasure: { gold: 1000, items: [{ id: 'greater_draught', n: 3 }] }, chests: 3, wonders: 2 });
   return P;
@@ -982,11 +999,12 @@ function buildDungeons(game, w, P, MON) {
       '######...######',
       '#######E#######',
     ], h, { wall: 'dungeon_wall', floor: 'floor_stone' });
-    const B = (id, at, name, glyph, order, text) => put(map, { id, type: 'brazier', x: at.x, y: at.y, name, lit: false, group: 'lantern_gannet', order, glyph, cost: { item: 'torch' }, text });
-    B('gannet_br_gannet', m.g[0], 'Brazier of the Gannet', 'gannet', 1, 'A cold iron brazier. Its bowl is wrought with a diving gannet, wings folded.');
-    B('gannet_br_dawn', m.s[0], 'Brazier of the Morning', 'sun', 2, 'A cold iron brazier, wrought with a rising sun.');
-    B('gannet_br_gone', m.m[0], 'Brazier of the Lost', 'mast', 3, 'A cold iron brazier, wrought with a broken mast and a torn sail.');
-    B('gannet_br_drowned', m.d[0], 'Brazier of the Drowned', 'eye', 4, 'A cold iron brazier, wrought with a closed eye weeping a single drop.');
+    const B = (id, at, name, glyph, order, text) => put(map, { id, type: 'brazier', x: at.x, y: at.y, name, lit: false, group: 'lantern_gannet', order, glyph, cost: {}, text, doneText: 'The fourth fire roars up — and from the four, the great lamp of Gannet Rock takes light.' });
+    // (no torch is wanted: the keeper's tinder-box hangs by the stair, and a lone castaway must not be stuck for one)
+    B('gannet_br_gannet', m.g[0], 'Brazier of the Gannet', 'gannet', 1, 'An iron brazier, its bowl wrought with a diving gannet, wings folded.');
+    B('gannet_br_dawn', m.s[0], 'Brazier of the Morning', 'sun', 2, 'An iron brazier, wrought with a rising sun.');
+    B('gannet_br_gone', m.m[0], 'Brazier of the Lost', 'mast', 3, 'An iron brazier, wrought with a broken mast and a torn sail.');
+    B('gannet_br_drowned', m.d[0], 'Brazier of the Drowned', 'eye', 4, 'An iron brazier, wrought with a closed eye weeping a single drop.');
     // (Puzzles: brazier `group`/`order` asked for — lit out of turn, the group's fires gutter out)
     put(map, { id: 'gannet_lamp', type: 'trigger', x: m.A[0].x, y: m.A[0].y + 1, need: 'lantern_gannet', tiles: [{ x: m.A[0].x, y: m.A[0].y, t: 'brazier' }], once: true,
       text: 'The four fires roar up, and the great lamp of Gannet Rock catches with a sound like a sail filling. Light floods out over the sea — and down on the water the Mist shrinks back, hissing.' });
@@ -1038,7 +1056,7 @@ function buildDungeons(game, w, P, MON) {
     put(map, { id: 'wh_plate_a', type: 'plate', x: m.a[0].x, y: m.a[0].y, name: 'Pressure Plate', text: 'A square of iron set in the rock, worn bright by boots.' });
     put(map, { id: 'wh_plate_b', type: 'plate', x: m.b[0].x, y: m.b[0].y, name: 'Pressure Plate', text: 'A square of iron set in the rock, worn bright by boots.' });
     put(map, { id: 'wh_boulder', type: 'boulder', x: m.o[0].x, y: m.o[0].y, group: 'wh_boulders', name: 'Ballast Stone', text: 'A great round ballast-stone off some wreck. It would roll, with a shove.' });
-    put(map, { id: 'wh_gate', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'wh_plate_a,wh_plate_b', stayOpen: true, style: 'portcullis', name: 'Flood-gate',
+    put(map, { id: 'wh_gate', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'wh_plate_a,wh_plate_b', stayOpen: true, style: 'portcullis', name: 'Flood-gate', openText: 'Chains clank in the rock, and the flood-gate hauls itself up, streaming — and jams there, open.',
       closedText: 'An iron flood-gate, chained shut. Two iron plates in the floor are worn bright, one on either side of the cave — the wreckers must stand on both to raise it. (Two of you could. Or one, and something heavy.)' });
     put(map, { id: 'chest_ledger', type: 'chest', x: m.L[0].x, y: m.L[0].y, name: 'Gaff\'s Strongbox', look: { kind: 'strongbox' }, flag: 'clue_ledger', gold: '60', items: [{ id: 'wreckers_ledger', n: 1 }] });
     if (h) Object.assign(h, { name: 'Wreckers\' Plunder', look: { kind: 'crates' } });
@@ -1080,21 +1098,25 @@ function buildDungeons(game, w, P, MON) {
       text: 'A great stone face is carved into the crypt door, its eyes closed. As you come near they open — grey, and old, and kind. "Answer, and pass:\n\nI drink and am never full; I eat the dark and leave no crumbs.\nSailors bless me, and the drowned would curse me if they could.\nStarve me, and the grey comes in. What am I?"',
       answers: ['lantern', 'a lantern', 'the lantern', 'lanterns', 'lamp', 'a lamp', 'the lamp', 'lighthouse', 'a lighthouse', 'light', 'a light'],
       reward: { xp: 60 },
+      rightText: '"A lantern," the old saint sighs, and his stone eyes fill with a warm light. "Then keep yours lit, children, whatever comes up the stair."',
+      solvedText: 'The saint\'s eyes are closed again, and he is smiling.',
       wrong: { text: 'The eyes close. Cold Mist breathes out of the stone mouth, and for a moment you hear drowned voices.', hurt: '1d6' } });
-    put(map, { id: 'abbey_crypt_door', type: 'gate', x: m.G[0].x, y: m.G[0].y, need: 'abbey_riddle', style: 'stone', stayOpen: true, name: 'Crypt Door', closedText: 'A door of solid stone, without handle or keyhole. Only the face carved beside it seems to have anything to say.' });
+    put(map, { id: 'abbey_crypt_door', type: 'gate', x: m.G[0].x, y: m.G[0].y, need: 'abbey_riddle', style: 'stone', stayOpen: true, name: 'Crypt Door', openText: 'With a long grinding sigh, the crypt door sinks into the floor. Cold air breathes up from below.', closedText: 'A door of solid stone, without handle or keyhole. Only the face carved beside it seems to have anything to say.' });
     // bell, book and candle: three levers, and gates that answer to them (solved: ring the bell, close the book, snuff the candle)
     const L = (id, at, name, on, text) => put(map, { id, type: 'lever', x: at.x, y: at.y, name, on, text });
     L('abbey_bell', m.b[0], 'The Bell-rope', false, 'A bell-rope hangs from a hole in the vault, its bell somewhere far above.');
     L('abbey_book', m.k[0], 'The Great Book', false, 'A huge book on an iron lectern, wired to a chain that runs into the wall. It lies open.');
     L('abbey_candle', m.c[0], 'The Paschal Candle', true, 'A candle as tall as a man burns on an iron stand, its snuffer hanging beside it on a chain that runs into the floor.');
-    const G = (id, at, need, name) => put(map, { id, type: 'gate', x: at.x, y: at.y, need, style: 'bars', name, closedText: 'Iron bars, wrought with bells and books and candles. They do not move.' });
+    const G = (id, at, need, name) => put(map, { id, type: 'gate', x: at.x, y: at.y, need, style: 'bars', name, closedText: 'Iron bars, wrought with bells and books and candles. They do not move.',
+      openText: `Somewhere in the undercroft, the ${name} grinds open.`, shutText: `Somewhere in the undercroft, the ${name} clangs shut.` });
     G('abbey_gate_1', m['1'][0], '!abbey_book', 'Gate of the Book');
     G('abbey_gate_2', m['2'][0], 'abbey_bell', 'Gate of the Bell');
     G('abbey_gate_3', m['3'][0], 'abbey_candle,!abbey_bell', 'Gate of Silence');
     G('abbey_gate_4', m['4'][0], 'abbey_bell', 'Gate of the Bell');
     G('abbey_gate_5', m['5'][0], 'abbey_candle', 'Gate of the Candle');
     G('abbey_gate_crypt', m.X[0], 'abbey_bell,abbey_book,!abbey_candle', 'The Abbot\'s Gate');
-    ev(map, 'ev_abbey_rite', 'lore', freeSpot(map, m.H[0].x, m.H[0].y + 1), { name: 'The Rite of Laying',
+    // (in the corner of the undercroft, clear of its doorway)
+    ev(map, 'ev_abbey_rite', 'lore', { x: m.H[0].x - 2, y: m.H[0].y - 1 }, { name: 'The Rite of Laying',
       text: 'Painted on the wall of the undercroft, flaking: a monk with a bell, a monk with a book, a monk with a candle-snuffer, and a ghost fleeing from all three. Beneath, in old letters: "TO LAY THE RESTLESS DEAD: RING THE BELL. CLOSE THE BOOK. SNUFF THE CANDLE. AND IN THAT ORDER, BROTHER, OR NOT AT ALL."',
       choices: [{ label: 'Read the rite', text: 'Bell, book, candle — in that order.', effects: { lore: true, xp: 15 } }, leave('Leave it')] });
     // the abbot, his crypt, and the letter he kept for the lamplighter
@@ -1162,12 +1184,12 @@ function buildDungeons(game, w, P, MON) {
     const glyphs = [['sun', 4], ['wave', 1], ['flame', 5], ['moon', 2], ['star', 3]];
     glyphs.forEach(([glyph, order], i) => put(map, { id: `temple_rune_${glyph}`, type: 'rune', x: m[String(i + 1)][0].x, y: m[String(i + 1)][0].y, group: 'temple_runes', order, glyph, name: `Glyph of the ${glyph[0].toUpperCase()}${glyph.slice(1)}`,
       text: `A floor-stone carved with the glyph of the ${glyph}, faintly warm under your feet.`, ...(order === 1 ? { wrong: { text: 'The glyphs flare and go dark. Somewhere in the walls, stone grinds on stone.', hurt: '1d4' } } : {}) }));
-    put(map, { id: 'temple_door', type: 'gate', x: m.G[0].x, y: m.G[0].y, need: 'temple_runes', style: 'stone', stayOpen: true, name: 'Door of the Sun',
+    put(map, { id: 'temple_door', type: 'gate', x: m.G[0].x, y: m.G[0].y, need: 'temple_runes', style: 'stone', stayOpen: true, name: 'Door of the Sun', openText: 'The glyphs blaze, one after another, and the Door of the Sun sinks into the floor with a sound like a long-held breath let go.',
       closedText: 'A slab of gold-veined stone carved with a sun. Five glyphs are cut into the floor before it: a sun, a wave, a flame, a moon, a star. It wants a song — the right one, step by step.' });
     put(map, { id: 'temple_plate_a', type: 'plate', x: m.a[0].x, y: m.a[0].y, name: 'Sun-plate', text: 'A golden plate in the floor, a little sunk, as if waiting for weight.' });
     put(map, { id: 'temple_plate_b', type: 'plate', x: m.b[0].x, y: m.b[0].y, name: 'Moon-plate', text: 'A silver plate in the floor, a little sunk, as if waiting for weight.' });
     put(map, { id: 'temple_boulder', type: 'boulder', x: m.o[0].x, y: m.o[0].y, group: 'temple_boulders', name: 'Fallen Sun-stone', text: 'A great round stone carved with a sun, fallen from the vault. It might roll.' });
-    put(map, { id: 'temple_sanctum', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'temple_plate_a,temple_plate_b', style: 'portcullis', stayOpen: true, name: 'Sanctum Gate',
+    put(map, { id: 'temple_sanctum', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'temple_plate_a,temple_plate_b', style: 'portcullis', stayOpen: true, name: 'Sanctum Gate', openText: 'Sun and moon pressed as one: the gilded gate of the sanctum rises into the vault.',
       closedText: 'A gate of gilded bars. A sun-plate and a moon-plate are set in the floor on either side of the hall: sun and moon must both be pressed at once.' });
     put(map, { id: uid('mon'), type: 'monster', monster: 'serpent_priest', x: m.Z[0].x, y: m.Z[0].y, count: '1', wander: 0, boss: true });
     put(map, { id: 'chest_tide_stone', type: 'chest', x: m.T[0].x, y: m.T[0].y, name: 'Altar of the Tides', look: { kind: 'reliquary', color: 0x2a6a5a }, gold: '120', items: [{ id: 'tide_stone', n: 1 }, { id: 'sunsteel_spear', n: 1 }] });
@@ -1204,8 +1226,9 @@ function buildDungeons(game, w, P, MON) {
       text: 'A stone sphinx crouches by the vault door, obsidian eyes glowing like coals. Its voice is the grind of a millstone: "The more of them you take, the more you leave behind. What are they?"',
       answers: ['footsteps', 'steps', 'footprints', 'foot steps', 'tracks', 'your footsteps'],
       reward: { xp: 80, items: [{ id: 'phoenix_ember', n: 1 }] },
+      rightText: 'The sphinx bows its great head. "Then walk on, and leave yours in my Vault." A coal-bright ember drops from its mouth into your hand.',
       wrong: { text: 'The sphinx\'s eyes flare. The floor beneath you scorches.', hurt: '2d6' } });
-    put(map, { id: 'ember_door', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'ember_riddle', style: 'stone', stayOpen: true, name: 'Vault Door', closedText: 'A door of black stone, warm to the touch. The sphinx beside it watches you.' });
+    put(map, { id: 'ember_door', type: 'gate', x: m.X[0].x, y: m.X[0].y, need: 'ember_riddle', style: 'stone', stayOpen: true, name: 'Vault Door', openText: 'The black door grinds aside. Heat rolls out of the Vault like breath from a forge.', closedText: 'A door of black stone, warm to the touch. The sphinx beside it watches you.' });
   }
 
   // ---------------------------------------------------------- the Drowned Palace
