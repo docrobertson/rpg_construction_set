@@ -18,10 +18,14 @@ import fs from 'node:fs';
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEV = path.resolve(HERE, '..');
 const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places',
-  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
+  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills', 'company', 'puzzles', 'isles', 'adventure2'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
 
 // what each part of the source can break (paths relative to dev/src)
 const RULES = [
+  [/^game\/company\.js$|^ui\/company\.js$|^ui\/editor\/(mysteries|flagList)\.js$/, ['company']],
+  [/^game\/puzzles\.js$|^render\/puzzles\.js$/, ['puzzles']],
+  [/^render\/isleDecor\.js$/, ['isles']],
+  [/^data\/adventure2\.js$/, ['adventure2']],
   [/^(render|data)\/containers\.js$|^ui\/editor\/containerFields\.js$/, ['containers']],
   [/^render\/landmarks\.js$|^world\/countryside\.js$/, ['landmarks']],
   [/^render\/fx\.js$/, ['combat', 'features']],
