@@ -12,6 +12,7 @@ import { newGame, deserializeGame, serializeGame, cloneGame, getMap } from './da
 import { listProjects, loadProject, saveProject, deleteProject, loadState, deleteState, getPref, setPref } from './core/storage.js';
 import { pickFile, downloadText, slugify, uid } from './core/util.js';
 import { buildSampleGame, SAMPLE_ID } from './data/sample.js';
+import { buildLanternsGame, LANTERNS_ID, LANTERNS_TITLE } from './data/lanterns.js';
 import { Editor } from './ui/editor/editor.js';
 import { TestTools } from './ui/testTools.js';
 import { quickStart } from './ui/editor/campaign.js';
@@ -28,6 +29,7 @@ class App {
     this.editor = null;
     this.embedded = readEmbedded();
     this._sample = null;
+    this._lanterns = null;
     window.__app = this;
     loadFonts();
     initTooltips();
@@ -37,6 +39,17 @@ class App {
   get sample() {
     if (!this._sample) this._sample = buildSampleGame();
     return this._sample;
+  }
+
+  // the second built-in adventure, built the first time it is wanted
+  get lanterns() {
+    if (!this._lanterns) this._lanterns = buildLanternsGame();
+    return this._lanterns;
+  }
+
+  // a built-in adventure by its id (null for the designer's own)
+  builtin(id) {
+    return id === SAMPLE_ID ? this.sample : id === LANTERNS_ID ? this.lanterns : null;
   }
 
   // 'full' (title, party creation), 'play' (framed map with docked panels) or 'editor'
@@ -105,6 +118,9 @@ class App {
           tbtn('.primary.cta', 'play', `Play ${feat.meta.title}`,
             featSaved ? 'Start over, or carry on from your save' : this.embedded ? (feat.meta.author ? `An adventure by ${feat.meta.author}` : 'Begin the adventure') : 'The ready-made adventure — start here',
             () => (featSaved ? this.adventureMenu(feat) : this.playGame(feat, {}))),
+          // (the second built-in adventure, beside the first; not in a shared file's own title)
+          this.embedded ? null : tbtn('.voyage', 'compass', 'Play The Lanterns of the Glass Sea', loadState(LANTERNS_ID) ? 'Start over, or carry on from your save' : 'A new voyage: begin alone, find a company',
+            () => (loadState(LANTERNS_ID) ? this.adventureMenu(this.lanterns) : this.playGame(this.lanterns, {})), 'Washed ashore alone — two lands, a mystery and the Drowned Queen'),
           h('div.title-row',
             tbtn('', 'book', 'Play an Adventure', 'Choose any realm', () => this.pickAdventure(), 'Choose any adventure saved in this browser'),
             tbtn('', 'anvil', 'Construction Set', 'Build your own', () => this.pickProject(), 'Paint lands, found towns, write quests')),
@@ -124,7 +140,7 @@ class App {
     if (!id) return null;
     const saved = loadState(id);
     if (!saved) return null;
-    const game = this.embedded?.id === id ? this.embedded : id === SAMPLE_ID ? this.sample : loadProject(id);
+    const game = this.embedded?.id === id ? this.embedded : this.builtin(id) || loadProject(id);
     if (!game) return null;
     const lead = saved.party.members.find((m) => m.status !== 'dead') || saved.party.members[0];
     // the company's level is its best hero's (a fallen leader may lag behind)
@@ -163,8 +179,9 @@ class App {
     const list = [];
     if (this.embedded) list.push({ game: this.embedded, builtin: true });
     list.push({ game: this.sample, builtin: true });
+    list.push({ game: this.lanterns, builtin: true });
     for (const p of listProjects()) {
-      if (p.id === SAMPLE_ID || (this.embedded && p.id === this.embedded.id)) continue;
+      if (this.builtin(p.id) || (this.embedded && p.id === this.embedded.id)) continue;
       list.push({ id: p.id, title: p.title, modified: p.modified });
     }
     return list;
@@ -325,6 +342,8 @@ class App {
         h('button', { onclick: () => { m.close(); this.newProject(true); } }, 'Create')),
       row('quill', 'Remix the sample adventure', `“${this.sample.meta.title}” — see how it was made, then change anything.`,
         h('button', { onclick: () => { m.close(); const g = cloneGame(this.sample); g.id = uid('game'); g.meta.title += ' (remix)'; this.openEditor(g); } }, 'Open copy')),
+      row('compass', 'Remix the voyage', `“${LANTERNS_TITLE}” — two lands, puzzles, a mystery and companions who talk: see how it was made.`,
+        h('button', { onclick: () => { m.close(); const g = cloneGame(this.lanterns); g.id = uid('game'); g.meta.title += ' (remix)'; this.openEditor(g); } }, 'Remix it')),
       row('upload', 'Open a game file', 'Import a .json game shared by a friend.',
         h('button', { onclick: () => { m.close(); this.importFile('edit'); } }, 'Import…')),
     );
