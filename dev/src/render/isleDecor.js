@@ -96,7 +96,7 @@ function tri2(B, a, b, c, col, ka = 1, kb = 1, kc = 1) {
 
 // ---------------------------------------------------------------- foliage
 const JUNGLE = [0x1f5a2c, 0x266630, 0x1c5228, 0x2c6e30, 0x235e34];
-const CANOPY_TOP = [0x3f8634, 0x4a8e36, 0x357a32, 0x55963a];
+const CANOPY_TOP = [0x3a7e34, 0x447e30, 0x2f7238, 0x4c8a36];
 const FROND = 0x56a238, FROND_TIP = 0x9ac850, DRY = 0xb89a52;
 
 // A feathery frond (palm, fern): a spine arching out and down along angle a,
@@ -202,7 +202,7 @@ function rainTree(B, x, y, z, s, r, opt = {}) {
     const col = i ? CANOPY_TOP[(i + Math.floor(r * 5)) % CANOPY_TOP.length] : g;
     B.shape(i ? TPL.blob : TPL.ico1, shade(col, i ? 0.92 : 1), { x: x + Math.cos(a) * d, y: cy - (i ? 0.02 + 0.05 * (i % 2) : 0.14) * s, z: z + Math.sin(a) * d * 0.9, sx: w, sy: w * (i ? 0.42 : 0.38), sz: w * 0.92, ry: a });
   }
-  paint(B, start, 0.5, 1.3, 0.36);
+  paint(B, start, 0.55, 1.16, 0.3);
   // big leaves bristling out of the rim, so the crown reads ragged and lush
   if (!B.cheap) {
     sway(B, cy - 0.2 * s, 0.6);
@@ -575,9 +575,9 @@ export const ISLE_DECOR = {
     if (outside) return;
     const k = r(3);
     const fx = cx + (r(4) - 0.5) * 0.5, fz = cz + 0.18 + r(5) * 0.18, fy = c.gy(fx, fz);
-    if (c.thin) {
-      // (beside a point of interest: only low growth in front)
-    } else if (k < 0.3) treeFern(B, fx, fy, fz, 1 + r(6) * 0.3, r(7));
+    // (beside a point of interest only low growth stands in front)
+    if (c.thin) leafClump(B, fx, fy, fz, 0.9, r(8));
+    else if (k < 0.3) treeFern(B, fx, fy, fz, 1 + r(6) * 0.3, r(7));
     else if (k < 0.55) banana(B, fx, fy, fz, 1 + r(6) * 0.3, r(7));
     else if (k < 0.68) palm(B, fx, fy, fz, 0.9 + r(6) * 0.3, r(7));
     else leafClump(B, fx, fy, fz, 1.2 + r(6) * 0.5, r(8), r(8) < 0.5 ? 0x3a8a30 : 0x2e7a2c);
@@ -664,9 +664,14 @@ export const ISLE_DECOR = {
     }
   },
   mangrove(c) {
-    const { B, cx, cz, r, outside } = c;
+    const { B, W, cx, cz, r, outside } = c;
     // trees standing on arching prop roots in the shallows, crowns low and
-    // glossy, breathing-roots poking up from the water about them
+    // glossy, breathing-roots poking up from the water about them; the
+    // water itself murky with silt, scum and fallen leaves
+    for (let i = 0; i < 4; i++) {
+      const a = r(80 + i) * 6.28, d = 0.12 + r(84 + i) * 0.3;
+      W.shape(TPL.cyl6, [0x6a7a4a, 0x7a7a52, 0x5a7a4e, 0x8a8458][i], { x: cx + Math.cos(a) * d, y: WATER_Y + 0.002 + i * 0.0004, z: cz + Math.sin(a) * d, sx: 0.28 + r(88 + i) * 0.22, sy: 0.003, sz: 0.2 + r(92 + i) * 0.16, ry: a });
+    }
     const n = c.thin ? 1 : (r(1) < 0.55 ? 2 : 1);
     const spots = [[-0.18, -0.16], [0.2, 0.08], [-0.05, 0.2]];
     for (let i = 0; i < n; i++) {
@@ -679,7 +684,7 @@ export const ISLE_DECOR = {
       sway(B, rootTop, 0.12);
       for (let k = 0; k < (B.cheap ? 3 : 5); k++) {
         const a = rk * 6.28 + (k / 5) * Math.PI * 2 + (hash2(k, rk * 99, 1) - 0.5) * 0.5;
-        const R = (0.2 + 0.08 * hash2(k, rk * 99, 2)) * s;
+        const R = (0.3 + 0.1 * hash2(k, rk * 99, 2)) * s;
         const ca = Math.cos(a), sa = Math.sin(a);
         const arc = [];
         for (let j = 0; j <= 4; j++) {
@@ -691,12 +696,12 @@ export const ISLE_DECOR = {
       }
       B.shape(TPL.taper6, 0x6a5a44, { x: px, y: rootTop - 0.02, z: pz, sx: 0.07 * s, sy: 0.24 * s, sz: 0.07 * s });
       const start = B.col.length;
-      const cyy = rootTop + 0.2 * s;
+      const cyy = rootTop + 0.26 * s;
       const g = [0x2f6a30, 0x2a6230, 0x387434][Math.floor(rk * 3) % 3];
-      B.shape(TPL.ico1, g, { x: px, y: cyy, z: pz, sx: 0.56 * s, sy: 0.3 * s, sz: 0.5 * s, ry: rk * 4 });
+      B.shape(TPL.ico1, g, { x: px, y: cyy, z: pz, sx: 0.44 * s, sy: 0.26 * s, sz: 0.4 * s, ry: rk * 4 });
       for (let k = 0; k < 2; k++) {
         const a = rk * 9 + k * 2.6;
-        B.shape(TPL.blob, shade(g, 1.05 + k * 0.08), { x: px + Math.cos(a) * 0.2 * s, y: cyy + 0.04 * s, z: pz + Math.sin(a) * 0.18 * s, sx: 0.3 * s, sy: 0.2 * s, sz: 0.3 * s, ry: a });
+        B.shape(TPL.blob, shade(g, 1.05 + k * 0.08), { x: px + Math.cos(a) * 0.14 * s, y: cyy + 0.05 * s, z: pz + Math.sin(a) * 0.12 * s, sx: 0.26 * s, sy: 0.18 * s, sz: 0.26 * s, ry: a });
       }
       paint(B, start, 0.55, 1.3, 0.3);
       still(B);

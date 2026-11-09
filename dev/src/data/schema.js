@@ -201,7 +201,7 @@ export function migrateCharms(game) {
 // nothing new walks the old lands.
 export const ISLES_V = 1;
 const ISLE_MONSTERS = ['giant_frog', 'jungle_cat', 'lizardfolk', 'lizard_shaman', 'reef_shark', 'mist_wraith', 'stone_guardian', 'sea_hag', 'naga'];
-const ISLE_ABILITIES = ['tongue_lash', 'venom_spit', 'shark_lunge', 'wail', 'constrict', 'hag_curse'];
+const ISLE_ABILITIES = ['tongue_lash', 'venom_spit', 'shark_lunge', 'thrash', 'wail', 'constrict', 'hag_curse'];
 const ISLE_ITEMS = ['coral_charm', 'jade_idol', 'hookblade', 'lizardhide'];
 export function migrateIsles(game) {
   if ((game.settings.islesV || 0) >= ISLES_V) return;

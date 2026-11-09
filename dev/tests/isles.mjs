@@ -239,7 +239,7 @@ await page.waitForTimeout(1200);
 await shot('temple_inside');
 
 // ---- each new monster in battle: it builds, takes its turns, uses its powers
-const STYLE = { giant_frog: 'jungle', jungle_cat: 'jungle', lizardfolk: 'jungle', lizard_shaman: 'temple', reef_shark: 'beach', mist_wraith: 'temple', stone_guardian: 'temple', sea_hag: 'beach', naga: 'temple' };
+const STYLE = { giant_frog: 'jungle', jungle_cat: 'jungle', lizardfolk: 'jungle', lizard_shaman: 'temple', reef_shark: 'water', mist_wraith: 'temple', stone_guardian: 'temple', sea_hag: 'beach', naga: 'temple' };
 const fought = {};
 for (const id of ISLE_MONSTERS) {
   const res = await ev(async ([id, style, C]) => {
@@ -249,8 +249,12 @@ for (const id of ISLE_MONSTERS) {
     const lines = [];
     const log0 = s.log.bind(s);
     s.log = (t, c) => { lines.push(String(t)); return log0(t, c); };
+    // (the last fight must be quite over before the next begins)
+    for (let i = 0; i < 80 && s.mode === 'combat'; i++) await new Promise((r) => setTimeout(r, 100));
+    const prev = s.battle;
     s.fight([{ id, n: 1 }], style, {});
-    for (let i = 0; i < 60 && !(s.battle && s.battle.units?.length); i++) await new Promise((r) => setTimeout(r, 100));
+    const mine = () => s.battle && s.battle !== prev && s.battle.units?.some((x) => x.side === 'enemy' && x.def?.id === id);
+    for (let i = 0; i < 80 && !mine(); i++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 1800));
     const b = s.battle;
     const u = b.units.find((x) => x.side === 'enemy');
@@ -292,7 +296,7 @@ for (const id of ISLE_MONSTERS) {
 }
 const quiet = ISLE_MONSTERS.filter((id) => !fought[id].acts.length || !fought[id].hasModel);
 check('each isle monster builds in battle and takes its turns', !quiet.length, { quiet, sample: { ...fought.giant_frog, pic: undefined } });
-check('the reef shark fights from the water off a beach', fought.reef_shark.water);
+check('the reef shark strikes at a ship from the water', fought.reef_shark.water && fought.reef_shark.acts.length > 0);
 console.log('acts', JSON.stringify(Object.fromEntries(ISLE_MONSTERS.map((id) => [id, fought[id].acts.slice(0, 2)]))));
 // the contact sheet
 {
