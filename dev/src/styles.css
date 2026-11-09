@@ -2291,3 +2291,4 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .pz-flags .chip.small { padding: 2px 8px; font-size: 11px; }
 .pz-tiles { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .pz-tile { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }
+.riddle-log .note.bad { color: #8a1e0a; }

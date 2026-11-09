@@ -331,8 +331,8 @@ function sphinx(B, G, spec) {
     // lappets of the headcloth down to the chest
     tube(B, [[s * 0.1, hy + 0.04, hz - 0.02], [s * 0.13, hy - 0.08, hz + 0.0], [s * 0.11, hy - 0.2, hz + 0.02]], [0.05, 0.055, 0.04], (t) => (Math.floor(t * 6) % 2 ? 0x2a5aa0 : GOLD), { segs: 6, sq: 0.5 });
   }
-  lathe(B, [[0.12, hy - 0.02], [0.13, hy + 0.08], [0.1, hy + 0.15], [0.02, hy + 0.17]], (t) => (Math.floor(t * 5) % 2 ? 0x2a5aa0 : GOLD), { segs: 10, dx: () => 0, sq: 1 , matrix: mat(0, 0, hz - 0.02) });
-  ball(B, GOLD, 0, hy + 0.14, hz + 0.08, 0.025);
+  lathe(B, [[0.12, hy - 0.02], [0.13, hy + 0.08], [0.1, hy + 0.15], [0.02, hy + 0.17]], (t) => (Math.floor(t * 5) % 2 ? 0x2a5aa0 : GOLD), { segs: 10, sq: 0.9, matrix: mat(0, 0, hz - 0.075) }); // (set back: the face looks out of it)
+  ball(B, GOLD, 0, hy + 0.15, hz + 0.02, 0.028);
   // a beard plaited and capped in gold
   tube(B, [[0, hy - 0.12, hz + 0.07], [0, hy - 0.22, hz + 0.08]], [0.022, 0.018], [st, GOLD], { segs: 6 });
   pebbles(B, 3, 0.48, DSTONE, 1.3);

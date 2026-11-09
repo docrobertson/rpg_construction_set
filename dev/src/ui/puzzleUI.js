@@ -28,7 +28,7 @@ export class PuzzleUI {
       add(h('p.you-say', '› ' + word.toUpperCase()));
       const res = s.puzzles.answer(e, word);
       add(h('p.npc-say' + (res.ok ? '.riddle-right' : '.riddle-wrong'), res.text));
-      if (res.got?.length) add(h('p.note', res.got.join(' · ')));
+      if (res.got?.length) add(h('p.note' + (res.ok ? '' : '.bad'), res.got.join(' · ')));
       box.box.classList.remove('riddle-shake');
       if (!res.ok) { void box.box.offsetWidth; box.box.classList.add('riddle-shake'); }
       if (res.ok) {

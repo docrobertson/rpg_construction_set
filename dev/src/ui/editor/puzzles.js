@@ -182,10 +182,13 @@ function needField(ed, ent, key, label, changed, hint) {
       if (missing.length) read.appendChild(h('div.pz-warn', `⚠ This can never be met: nothing sets ${missing.join(', ')}.`));
     }
     clear(flags);
-    const known = [...src.keys()].filter((f) => f !== flagOf(ent)).sort();
+    // this map's flags first (the lever across the room), then the rest of the realm's
+    const here = (f) => (src.get(f) || []).some((b) => b.map === ed.map);
+    const known = [...src.keys()].filter((f) => f !== flagOf(ent)).sort((a, b) => here(b) - here(a) || a.localeCompare(b));
     if (known.length) {
       flags.appendChild(h('span.hint', 'Flags in this realm (click to add):'));
-      for (const f of known.slice(0, 40)) {
+      const max = ed._pzAllFlags ? known.length : 16;
+      for (const f of known.slice(0, max)) {
         flags.appendChild(h('button.chip.small', {
           title: (src.get(f) || []).map((b) => b.what).join('; '),
           onclick: (ev) => {
@@ -197,6 +200,7 @@ function needField(ed, ent, key, label, changed, hint) {
           },
         }, f));
       }
+      if (known.length > max) flags.appendChild(h('button.chip.small.pz-more', { onclick: (ev) => { ev.preventDefault(); ed._pzAllFlags = true; render(); } }, `+ ${known.length - max} more…`));
     }
   };
   input.addEventListener('input', () => { ent[key] = input.value.trim(); changed(); render(); });
@@ -265,6 +269,7 @@ export function inspectPuzzle(ed, ent, container, head, changed) {
         { key: 'stayOpen', label: 'Stays open once opened', type: 'check' },
         { key: 'closedText', label: 'Said when the company bumps it', type: 'textarea', rows: 2 },
         { key: 'openText', label: 'Said when it opens', type: 'text' },
+        { key: 'shutText', label: 'Said when it shuts again', type: 'text', show: (o) => !o.stayOpen },
         { key: 'text', label: 'When looked at', type: 'text' }];
       container.appendChild(needField(ed, ent, 'need', 'Opens when', redraw, 'Shut until this holds (and shut again when it stops, unless it stays open).'));
       break;

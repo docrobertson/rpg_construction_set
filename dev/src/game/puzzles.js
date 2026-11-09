@@ -170,7 +170,7 @@ export function puzzleLook(e, editor = false) {
     case 'plate': return { kind: 'pz_plate', down: !!e.down };
     case 'boulder': return { kind: 'pz_boulder', seed: hashStr(e.id) % 7 };
     case 'gate': return { kind: 'pz_gate', style: GATE_STYLES[e.style] ? e.style : 'portcullis', open: !!e._open };
-    case 'riddle': return { kind: 'pz_riddle', look: RIDDLE_LOOKS[e.look] ? e.look : 'face', solved: !!e.solved };
+    case 'riddle': return { kind: 'pz_riddle', look: RIDDLE_LOOKS[e.look] ? e.look : 'face', solved: !!e.solved, ...(e.look === 'sphinx' ? { scale: 1.3 } : {}) };
     case 'rune': return { kind: 'pz_rune', glyph: GLYPHS.includes(e.glyph) ? e.glyph : GLYPHS[((+e.order || 1) - 1) % GLYPHS.length], lit: !!e.lit };
     case 'brazier': return { kind: 'pz_brazier', lit: !!e.lit };
     case 'trigger': return editor ? { kind: 'pz_trigger' } : null;
@@ -190,6 +190,7 @@ export function puzzleName(e) {
     case 'riddle': return e.look === 'sphinx' ? 'A sphinx' : e.look === 'door' ? 'A carved door' : 'A great stone face';
     case 'rune': return `A ${GLYPH_NAMES[e.glyph] || 'carved'} rune`;
     case 'brazier': return 'A brazier';
+    case 'trigger': return 'A trigger';
     default: return 'Something';
   }
 }
@@ -378,9 +379,11 @@ export class Puzzles {
         sfx(want ? 'gateOpen' : 'gateShut');
         this.fx().grind(e.x, e.y, want);
         const seen = this.s.isVisible(e.x, e.y);
-        const name = puzzleName(e).replace(/^A /, 'a ').replace(/^Iron/, 'iron');
-        if (want) this.log(e.openText || (seen ? `With a grinding of stone and chain, ${name} ${e.style === 'stone' ? 'sinks into the floor' : e.style === 'bars' ? 'slides away' : 'rises'}.` : 'Somewhere nearby, chains rattle and stone grinds.'), 'good');
-        else this.log(seen ? `${name.replace(/^./, (c) => c.toUpperCase())} grinds shut again.` : 'Somewhere, something heavy slams shut.', 'warn');
+        // "the portcullis rises", "the iron bars slide away" (a name the designer gave is used as it is)
+        const name = e.name ? e.name : e.style === 'stone' ? 'the stone slab' : e.style === 'bars' ? 'the iron bars' : 'the portcullis';
+        const verb = e.style === 'stone' ? ['sinks into the floor', 'grinds back up out of the floor'] : e.style === 'bars' ? ['slide away into the floor', 'grind back up'] : ['rises', 'crashes down'];
+        if (want) this.log(e.openText || (seen ? `With a grinding of stone and chain, ${name} ${verb[0]}.` : 'Somewhere nearby, chains rattle and stone grinds.'), 'good');
+        else this.log(e.shutText || (seen ? `${name.replace(/^./, (c) => c.toUpperCase())} ${verb[1]}!` : 'Somewhere, something heavy slams shut.'), 'warn');
       }
     }
     return any;
@@ -584,6 +587,7 @@ export class Puzzles {
       if (type === 'rune') { e.lit = true; this.refreshVisual(e, 'lit'); }
       sfx('rune' + Math.min(8, ord));
       this.fx().chime(e.x, e.y, ord);
+      if (ord < n) this.log(type === 'rune' ? `The ${GLYPH_NAMES[e.glyph] || 'carved'} rune kindles under your feet.` : 'The flames leap up.');
       if (ord >= n) {
         flags[g] = true;
         setTimeout(() => sfx('solved'), this.view.fast ? 60 : 260);

@@ -19,6 +19,7 @@ const fails = [];
 const check = (name, ok, info) => { console.log((ok ? 'ok   ' : 'FAIL ') + name + (ok || info === undefined ? '' : ' ' + JSON.stringify(info))); if (!ok) fails.push(name); };
 
 // ---- in node: the generator makes a puzzle room only when asked
+let genRoom = null;
 {
   const G = await import('../src/world/generate.js');
   const P = await import('../src/world/places.js');
@@ -32,6 +33,12 @@ const check = (name, ok, info) => { console.log((ok ? 'ok   ' : 'FAIL ') + name 
     const m = deterministicIds(() => G.generateDungeon({ plan: { ...plan, puzzles: n }, seed: 4242 }).map);
     const gates = m.entities.filter((e) => e.type === 'gate');
     check(`a plan with ${n} puzzle${n > 1 ? 's' : ''} makes ${n} gated side room${n > 1 ? 's' : ''}, each with what opens it and a chest behind`, gates.length === n && gates.every((g) => m.entities.some((e) => e.type === 'chest' && e.made === 'puzzle' && Math.abs(e.x - g.x) + Math.abs(e.y - g.y) <= 3)), kinds(m));
+    if (n === 1) {
+      const { terrain } = await import('../src/data/terrain.js');
+      const lv = m.entities.find((e) => e.type === 'lever');
+      const spot = [[0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dy]) => [lv.x + dx, lv.y + dy]).find(([x, y]) => terrain(m.tiles[y * m.w + x]).walk && !m.entities.some((e) => e.x === x && e.y === y));
+      genRoom = { ...m, tiles: Array.from(m.tiles), _spot: spot };
+    }
     if (n === 3) {
       check('the three are a lever, a boulder on a plate and a rune sequence (hinted on a carved pillar)', ['lever', 'plate', 'boulder', 'rune', 'event'].every((k) => m.entities.some((e) => e.made === 'puzzle' && e.type === k)), kinds(m));
       const inferred = P.planOf(m, 'fortress');
@@ -105,7 +112,7 @@ await ev(async () => {
     { id: 'pzt_gate3', type: 'gate', x: 8, y: 11, need: 'pzt_runes', style: 'stone' },
     { id: 'pzt_riddle', type: 'riddle', x: 1, y: 11, look: 'face', text: 'I run but never walk, have a mouth but never talk, a bed but never sleep. What am I?', answers: ['river'], flag: 'pzt_riddle_ok', reward: { gold: 25 }, wrong: { text: 'The stone eyes flare. Pain lances through you!', hurt: '2' } },
   ];
-  g.maps.push({ id: 'pzt_map', name: 'Hall of Trials', type: 'dungeon', w: W, h: H, tiles, entities: ents, lighting: 'dark', battleground: false, exit: { map: g.maps[0].id, x: g.settings.start.x, y: g.settings.start.y }, entry: { x: 2, y: 3 } });
+  g.maps.push({ id: 'pzt_map', name: 'Hall of Trials', type: 'dungeon', w: W, h: H, tiles: Uint8Array.from(tiles), entities: ents, lighting: 'dark', battleground: false, exit: { map: g.maps[0].id, x: g.settings.start.x, y: g.settings.start.y }, entry: { x: 2, y: 3 } });
   app.playGame(g, { quick: true, noSave: true });
   await new Promise((r) => setTimeout(r, 1500));
   const s = app.session;
@@ -351,7 +358,7 @@ check('after a reload: the lever still down, braziers burning, the bridge up, ru
 r = await ev(async () => {
   const app = window.__app, g = app.sample;
   const m = g.maps.find((x) => x.id === 'pzt_map');
-  const m2 = { ...JSON.parse(JSON.stringify(m)), id: 'pzt_map2', name: 'Hall of Trials (fought over)', battleground: true };
+  const m2 = { ...JSON.parse(JSON.stringify({ ...m, tiles: null })), tiles: m.tiles.slice(), id: 'pzt_map2', name: 'Hall of Trials (fought over)', battleground: true };
   m2.entities = m2.entities.filter((e) => e.type !== 'boulder');
   g.maps.push(m2);
   const s = app.session;
@@ -381,7 +388,9 @@ await shot('pz-06-two-heroes-two-plates');
 r = await ev(async () => {
   const app = window.__app;
   app.stopSession();
-  const g = JSON.parse(JSON.stringify(app.sample));
+  // (a copy as the Remix makes it: tiles stay byte arrays)
+  const g = JSON.parse(JSON.stringify(app.sample, (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v)));
+  for (const m of g.maps) m.tiles = Uint8Array.from(m.tiles);
   g.id = 'pzt_game'; g.meta.title = 'Puzzle remix';
   app.openEditor(g);
   for (let i = 0; i < 100 && !app.editor; i++) await new Promise((r2) => setTimeout(r2, 30));
@@ -468,6 +477,78 @@ await shot('pz-08-editor-trigger-tiles');
 await ev(() => { const ed = window.__app.editor; ed.setTool('select'); ed.select(null); const sec = [...document.querySelectorAll('.tool-section')].find((s) => /Puzzles/.test(s.querySelector('summary')?.textContent || '')); sec?.scrollIntoView({ block: 'center' }); });
 await wait(400);
 await shot('pz-09-editor-palette');
+
+// ---- the Places step offers puzzles in a dungeon's plan
+r = await ev(async () => {
+  const ed = window.__app.editor;
+  ed.setTab('places');
+  await new Promise((r2) => setTimeout(r2, 300));
+  const cave = [...document.querySelectorAll('.pl-list button, .pl-place, [data-place]')].find((b) => /Grimholt/.test(b.textContent));
+  cave?.click();
+  await new Promise((r2) => setTimeout(r2, 300));
+  return { counter: [...document.querySelectorAll('.pl-counters *')].some((el) => /^Puzzles/.test(el.textContent || '')) };
+});
+check('the Places step has a Puzzles counter in a dungeon\'s plan', r.counter, r);
+
+// ---- a lever-and-gate room the generator made, in play; then the models side by side
+r = await ev(async (room) => {
+  const app = window.__app, g = app.sample;
+  room.id = 'pzt_gen'; room.name = 'The Vault Hall';
+  room.tiles = Uint8Array.from(room.tiles);
+  room.exit = { map: g.maps[0].id, x: g.settings.start.x, y: g.settings.start.y };
+  g.maps.push(room);
+  app.playGame(g, { quick: true, noSave: true });
+  await new Promise((r2) => setTimeout(r2, 1500));
+  const s = app.session;
+  const lever = room.entities.find((e) => e.type === 'lever'), gate = room.entities.find((e) => e.type === 'gate');
+  // stand beside the lever, the monsters asleep
+  s.peaceful = true;
+  const spot = room._spot;
+  await s.enterMap('pzt_gen', spot[0], spot[1], { instant: true });
+  const live = s.map.entities.find((e) => e.type === 'lever');
+  s.puzzles.pull(live);
+  await new Promise((r2) => setTimeout(r2, 1200));
+  s.view.focus((lever.x + gate.x) / 2, (lever.y + gate.y) / 2, true);
+  return { open: s.map.entities.find((e) => e.type === 'gate')._open, dist: Math.abs(lever.x - gate.x) + Math.abs(lever.y - gate.y) };
+}, genRoom);
+check('in a generated dungeon the lever opens the gate to its vault', r.open, r);
+await wait(800);
+await shot('pz-10-generated-lever-room');
+
+for (const light of ['dark', 'day', 'close']) {
+  await ev(async (light) => {
+    const s = window.__app.session, v = s.view, g = s.game;
+    // a bare hall to stand them in
+    let m = g.maps.find((mm) => mm.id === 'pzt_sheet');
+    if (!m) {
+      const W = 26, H = 15, tiles = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) tiles[y * W + x] = x === 0 || y === 0 || x === W - 1 || y === H - 1 ? 83 : 82;
+      m = { id: 'pzt_sheet', name: 'Hall of Pieces', type: 'dungeon', w: W, h: H, tiles, entities: [], lighting: 'dark', battleground: false, exit: { map: g.maps[0].id, x: g.settings.start.x, y: g.settings.start.y }, entry: { x: 12, y: 13 } };
+      g.maps.push(m);
+    }
+    await s.enterMap(m.id, 12, 13, { instant: true });
+    s.game.settings.lineOfSight = false;
+    s.updateVisibility(true);
+    v.clearEntities();
+    if (light !== 'dark') v.setLighting('day');
+    const R = window.__pzRender;
+    let n = 0;
+    const put = (x, y, look) => R.showPuzzle(v, { id: 'sheet' + n++, x, y, type: 'x' }, look);
+    [{ kind: 'pz_lever', on: false }, { kind: 'pz_lever', on: true }, { kind: 'pz_plate', down: false }, { kind: 'pz_plate', down: true }, { kind: 'pz_boulder', seed: 1 }, { kind: 'pz_brazier', lit: false }, { kind: 'pz_brazier', lit: true }, { kind: 'pz_trigger' }]
+      .forEach((l, i) => put(9 + i * 1.5 | 0, 2, l));
+    [{ kind: 'pz_gate', style: 'portcullis' }, { kind: 'pz_gate', style: 'portcullis', open: true }, { kind: 'pz_gate', style: 'bars' }, { kind: 'pz_gate', style: 'bars', open: true }, { kind: 'pz_gate', style: 'stone' }, { kind: 'pz_gate', style: 'stone', open: true }]
+      .forEach((l, i) => put(9 + i * 2, 4, l));
+    [{ kind: 'pz_riddle', look: 'face' }, { kind: 'pz_riddle', look: 'face', solved: true }, { kind: 'pz_riddle', look: 'sphinx', scale: 1.3 }, { kind: 'pz_riddle', look: 'door' }]
+      .forEach((l, i) => put(10 + i * 3, 7, l));
+    ['sun', 'moon', 'star', 'wave', 'flame', 'leaf', 'eye', 'crown'].forEach((gl, i) => { put(9 + i * 1.5 | 0, 9, { kind: 'pz_rune', glyph: gl, lit: false }); put(9 + i * 1.5 | 0, 10, { kind: 'pz_rune', glyph: gl, lit: true }); });
+    s.puzzles.refreshLights();
+    v.rig.minDist = 1;
+    v.removeEntity('party');
+    if (light === 'close') { v.setZoom(7.5, true); v.focus(14.5, 5.6, true); } else { v.setZoom(13.5, true); v.focus(14.5, 6.2, true); }
+  }, light);
+  await wait(1500);
+  await shot(`pz-00-models-${light}`);
+}
 
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'no page errors');
 if (errors.length) fails.push('page errors');
