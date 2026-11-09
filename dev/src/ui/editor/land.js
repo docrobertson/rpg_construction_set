@@ -14,7 +14,7 @@ import { defaultSiteName } from './tools.js';
 import { sowFields, inFieldPlot } from '../../world/countryside.js';
 
 const SEA = ['raise', 'sink', 'island', 'lake'];
-const REGIONS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'fields', 'clear'];
+const REGIONS = ['forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'fields', 'jungle', 'tropical', 'mangrove', 'clear'];
 const PATHS = ['road', 'river', 'ridge'];
 
 // ------------------------------------------------------------ region brushes
@@ -89,6 +89,33 @@ const BRUSHES = {
       return d < 1 && (k === 'grass' || k === 'meadow') && inFieldPlot(x, y, seed) ? 'fields' : null;
     },
   },
+  // (isles) jungle inland; a tropical shore of palms, reefs and mangroves
+  jungle: { pick: nat(HIGH, (x, y, d, r, seed) => (d > 0.86 ? (hash2(x, y, seed) < 0.5 ? 'vines' : null) : d > 0.7 || hash2(x, y, seed + 2) < 0.07 ? 'vines' : 'jungle')) },
+  tropical: {
+    label: 'Tropical coast', icon: '🏝', margin: 0.1,
+    desc: 'A tropical shore: palms along the sand, coral reefs in the shallows, mangroves in the creeks and the jungle behind. Drag it along a coast.',
+    pick(x, y, d, cur, r, seed, map) {
+      const c = terrain(cur);
+      if (d >= 1 || c.feature || c.deck || c.key === 'road' || c.key === 'bridge' || HIGH.includes(c.key)) return null;
+      if (c.key === 'shallows') return fbm(x * 0.35, y * 0.35, seed + 5, 2) > 0.47 ? 'reef' : null;
+      if (c.water) return null;
+      if (c.key === 'swamp') return 'mangrove';
+      const near = (k) => { for (let dy = -k; dy <= k; dy++) for (let dx = -k; dx <= k; dx++) { const t = inBounds(map, x + dx, y + dy) && terrain(getTile(map, x + dx, y + dy)); if (t && t.water && !t.deck) return true; } return false; };
+      if (c.key === 'sand' || c.key === 'desert' || near(1)) return hash2(x, y, seed) < 0.55 ? 'palms' : 'sand';
+      if (near(3)) return hash2(x, y, seed + 1) < 0.75 ? 'palms' : 'vines';
+      return fbm(x * 0.3, y * 0.3, seed + 9, 2) > 0.5 ? 'jungle' : 'vines';
+    },
+  },
+  mangrove: {
+    label: 'Mangroves', icon: '🌳', margin: 0.1,
+    desc: 'Mangrove swamp: trees standing on their roots in the shallows. Wadeable, slowly; no ship gets through. Paint it over shallow water, a marsh or a muddy shore.',
+    pick(x, y, d, cur, r, seed) {
+      const c = terrain(cur);
+      if (d >= 1 || c.feature || c.deck || c.key === 'road' || c.key === 'bridge' || HIGH.includes(c.key) || c.key === 'ocean') return null;
+      if (c.key === 'shallows' || c.key === 'swamp' || c.key === 'reef') return d > 0.85 && hash2(x, y, seed) < 0.4 ? null : 'mangrove';
+      return d < 0.6 ? 'mangrove' : hash2(x, y, seed) < 0.5 ? 'swamp' : null;
+    },
+  },
   clear: { rough: 0.15, pick: nat([], () => 'grass') },
 };
 
@@ -134,7 +161,7 @@ function brushTool(key) {
         s.best.set(k, d);
         if (!s.orig.has(k)) s.orig.set(k, map.tiles[k]);
         const cur = s.orig.get(k);
-        const pick = B.pick(x, y, Math.max(0, d), cur, r, s.seed);
+        const pick = B.pick(x, y, Math.max(0, d), cur, r, s.seed, map);
         const id = pick == null ? cur : T[pick];
         if (map.tiles[k] === id) continue;
         map.tiles[k] = id;

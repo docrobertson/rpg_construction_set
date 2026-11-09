@@ -16,6 +16,7 @@ import { hash2 } from '../core/rng.js';
 import { TOWN_DECOR } from './townDecor.js';
 import { HARBOUR_DECOR, gull, hullFrame, framed, seaward, facing } from './harbourDecor.js';
 import { tube } from './sculpt.js';
+import { ISLE_DECOR, ISLE_ARENA_PROPS } from './isleDecor.js';
 
 // GeoBuilder with one extra float per vertex ('aux'): how far a vertex sways
 // in the wind for props, closeness to the shore for water.
@@ -920,7 +921,7 @@ export const DECOR = {
   },
 };
 
-Object.assign(DECOR, TOWN_DECOR, HARBOUR_DECOR);
+Object.assign(DECOR, TOWN_DECOR, HARBOUR_DECOR, ISLE_DECOR);
 
 // A mountain tile: one great faceted peak with lesser ones at its shoulders.
 // Ranges grow taller where mountains crowd together.
@@ -1014,7 +1015,7 @@ export function wallTorchAt(map, x, y) {
   if (!map || map.lighting !== 'dark' || x < 0 || y < 0 || x >= map.w || y + 1 >= map.h) return false;
   const at = (xx, yy) => TERRAIN[map.tiles[yy * map.w + xx]];
   const t = at(x, y);
-  if (!t || !(t.key === 'dungeon_wall' || t.key === 'cave_wall')) return false;
+  if (!t || !(t.key === 'dungeon_wall' || t.key === 'cave_wall' || t.key === 'temple_wall')) return false; // (isles: a temple's walls carry sconces)
   const s = at(x, y + 1);
   if (!s || s.wall || !s.walk) return false;
   const p = t.key === 'cave_wall' ? 0.1 : 0.2;
@@ -1134,6 +1135,7 @@ export const ARENA_PROPS = {
     if (c.map?.fill === 'floor_stone') return k < 0.5 ? pillar(c, false) : k < 0.8 ? crates(c) : pillar(c, true);
     return k < 0.7 ? pillar(c, true) : pillar(c, false);
   },
+  ...ISLE_ARENA_PROPS,
 };
 
 export { T };

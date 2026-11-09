@@ -65,7 +65,7 @@ export function line4(x0, y0, x1, y1) {
 }
 
 // ---------------------------------------------------------------- stamps
-const NATURAL_LAND = new Set(['grass', 'meadow', 'forest', 'pines', 'hills', 'swamp', 'sand', 'desert', 'snow', 'ash', 'mountains', 'peaks']);
+const NATURAL_LAND = new Set(['grass', 'meadow', 'forest', 'pines', 'hills', 'swamp', 'sand', 'desert', 'snow', 'ash', 'mountains', 'peaks', 'jungle', 'palms', 'vines', 'obsidian']);
 
 function natural(id) { return NATURAL_LAND.has(def(id).key); }
 
@@ -152,6 +152,11 @@ export const STAMPS = {
   meadow: {
     label: 'Meadow', icon: '🌼', desc: 'Flowering meadows and open grass.', defaultSize: 4,
     apply(map, cx, cy, r, seed) { return paintNatural(map, cx, cy, r, seed, (x, y) => (hash2(x, y, seed) < 0.6 ? 'meadow' : 'grass')); },
+  },
+  // (isles)
+  jungle: {
+    label: 'Jungle', icon: '🌿', desc: 'Steaming jungle — giant trees, creepers and ferns. Slow going, and it hides what moves in it.', defaultSize: 5,
+    apply(map, cx, cy, r, seed) { return paintNatural(map, cx, cy, r, seed, (x, y, d) => (d > 0.86 ? (hash2(x, y, seed) < 0.5 ? 'vines' : null) : d > 0.7 || hash2(x, y, seed + 2) < 0.07 ? 'vines' : 'jungle'), ['mountains', 'peaks']); },
   },
   clear: {
     label: 'Clear Land', icon: '🟩', desc: 'Reset land to plain grassland.', defaultSize: 4,
@@ -1126,6 +1131,8 @@ export const DUNGEON_STYLES = {
   cave: { wall: 'cave_wall', floor: 'cave_floor', deco: ['rubble', 'bones', 'web', 'crystal', 'pit_water'] },
   crypt: { wall: 'dungeon_wall', floor: 'dungeon_floor', deco: ['bones', 'rubble', 'brazier', 'web'] },
   fortress: { wall: 'dungeon_wall', floor: 'floor_stone', deco: ['brazier', 'bones', 'lava', 'rubble'] },
+  // (isles) a vine-choked temple of an older people: see dressTemple
+  temple: { wall: 'temple_wall', floor: 'ruins_floor', deco: ['vines', 'rubble', 'idol', 'pool', 'vines', 'brazier'] },
 };
 // a plan's sizes (squares a side)
 export const DUNGEON_SIZES = { small: 28, medium: 36, large: 44 };
@@ -1205,7 +1212,7 @@ export function generateDungeon(opt = {}) {
       if (getTile(map, x, y) !== T[style.floor]) continue;
       const k2 = rng.pick(style.deco);
       // keep impassable decor away from corridors
-      if (['brazier', 'crystal', 'pit_water', 'lava'].includes(k2)) {
+      if (['brazier', 'crystal', 'pit_water', 'lava', 'idol', 'pool'].includes(k2)) {
         if (!rectFree(map, x, y, 1, 1, (t) => t === T[style.floor] || def(t).wall)) continue;
       }
       setTile(map, x, y, T[k2]);
@@ -1276,7 +1283,65 @@ export function generateDungeon(opt = {}) {
       if (spots.length) pick('cache', { name: 'Loose Flagstone' });
     } else for (let i = 0; i < want && spots.length; i++) pick(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length], extraFor(DUNGEON_WONDERS[i % DUNGEON_WONDERS.length]), i >= 2 ? i : 0);
   }
+  if (styleKey === 'temple') dressTemple(map, rooms, last, (opt.seed ?? 1) + 909);
   return { map, rooms, last };
+}
+
+// (isles) A temple's halls: sacred pools in the larger rooms, idols keeping
+// watch in pairs, braziers either side of the inner sanctum, the jungle's
+// creepers crawling in along the walls. Nothing is set down where it would
+// cut a way through (every square that could be reached still can be). Its
+// own mood (render/view.js) and its own wild things (habitat 'temple').
+function dressTemple(map, rooms, last, seed) {
+  const rng = new RNG(seed);
+  map.mood = 'temple';
+  map.habitat = 'temple';
+  const floor = T.ruins_floor;
+  const taken = (x, y) => map.entities.some((e) => Math.abs(e.x - x) + Math.abs(e.y - y) < 2);
+  const reach = () => {
+    const e = map.entry, seen = new Uint8Array(map.w * map.h), st = [e.y * map.w + e.x];
+    seen[st[0]] = 1;
+    let n = 0;
+    while (st.length) {
+      const i = st.pop(); n++;
+      const x = i % map.w, y = (i - x) / map.w;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const j = (y + dy) * map.w + x + dx;
+        if (!seen[j] && def(map.tiles[j]).walk) { seen[j] = 1; st.push(j); }
+      }
+    }
+    return n;
+  };
+  let base = reach();
+  // set tiles down only if the way stays open for all
+  const tryPut = (cells, key) => {
+    if (cells.some(([x, y]) => getTile(map, x, y) !== floor || taken(x, y))) return false;
+    const old = cells.map(([x, y]) => getTile(map, x, y));
+    for (const [x, y] of cells) setTile(map, x, y, T[key]);
+    const now = reach();
+    if (now === base - cells.length) { base = now; return true; }
+    cells.forEach(([x, y], i) => setTile(map, x, y, old[i]));
+    return false;
+  };
+  for (let i = 1; i < rooms.length; i++) {
+    const r = rooms[i];
+    // a pool off to one side of a big room
+    if (r.w >= 6 && r.h >= 5 && rng.chance(0.55)) {
+      const px = rng.chance(0.5) ? r.x + 1 : r.x + r.w - 3, py = r.y + 1;
+      tryPut([[px, py], [px + 1, py]], 'pool') || tryPut([[px, py]], 'pool');
+    }
+    // idols in the corners, facing in
+    if (rng.chance(r === last ? 1 : 0.4)) {
+      tryPut([[r.x, r.y]], 'idol');
+      tryPut([[r.x + r.w - 1, r.y]], 'idol');
+    }
+  }
+  // braziers flank the sanctum, creepers find their way in along the walls
+  if (last) for (const x of [last.cx - 2, last.cx + 2]) tryPut([[x, last.y]], 'brazier');
+  for (let y = 1; y < map.h - 1; y++) for (let x = 1; x < map.w - 1; x++) {
+    if (getTile(map, x, y) !== floor || !def(getTile(map, x, y - 1)).wall) continue;
+    if (rng.chance(0.12)) setTile(map, x, y, T.vines);
+  }
 }
 
 // A smugglers' sea cave: a short cave whose black water reaches in from the
@@ -1343,8 +1408,10 @@ export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   } else if (kind === 'seacave') {
     sub = smugglersCave(game, name, s).map;
   } else if (fk.mapType === 'dungeon') {
-    const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : 'cave';
-    sub = generateDungeon({ name, seed: s, style, monsters: kind === 'fortress' ? ['orc', 'orc_archer', 'skeleton'] : ['goblin', 'giant_rat', 'skeleton', 'giant_spider'] }).map;
+    const style = kind === 'fortress' ? 'fortress' : kind === 'tower' ? 'crypt' : kind === 'temple' ? 'temple' : 'cave';
+    const have = (id) => !game || game.monsters.some((m) => m.id === id);
+    const monsters = kind === 'fortress' ? ['orc', 'orc_archer', 'skeleton'] : kind === 'temple' ? ['lizardfolk', 'stone_guardian', 'mist_wraith', 'skeleton'].filter(have) : ['goblin', 'giant_rat', 'skeleton', 'giant_spider'];
+    sub = generateDungeon({ name, seed: s, style, monsters }).map;
   } else {
     const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : kind === 'harbour' ? 'harbour' : 'town';
     sub = generateSettlement(style, { name, seed: s }).map;
@@ -1529,6 +1596,7 @@ export function generateArena(style, seed, opt = {}) {
   const base = {
     grass: 'grass', forest: 'grass', hills: 'hills', swamp: 'swamp', desert: 'sand', snow: 'snow',
     water: 'ocean', bridge: 'grass', town: 'cobble', indoor: 'floor_stone', cave: 'cave_floor', ash: 'ash', ruins: 'grass',
+    jungle: 'vines', beach: 'sand', temple: 'ruins_floor',
   }[style] || 'grass';
   const map = createMap({ type: 'arena', w: W, h: H, name: 'Battle', fill: base });
   map.lighting = opt.lighting || 'day';
@@ -1576,6 +1644,26 @@ export function generateArena(style, seed, opt = {}) {
       break;
     }
     case 'bridge': for (let y = 0; y < H; y++) for (const x of [0, 1, W - 2, W - 1]) setTile(map, x, y, T.shallows); break;
+    // (isles) thick jungle on the flanks, a few giants for cover between
+    case 'jungle':
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = x <= 1 || x >= W - 2 ? 0.45 : y >= 3 && y <= H - 4 ? 0.1 : 0;
+        if (rng.chance(p)) setTile(map, x, y, T[rng.pick(['jungle_tree', 'jungle_tree', 'jungle'])]);
+      }
+      break;
+    // palms along a strand of sand, the sea beyond the far edge
+    case 'beach':
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const p = x <= 1 || x >= W - 2 ? 0.3 : y >= 3 && y <= H - 4 ? 0.07 : 0;
+        if (rng.chance(p)) setTile(map, x, y, T[rng.pick(['palm_tree', 'palm_tree', 'palms'])]);
+      }
+      break;
+    // a ruined court: broken pillars in rows, an idol, creepers over the stones
+    case 'temple':
+      for (let y = 3; y < H - 2; y += 2) for (let x = 2; x < W - 2; x += 3) if (rng.chance(0.5)) setTile(map, x, y, T.temple_wall);
+      scatter(['vines', 'vines', 'idol'], 0.06);
+      for (let y = 0; y < H; y++) for (const x of [0, W - 1]) if (rng.chance(0.4)) setTile(map, x, y, T.jungle_tree);
+      break;
     default: break;
   }
   // make sure spawn rows are walkable
@@ -1585,3 +1673,6 @@ export function generateArena(style, seed, opt = {}) {
   if (style !== 'water') for (let y = 0; y < 2; y++) for (let x = 2; x < W - 2; x++) clear(partyFloor)(x, y);
   return map;
 }
+
+// (isles) for the tests and screenshots: build places and battlefields in the page
+if (typeof window !== 'undefined') window.__generate = { generateDungeon, generateArena, generateSettlement, placeFeature, smugglersCave };

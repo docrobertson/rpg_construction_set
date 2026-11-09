@@ -305,6 +305,14 @@ export function wraith(spec) {
   const c = spec.color ?? 0x2a2630;
   const hi = tint(blend(c, 0x8090a0, 0.25), 1.35), lo = deep(c, 0.5);
   const glow = spec.eyes ?? 0x70ff90;
+  // (isles) a mist wraith trails a shroud of glowing fog
+  if (spec.mist) {
+    for (let k = 0; k < 9; k++) {
+      const a = (k / 9) * Math.PI * 2 + 0.2, r0 = 0.2 + (k % 3) * 0.06;
+      G.shape(TPL.sphere, blend(glow, 0x0a1a18, 0.62 + (k % 2) * 0.1), { x: Math.sin(a) * r0, y: 0.05 + (k % 4) * 0.08, z: Math.cos(a) * r0 * 0.8 - 0.05, sx: 0.16, sy: 0.07, sz: 0.12 });
+    }
+    for (let k = 0; k < 3; k++) G.shape(TPL.sphere, blend(glow, 0x0a1a18, 0.7), { x: (k - 1) * 0.12, y: 0.5 + k * 0.15, z: -0.22 - k * 0.06, sx: 0.12, sy: 0.08, sz: 0.1 });
+  }
   // tattered robe, widest at the hem, floating clear of the ground
   lathe(B, [[0.24, 0.12, 0.2], [0.22, 0.25, 0.18], [0.16, 0.5, 0.13], [0.17, 0.68, 0.13], [0.12, 0.76, 0.1], [0.04, 0.8, 0.04]], [lo, c, hi], { segs: 16 });
   for (let k = 0; k < 9; k++) {

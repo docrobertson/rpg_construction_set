@@ -166,6 +166,8 @@ export const DUNGEON_CACHES = {
   cave: { name: 'Fallen Adventurer', text: 'A skeleton lies against the rock in the rags of a cloak, a satchel still buckled at its side. Whoever it was never found the way out.', label: 'Search the satchel' },
   seacave: { name: 'Smugglers\' Barrels', text: 'Barrels stacked in a dry corner of the cave, each stamped with a skull. One still sloshes when you rock it.', label: 'Break them open' },
   fortress: { name: 'Loose Stone in the Wall', text: 'One stone in the wall sits a finger\'s width proud of the rest, and the mortar round it has been scraped away.', label: 'Work it free' },
+  // (isles)
+  temple: { name: 'Offering Bowl', text: 'A stone bowl at the foot of a carved god, green with age. Under the dead leaves in it, something glints.', label: 'Reach into the bowl' },
 };
 
 // A hidden cache (an event made from the 'cache' template) fitted to where it

@@ -29,7 +29,7 @@ import { byId } from '../../data/schema.js';
 import { sfx } from '../../core/sound.js';
 import { attachGestures, attachWheel } from '../../render/gestures.js';
 
-const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'clear'];
+const WORLD_STAMPS = ['island', 'lake', 'forest', 'pines', 'hills', 'mountains', 'swamp', 'desert', 'snow', 'blight', 'meadow', 'jungle', 'clear'];
 const TOWN_STAMPS = ['forest', 'meadow', 'clear', 'lake'];
 const WORLD_PATHS = ['road', 'river', 'ridge'];
 const TOWN_PATHS = ['road', 'wall', 'palisade', 'hedge', 'river'];
@@ -501,7 +501,7 @@ export class Editor {
   makeMap(type, gen, name, seed = Math.floor(Math.random() * 1e9)) {
     let m;
     if (gen === 'world') { m = generateWorld(80, 80, seed); buryTreasures(this.game, m, seed); }
-    else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes('dungeon') && x.level <= 3).map((x) => x.id) }).map;
+    else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes(gen === 'temple' ? 'temple' : 'dungeon') && x.level <= 3).map((x) => x.id) }).map;
     else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; nameNpcs(m, this.game, seed); }
     else m = createMap({ type, name });
     m.name = name;
@@ -625,9 +625,9 @@ export class Editor {
     }
     if (!far) { toast('No room for a staircase on this level.', 'warn'); return; }
     this.beginEdit();
-    const style = map.fill === 'dungeon_wall' ? 'crypt' : 'cave';
+    const style = map.fill === 'dungeon_wall' ? 'crypt' : map.fill === 'temple_wall' ? 'temple' : 'cave';
     const level = (map.level || 1) + 1;
-    const monsters = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes('dungeon') && (m.level || 1) <= level + 2).map((m) => m.id);
+    const monsters = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(style === 'temple' ? 'temple' : 'dungeon') && (m.level || 1) <= level + 2).map((m) => m.id);
     const { map: deeper } = generateDungeon({ style, seed: Math.floor(Math.random() * 1e9), name: `${map.name.replace(/ \(level \d+\)$/, '')} (level ${level})`, level, monsters });
     deeper.exit = { map: map.id, x: far[0], y: far[1] };
     this.game.maps.push(deeper);

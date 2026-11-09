@@ -270,7 +270,7 @@ export class PlacesEditor {
       n.addEventListener('input', () => { if (n.value && n.value !== '2-4') plan.counts[id] = n.value; else delete plan.counts[id]; this.changed(sel); });
       return h('span.pl-mon', h('span', monName(id)), h('i', '×'), n, h('button.small.link', { title: 'Remove', 'aria-label': `Remove ${monName(id)}`, onclick: () => { plan.monsters.splice(i, 1); delete plan.counts[id]; this.changed(sel, true); } }, '✕'));
     }));
-    const dungeonFolk = g.monsters.filter((m) => !m.boss && (m.habitat || []).includes('dungeon'));
+    const dungeonFolk = g.monsters.filter((m) => !m.boss && (m.habitat || []).includes(plan.style === 'temple' ? 'temple' : 'dungeon')); // (isles: a temple's own)
     const others = g.monsters.filter((m) => !m.boss && !dungeonFolk.includes(m));
     const add = h('select', { 'aria-label': 'Add a monster' }, h('option', { value: '' }, '+ Add a monster…'),
       h('optgroup', { label: 'Dungeon dwellers' }, ...dungeonFolk.filter((m) => !plan.monsters.includes(m.id)).map((m) => h('option', { value: m.id }, `${m.name} (level ${m.level || 1})`))),

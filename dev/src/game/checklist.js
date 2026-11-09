@@ -382,13 +382,13 @@ function indexGame(game) {
   for (const m of game.maps) {
     if (!((m.encounterRate ?? 0) > 0) || (s.encounterRate ?? 1) <= 0) continue;
     const allowed = m.encounters?.length ? new Set(m.encounters) : null;
-    if (m.type === 'dungeon') wild.add('dungeon');
+    if (m.type === 'dungeon') wild.add(m.habitat || 'dungeon'); // (isles: a temple keeps its own)
     else wild.add('*'); // (the ground of a world map is a mix; any habitat but dungeon is likely)
     for (const mon of game.monsters || []) if (allowed?.has(mon.id) && !mon.boss) meet(mon.id);
   }
   for (const mon of game.monsters || []) {
     if (mon.boss || !(mon.habitat || []).length) continue;
-    if ((wild.has('dungeon') && mon.habitat.includes('dungeon')) || (wild.has('*') && mon.habitat.some((x) => x !== 'dungeon'))) meet(mon.id);
+    if ((wild.has('dungeon') && mon.habitat.includes('dungeon')) || (wild.has('*') && mon.habitat.some((x) => x !== 'dungeon')) || mon.habitat.some((x) => x !== 'dungeon' && wild.has(x))) meet(mon.id);
   }
   return ix;
 }

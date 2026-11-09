@@ -420,6 +420,8 @@ export class Battle {
 
   resists(t, id) {
     if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
+    // (isles) a monster may be proof against some conditions (a statue does not bleed venom or fear)
+    if (t.def?.immune?.includes(id)) return true;
     const iron = !!t.member && perkCount(t.member, 'iron_will');
     const stout = !!t.member && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
@@ -1105,6 +1107,8 @@ export class Battle {
 
   async damage(t, dmg, opts = {}) {
     if (!this.alive(t)) return;
+    // (isles) hard hides and stone shrug off part of every blow
+    if (t.def?.hardened && dmg > 1 && !opts.dot) dmg = Math.max(1, dmg - t.def.hardened);
     if (t.sleep > 0 && dmg > 0) t.sleep = 0;
     // whoever harms a foe leaves the sanctuary's light
     const by = opts.by || (opts.from?.side ? opts.from : null);

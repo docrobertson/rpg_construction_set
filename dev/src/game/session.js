@@ -1259,7 +1259,7 @@ export class PlaySession {
       if (this.dv?.nearHero(x, y, 9)) continue;
       if (world && !hasLOS(map, x, y, p.x, p.y)) continue;
       const t = terrain(getTile(map, x, y));
-      const habitat = map.type === 'dungeon' ? 'dungeon' : t.water ? 'water' : habitatOf(t);
+      const habitat = map.type === 'dungeon' ? map.habitat || 'dungeon' : t.water ? t.habitat || 'water' : habitatOf(t); // (isles: a temple, a reef)
       if (!habitat) continue;
       const mon = this.pickMonster(habitat);
       if (!mon) return;
@@ -1313,7 +1313,7 @@ export class PlaySession {
     const t = terrain(getTile(this.map, p.x, p.y));
     // (a fight may bring its own ground: the sand of a fighting pit)
     let style = e.style || (this.state.vehicle ? 'water' : t.arena);
-    if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
+    if (this.map.type === 'dungeon' && !['cave', 'indoor', 'temple'].includes(style)) style = 'cave'; // (isles: a temple's own court)
     if (this.mapIsTown() && style === 'grass') style = 'town';
     if (style === 'water' && !this.state.vehicle) style = 'swamp'; // (charms) a fight in the shallows, wading
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
@@ -1820,7 +1820,7 @@ export class PlaySession {
     if (rng.chance(0.18) && (this.map.encounterRate ?? 0) > 0) {
       this.busy = false;
       const t = terrain(getTile(this.map, p.x, p.y));
-      const mon = this.pickMonster(this.map.type === 'dungeon' ? 'dungeon' : habitatOf(t) || 'grass');
+      const mon = this.pickMonster(this.map.type === 'dungeon' ? this.map.habitat || 'dungeon' : habitatOf(t) || 'grass');
       if (mon) {
         this.log('Ambush! Your camp is attacked!', 'bad');
         await this.engage({ id: uid('amb'), monster: mon.id, roaming: true });
@@ -1957,6 +1957,7 @@ export function encounterCount(mon, lvl) {
 }
 
 export function habitatOf(t) {
+  if (t.habitat) return t.habitat; // (isles: jungle, beach, temple and reef keep their own wild things)
   switch (t.arena) {
     case 'grass': case 'bridge': case 'town': return 'grass';
     case 'forest': return 'forest';

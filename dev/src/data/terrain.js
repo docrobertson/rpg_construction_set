@@ -14,6 +14,8 @@
 //   light  - emits light (dungeon visibility)
 //   talkOver - NPCs can be talked to across it (shop counters)
 //   deck   - planks over water (bridges, piers): walked on, never sailed
+//   habitat - the wild things met there, where it is not the arena's own
+//             (the isles keep fauna of their own: see game/session.js habitatOf)
 
 const defs = [
   // id, key, name, group, props
@@ -101,6 +103,23 @@ const defs = [
   [88, 'pit_water', 'Dark Pool', 'dungeon', { walk: false, water: true, h: -0.18, top: 0x1d3550, arena: 'cave' }],
   [89, 'crystal', 'Crystals', 'dungeon', { walk: false, h: 0, top: 0x5f564d, side: 0x403a34, deco: 'crystal', light: 2 }],
   [90, 'void', 'Void', 'dungeon', { walk: false, sight: true, h: -1.5, top: 0x050505, side: 0x050505 }],
+
+  // The isles: a tropical, ancient land (ids from 120; decor in render/isleDecor.js)
+  [120, 'jungle', 'Jungle', 'world', { h: 0.02, top: 0x255a22, side: 0x4a3a22, deco: 'jungle', sight: true, cost: 2, arena: 'jungle', habitat: 'jungle' }],
+  [121, 'palms', 'Palm Grove', 'world', { h: -0.02, top: 0xd6c186, side: 0xb59a62, deco: 'palms', cost: 1.5, arena: 'beach', habitat: 'beach' }],
+  // (the ground dips under the water: wading among the roots, never sailed)
+  [122, 'mangrove', 'Mangrove', 'world', { h: -0.08, top: 0x6a6a3c, side: 0x3f3a25, deco: 'mangrove', sight: true, cost: 2.5, arena: 'jungle', habitat: 'jungle' }],
+  [123, 'reef', 'Coral Reef', 'world', { walk: false, ship: true, water: true, h: -0.2, top: 0x3ec4c4, deco: 'reef', arena: 'water', habitat: 'reef' }],
+  [124, 'ruins_floor', 'Ancient Paving', 'any', { h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'ruinsfloor', arena: 'temple', habitat: 'temple' }],
+  [125, 'temple_wall', 'Temple Wall', 'any', { walk: false, sight: true, wall: true, h: 0.8, top: 0x6a7258, side: 0x9e967c, deco: 'templewall' }],
+  [126, 'vines', 'Overgrowth', 'world', { h: 0, top: 0x3c7428, side: 0x5a4127, deco: 'vines', cost: 1.5, arena: 'jungle', habitat: 'jungle' }],
+  [127, 'obsidian', 'Obsidian Flats', 'world', { h: 0.02, top: 0x2e2a34, side: 0x1a1820, deco: 'obsidian', cost: 1.25, arena: 'ash', habitat: 'ash' }],
+  [128, 'temple', 'Jungle Temple', 'world', { h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'templesite', feature: true, arena: 'temple' }],
+  [129, 'idol', 'Stone Idol', 'any', { walk: false, h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'idol' }],
+  [130, 'pool', 'Sacred Pool', 'any', { walk: false, water: true, h: -0.18, top: 0x2a6a6a, deco: 'lilypool', arena: 'temple' }],
+  // single trees for gardens, villages and battlefields on the isles
+  [131, 'jungle_tree', 'Jungle Tree', 'town', { walk: false, sight: true, h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'jungletree' }],
+  [132, 'palm_tree', 'Palm Tree', 'town', { walk: false, h: 0, top: 0xd6c186, side: 0xb59a62, deco: 'palmtree' }],
 ];
 
 export const TERRAIN = [];
@@ -129,6 +148,7 @@ for (const [id, key, name, group, p] of defs) {
     locked: !!p.locked,
     talkOver: !!p.talkOver,
     deck: !!p.deck,
+    habitat: p.habitat || null,
   };
   TERRAIN[id] = t;
   T[key] = id;
@@ -161,4 +181,5 @@ export const FEATURE_KINDS = {
   dwarfgate: { terrain: 'dwarfgate', mapType: 'town', label: 'Dwarf Hold' },
   harbour: { terrain: 'harbour', mapType: 'town', label: 'Harbour' },
   seacave: { terrain: 'seacave', mapType: 'dungeon', label: 'Sea Cave' },
+  temple: { terrain: 'temple', mapType: 'dungeon', label: 'Jungle Temple' },
 };

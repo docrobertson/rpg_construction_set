@@ -5,7 +5,7 @@
 export const STATS = ['str', 'dex', 'int', 'wis'];
 export const STAT_NAMES = { str: 'Strength', dex: 'Dexterity', int: 'Intellect', wis: 'Wisdom' };
 
-export const HABITATS = ['grass', 'forest', 'hills', 'swamp', 'desert', 'snow', 'water', 'ash', 'ruins', 'dungeon', 'town'];
+export const HABITATS = ['grass', 'forest', 'hills', 'swamp', 'desert', 'snow', 'water', 'ash', 'ruins', 'dungeon', 'town', 'jungle', 'beach', 'temple', 'reef'];
 
 export const RACE_TRAITS = {
   versatile: 'Versatile: +10% experience',
@@ -202,6 +202,19 @@ export const ABILITIES = [
     desc: 'Rears up out of the sea — next turn a wall of water crashes over the marked squares.' },
   { id: 'dark_wave', name: 'Wave of Night', icon: 'skull', monster: true, target: 'tile', range: 0, radius: 2, windup: true, damage: '3d8', cooldown: 3, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'shadow', fx: 0x8040ff,
     desc: 'Gathers darkness about itself — next turn it bursts outward over the marked squares.' },
+  // (isles) the powers of the isle folk and beasts
+  { id: 'tongue_lash', name: 'Tongue Lash', icon: 'hands', monster: true, target: 'enemy', range: 4, pull: 3, damage: '1d4', cooldown: 3, statuses: [{ id: 'rooted', rounds: 1 }], vfx: 'poison', fx: 0xf08aa0,
+    desc: 'A long, sticky tongue snaps out and drags a foe up to three squares to its jaws, holding it there.' },
+  { id: 'venom_spit', name: 'Venom Spit', icon: 'poison', monster: true, target: 'enemy', range: 5, damage: '1d6', cooldown: 2, statuses: [{ id: 'poisoned', rounds: 3, power: 2 }], vfx: 'poison', fx: 0x9be050,
+    desc: 'Spits green venom at a foe within 5: it burns, and keeps on burning (2 a turn for three turns).' },
+  { id: 'shark_lunge', name: 'Lunge', icon: 'claw', monster: true, target: 'enemy', range: 4, move: 'charge', attack: 'melee', mult: 1, bonus: '1d6', cooldown: 3, vfx: 'impact', fx: 0xd0e8f0,
+    desc: 'Surges through the water at a foe up to 4 squares off and bites deep.' },
+  { id: 'wail', name: 'Grave Wail', icon: 'skull', monster: true, target: 'nearbyFoes', radius: 2, damage: '1d4', cooldown: 4, statuses: [{ id: 'weakened', rounds: 2 }], vfx: 'shadow', fx: 0xa8d8c8,
+    desc: 'A thin, terrible wail: every foe within 2 is chilled and weakened.' },
+  { id: 'constrict', name: 'Constrict', icon: 'pin', monster: true, target: 'enemy', range: 1, attack: 'melee', mult: 1, bonus: '1d6', cooldown: 3, statuses: [{ id: 'rooted', rounds: 2 }, { id: 'weakened', rounds: 2 }], vfx: 'impact', fx: 0x7ac8a0,
+    desc: 'Wraps its coils round a foe beside it and squeezes: the foe cannot move, and fights feebly.' },
+  { id: 'hag_curse', name: 'Drowned Curse', icon: 'eye', monster: true, target: 'enemy', range: 6, damage: '1d6', cooldown: 3, statuses: [{ id: 'weakened', rounds: 3 }, { id: 'slowed', rounds: 2 }], vfx: 'shadow', fx: 0x60d0b0,
+    desc: 'Mutters a curse of the deep: the foe feels the weight of the sea, slowed and weakened.' },
 ];
 export const ABILITY_TARGETS = ['enemy', 'ally', 'self', 'tile', 'adjacentFoes', 'nearbyFoes', 'nearbyAllies', 'allAllies', 'allEnemies', 'multi'];
 export const ABILITY_VFX = ['slash', 'impact', 'arrow', 'fire', 'frost', 'holy', 'heal', 'shadow', 'poison', 'smoke', 'arcane', 'song', 'shock', 'earth', 'shout'];
@@ -567,6 +580,13 @@ export const CHARMS = [
     only: { classes: ['runesmith'] }, onlyText: 'Only a runesmith can stoke its spark',
     desc: 'A tiny anvil of red-gold that rings like a bell whenever its wearer strikes.',
     effects: [{ type: 'onHit', status: 'stunned', rounds: 1, chance: 0.2, melee: true }, { type: 'resist', status: 'burning', chance: 1 }] }),
+  // (isles)
+  C({ id: 'coral_charm', name: 'Red Coral Charm', kind: 'amulet', icon: 'coral', tint: 0xf06a5a, rarity: 'uncommon', level: 2, price: 140,
+    desc: 'A twist of blood-red coral on a cord. Divers of the isles swear it keeps the sea\'s stings away — and it cuts whoever grabs you.',
+    effects: [{ type: 'resist', status: 'poisoned', chance: 0.5 }, { type: 'thorns', dmg: '1d4' }] }),
+  C({ id: 'jade_idol', name: 'Jade Idol', kind: 'relic', icon: 'idol', tint: 0x5ad89a, rarity: 'rare', level: 4, price: 420,
+    desc: 'A thumb-high god of green jade, squatting, smiling as if it knows something. Curses slide off whoever carries it, and the mind stays clear.',
+    effects: [{ type: 'resist', status: 'weakened', chance: 1 }, { type: 'resist', status: 'charmed', chance: 1 }, { type: 'regen', mp: 1 }] }),
   // legends
   C({ id: 'seers_eye', name: 'Eye of the Seer', kind: 'orb', icon: 'eye', tint: 0x98f4ff, rarity: 'legendary', level: 6, price: 900,
     desc: 'A crystal eye that sees what was, what is, and where you left your keys.',
@@ -604,6 +624,9 @@ export const ITEMS = [
   { id: 'shadow_fang', name: 'Shadow Fang', type: 'weapon', wkind: 'dagger', dmg: '1d6+2', hit: 3, range: 1, price: 280, model: 'dagger', glow: 0x9a70ff, desc: 'A black blade that drinks the light. Finds the gaps in any armour.' },
   { id: 'runeblade', unique: true, name: 'Runeblade', type: 'weapon', wkind: 'blade', dmg: '1d10+2', hit: 2, range: 1, price: 450, model: 'sword', glow: 0x60e0ff, desc: 'A dwarf-forged sword etched with glowing runes. Bane of evil things.' },
   { id: 'dwarf_axe', magical: true, glow: 0xffb060, name: 'Dwarven Axe', type: 'weapon', wkind: 'axe', dmg: '1d12+1', hit: 1, range: 1, twoHanded: true, price: 380, model: 'axe', desc: 'Forged deep beneath the mountains.' },
+  // (isles)
+  { id: 'hookblade', name: 'Hookblade', type: 'weapon', wkind: 'blade', dmg: '1d8+1', hit: 1, range: 1, price: 120, model: 'sword', weaponColor: 0x9aa0a8,
+    desc: 'A heavy, forward-curved blade with a hooked tip, made for cutting a road through the creepers — and for whatever waits on the road.' },
   { id: 'staff_of_power', unique: true, name: 'Staff of Power', type: 'weapon', wkind: 'staff', dmg: '1d8+2', hit: 2, range: 1, price: 420, model: 'staff', glow: 0xff80ff, desc: 'A wizard\'s staff crowned with a star-stone.' },
   // armour
   { id: 'robe', name: 'Robe', type: 'armor', weight: 'cloth', ac: 1, price: 8, desc: 'Woven wool, warm but thin.' },
@@ -614,6 +637,8 @@ export const ITEMS = [
   { id: 'plate_armor', name: 'Plate Armour', type: 'armor', weight: 'plate', ac: 7, price: 450, desc: 'Full harness of steel.' },
   { id: 'truesilver_mail', magical: true, glow: 0xd8ecff, unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 7, price: 900, desc: 'Light as silk, hard as dragon-scale.' },
   { id: 'elven_cloak', magical: true, glow: 0xa8f0c0, name: 'Elven Cloak', type: 'armor', weight: 'cloth', ac: 3, price: 240, desc: 'Grey-green and shimmering; the eye slides off it.' },
+  { id: 'lizardhide', name: 'Lizardhide Armour', type: 'armor', weight: 'leather', ac: 3, price: 150, effects: [{ type: 'resist', status: 'poisoned', chance: 0.35 }],
+    desc: 'Supple scaled hide of the great marsh lizards, light enough for the jungle\'s heat. It turns a little venom.' },
   { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 6, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
   { id: 'buckler', name: 'Buckler', type: 'shield', ac: 1, price: 15, desc: 'A small round shield.' },
   { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 55, desc: 'A tall knight\'s shield.' },
@@ -773,6 +798,32 @@ export const MONSTERS = [
   { id: 'shadow_lord', name: 'The Shadow Lord', plural: 'Shadow Lords', level: 10, hp: '36d8+50', ac: 17, hit: 12, dmg: '2d10+8', undead: true, sleepImmune: true, xp: 1000, gold: '50d10', habitat: [], group: [1, 1], spells: ['drain_life', 'fireball'], castChance: 0.35, boss: true, ai: 'boss', abilities: ['dark_wave'], escort: [{ id: 'barrow_wight', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'barrow_wight', min: 2, max: 2 }], phaseText: 'The Shadow Lord cries out in a dead tongue, and the dead rise to his call!',
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
+  // (isles) the folk and beasts of the tropical isles: their habitats are the
+  // isles' own (jungle, beach, temple, reef), so they keep to that land
+  { id: 'giant_frog', name: 'Giant Frog', plural: 'Giant Frogs', level: 1, hp: '2d8+2', ac: 11, hit: 3, dmg: '1d6+1', xp: 7, gold: '0', habitat: ['jungle'], group: [2, 4], beast: true, ai: 'brute', moves: 4, poison: 0.15,
+    abilities: ['tongue_lash'], look: { kind: 'frog', color: 0x5aa83a, belly: 0xe8d870, spots: 0x2a4a1a, scale: 1.05 }, desc: 'A frog as big as a pig, with a tongue that reaches further than you would like.' },
+  { id: 'jungle_cat', name: 'Jungle Cat', plural: 'Jungle Cats', level: 2, hp: '4d6+4', ac: 13, hit: 5, dmg: '1d8+2', xp: 18, gold: '0', habitat: ['jungle'], group: [1, 2], beast: true, ai: 'pack', moves: 5,
+    abilities: ['pounce'], look: { kind: 'cat', color: 0xd89a3a, spots: 0x3a2414 }, desc: 'A spotted cat that drops from the boughs without a sound.' },
+  { id: 'lizardfolk', name: 'Lizardfolk', plural: 'Lizardfolk', level: 2, hp: '4d8+6', ac: 13, hit: 5, dmg: '1d8+2', xp: 16, gold: '2d6', habitat: ['jungle', 'temple', 'beach'], group: [2, 4], ai: 'brute',
+    escort: [{ id: 'lizard_shaman', min: 0, max: 1 }],
+    look: L({ race: 'lizard', body: 0x8a5a2a, weapon: 'spear', shield: 0x9a7a4a, pennant: 0xd8b040, crest: 0xd86a2a, pose: 'raise' }), desc: 'Scaled warriors of the swamps and ruins, who hunt with spear and hide shield.' },
+  { id: 'lizard_shaman', name: 'Lizard Shaman', plural: 'Lizard Shamans', level: 3, hp: '3d8+3', ac: 12, hit: 3, dmg: '1d6', xp: 24, gold: '2d8', habitat: ['temple'], group: [1, 1], ai: 'caster',
+    abilities: ['mend', 'venom_spit'],
+    look: L({ race: 'lizard', skin: 0x4a8a6a, body: 0x6a3a6a, robe: true, mantle: 0x2a6a5a, weapon: 'staff', weaponGlow: 0x9be050, crest: 0x9a50d8, pose: 'cast' }), desc: 'A painted elder of the lizardfolk who speaks with the old gods — and spits their venom.' },
+  { id: 'reef_shark', name: 'Reef Shark', plural: 'Reef Sharks', level: 3, hp: '6d8+6', ac: 13, hit: 6, dmg: '2d4+3', xp: 30, gold: '0', habitat: ['reef'], group: [1, 3], beast: true, ai: 'brute', swim: true, moves: 5,
+    abilities: ['shark_lunge'], look: { kind: 'shark', color: 0x6a7e8e, scale: 1.1 }, desc: 'Grey shadows in the clear water over the reef. Keep your feet out of it.' },
+  { id: 'mist_wraith', name: 'Mist Wraith', plural: 'Mist Wraiths', level: 4, hp: '8d8+8', ac: 14, hit: 6, dmg: '1d8+3', undead: true, sleepImmune: true, xp: 60, gold: '2d10', habitat: ['temple', 'jungle'], group: [1, 3],
+    spells: ['drain_life'], castChance: 0.35, ai: 'caster', abilities: ['wail'], fly: true,
+    look: { kind: 'wraith', mist: true, color: 0x7a9a90, eyes: 0x9affd8 }, desc: 'A temple priest that would not die, drifting through the halls in a shroud of fog. Its touch drinks the warmth from you.' },
+  { id: 'stone_guardian', name: 'Stone Guardian', plural: 'Stone Guardians', level: 5, hp: '10d10+20', ac: 17, hit: 7, dmg: '2d6+4', xp: 95, gold: '0', habitat: ['temple'], group: [1, 2], ai: 'brute', moves: 2, init: -4,
+    hardened: 2, sleepImmune: true, poisonImmune: true, immune: ['afraid', 'poisoned', 'charmed', 'burning'], abilities: ['brutal_smash', 'taunt'],
+    look: { kind: 'guardian', color: 0xa8a088, glow: 0x60ffb0 }, desc: 'A temple statue that rises when trespassers pass: slow, and very hard to break (it shrugs off 2 of every blow).' },
+  { id: 'sea_hag', name: 'Sea Hag', plural: 'Sea Hags', level: 6, hp: '12d8+12', ac: 13, hit: 6, dmg: '1d8+3', xp: 170, gold: '6d10', habitat: ['beach'], group: [1, 1], ai: 'caster',
+    spells: ['drain_life'], castChance: 0.3, abilities: ['hag_curse', 'tidal_surge', 'mend'], escort: [{ id: 'giant_frog', min: 0, max: 2 }],
+    look: L({ race: 'hag', body: 0x3a5a4a, robe: true, scarf: 0x6a8a3a, weapon: 'staff', weaponColor: 0x9a8a6a, weaponGlow: 0x60e0c0, pose: 'cast' }), desc: 'A crone of the tide-pools, hung with weed and shells, who curses ships and drowns sailors. Can stand as a boss.' },
+  { id: 'naga', name: 'Naga', plural: 'Nagas', level: 7, hp: '16d8+24', ac: 16, hit: 9, dmg: '2d6+5', xp: 260, gold: '8d10', habitat: ['temple'], group: [1, 1], ai: 'brute', moves: 4,
+    sleepImmune: true, abilities: ['constrict', 'tail_sweep', 'venom_spit'],
+    look: { kind: 'naga', color: 0x2a8a7a, belly: 0xe8d890, skin: 0x5aa898, crown: 0xe2b24a, scale: 1.15 }, desc: 'Serpent below, warrior above: an ancient guardian of the temple-cities, spear in hand. Can stand as a boss.' },
   // called into battle by a runesmith's skill, never met in the wild (no habitat)
   { id: 'stone_warden', name: 'Stone Warden', plural: 'Stone Wardens', level: 4, hp: '6d10+12', ac: 16, hit: 5, dmg: '1d8+3', xp: 0, gold: '0', habitat: [], group: [1, 1], ai: 'brute', moves: 3,
     abilities: ['taunt'], sleepImmune: true, poisonImmune: true,
@@ -801,6 +852,15 @@ export const MONSTER_NATIVE = {
   barrow_wight: ['ruins', 'swamp', 'bones'],
   dark_sorcerer: ['ash', 'ruins'],
   drake: ['ash', 'hills', 'lava'],
+  // (isles)
+  giant_frog: ['jungle', 'vines', 'mangrove', 'swamp'],
+  jungle_cat: ['jungle', 'vines', 'palms'],
+  lizardfolk: ['jungle', 'vines', 'mangrove', 'swamp', 'ruins_floor'],
+  lizard_shaman: ['jungle', 'vines', 'mangrove', 'ruins_floor'],
+  mist_wraith: ['jungle', 'vines', 'ruins_floor'],
+  stone_guardian: ['ruins_floor'],
+  sea_hag: ['palms', 'sand', 'mangrove', 'swamp'],
+  naga: ['ruins_floor', 'jungle', 'mangrove'],
 };
 for (const m of MONSTERS) if (!m.native) m.native = (MONSTER_NATIVE[m.id] || []).slice();
 
@@ -808,6 +868,7 @@ for (const m of MONSTERS) if (!m.native) m.native = (MONSTER_NATIVE[m.id] || [])
 export const HABITAT_TERRAIN = {
   grass: ['grass', 'meadow'], forest: ['forest', 'pines'], hills: ['hills'], swamp: ['swamp'], desert: ['sand', 'desert'],
   snow: ['snow'], ash: ['ash'], ruins: ['ruins'], dungeon: ['cave_floor', 'dungeon_floor', 'rubble'], town: ['cobble'], water: [],
+  jungle: ['jungle', 'vines', 'mangrove'], beach: ['palms', 'sand'], temple: ['ruins_floor', 'vines'], reef: [],
 };
 
 // Heroes who know a kind of country cross it a little more easily: the share

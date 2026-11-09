@@ -14,7 +14,7 @@ import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.j
 import { containerLookFields } from './containerFields.js';
 import { battleArts } from '../../game/rules.js';
 
-const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
+const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton'], ['lizard', 'Lizardfolk'], ['hag', 'Hag']]; // (isles: lizardfolk and hags)
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
 const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
