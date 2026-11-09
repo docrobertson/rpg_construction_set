@@ -36,6 +36,9 @@ const { coastMap } = await import('./isleScenes.mjs');
 const ISLE_TERRAIN = ['jungle', 'palms', 'mangrove', 'reef', 'ruins_floor', 'temple_wall', 'vines', 'obsidian', 'temple', 'idol', 'pool', 'jungle_tree', 'palm_tree'];
 const ISLE_MONSTERS = ['giant_frog', 'jungle_cat', 'lizardfolk', 'lizard_shaman', 'reef_shark', 'mist_wraith', 'stone_guardian', 'sea_hag', 'naga'];
 const ISLE_ITEMS = ['coral_charm', 'jade_idol', 'hookblade', 'lizardhide'];
+// (ISLES_MONS=a,b fights only those, and skips the slow frame timing: for working on one look)
+const ONLY = process.env.ISLES_MONS ? process.env.ISLES_MONS.split(',') : null;
+const MONS = ISLE_MONSTERS.filter((m) => !ONLY || ONLY.includes(m));
 
 // ---- the terrain: what each square is, and its decor
 {
@@ -159,32 +162,38 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
 page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-await page.goto('file://' + path.resolve(HERE, '../../index.html'));
-await page.waitForTimeout(1000);
 const ev = (fn, a) => page.evaluate(fn, a);
 const hideUi = () => ev(() => { for (const el of document.querySelectorAll('.modal-back, .chbanner-host, .qbanner-host, .toast')) el.style.display = 'none'; });
 const shot = async (name) => { await hideUi(); await page.screenshot({ path: path.join(OUT, `isles_${name}.png`) }); console.log('shot', `tests/out/isles_${name}.png`); };
-await ev(async () => {
-  const app = window.__app;
-  app.playGame(app.sample, { quick: true, noSave: true });
-  for (let i = 0; i < 100; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 100)); }
-  await new Promise((r) => setTimeout(r, 300));
-  for (let i = 0; i < 8 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await new Promise((r) => setTimeout(r, 150)); }
-});
+// a fresh game on the jungle coast (each battle below gets one of its own)
+const coast = coastMap();
+const fresh = async () => {
+  await page.goto('file://' + path.resolve(HERE, '../../index.html'));
+  await page.waitForTimeout(800);
+  await ev(async (C) => {
+    const app = window.__app;
+    app.playGame(app.sample, { quick: true, noSave: true });
+    for (let i = 0; i < 100; i++) { const s = app.session; if (s && s.map && !s.transitioning) break; await new Promise((r) => setTimeout(r, 100)); }
+    await new Promise((r) => setTimeout(r, 300));
+    for (let i = 0; i < 8 && document.querySelector('.modal-back'); i++) { document.querySelector('.modal-back .modal-x, .modal-back .modal-buttons button')?.click(); await new Promise((r) => setTimeout(r, 150)); }
+    const s = app.session;
+    const m = { id: 'isle_test', name: 'Isle of Tests', type: 'world', w: C.w, h: C.h, tiles: new Uint8Array(C.tiles), fill: 'ocean', lighting: 'day', entities: [], entry: C.start, encounterRate: 0 };
+    s.game.maps.push(m);
+    await s.enterMap(m.id, C.start.x, C.start.y, { instant: true, quiet: true });
+    s.game.settings.lineOfSight = false; s.updateVisibility(true);
+  }, coast);
+};
+await fresh();
 
 // ---- the coast: every new terrain on one map, drawn
-const coast = coastMap();
-const drawn = await ev(async (C) => {
+const drawn = await ev(async () => {
   const s = window.__app.session, v = s.view;
-  const m = { id: 'isle_test', name: 'Isle of Tests', type: 'world', w: C.w, h: C.h, tiles: new Uint8Array(C.tiles), fill: 'ocean', lighting: 'day', entities: [], entry: C.start, encounterRate: 0 };
-  s.game.maps.push(m);
-  await s.enterMap(m.id, C.start.x, C.start.y, { instant: true, quiet: true });
-  s.game.settings.lineOfSight = false; s.updateVisibility(true);
+  const m = s.map;
   const tv = v.terrain;
   const meshes = tv.chunks.reduce((n, ch) => n + ch.meshes.length, 0);
   const keys = [...new Set(Array.from(m.tiles))].map((id) => window.__travel.terrain(id).key);
   return { meshes, keys };
-}, coast);
+});
 check('the jungle coast draws, with every isle ground on it', drawn.meshes > 4 && ['jungle', 'palms', 'mangrove', 'reef', 'ruins_floor', 'temple_wall', 'vines', 'obsidian', 'temple', 'idol', 'pool'].every((k) => drawn.keys.includes(k)), drawn);
 for (const [name, dusk, zoom, fx, fy] of [['coast_day', 0, 11.5, coast.start.x - 3.5, coast.start.y + 1], ['coast_dusk', 0.55, 11.5, coast.start.x - 3.5, coast.start.y + 1], ['courtyard', 0, 8.5, coast.court.x, coast.court.y - 1], ['temple_site', 0, 8, coast.temple.x, coast.temple.y + 0.5]]) {
   await ev(([dusk, zoom, fx, fy]) => { const v = window.__app.session.view; v.setDaylight(dusk); v.setZoom(zoom, true); v.focus(fx, fy, true); }, [dusk, zoom, fx, fy]);
@@ -194,7 +203,7 @@ for (const [name, dusk, zoom, fx, fy] of [['coast_day', 0, 11.5, coast.start.x -
 await ev(() => { window.__app.session.view.setDaylight(0); });
 
 // ---- frame time: a large map smothered in jungle against the same in forest
-const frame = await ev(async () => {
+const frame = ONLY ? null : await ev(async () => {
   const s = window.__app.session, v = s.view, T = window.__travel.T;
   const out = {};
   for (const key of ['forest', 'jungle']) {
@@ -219,7 +228,7 @@ const frame = await ev(async () => {
   return out;
 });
 console.log('frame', JSON.stringify(frame));
-check('a 160x160 jungle builds and draws about as fast as a forest of the same size', frame.jungle.median <= frame.forest.median * 1.5 + 8 && frame.jungle.build <= frame.forest.build * 1.6 + 500 && frame.jungle.calls <= frame.forest.calls * 1.3 + 10, frame);
+if (frame) check('a 160x160 jungle builds and draws about as fast as a forest of the same size', frame.jungle.median <= frame.forest.median * 1.5 + 8 && frame.jungle.build <= frame.forest.build * 1.6 + 500 && frame.jungle.calls <= frame.forest.calls * 1.3 + 10, frame);
 
 // ---- the temple, inside
 const inside = await ev(async (C) => {
@@ -246,20 +255,23 @@ await shot('temple_inside');
 // ---- each new monster in battle: it builds, takes its turns, uses its powers
 const STYLE = { giant_frog: 'jungle', jungle_cat: 'jungle', lizardfolk: 'beach', lizard_shaman: 'temple', reef_shark: 'water', mist_wraith: 'temple', stone_guardian: 'temple', sea_hag: 'beach', naga: 'temple' };
 const fought = {};
-for (const id of ISLE_MONSTERS) {
+for (const id of MONS) {
+  await fresh();
   const res = await ev(async ([id, style, C]) => {
     const s = window.__app.session, v = s.view;
     if (s.map.id !== 'isle_test') await s.enterMap('isle_test', C.start.x, C.start.y, { instant: true, quiet: true });
     for (const m of s.party.members) { m.level = 6; m.hp = 200; m.status = 'ok'; }
-    const lines = [];
-    const log0 = s.log.bind(s);
-    s.log = (t, c) => { lines.push(String(t)); return log0(t, c); };
     // (the last fight must be quite over before the next begins)
     for (let i = 0; i < 80 && s.mode === 'combat'; i++) await new Promise((r) => setTimeout(r, 100));
     const prev = s.battle;
-    s.fight([{ id, n: 1 }], style, {});
     const mine = () => s.battle && s.battle !== prev && s.battle.units?.some((x) => x.side === 'enemy' && x.def?.id === id);
-    for (let i = 0; i < 80 && !mine(); i++) await new Promise((r) => setTimeout(r, 100));
+    // (a busy machine can be slow to set a battle up: give it time, and a second go)
+    for (let go = 0; go < 2 && !mine(); go++) {
+      s.mode = 'explore';
+      s.fight([{ id, n: 1 }], style, {}).catch((e) => { window.__fightErr = String(e?.stack || e); });
+      for (let i = 0; i < 200 && !mine(); i++) await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!mine()) return { failed: true, err: window.__fightErr || null, mode: s.mode, battle: !!s.battle, units: s.battle?.units?.map((x) => x.name) };
     await new Promise((r) => setTimeout(r, 1800));
     const b = s.battle;
     const u = b.units.find((x) => x.side === 'enemy');
@@ -270,6 +282,7 @@ for (const id of ISLE_MONSTERS) {
     const pic = document.querySelector('.cbt-chip.enemy img')?.src || '';
     return { arena: b.arena?.fill, x: u.x, y: u.y, hasModel: !!model, name: u.name, pic, water: s.battle.arena?.tiles?.some((t) => window.__travel.terrain(t).water) };
   }, [id, STYLE[id], coast]);
+  if (res.failed) { fought[id] = { ...res, acts: [], pic: '' }; console.log('no battle for', id, JSON.stringify(res)); continue; }
   await page.waitForTimeout(500);
   // (it may have moved on its first turn: look at where it stands now)
   await ev(() => { const s = window.__app.session, v = s.view, u = s.battle.units.find((x) => x.side === 'enemy'); v.focus(u.x + 0.5, u.y - 0.45, true); });
@@ -282,7 +295,7 @@ for (const id of ISLE_MONSTERS) {
     const lines = [];
     const log0 = s.log;
     const e0 = b.units.find((x) => x.side === 'enemy'), x0 = e0?.x, y0 = e0?.y;
-    s.log = (t, c) => { lines.push(String(t)); return log0(t, c); };
+    s.log = (t, c) => { lines.push(String(t)); return log0.call(s, t, c); };
     for (let k = 0; k < 90 && lines.filter((l) => l.includes(b.units.find((x) => x.side === 'enemy')?.name ?? '#')).length < 3 && !b.over; k++) {
       if (b.active?.side === 'party' && b.awaiting !== false) { b.active.member.hp = Math.max(b.active.member.hp, 120); try { b.actPass(); } catch { /* not its turn yet */ } }
       await new Promise((r) => setTimeout(r, 200));
@@ -301,14 +314,15 @@ for (const id of ISLE_MONSTERS) {
     return mine.slice(0, 6);
   }, id);
   fought[id] = { ...res, acts };
+  if (process.env.ISLES_MONS) console.log('fight', id, JSON.stringify({ ...res, pic: res.pic?.length, acts }));
 }
-const quiet = ISLE_MONSTERS.filter((id) => !fought[id].acts.length || !fought[id].hasModel);
+const quiet = MONS.filter((id) => !fought[id].acts.length || !fought[id].hasModel);
 check('each isle monster builds in battle and takes its turns', !quiet.length, { quiet, sample: { ...fought.giant_frog, pic: undefined } });
-check('the reef shark strikes at a ship from the water', fought.reef_shark.water && fought.reef_shark.acts.length > 0);
-console.log('acts', JSON.stringify(Object.fromEntries(ISLE_MONSTERS.map((id) => [id, fought[id].acts.slice(0, 2)]))));
+if (fought.reef_shark) check('the reef shark strikes at a ship from the water', fought.reef_shark.water && fought.reef_shark.acts.length > 0);
+console.log('acts', JSON.stringify(Object.fromEntries(MONS.map((id) => [id, fought[id].acts.slice(0, 2)]))));
 // the contact sheet
 {
-  const imgs = ISLE_MONSTERS.map((id) => [id, 'data:image/png;base64,' + fs.readFileSync(path.join(OUT, `isles_mon_${id}.png`)).toString('base64')]);
+  const imgs = MONS.map((id) => [id, 'data:image/png;base64,' + fs.readFileSync(path.join(OUT, `isles_mon_${id}.png`)).toString('base64')]);
   const sheet = await browser.newPage({ viewport: { width: 1290, height: 1000 } });
   await sheet.setContent(`<body style="margin:0;background:#1a1410;display:grid;grid-template-columns:repeat(3,430px);gap:0;font:600 15px sans-serif;color:#f0e0c0">${imgs.map(([id, src]) => `<div style="position:relative"><img src="${src}" style="width:430px;height:316px;object-fit:cover;display:block"><span style="position:absolute;left:8px;bottom:6px;background:#0008;padding:2px 6px">${id.replace(/_/g, ' ')}</span></div>`).join('')}</body>`);
   await sheet.screenshot({ path: path.join(OUT, 'isles_monsters.png'), fullPage: true });
@@ -317,10 +331,10 @@ console.log('acts', JSON.stringify(Object.fromEntries(ISLE_MONSTERS.map((id) => 
 }
 
 // ---- portraits in the battle's turn-order strip
-check('every isle monster has a portrait in battle', ISLE_MONSTERS.every((id) => fought[id].pic.length > 2000), Object.fromEntries(ISLE_MONSTERS.map((id) => [id, fought[id].pic.length])));
+check('every isle monster has a portrait in battle', MONS.every((id) => fought[id].pic.length > 2000), Object.fromEntries(MONS.map((id) => [id, fought[id].pic.length])));
 {
   const sheet = await browser.newPage({ viewport: { width: 9 * 140, height: 190 } });
-  await sheet.setContent(`<body style="margin:0;background:#2a2018;display:flex;font:600 12px sans-serif;color:#f0e0c0">${ISLE_MONSTERS.map((id) => `<div style="width:140px;text-align:center"><img src="${fought[id].pic}" style="width:132px;height:156px;background:#3a3028;border-radius:8px;margin:4px"><div>${id.replace(/_/g, ' ')}</div></div>`).join('')}</body>`);
+  await sheet.setContent(`<body style="margin:0;background:#2a2018;display:flex;font:600 12px sans-serif;color:#f0e0c0">${MONS.map((id) => `<div style="width:140px;text-align:center"><img src="${fought[id].pic}" style="width:132px;height:156px;background:#3a3028;border-radius:8px;margin:4px"><div>${id.replace(/_/g, ' ')}</div></div>`).join('')}</body>`);
   await sheet.screenshot({ path: path.join(OUT, 'isles_portraits.png') });
   await sheet.close();
   console.log('shot tests/out/isles_portraits.png');
