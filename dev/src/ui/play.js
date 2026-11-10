@@ -2114,6 +2114,7 @@ off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the 
 <table class="keys">
 <tr><td>F</td><td>Attack / shoot</td><td>1–9</td><td>Skills</td></tr>
 <tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
+<tr><td>R</td><td>Withdraw (one step, no free strike)</td><td></td><td></td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>
 </table>

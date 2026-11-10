@@ -50,8 +50,9 @@ const KIT = {
   3: { warrior: ['long_sword', 'chain_mail', 'kite_shield'], cleric: ['mace', 'chain_mail', 'buckler'], wizard: ['quarterstaff', 'robe'], ranger: ['spear', 'short_bow', 'studded_leather'], runesmith: ['warhammer', 'leather_armor'] },
   5: { warrior: ['long_sword', 'scale_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['spear', 'kestrel_bow', 'studded_leather'],
     burglar: ['dagger', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'chain_mail', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
-  7: { warrior: ['sunsteel_spear', 'coral_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['spear', 'kestrel_bow', 'studded_leather'],
-    burglar: ['wreckers_hook', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'plate_armor', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
+  // (Gaff's boat-hook is a spear: it goes to Kit, a ranger trained with spears, not to Mags, who is not)
+  7: { warrior: ['sunsteel_spear', 'coral_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['wreckers_hook', 'kestrel_bow', 'studded_leather'],
+    burglar: ['dagger', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'plate_armor', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
 };
 const COMPANIONS = { kit: ['human', 'ranger'], thrain: ['dwarf', 'warrior'], wren: ['human', 'runesmith'], mags: ['human', 'burglar'], garrick: ['human', 'paladin'], elowen: ['elf', 'wizard'] };
 
