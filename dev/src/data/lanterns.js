@@ -91,6 +91,7 @@ function build() {
   companions(game, P);
   uncast(game);
   addCountryside(game, w, P);
+  tropicalUndergrowth(w);
 
   S.start = { map: w.id, ...nearestWhere(w, P.pebblewickAt.x + 2, P.pebblewickAt.y + 3, (t) => t.key === 'sand' || t.key === 'grass' || t.key === 'meadow') };
   return game;
@@ -203,6 +204,19 @@ function defineFoes(game, MON) {
 // ------------------------------------------------------------ the land
 // Two great lands and their islets, shaped by soft ellipses roughened with
 // noise, then painted country by country with the editor's own brushes.
+// Ixara's open ground is jungle undergrowth, not an English meadow: plain grass
+// there read as flat bright clearings in the jungle. Most of it becomes ferny
+// undergrowth ('vines'), leaving a few true glades where the noise is low.
+// (Walkable either way, so no road or puzzle changes.)
+function tropicalUndergrowth(w) {
+  for (let y = 0; y < w.h; y++) for (let x = 98; x < w.w; x++) {
+    const i = y * w.w + x, k = terrain(w.tiles[i]).key;
+    if (k !== 'grass' && k !== 'meadow') continue;
+    const glade = fbm(x * 0.11, y * 0.11, 91, 2);
+    if (k === 'grass' ? glade > 0.32 : glade > 0.5) w.tiles[i] = T.vines ?? w.tiles[i];
+  }
+}
+
 function paintWorld(w) {
   const elev = new Float32Array(w.w * w.h).fill(-1);
   // [cx, cy, rx, ry]: the bones of each land
