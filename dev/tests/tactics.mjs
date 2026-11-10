@@ -459,7 +459,8 @@ r = await T('gentle crits', async (S) => {
 check('a monster\'s critical on a hero is its weapon\'s most and one die more, not double (a goblin: 8–13, not up to 14)', r.lo >= r.max + 1 && r.hi <= r.max + 6, r);
 
 // ------------------------------------------------------------ what the player sees: odds on the path, cover marks
-// a real arena with trees: a goblin archer, an orc beside the hero, and a square of cover to step into
+// a real arena: an orc archer beyond a tree, a goblin beside the wizard, and a square of cover to step into
+await ev(() => document.querySelectorAll('.log-line').forEach((l) => l.remove())); // (the pictures need not show the test blows above)
 const scene = await T('scene', async (S) => {
   const { b, g } = S;
   S.unflat();
@@ -594,6 +595,46 @@ const cs = await ev(async () => {
 });
 check('World Data: weapon kinds with their traits; classes say what they are trained in, and heavy weapons; armour soak; monsters\' reflexes',
   cs.cats?.includes('weaponKinds') && /trained in/.test(cs.classWeapons || '') && cs.heavy && cs.kindTrait && cs.soak && cs.reflex, cs);
+// …and in the editor itself: the weapon kinds, a calling's training, the Rules' battle section
+const ed = await ev(async () => {
+  const app = window.__app;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  app.stopSession?.();
+  app.openEditor(app.sample);
+  await sleep(1200);
+  const e = app.editor;
+  e.setTab('data');
+  e.db.cat = 'weaponKinds'; e.db.sel = e.game.weaponKinds.find((k) => k.id === 'spear'); e.db.render();
+  await sleep(300);
+  const kinds = [...document.querySelectorAll('.entry-list .entry')].map((b) => b.textContent);
+  const info = document.querySelector('.form .hint')?.textContent || '';
+  return { kinds, info };
+});
+check('the editor lists the weapon kinds, and a kind\'s form says what its trait does', ed.kinds.includes('Spear') && ed.kinds.length >= 10 && /strikes a foe 2 squares off/.test(ed.info), ed);
+await shot('tactics-cs-weapon-kinds');
+const edc = await ev(async () => {
+  const e = window.__app.editor;
+  e.db.cat = 'classes'; e.db.sel = e.game.classes.find((k) => k.id === 'ranger'); e.db.render();
+  await new Promise((r) => setTimeout(r, 300));
+  const field = [...document.querySelectorAll('.field')].find((f) => /Weapons trained in/.test(f.textContent));
+  field?.scrollIntoView({ block: 'center' });
+  const ticks = field ? [...field.querySelectorAll('label.mc')].filter((l) => l.querySelector('input').checked).map((l) => l.textContent) : [];
+  const heavy = [...document.querySelectorAll('label.field.check')].find((l) => /heavy weapons/.test(l.textContent))?.querySelector('input')?.checked;
+  return { ticks, heavy };
+});
+check('a calling\'s form ticks the kinds it is trained in, and says whether heavy weapons too (a ranger: axes, yes; heavy, no)', edc.ticks.some((t) => /^Axe/.test(t)) && edc.heavy === false, edc);
+await shot('tactics-cs-class-training');
+const rulesStep = await ev(async () => {
+  const e = window.__app.editor;
+  e.setTab('rules');
+  await new Promise((r) => setTimeout(r, 300));
+  const sec = document.querySelector('#set-battle');
+  sec?.scrollIntoView({ block: 'start' });
+  return sec ? [...sec.querySelectorAll('.field-label')].map((l) => l.textContent) : [];
+});
+check('Rules has a Battle section: untrained weapons and their penalty, heroic health, the last stand, breaking away, light armour\'s dodge',
+  ['A weapon a hero is not trained in', 'Untrained: to hit', 'Heroic health', 'Last stand', 'Breaking away: chance of a free strike', 'Light armour dodges: +1 armour every … levels'].every((l) => rulesStep.includes(l)), rulesStep);
+await shot('tactics-cs-rules-battle');
 
 check('no errors in the page', !errors.length, errors.slice(0, 5));
 await browser.close();

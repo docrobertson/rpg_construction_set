@@ -1804,7 +1804,7 @@ function compareText(g, m, it) {
   const slot = slotFor(it);
   if (!slot) return null;
   const cur = itemOf(g, m.equip[slot]);
-  if (cur?.id === it.id) return { cls: 'same', text: 'equipped' };
+  if (cur?.id === it.id) return { cls: 'same', text: it.type === 'weapon' && !training(g, m, it).ok ? `equipped, untrained −${untrainedPenalty(g)} hit` : 'equipped' };
   // a charm is not better or worse, only different: say what it would replace
   if (it.type === 'charm') return cur ? { cls: 'swap', text: `instead of ${cur.name}` } : { cls: 'up', text: 'new charm' };
   if (it.type === 'weapon') {
@@ -1891,7 +1891,7 @@ function itemName(it) {
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip
 function cmpArrow(c) {
-  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text === 'equipped' ? '✓' : '=');
+  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text.startsWith('equipped') ? '✓' : '=');
 }
 
 // when no one in the company can wear a piece: a charm for one people or
