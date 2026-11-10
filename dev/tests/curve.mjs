@@ -10,7 +10,7 @@
 //   fights  whole battles against wandering bands, a sensible player at the
 //           helm: wins, health lost, heroes fallen, and every blow struck
 // Used by tests/tactics.mjs; run alone for the table:
-//   node tests/curve.mjs [fights per level=30] [blows per hero and level=300]
+//   node tests/curve.mjs [fights per level=40] [blows per hero and level=600]   (SRC=dir: another source tree)
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -297,6 +297,6 @@ export function table(rows) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
-  const rows = await measure({ fights: parseInt(process.argv[2], 10) || 30, blows: parseInt(process.argv[3], 10) || 300 });
+  const rows = await measure({ fights: parseInt(process.argv[2], 10) || 40, blows: parseInt(process.argv[3], 10) || 600 });
   console.log(table(rows));
 }

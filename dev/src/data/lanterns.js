@@ -187,14 +187,17 @@ function defineFoes(game, MON) {
   const q = monster('drowned_queen');
   if (q.look?.race === 'hag') Object.assign(q.look, { scale: 1.5, hat: 'crown', crownColor: 0x7ae0c0, body: 0x1e3a44, robe: true, weaponGlow: 0x60ffe0, eyes: 0x60ffe0 });
   // Each a real fight for the company a player has by then, tuned against
-  // tests/adventure2_sim.mjs (winnable, not trivial: see its table)
+  // tests/adventure2_sim.mjs (winnable, not trivial: see its table).
+  // (tactics pass: heroes now have heroic health, mail that soaks, a last
+  // stand and gentler criticals taken, and goblins strike softer, so the
+  // early bosses and two later ones hit a little harder to stay a real fight)
   const tune = {
-    old_snapper: { hp: '6d8+6' },
-    grubnose: { escort: [{ id: 'goblin', min: 2, max: 2 }, { id: 'goblin_shaman', min: 0, max: 1 }] },
+    old_snapper: { hp: '7d8+8', hit: 5, dmg: '1d10+3' },
+    grubnose: { hp: '7d8+10', hit: 6, dmg: '1d8+3', escort: [{ id: 'goblin', min: 2, max: 2 }, { id: 'goblin_shaman', min: 0, max: 1 }] },
     gaff_hollis: { hp: '18d8+24', ac: 15, hit: 8, dmg: '1d12+5', escort: [{ id: 'bandit', min: 4, max: 4 }], phaseAdds: [{ id: 'bandit', min: 2, max: 2 }] },
-    red_jory: { hp: '20d8+28', ac: 16, hit: 9, dmg: '1d12+5', escort: [{ id: 'bandit', min: 3, max: 3 }, { id: 'warg', min: 2, max: 2 }] },
+    red_jory: { hp: '22d8+32', ac: 16, hit: 10, dmg: '1d12+6', escort: [{ id: 'bandit', min: 3, max: 3 }, { id: 'warg', min: 2, max: 2 }] },
     abbot_morcant: { hp: '18d8+24', ac: 16, hit: 9, dmg: '1d12+5', escort: [{ id: 'skeleton', min: 3, max: 3 }], phaseAdds: [{ id: 'skeleton', min: 3, max: 3 }] },
-    serpent_priest: { hp: '32d8+48', ac: 17, hit: 12, dmg: '2d10+6', escort: [{ id: MON('stone_guardian', 'skeleton'), min: 2, max: 2 }, { id: MON('lizard_shaman', 'goblin_shaman'), min: 2, max: 2 }], phaseAdds: [{ id: MON('lizardfolk', 'orc'), min: 4, max: 4 }] },
+    serpent_priest: { hp: '36d8+54', ac: 17, hit: 13, dmg: '2d10+7', escort: [{ id: MON('stone_guardian', 'skeleton'), min: 2, max: 2 }, { id: MON('lizard_shaman', 'goblin_shaman'), min: 2, max: 2 }], phaseAdds: [{ id: MON('lizardfolk', 'orc'), min: 4, max: 4 }] },
     cinderwing: { hp: '48d8+70', ac: 18, hit: 13, dmg: '3d8+9', escort: [{ id: 'drake', min: 2, max: 2 }] },
     drowned_queen: { hp: '60d8+90', ac: 18, hit: 13, dmg: '2d10+9', escort: [{ id: MON('mist_wraith', 'barrow_wight'), min: 4, max: 4 }, { id: MON('naga', 'skeleton'), min: 1, max: 1 }, { id: MON('sea_hag', 'dark_sorcerer'), min: 1, max: 1 }], phaseAdds: [{ id: MON('mist_wraith', 'barrow_wight'), min: 3, max: 3 }] },
   };

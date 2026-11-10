@@ -49,19 +49,22 @@ function buildSample() {
   // named foes for the quests: each is a unique boss, never met at random
   const monster = (id) => game.monsters.find((m) => m.id === id);
   const named = (base, def) => { const m = { ...JSON.parse(JSON.stringify(monster(base))), ...def, boss: true, habitat: [] }; game.monsters.push(m); return m; };
-  named('wolf', { id: 'greyfang', name: 'Greyfang', plural: 'Greyfangs', level: 3, hp: '7d8+8', ac: 13, hit: 5, dmg: '1d8+2', xp: 60, gold: '0', group: [1, 1], escort: [{ id: 'wolf', min: 2, max: 2 }],
+  // (tactics pass: heroes now have heroic health, mail that soaks and a last
+  // stand, and wolves strike softer, so the bosses strike a point harder to
+  // stay a real fight at their own level: see tests/balance.mjs)
+  named('wolf', { id: 'greyfang', name: 'Greyfang', plural: 'Greyfangs', level: 3, hp: '7d8+8', ac: 13, hit: 6, dmg: '1d8+3', xp: 60, gold: '0', group: [1, 1], escort: [{ id: 'wolf', min: 2, max: 2 }],
     phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'wolf', min: 2, max: 2 }], phaseText: 'Greyfang throws back his head and howls — and from the trees, more wolves answer!',
     look: { kind: 'quadruped', color: 0x2e2a2c, eyes: 0xffd040, scale: 1.45 }, desc: 'A wolf as big as a pony, black as soot, with eyes like lamps.' });
-  named('orc_captain', { id: 'grishak', name: 'Grishak the Burner', plural: 'Grishaks', level: 4, hp: '12d8+16', hit: 8, dmg: '1d10+5', xp: 110, gold: '8d10', escort: [{ id: 'orc', min: 2, max: 3 }, { id: 'orc_archer', min: 1, max: 1 }],
+  named('orc_captain', { id: 'grishak', name: 'Grishak the Burner', plural: 'Grishaks', level: 4, hp: '13d8+18', hit: 8, dmg: '1d12+5', xp: 110, gold: '8d10', escort: [{ id: 'orc', min: 2, max: 3 }, { id: 'orc_archer', min: 1, max: 1 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'orc', min: 2, max: 2 }], phaseText: 'Grishak bellows for his warband, and orcs come running with torches!',
     look: { kind: 'humanoid', race: 'orc', body: 0x6a1a10, armor: 'chain', hat: 'hornhelm', hatColor: 0x2a2a2a, weapon: 'axe', weaponGlow: 0xff7020, cape: 0x8a2a10, scale: 1.2 }, desc: 'An orc chieftain who laughs as he burns.' });
-  named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '15d8+20', ac: 15, hit: 8, dmg: '1d10+5', xp: 160, gold: '6d10', castChance: 0.3, ai: 'boss', abilities: ['brutal_smash'], escort: [{ id: 'skeleton', min: 2, max: 2 }],
+  named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '15d8+20', ac: 15, hit: 9, dmg: '1d10+5', xp: 160, gold: '6d10', castChance: 0.3, ai: 'boss', abilities: ['brutal_smash'], escort: [{ id: 'skeleton', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'skeleton', min: 2, max: 2 }], phaseText: '"Rise, my thanes!" Ulfgar\'s cry shakes the barrow, and the dead claw their way up through the floor!',
     look: { kind: 'wraith', color: 0x2a3436, eyes: 0x70ffb0, hat: 'crown', crownColor: 0xe8b830, weapon: 'sword', weaponGlow: 0x70ffb0, scale: 1.55 }, desc: 'A king of the old days, crowned still, who will not stay dead.' });
   named('sea_serpent', { id: 'west_serpent', name: 'Old Gulper', plural: 'Old Gulpers', level: 6, hp: '18d8+20', hit: 9, xp: 220, gold: '10d10', group: [1, 1], abilities: ['tidal_surge', 'tail_sweep'],
     speed: 2, phaseAt: 0.4, phaseEnrage: true, phaseText: 'Old Gulper thrashes in fury, and the whole sea seems to heave!',
     look: { kind: 'serpent', color: 0x1a5a5a, scale: 1.8 }, desc: 'The great serpent of the western sea. It has eaten boats.' });
-  named('giant_spider', { id: 'spider_queen', name: 'Skarrith the Spider Queen', plural: 'Spider Queens', level: 5, hp: '13d8+15', ac: 14, hit: 8, dmg: '1d10+4', poison: 0.5, xp: 180, gold: '4d10', group: [1, 1], escort: [{ id: 'giant_spider', min: 2, max: 2 }], castChance: 0.35,
+  named('giant_spider', { id: 'spider_queen', name: 'Skarrith the Spider Queen', plural: 'Spider Queens', level: 5, hp: '13d8+15', ac: 14, hit: 9, dmg: '1d10+4', poison: 0.5, xp: 180, gold: '4d10', group: [1, 1], escort: [{ id: 'giant_spider', min: 2, max: 2 }], castChance: 0.35,
     speed: 2, phaseAt: 0.5, phaseAdds: [{ id: 'giant_spider', min: 2, max: 2 }], phaseText: 'Skarrith shrieks, and her brood boils out of the webs!',
     look: { kind: 'spider', color: 0x3a1a3a, mark: 0xe0c020, scale: 1.9 }, desc: 'Bloated and ancient, she fattens on the Shadow\'s malice.' });
   named('skeleton', { id: 'mimic', name: 'Mimic', plural: 'Mimics', level: 3, hp: '6d8+6', ac: 14, hit: 6, dmg: '1d10+2', undead: false, xp: 60, gold: '6d10', group: [1, 1], escort: [],

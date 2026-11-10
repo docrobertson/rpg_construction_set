@@ -393,8 +393,9 @@ export const CLASSES = [
     hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], heavyWeapons: false, armor: 'chain', shields: false,
     abilities: ['tracker'], special: 'volley', skills: [learn('aimed_shot', 1), learn('pinning_shot', 3), learn('hunters_mark', 5), learn('spirit_wolf', 7), learn('arrowstorm', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
     look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
+  // (tactics: a point more health at level 1, 13 with the heroic 4: a goblin's blow took two thirds of the old 8)
   { id: 'wizard', talents: 'caster', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
-    requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], heavyWeapons: false, armor: 'cloth', shields: false,
+    requires: 'arcane', hpBase: 9, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], heavyWeapons: false, armor: 'cloth', shields: false,
     abilities: [], special: 'blink', skills: [learn('firebolt', 1), learn('frost_nova', 3), learn('arc_lightning', 5), learn('arcane_grasp', 7), learn('meteor', 9)], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
     look: { body: 0x3446a8, robe: true, hat: 'wizard', hatColor: 0x3446a8, trim: 0xe2b24a, weapon: 'staff', pose: 'cast' } },
   { id: 'cleric', talents: 'healer', name: 'Cleric', desc: 'A servant of the Powers, healer of wounds and scourge of the restless dead.',

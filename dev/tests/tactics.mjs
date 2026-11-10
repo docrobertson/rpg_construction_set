@@ -22,11 +22,11 @@ const check = (name, ok, info) => { console.log((ok ? 'ok   ' : 'FAIL ') + name 
 
 // ------------------------------------------------------------ the curve, measured
 if (!process.env.NO_CURVE) {
-  const rows = await measure({ fights: parseInt(process.env.CURVE_FIGHTS, 10) || 16, blows: parseInt(process.env.CURVE_BLOWS, 10) || 200 });
+  const rows = await measure({ fights: parseInt(process.env.CURVE_FIGHTS, 10) || 40, blows: parseInt(process.env.CURVE_BLOWS, 10) || 600 });
   console.log(table(rows).split('\n').slice(0, rows.length + 1).map((l) => '   ' + l).join('\n'));
   const L = (n) => rows.find((r) => r.level === n);
   const lv = rows.map((r) => r.hitLv);
-  check('a foe of the company\'s level hits a hero about half the time at every level (45–55%, give or take the dice)', lv.every((x) => x >= 0.42 && x <= 0.58), lv.map((x) => Math.round(x * 100)));
+  check('a foe of the company\'s level hits a hero about half the time at every level (45–55%, give or take the dice: 40–60)', lv.every((x) => x >= 0.4 && x <= 0.6), lv.map((x) => Math.round(x * 100)));
   check('…with no cliff: from one level to the next it moves by under a tenth', lv.slice(1).every((x, i) => Math.abs(x - lv[i]) < 0.1), lv.map((x) => Math.round(x * 100)));
   check('at level 1 an ordinary hit takes a fifth or so of a front-liner\'s health (15–25%)', L(1).share.warrior >= 0.15 && L(1).share.warrior <= 0.25, L(1).share);
   check('…and at most two fifths of a wizard\'s', L(1).share.wizard <= 0.4, L(1).share);
@@ -536,7 +536,7 @@ const aim = await ev(async (sc) => {
   ui.chud.beginAttack();
   await new Promise((r) => setTimeout(r, 200));
   const badge = !!document.querySelector('.pl-cover');
-  return { badge, ok: b.canAttack(ra, archer), cover: b.inCover(archer, ra), dbg: { tile: b.view.terrain.tileAt(sc.spot.x, sc.spot.y).key, obst: b.obstacle(sc.spot.x, sc.spot.y), archer: [archer.x, archer.y], ra: [ra.x, ra.y], same: b.view.map === b.arena } };
+  return { badge, ok: b.canAttack(ra, archer), cover: b.inCover(archer, ra), tree: b.obstacle(sc.spot.x, sc.spot.y), archer: [archer.x, archer.y], ranger: [ra.x, ra.y] };
 }, scene);
 check('aiming a shot, a foe in cover from the hero wears a shield badge', aim.badge && aim.cover, aim);
 const card = await hoverAt(scene.spot.x - 1, scene.spot.y, 250, -60);

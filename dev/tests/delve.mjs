@@ -548,7 +548,8 @@ const lost = await ev(async () => {
   const u = await window.__heroTurn(20000);
   const b = s.battle;
   if (!u || !b) return { noBattle: true };
-  for (const p of b.partyUnits) if (b.alive(p)) await b.damage(p, 999, {});
+  // (a hero in good health makes a last stand on the first felling blow: the second is real)
+  for (const p of b.partyUnits) for (let k = 0; k < 2 && b.alive(p); k++) await b.damage(p, 999, {});
   await b.actPass();
   for (let i = 0; i < 200 && s.mode !== 'gameover'; i++) await sleep(30);
   await sleep(300);

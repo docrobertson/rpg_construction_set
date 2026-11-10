@@ -216,7 +216,8 @@ r = await T('shield wall', async (S) => {
   const guarded = a.st.guarded?.src === w;
   const redirect = await b.guardFor(g1, a);
   const hpA = S.hp(a), hpW = S.hp(w);
-  await b.strike(g1, a);
+  const d0 = g1.def; g1.def = { ...g1.def, hit: 30 }; // (a sure blow: the warrior's armour and parry are not what is tested here)
+  try { await b.strike(g1, a); } finally { g1.def = d0; }
   return { used, guarded, redirect: redirect === w, aSafe: S.hp(a) === hpA, wHit: S.hp(w) < hpW, shield: b.power(w, 'shielded') };
 });
 check('Shield Wall: blows aimed at the guarded companion strike the warrior instead', r.used && r.guarded && r.redirect && r.aSafe && r.wHit && r.shield === 2, r);
@@ -668,7 +669,8 @@ const barFor = async (cls, arts) => ev(async ({ cls, arts }) => {
 const ARTS4 = ['second_wind', 'dash', 'throw_knife', 'battle_cry'];
 for (const cls of ['warrior', 'ranger', 'wizard', 'cleric', 'burglar', 'paladin', 'minstrel', 'runesmith']) {
   const bar = await barFor(cls, ARTS4);
-  check(`a level-10 ${cls} with four battle arts: ${bar.n} buttons on three rows, all inside the bar, keys 1–9`, bar.dense && !bar.out.length && bar.n === 6 + bar.abilities && bar.keys.includes('9') && bar.keys.includes('Q') && !bar.clipped.length, bar);
+  // (seven fixed buttons: Move, Withdraw, Attack, Cast, Item, Guard, End turn)
+  check(`a level-10 ${cls} with four battle arts: ${bar.n} buttons on three rows, all inside the bar, keys 1–9`, bar.dense && !bar.out.length && bar.n === 7 + bar.abilities && bar.keys.includes('9') && bar.keys.includes('Q') && !bar.clipped.length, bar);
   if (['warrior', 'ranger', 'wizard', 'runesmith'].includes(cls)) await shot(`skills-bar-${cls}`);
 }
 // even more: a fifth art and a charm's power still fit, the keys running on to 0 and −
