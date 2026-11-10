@@ -8,7 +8,7 @@ import { icon, itemTile } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
-  heroArts, battleArts, lastPick, pickLevel, ART_EVERY,
+  heroArts, battleArts, lastPick, pickLevel, ART_EVERY, armorSoak,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
 import { perkText, heroSchool, poolName, noNeed } from '../game/magic.js';
@@ -52,9 +52,12 @@ export class CombatHud {
     this.victoryPending = false;
     this.root = h('div.cbt-overlay');
     this.plateLayer = h('div.cbt-plates');
+    // (tactics) small marks on squares: shields where a hero would be in cover, the odds of a free strike on the path
+    this.markLayer = h('div.cbt-marks');
+    this.marks = [];
     this.strip = h('div.cbt-strip');
     this.banner = h('div.cbt-banner');
-    this.root.append(this.plateLayer, this.strip, this.banner);
+    this.root.append(this.markLayer, this.plateLayer, this.strip, this.banner);
     const box = this.view.container || document.body;
     box.appendChild(this.root);
     // frame the arena below the turn strip (the camera eases in from above)
@@ -77,7 +80,7 @@ export class CombatHud {
     this.ui.root.appendChild(this.tip);
     // leaving the map clears what hovering drew on it
     this.canvas = this.view.renderer?.domElement;
-    this.onLeave = () => { this.hideTip(); this.view.setLine?.(null); this.view.showCursor(null); if (this.b?.active && !this.ui.targeting) this.showMoves(this.b.active); };
+    this.onLeave = () => { this.hideTip(); this.view.setLine?.(null); this.view.showCursor(null); this.hoverKey = null; if (this.b?.active && !this.ui.targeting) this.showMoves(this.b.active); };
     this.canvas?.addEventListener('mouseleave', this.onLeave);
     // on a touch screen there is no hovering: the first tap shows what would happen, the second does it
     this.onDown = (e) => { this.lastPointer = { type: e.pointerType, x: e.clientX, y: e.clientY }; };
@@ -85,6 +88,7 @@ export class CombatHud {
     const tick = () => {
       if (!this.root) return;
       this.placePlates();
+      this.placeMarks();
       this.follow();
       this.raf = requestAnimationFrame(tick);
     };
@@ -108,6 +112,7 @@ export class CombatHud {
     this.tip?.remove();
     this.root = null;
     this.plates.clear();
+    this.marks = [];
   }
 
   end(summary) {
@@ -259,7 +264,8 @@ export class CombatHud {
       }
       const frac = b.hpOf(u) / Math.max(1, b.maxHpOf(u));
       const st = b.statusList(u);
-      const sig = [frac, u === b.current, !!u.charging, st.map((s) => s.id + s.rounds).join()].join('|');
+      const cover = this.coverBadge(u);
+      const sig = [frac, u === b.current, !!u.charging, st.map((s) => s.id + s.rounds).join(), cover].join('|');
       if (sig === p.sig) continue;
       p.sig = sig;
       clear(p.el);
@@ -267,10 +273,45 @@ export class CombatHud {
       p.el.appendChild(h('div.pl-in',
         u === b.current ? h('div.pl-now', '▼') : null,
         u.charging ? h('div.pl-warn', icon('warn')) : null,
+        cover ? h('div.pl-cover', { title: cover }, icon('shield'), h('b', '−3')) : null,
         st.length ? h('div.pl-st', ...st.slice(0, 3).map((s) => this.badge(s)), st.length > 3 ? h('span.pl-more', `+${st.length - 3}`) : null) : null,
         h('div.pl-hp' + (frac <= 0.25 ? '.low' : frac <= 0.5 ? '.mid' : ''), h('i', { style: { width: pct(frac) } }))));
     }
     for (const [id, p] of this.plates) if (!live.has(id)) { p.el.remove(); this.plates.delete(id); }
+  }
+
+  // (tactics) a foe in cover from the hero whose turn it is, when that hero
+  // shoots: the shield over its head, and why (or '' for none)
+  coverBadge(u) {
+    const b = this.b, a = b?.active;
+    if (!a || u.side === a.side || !b.alive(u) || b.adjacent(a, u) || b.weaponRange(a) <= 1) return '';
+    if (!b.inCover(u, a) || b.dist(a, u) > b.weaponRange(a) + 2) return '';
+    const tr = rangedOf(this.game, a.member) && b.strikeKit(a, u, { attack: 'ranged' })?.trait;
+    return tr?.trait === 'pierce' ? '' : `In cover from ${a.name}: shots at it are −3`;
+  }
+
+  // ------------------------------------------------------------ marks on squares
+  // marks: [{ x, y, cls, html, title }] drawn over squares (cleared with none)
+  setMarks(list) {
+    if (!this.markLayer) return;
+    clear(this.markLayer);
+    this.marks = (list || []).map((m) => {
+      const el = h('div.cbt-mark.' + (m.cls || 'cover'), { title: m.title || '' }, m.icon ? icon(m.icon) : null, m.text ? h('b', m.text) : null);
+      this.markLayer.appendChild(el);
+      return { ...m, el };
+    });
+    this.placeMarks();
+  }
+
+  placeMarks() {
+    const v = this.view;
+    if (!this.marks.length || !v.worldToScreen) return;
+    for (const m of this.marks) {
+      const p = v.worldToScreen(m.x + 0.5, (v.heightAt ? v.heightAt(m.x, m.y) : 0) + (m.up ?? 0.12), m.y + 0.5);
+      if (!p || p.behind) { m.el.style.display = 'none'; continue; }
+      m.el.style.display = '';
+      m.el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px)`;
+    }
   }
 
   // A condition as it shows over a head: its sign in its colour and the turns
@@ -325,11 +366,19 @@ export class CombatHud {
     bar.append(head, row);
     const add = (o) => row.appendChild(this.button(o));
     const pinned = b.has(u, 'rooted');
+    const held = b.held ? b.held(u) : pinned;
     add({
-      icon: 'move', name: 'Move', key: '←↑→', sub: pinned ? 'Pinned!' : `${mv} of ${u.maxMoves} left`, off: mv <= 0,
-      why: pinned ? 'Pinned in place: you can still fight.' : 'No moves left this turn.',
-      tip: `Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe — it gets a free strike. ${b.field ? 'Step onto the stairs (green) to flee.' : 'Walk off the edge of the field to flee.'}`,
+      icon: 'move', name: 'Move', key: '←↑→', sub: held ? (pinned ? 'Pinned!' : 'Reeling!') : `${mv} of ${u.maxMoves} left`, off: mv <= 0 || held,
+      why: held ? (pinned ? 'Pinned in place: you can still fight.' : 'Reeling from a heavy blow: no moving this turn, but you can still fight.') : 'No moves left this turn.',
+      tip: `Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe: it may get a free strike (hover the square for the odds). A shield marks a square in cover from a foe's archers. ${b.field ? 'Step onto the stairs (green) to flee.' : 'Walk off the edge of the field to flee.'}`,
       onClick: () => this.ui.hint('Click a blue square to move there.'),
+    });
+    // (tactics) a safe step back, for everyone
+    const wd = b.canWithdraw ? b.canWithdraw(u) : null;
+    if (wd) add({
+      icon: 'flee', name: 'Withdraw', key: 'R', off: !wd.ok, sub: wd.ok ? wd.short : wd.short, why: wd.why,
+      tip: 'Give up the rest of your moves to step one square back with no free strike at all. Your turn goes on: shoot, cast, use a skill or guard.',
+      onClick: () => this.beginWithdraw(),
     });
     const adjFoe = targets.some((t) => b.adjacent(u, t));
     add({
@@ -342,7 +391,7 @@ export class CombatHud {
     // two rows of buttons while they fit; a hero with many skills gets three
     // rows of slimmer ones (and the keys 1–9, 0, −, =), so nothing is cut off
     const abs = heroAbilities(g, m), keys = skillKeys(g, m, abs);
-    const total = 6 + abs.length, rows = total > 12 ? 3 : 2;
+    const total = 7 + abs.length, rows = total > 12 ? 3 : 2;
     row.style.setProperty('--cols', String(Math.max(5, Math.ceil(total / rows))));
     row.classList.toggle('dense', rows > 2);
     bar.classList.toggle('dense', rows > 2);
@@ -435,6 +484,8 @@ export class CombatHud {
   // ------------------------------------------------------------ turn changes
   turn(u) {
     this.armed = null;
+    this.hoverKey = null;
+    this.setMarks(null);
     this.hideTip();
     this.view.setLine?.(null);
     this.ui.targeting = null;
@@ -451,30 +502,46 @@ export class CombatHud {
     this.showMoves(u);
   }
 
-  // blue: squares in reach; amber: squares where a foe gets a free strike; red: foes in reach
-  showMoves(u) {
+  // blue: squares in reach; amber: squares where a foe may get a free strike;
+  // red: foes in reach (a spear's two squares too). A small shield marks the
+  // squares in cover from a foe's archers (only while some foe shoots).
+  // emph: squares of the hovered path where a foe may strike, with their odds
+  showMoves(u, emph = null) {
     const b = this.b;
     if (!b || b.active !== u) return;
-    const cells = [];
+    const cells = [], marks = [];
+    const shoots = b.shooters ? b.shooters(u.side).length : 0;
+    const hot = new Map((emph || []).map((e) => [`${e.x},${e.y}`, e]));
     for (const c of b.reachable(u).values()) {
-      if (c.d === 0 || c.ally) continue;
-      cells.push({ x: c.x, y: c.y, color: c.exit ? 0x50e070 : this.pathProvokes(u, c.x, c.y).length ? 0xff8a2a : 0x50a0ff });
+      if (c.ally) continue;
+      if (c.d > 0) cells.push({ x: c.x, y: c.y, color: hot.has(`${c.x},${c.y}`) ? 0xff5a1a : c.exit ? 0x50e070 : this.pathProvokes(u, c.x, c.y).length ? 0xff8a2a : 0x50a0ff });
+      if (shoots) {
+        const from = b.coverFrom(c.x, c.y, u.side);
+        if (from.length) marks.push({ x: c.x, y: c.y, icon: 'shield', cls: 'cover' + (c.d === 0 ? '.here' : ''), title: `In cover from ${from.map((f) => b.the(f)).join(', ')}` });
+      }
     }
+    for (const e of hot.values()) marks.push({ x: e.x, y: e.y, cls: 'odds', icon: 'sword', text: `${Math.round(e.p * 100)}%`, up: 0.35, title: `${b.The(e.f)}: ${Math.round(e.p * 100)}% it strikes as you break away` });
     for (const e of b.attackTargets(u)) cells.push({ x: e.x, y: e.y, color: 0xff4030 });
     this.view.setHighlights(cells, 0x50a0ff, 0.34);
+    this.setMarks(marks);
   }
 
-  pathProvokes(u, x, y) {
+  // the foes that may strike as u walks to (x, y): [foe]
+  pathProvokes(u, x, y) { return [...new Set(this.pathBreaks(u, x, y).map((e) => e.f))]; }
+
+  // where along the path to (x, y) u would break away from a foe: [{ f, x, y, p }]
+  // (x, y: the square stepped onto; p: the chance the foe strikes)
+  pathBreaks(u, x, y) {
     const b = this.b;
     const path = b.pathTo(u, x, y);
     if (!path) return [];
-    const out = new Set();
+    const out = [], seen = new Set();
     let from = { x: u.x, y: u.y };
     for (const [px, py] of path.slice(1)) {
-      for (const f of b.provokers(u, px, py, from)) out.add(f);
+      for (const f of b.provokers(u, px, py, from)) if (!seen.has(f)) { seen.add(f); out.push({ f, x: px, y: py, p: b.breakChance(f, u) }); }
       from = { x: px, y: py };
     }
-    return [...out];
+    return out;
   }
 
   // ------------------------------------------------------------ hover
@@ -504,6 +571,7 @@ export class CombatHud {
     }
     if (unit) {
       const attackable = u && unit.side === 'enemy' && b.canAttack(u, unit);
+      if (this.hoverKey) { this.hoverKey = null; if (u) this.showMoves(u); }
       this.view.showCursor(t.x, t.y, unit.side === 'enemy' ? (attackable ? 0xff4040 : 0xffffff) : 0x80ff80);
       this.view.setLine?.(null);
       at(this.unitCard(unit, attackable ? b.preview(u, unit) : null));
@@ -530,16 +598,25 @@ export class CombatHud {
         const n = path.length - 1;
         this.view.showCursor(t.x, t.y, 0x80c8ff);
         this.view.setLine?.(path.map(([x, y]) => ({ x, y })), 0xbfe4ff);
-        const prov = this.pathProvokes(u, t.x, t.y);
-        const cover = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => b.obstacle(t.x + dx, t.y + dy));
+        const breaks = this.pathBreaks(u, t.x, t.y);
+        if (this.hoverKey !== `${t.x},${t.y}`) { this.hoverKey = `${t.x},${t.y}`; this.showMoves(u, breaks); }
+        // (a square in cover from the foe's archers, by name; open to them, likewise)
+        const shelter = b.coverFrom ? b.coverFrom(t.x, t.y, u.side) : [];
+        const open = b.shooters ? b.shooters(u.side).filter((f) => !shelter.includes(f) && b.dist(f, t) <= b.weaponRange(f) && b.lineClear(f, t)) : [];
+        const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => b.obstacle(t.x + dx, t.y + dy));
+        const wd = b.canWithdraw?.(u);
         at(h('div.tc-move', h('b', `Move ${n} square${n > 1 ? 's' : ''}`), h('span', ` · ${u.moves - n} left after`),
-          prov.length ? h('p.tc-why', icon('warn'), ` Breaking away: ${prov.map((f) => b.the(f)).join(', ')} ${prov.length > 1 ? 'get free strikes' : 'gets a free strike'}.`) : null,
-          cover ? h('p.tc-good', icon('shield'), ' Beside cover: missiles from that side are −3 to hit.') : null,
+          ...breaks.map((e) => h('p.tc-why', icon('warn'), ` Leaving ${b.the(e.f)}: ${Math.round(e.p * 100)}% it strikes.`)),
+          breaks.length && wd?.ok ? h('p.tc-hint', icon('flee'), ' Withdraw (R): one square back, no free strike.') : null,
+          shelter.length ? h('p.tc-good', icon('shield'), ` In cover from ${shelter.map((f) => b.the(f)).join(', ')}: −3 to ${shelter.length > 1 ? 'their' : 'its'} shots.`)
+            : beside && !open.length ? h('p.tc-good', icon('shield'), ' Beside cover: missiles from that side are −3 to hit.') : null,
+          open.length ? h('p.tc-why', icon('bow'), ` Open to ${open.map((f) => b.the(f)).join(', ')}.`) : null,
           ...lines));
         return;
       }
     }
     this.view.setLine?.(null);
+    if (this.hoverKey && u) { this.hoverKey = null; this.showMoves(u); }
     this.view.showCursor(t.x, t.y, 0x707070);
     if (lines.length) at(h('div.tc-move', ...lines));
     else if (u && b.obstacle(t.x, t.y)) at(h('div.tc-move', h('span', this.s.describeTile ? 'Impassable — but it gives cover beside it.' : 'Impassable.')));
@@ -568,6 +645,7 @@ export class CombatHud {
         this.statusRows(unit),
         unit.charging ? h('p.tc-why', icon('warn'), ` Preparing ${unit.charging.ab.name}: it lands on the marked squares when it next acts. ${unit.charging.ab.desc}`) : null,
         eye && !this.ui.targeting ? h('p.tc-eye', `Has its eye on ${eye.name}.`) : null,
+        this.breakNote(unit),
         this.previewBlock(pv, label, unit) || this.reachNote(unit));
     }
     // a creature a hero called into the fight
@@ -585,9 +663,20 @@ export class CombatHud {
     return h('div.tc-unit.party',
       h('div.tc-head', pic ? h('img', { src: pic }) : null, h('div', h('b', m.name), h('span.tc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`))),
       this.hpBar(hp, mhp),
-      h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}`), maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
+      h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}${b.acOf(unit, 'melee') > b.acOf(unit) ? ` (${b.acOf(unit, 'melee')} hand to hand)` : ''}`),
+        armorSoak(g, m) ? h('span', `Soaks ${armorSoak(g, m)}`) : null, maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
+      g.settings?.lastStand !== false ? h('p.tc-ai', unit.lastStood ? 'Last stand spent: the next felling blow is real.'
+        : hp > mhp / 2 ? 'Last stand ready: a blow that would fell them leaves them on 1 health.' : 'Below half health: no last stand.') : null,
       this.statusRows(unit),
       this.previewBlock(pv, label, unit));
+  }
+
+  // a foe beside the hero whose turn it is: the odds if the hero steps away from it
+  breakNote(unit) {
+    const b = this.b, u = b?.active;
+    if (!u || this.ui.targeting || unit.side === u.side || !b.breakChance || b.dist(u, unit) > 1 || b.helpless(unit) || unit.reacted) return null;
+    if (b.has(u, 'hidden') || b.has(u, 'nimble') || b.has(u, 'sanctuary')) return h('p.tc-good', icon('flee'), ` ${u.name} can slip away from it freely this turn.`);
+    return h('p.tc-why', icon('warn'), ` Break away from it: ${Math.round(b.breakChance(unit, u) * 100)}% it strikes${b.canWithdraw?.(u).ok ? ' (Withdraw, R: none)' : ''}.`);
   }
 
   // Aiming a skill at a square: the squares it would cover, brighter, among
@@ -684,7 +773,8 @@ export class CombatHud {
       h('div.pv-main', h('b', `${chance}%`), h('span', ' to hit'), h('b', ` ${pv.lo}${pv.hi !== pv.lo ? '–' + pv.hi : ''}`), h('span', ' damage'),
         pv.hi >= this.b.hpOf(unit) ? h('em', pv.lo >= this.b.hpOf(unit) ? ' · deadly' : ' · could kill') : null),
       h('div.pv-sub', `${label || (pv.ranged ? `Shoot (${pv.weapon})` : `Strike (${pv.weapon})`)}${pv.crit && pv.crit < 1 ? ` · ${Math.round(pv.crit * 100)}% critical` : ''}`),
-      pv.notes.length ? h('div.pv-notes', ...pv.notes.map((n) => h('span' + (/[−]|Lucky|Cover|Engaged|Weakened/.test(n) ? '.neg' : ''), n))) : null);
+      pv.notes.length ? h('div.pv-notes', ...pv.notes.map((n) => (/^Cover/.test(n) ? h('span.neg.cover', icon('shield'), ` ${n}`)
+        : h('span' + (/[−]|Lucky|Engaged|Weakened|Untrained/.test(n) ? '.neg' : /^(Hew|Quick|Pierce|Snap|Reach|Stagger|Sweep)/.test(n) ? '.trait' : ''), n)))) : null);
   }
 
   showTip(card, x, y, mode) {
@@ -771,6 +861,7 @@ export class CombatHud {
     else if (k === 'u') press(() => this.useItem());
     else if (k === 'q') press(() => { const sp = abs.find((ab) => b.isSpecial(u, ab)); if (sp) this.beginAbility(sp); else { this.s.log('No special ability.', 'warn'); sfx('error'); } });
     else if (k === 'g') press(() => b.actGuard(u));
+    else if (k === 'r') press(() => this.beginWithdraw());
     else if (slot >= 0 && skills[slot]) press(() => this.beginAbility(skills[slot]));
     else if (k === '?') press(() => ui.openHelp());
     else if (k === ' ' || k === '.') press(() => b.actPass());
@@ -783,7 +874,19 @@ export class CombatHud {
     const u = b.active;
     const targets = b.attackTargets(u);
     if (!targets.length) { this.s.log('No foe within reach. Move closer, or use a ranged weapon.', 'warn'); sfx('error'); return; }
+    this.setMarks(null);
     this.ui.startTargeting({ units: targets, label: 'Attack', color: 0xff5040, onPick: (t) => b.actAttack(b.unitAt(t.x, t.y), u) });
+  }
+
+  // Withdraw: choose the square to step back to (no free strike)
+  beginWithdraw() {
+    const b = this.b;
+    if (!b || !b.active || b.acting || !b.canWithdraw) return;
+    const u = b.active;
+    const can = b.canWithdraw(u);
+    if (!can.ok) { this.s.log(can.why, 'warn'); sfx('error'); return; }
+    this.setMarks(null);
+    this.ui.startTargeting({ tiles: b.withdrawSquares(u), label: 'Withdraw', color: 0x9fe0c0, onPick: (t) => b.actWithdraw(t.x, t.y, u) });
   }
 
   beginAbility(ab) {

@@ -3,13 +3,14 @@ import { h, clear, confirmDialog, toast } from '../dom.js';
 import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
-  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
+  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
   ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES, CHARM_KINDS, CHARM_KIND_ICONS, RARITIES,
+  WEAPON_TRAITS, WEAPON_KIND_DEFS, ARMOR_SOAK,
 } from '../../data/defaults.js';
 import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
-import { ensureCombatData, classSkills, SPECIAL_LEVEL } from '../../game/rules.js';
+import { ensureCombatData, classSkills, SPECIAL_LEVEL, weaponKinds, traitText, isHeavy } from '../../game/rules.js';
 import { ICON_NAMES } from '../icons.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 
@@ -142,6 +143,10 @@ export function categories(game) {
   const items = () => game.items.map((i) => [i.id, i.name]);
   const systems = () => game.magic.map((m) => [m.id, m.name]);
   const sysOf = (sp) => game.magic.find((m) => m.id === sp.system);
+  // (tactics) the kinds of weapon, each with its trait
+  if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
+  const kinds = () => weaponKinds(game).map((k) => [k.id, k.trait && WEAPON_TRAITS[k.trait] ? `${k.name} — ${WEAPON_TRAITS[k.trait]}` : k.name]);
+  const heavyOf = (k) => k.heavyWeapons ?? (!(k.weapons || []).length || k.weapons.includes('greatblade'));
   return {
     races: {
       label: 'Races', icon: '🧝', list: game.races,
@@ -173,7 +178,9 @@ export function categories(game) {
           { key: 'system', label: 'System', type: 'select', options: systems },
           { key: 'rate', label: 'Aptitude', type: 'number', step: 0.25, min: 0.25, max: 1, hint: '1 = full caster, 0.5 = learns slowly' },
         ], rowLabel: (r) => game.magic.find((m) => m.id === r.system)?.name || 'Magic', newRow: () => ({ system: game.magic[0].id, rate: 1 }), addLabel: '+ Add magic' },
-        { key: 'weapons', label: 'Weapons allowed', type: 'multicheck', options: WEAPON_KINDS },
+        { key: 'weapons', label: 'Weapons trained in', type: 'multicheck', options: kinds,
+          hint: 'Anyone may wield any weapon, but untrained it is −3 to hit and its trait does not work (Rules: or forbid it). None ticked: trained in all. Each kind\'s trait is under Weapon kinds.' },
+        { key: 'heavyWeapons', label: 'Trained in heavy weapons', type: 'check', get: (o) => heavyOf(o), hint: 'Great swords, battle axes and other heavy pieces need this too (warriors, paladins, runesmiths)' },
         { key: 'armor', label: 'Heaviest armour', type: 'select', options: ARMOR_WEIGHTS },
         { key: 'shields', label: 'Can use shields', type: 'check' },
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
@@ -209,7 +216,11 @@ export function categories(game) {
         { key: 'price', label: 'Price (gold)', type: 'number', min: 0 },
         { key: 'unique', label: 'Unique — never sold in shops', type: 'check' },
         { key: 'noLoot', label: 'Never dropped by defeated monsters or found in hoards', type: 'check', show: wearable },
-        { key: 'wkind', label: 'Weapon type', type: 'select', options: WEAPON_KINDS, show: (o) => o.type === 'weapon' },
+        { key: 'wkind', label: 'Weapon type', type: 'select', options: kinds, show: (o) => o.type === 'weapon', rerender: true,
+          hint: 'Its kind\'s trait works for a hero trained in it (World Data → Weapon kinds; Classes → weapons trained in)' },
+        { type: 'info', label: (o) => traitText(weaponKinds(game).find((k) => k.id === o.wkind)) || 'This kind has no trait.', show: (o) => o.type === 'weapon' },
+        { key: 'heavy', label: 'Heavy weapon — needs heavy-weapon training', type: 'check', show: (o) => o.type === 'weapon' && (o.range || 1) <= 1, get: (o) => isHeavy(game, { id: 'x', ...o }),
+          hint: 'Unticked by default unless it is two-handed or its kind is heavy' },
         { key: 'dmg', label: 'Damage', type: 'dice', placeholder: '1d8', show: (o) => o.type === 'weapon' },
         { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => o.type === 'weapon' },
         { key: 'range', label: 'Range', type: 'number', min: 1, max: 12, show: (o) => o.type === 'weapon', hint: '1 = melee (hand weapon); 2 or more = ranged, carried in its own slot beside a hand weapon' },
@@ -220,6 +231,8 @@ export function categories(game) {
           hint: 'The ✦ mark and the name take this colour; a weapon also glows in the hero\'s hand. Setting it marks the piece magical.' },
         { key: 'weight', label: 'Weight', type: 'select', options: ARMOR_WEIGHTS, show: (o) => o.type === 'armor' },
         { key: 'ac', label: 'Armour bonus', type: 'number', min: 0, show: (o) => o.type === 'armor' || o.type === 'shield' },
+        { key: 'soak', label: 'Soaks from every blow', type: 'number', min: 0, max: 6, nullable: true, show: (o) => o.type === 'armor', placeholder: 'by weight',
+          hint: 'Damage taken off each blow that lands (never below 1). Empty: as its weight (chain 1, plate 2)' },
         { key: 'effect', label: 'Effect', type: 'select', options: ITEM_EFFECTS, show: (o) => o.type === 'consumable', rerender: true },
         { key: 'pool', label: 'Refills', type: 'multicheck', show: (o) => o.type === 'consumable' && o.effect === 'mp',
           options: () => (game.magic || []).filter((m) => m.resource === 'mp' && !m.monsterOnly).map((m) => [m.id, `${m.resName || 'Mana'} (${m.name})`]),
@@ -311,6 +324,8 @@ export function categories(game) {
         { key: 'ai', label: 'Behaviour in battle', type: 'select', options: Object.entries(AI_STYLES) },
         { key: 'abilities', label: 'Battle abilities', type: 'ids', options: abilities, hint: 'Defined under Abilities. Used when ready (bosses more eagerly).' },
         { key: 'init', label: 'Initiative bonus', type: 'number', min: -10, max: 20, hint: 'Higher acts earlier in each round' },
+        { key: 'reflex', label: 'Reflexes', type: 'number', min: -4, max: 6, nullable: true, placeholder: 'from its pace',
+          hint: 'Like a hero\'s Dexterity when someone breaks away from it (or it from them): each point is 5% on the chance of a free strike. Empty: +1 for the fleet, −1 for the slow' },
         { key: 'poison', label: 'Chance to poison', type: 'number', step: 0.05, min: 0, max: 1 },
         { key: 'regen', label: 'Regenerates per round', type: 'number', min: 0 },
         { key: 'fleeAt', label: 'Flees below (fraction of health)', type: 'number', step: 0.05, min: 0, max: 1 },
@@ -344,6 +359,24 @@ export function categories(game) {
         { key: 'look.glow', label: 'Glowing runes', type: 'color', nullable: true, show: (o) => o.look?.kind === 'guardian' },
         { key: 'look.crest', label: 'Crest', type: 'color', nullable: true, show: (o) => o.look?.kind === 'humanoid' && o.look?.race === 'lizard' },
         ...LOOK_FIELDS.map((f) => ({ ...f, show: (o) => o.look?.kind === 'humanoid' && (!f.show || f.show(o)) })),
+      ],
+    },
+    weaponKinds: {
+      label: 'Weapon kinds', icon: '🏹', list: game.weaponKinds,
+      blank: () => ({ name: 'New Kind', plural: 'new kinds', trait: 'parry', power: 1, desc: '' }),
+      fields: [
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'plural', label: 'As it reads in a sentence', type: 'text', placeholder: 'blades', hint: '"A wizard has no training with blades"' },
+        { key: 'desc', label: 'Description', type: 'textarea', rows: 2 },
+        { key: 'trait', label: 'Trait (works in a trained hand)', type: 'select', empty: '— none —', nullable: true, rerender: true, options: Object.entries(WEAPON_TRAITS) },
+        { type: 'info', label: (o) => traitText(o) || 'A weapon of this kind has no trait of its own.' },
+        { key: 'power', label: 'Strength', type: 'number', min: 0, max: 6, show: (o) => ['parry', 'hew', 'quick', 'ward', 'far'].includes(o.trait),
+          hint: 'Parry and Ward: armour; Hew: damage; Quick: to hit when flanking; Far shot: squares of range' },
+        { key: 'minAc', label: 'Against armour of at least', type: 'number', min: 0, max: 30, placeholder: '14', show: (o) => o.trait === 'hew' },
+        { key: 'chance', label: 'Chance a hit staggers', type: 'number', step: 0.05, min: 0, max: 1, placeholder: '0.3', show: (o) => o.trait === 'stagger' },
+        { key: 'range', label: 'Reach (squares)', type: 'number', min: 2, max: 3, placeholder: '2', show: (o) => o.trait === 'reach' },
+        { key: 'heavy', label: 'A heavy kind — needs heavy-weapon training', type: 'check' },
+        { type: 'info', label: () => `The built-in kinds: ${WEAPON_KIND_DEFS.map((k) => `${k.name} (${WEAPON_TRAITS[k.trait]})`).join(', ')}.` },
       ],
     },
     abilities: {
@@ -468,3 +501,6 @@ export class DatabaseEditor {
     this.render();
   }
 }
+
+// (for the tests) the World Data forms, as the editor builds them for a game
+if (typeof window !== 'undefined') window.__editorCats = categories;

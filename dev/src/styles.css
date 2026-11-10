@@ -2365,3 +2365,33 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .pz-tiles { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
 .pz-tile { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; }
 .riddle-log .note.bad { color: #8a1e0a; }
+
+/* (tactics) marks on the battle squares: a shield where a hero would be in
+   cover from a foe's archers, the odds of a free strike on the hovered path;
+   a cover shield over a foe's head; weapon training on the sheet */
+.cbt-marks { position: absolute; inset: 0; pointer-events: none; }
+.cbt-mark { position: absolute; left: 0; top: 0; width: 0; height: 0; will-change: transform; }
+.cbt-mark > * { pointer-events: none; }
+.cbt-mark.cover svg { position: absolute; left: -8px; top: -10px; width: 16px; height: 16px; color: #bfe0ff; filter: drop-shadow(0 0 2px #04101e) drop-shadow(0 1px 1px #000); opacity: .95; }
+.cbt-mark.cover.here svg { color: #8ef08a; }
+.cbt-mark.odds svg { position: absolute; left: -26px; top: -10px; width: 13px; height: 13px; color: #ffd070; filter: drop-shadow(0 1px 1px #000); }
+.cbt-mark.odds b { position: absolute; left: -12px; top: -11px; font: bold 12px/15px var(--font-ui); color: #fff; padding: 0 4px; border-radius: 7px; background: rgba(150,46,10,.92); box-shadow: 0 0 0 1px #ffb070, 0 1px 3px rgba(0,0,0,.8); white-space: nowrap; }
+.pl-cover { display: inline-flex; align-items: center; gap: 1px; height: 15px; padding: 0 4px 0 3px; border-radius: 8px; font-size: 11px; color: #bfe0ff;
+  background: rgba(8,20,36,.9); box-shadow: 0 0 0 1px #6a9ad0, 0 1px 3px rgba(0,0,0,.7); }
+.pl-cover b { font: bold 10px/1 var(--font-ui); color: #fff; }
+.pv-notes span.cover { order: -1; display: inline-flex; align-items: center; gap: 2px; background: rgba(90,140,220,.2); color: #cfe2ff; border-color: rgba(120,170,240,.55); font-weight: bold; }
+.pv-notes span.cover svg { width: 11px; height: 11px; }
+.pv-notes span.trait { background: rgba(232,192,105,.16); color: #f2dca0; border-color: rgba(232,192,105,.45); }
+.tc-hint { color: #b8f0d0; font-size: 11.5px; }
+.num.untrained b { color: #ffb070; }
+.num.untrained span::after { content: ' ⚠'; color: #ffb070; }
+.num b i.soak { font-style: normal; color: #a8c8ff; font-size: 11px; margin-left: 2px; }
+.sheet-train { display: flex; flex-direction: column; gap: 3px; margin: 0 0 6px; padding: 5px 8px; border-radius: 6px; background: rgba(0,0,0,.22); box-shadow: inset 0 0 0 1px #3a2c1c; font: 11.5px/1.35 var(--font-ui); color: #d8ccb0; }
+.tr-row { display: flex; gap: 6px; align-items: flex-start; }
+.tr-row .gi { flex: none; width: 14px; height: 14px; margin-top: 1px; color: var(--gold); }
+.tr-row b { color: #fff3d8; }
+.tr-row.untrained .gi { color: #ffb070; }
+.tr-warn { color: #ffb070; }
+.tr-list { color: var(--muted); font-style: italic; font-size: 11px; }
+.sw-hand { font: 11px var(--font-ui); color: #f2dca0; }
+.sw-hand.untrained { color: #ffb070; }

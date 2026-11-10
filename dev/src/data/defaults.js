@@ -310,16 +310,16 @@ export const WEAPON_TRAITS = {
   parry: 'Parry', hew: 'Hew', stagger: 'Stagger', reach: 'Reach', sweep: 'Sweep', quick: 'Quick', ward: 'Ward', far: 'Far shot', pierce: 'Pierce', snap: 'Snap shot',
 };
 export const WEAPON_KIND_DEFS = [
-  { id: 'blade', name: 'Blade', trait: 'parry', power: 1, desc: 'Swords: a guard and a quick wrist turn blows aside.' },
-  { id: 'greatblade', name: 'Great blade', trait: 'sweep', heavy: true, desc: 'Two-handed swords: a felled foe does not stop the swing.' },
-  { id: 'axe', name: 'Axe', trait: 'hew', power: 2, minAc: 14, desc: 'Axes bite through mail and plate.' },
-  { id: 'blunt', name: 'Mace & hammer', trait: 'stagger', chance: 0.3, desc: 'A crack on the helm leaves a foe reeling, unable to give chase.' },
-  { id: 'staff', name: 'Staff', trait: 'ward', power: 1, desc: 'A staff held across the body wards its bearer, and steadies a caster\'s power.' },
-  { id: 'dagger', name: 'Dagger', trait: 'quick', power: 2, desc: 'A knife finds the gaps when the foe is looking elsewhere.' },
-  { id: 'spear', name: 'Spear', trait: 'reach', range: 2, desc: 'A long reach: strike past a companion, and meet a charge point first.' },
-  { id: 'bow', name: 'Bow', trait: 'far', power: 1, desc: 'A trained archer draws to the ear and shoots further.' },
-  { id: 'crossbow', name: 'Crossbow', trait: 'pierce', desc: 'A bolt drives straight through leaves and lattice.' },
-  { id: 'sling', name: 'Sling', trait: 'snap', desc: 'A flick of the wrist, even with a foe in your face.' },
+  { id: 'blade', name: 'Blade', plural: 'blades', trait: 'parry', power: 1, desc: 'Swords: a guard and a quick wrist turn blows aside.' },
+  { id: 'greatblade', name: 'Great blade', plural: 'great blades', trait: 'sweep', heavy: true, desc: 'Two-handed swords: a felled foe does not stop the swing.' },
+  { id: 'axe', name: 'Axe', plural: 'axes', trait: 'hew', power: 2, minAc: 14, desc: 'Axes bite through mail and plate.' },
+  { id: 'blunt', name: 'Mace & hammer', plural: 'maces and hammers', trait: 'stagger', chance: 0.3, desc: 'A crack on the helm leaves a foe reeling, unable to give chase.' },
+  { id: 'staff', name: 'Staff', plural: 'staves', trait: 'ward', power: 1, desc: 'A staff held across the body wards its bearer, and steadies a caster\'s power.' },
+  { id: 'dagger', name: 'Dagger', plural: 'daggers', trait: 'quick', power: 2, desc: 'A knife finds the gaps when the foe is looking elsewhere.' },
+  { id: 'spear', name: 'Spear', plural: 'spears', trait: 'reach', range: 2, desc: 'A long reach: strike past a companion, and meet a charge point first.' },
+  { id: 'bow', name: 'Bow', plural: 'bows', trait: 'far', power: 1, desc: 'A trained archer draws to the ear and shoots further.' },
+  { id: 'crossbow', name: 'Crossbow', plural: 'crossbows', trait: 'pierce', desc: 'A bolt drives straight through leaves and lattice.' },
+  { id: 'sling', name: 'Sling', plural: 'slings', trait: 'snap', desc: 'A flick of the wrist, even with a foe in your face.' },
 ];
 export const WEAPON_KINDS = WEAPON_KIND_DEFS.map((k) => k.id);
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];

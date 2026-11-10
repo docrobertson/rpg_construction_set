@@ -296,7 +296,8 @@ const opp = await ev(async () => {
   const log = [...document.querySelectorAll('.log-line')].slice(lines).map((l) => l.textContent);
   return { warned, reacted: foe.reacted, log };
 });
-check('stepping away from a foe provokes a free strike', opp.skipped || (opp.warned && opp.reacted && opp.log.some((l) => /strikes at/.test(l))), opp);
+// (breaking away is a gamble now: the foe has its chance and spends its reaction, struck or slipped, and the log says which)
+check('stepping away from a foe gives it its chance of a free strike', opp.skipped || (opp.warned && opp.reacted && opp.log.some((l) => /strikes at|slips away/.test(l))), opp);
 // a telegraphed blow lands only on whoever stays in the marked squares
 const wind = await ev(async () => {
   const b = window.__app.session.battle;
