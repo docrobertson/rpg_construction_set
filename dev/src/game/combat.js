@@ -2480,7 +2480,11 @@ export class Battle {
     if (steps <= 0) return;
     const reach = this.reachable(m, steps);
     const foes = this.foesOf(m).filter((p) => !this.has(p, 'hidden'));
-    const range = ai === 'archer' ? this.weaponRange(m) : 5;
+    // (a caster hangs back only as far as its spells carry: a wraith whose
+    // Drain Life reaches 4 would otherwise hover at 5, out of reach of all it has)
+    const spellReach = Math.max(0, ...(m.def.spells || []).map((id) => byId(this.game.spells, id))
+      .filter((sp) => sp && sp.combat !== false && (sp.target === 'enemy' || sp.target === 'area')).map((sp) => sp.range || 6));
+    const range = ai === 'archer' ? this.weaponRange(m) : Math.max(this.weaponRange(m), Math.min(5, spellReach || 5));
     let best = null, bs = -Infinity;
     for (const c of reach.values()) {
       if (c.ally) continue;
