@@ -251,6 +251,8 @@ export const STATUS_EFFECTS = {
   charmed: { name: 'Bewildered', icon: 'note', color: '#e090ff', bad: true, desc: 'Turns on its own side.' },
   deathward: { name: 'Dawn-shielded', icon: 'sun', color: '#ffd870', desc: 'A blow that would fell it leaves it at 1 health instead (once).' },
   nimble: { name: 'Nimble', icon: 'boot', color: '#b8f0d0', desc: 'Slips away from foes without giving them free strikes.' },
+  // (tactics) a mace or hammer's heavy blow
+  staggered: { name: 'Staggered', icon: 'down', color: '#e8c070', bad: true, desc: 'Reeling from a heavy blow: cannot move on its next turn, but may still strike.' },
 };
 
 // Bosses can have a second phase: below phaseAt of their health they call
@@ -293,8 +295,37 @@ export const PERKS = [
 export const MAGIC_GEAR = { elven_bow: 0xb8ffb0, ember_bow: 0xff8030, shadow_fang: 0x9a70ff, runeblade: 0x60e0ff, dwarf_axe: 0xffb060, staff_of_power: 0xff80ff,
   truesilver_mail: 0xd8ecff, elven_cloak: 0xa8f0c0, dragonscale: 0xff7050, serpent_shield: 0x60d0c8, whisperwind: 0xc0f0ff, fallen_hauberk: 0xa8b0ff, gilded_buckler: 0xffd060 };
 
-export const WEAPON_KINDS = ['blade', 'greatblade', 'axe', 'blunt', 'staff', 'dagger', 'spear', 'bow', 'crossbow', 'sling'];
+// Kinds of weapon. Each has a trait of its own (the rules are in
+// game/combat.js; their numbers are data here, editable under World Data →
+// Weapon kinds), and it works only for a hero trained in the kind: a class's
+// weapons list. Anyone may wield anything, but untrained at −3 to hit
+// (settings.untrainedPenalty) and without the trait. A heavy kind (and any
+// heavy or two-handed hand weapon) also needs the class's heavy-weapon training.
+//   parry  +power armour against melee blows      hew     +power damage against armour minAc or more
+//   stagger a hit may root the foe a turn (chance) reach   strikes `range` squares off in a line; first blow at a foe stepping in
+//   sweep  felling a foe carries on to another     quick   +1 critical range, +power to hit flanking or from behind
+//   ward   +power armour, +power to sure damage    far     +power range
+//   pierce ignores cover                           snap    no penalty for shooting with a foe beside you
+export const WEAPON_TRAITS = {
+  parry: 'Parry', hew: 'Hew', stagger: 'Stagger', reach: 'Reach', sweep: 'Sweep', quick: 'Quick', ward: 'Ward', far: 'Far shot', pierce: 'Pierce', snap: 'Snap shot',
+};
+export const WEAPON_KIND_DEFS = [
+  { id: 'blade', name: 'Blade', trait: 'parry', power: 1, desc: 'Swords: a guard and a quick wrist turn blows aside.' },
+  { id: 'greatblade', name: 'Great blade', trait: 'sweep', heavy: true, desc: 'Two-handed swords: a felled foe does not stop the swing.' },
+  { id: 'axe', name: 'Axe', trait: 'hew', power: 2, minAc: 14, desc: 'Axes bite through mail and plate.' },
+  { id: 'blunt', name: 'Mace & hammer', trait: 'stagger', chance: 0.3, desc: 'A crack on the helm leaves a foe reeling, unable to give chase.' },
+  { id: 'staff', name: 'Staff', trait: 'ward', power: 1, desc: 'A staff held across the body wards its bearer, and steadies a caster\'s power.' },
+  { id: 'dagger', name: 'Dagger', trait: 'quick', power: 2, desc: 'A knife finds the gaps when the foe is looking elsewhere.' },
+  { id: 'spear', name: 'Spear', trait: 'reach', range: 2, desc: 'A long reach: strike past a companion, and meet a charge point first.' },
+  { id: 'bow', name: 'Bow', trait: 'far', power: 1, desc: 'A trained archer draws to the ear and shoots further.' },
+  { id: 'crossbow', name: 'Crossbow', trait: 'pierce', desc: 'A bolt drives straight through leaves and lattice.' },
+  { id: 'sling', name: 'Sling', trait: 'snap', desc: 'A flick of the wrist, even with a foe in your face.' },
+];
+export const WEAPON_KINDS = WEAPON_KIND_DEFS.map((k) => k.id);
 export const ARMOR_WEIGHTS = ['cloth', 'leather', 'chain', 'plate'];
+// Heavier armour also soaks up part of every blow that lands (an item's own
+// `soak` overrides this): mail takes the edge off, plate shrugs off swarms
+export const ARMOR_SOAK = { cloth: 0, leather: 0, chain: 1, plate: 2 };
 export const ITEM_TYPES = ['weapon', 'armor', 'shield', 'charm', 'consumable', 'reagent', 'scroll', 'key', 'quest', 'map'];
 
 // Charms: rings, amulets, horns and stones worn in a hero's charm slot. Their
@@ -355,35 +386,35 @@ export const RACES = [
 const learn = (id, level) => ({ id, level });
 export const CLASSES = [
   { id: 'warrior', talents: 'fighter', name: 'Warrior', desc: 'A master of arms and armour, the shield-wall of any fellowship.',
-    hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], armor: 'plate', shields: true,
+    hpBase: 16, hpLevel: 8, hitRate: 1.0, magic: [], weapons: ['blade', 'greatblade', 'axe', 'blunt', 'spear', 'dagger', 'crossbow', 'bow', 'sling'], heavyWeapons: true, armor: 'plate', shields: true,
     abilities: ['cleave'], special: 'whirlwind', skills: [learn('shield_bash', 1), learn('taunt', 3), learn('shield_wall', 5), learn('riposte', 7), learn('finishing_blow', 9)], start: ['long_sword', 'leather_armor', 'buckler'], primary: ['str', 'dex'],
     look: { body: 0xa8302a, hat: 'helm', hatColor: 0x8c94a0, wings: true, helmTrim: 0xd8a83a, weapon: 'sword', shield: 0x9a6a30, pauldrons: 'plate', cape: 0x6a1c1a, pose: 'raise' } },
   { id: 'ranger', talents: 'archer', name: 'Ranger', desc: 'A wanderer of the wild places, deadly with the bow. Gathers herbs on the road and brews remedies from them.',
-    hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], armor: 'chain', shields: false,
+    hpBase: 14, hpLevel: 7, hitRate: 0.85, magic: [{ system: 'herbal', rate: 1 }], weapons: ['blade', 'dagger', 'spear', 'bow', 'axe', 'sling'], heavyWeapons: false, armor: 'chain', shields: false,
     abilities: ['tracker'], special: 'volley', skills: [learn('aimed_shot', 1), learn('pinning_shot', 3), learn('hunters_mark', 5), learn('spirit_wolf', 7), learn('arrowstorm', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['dex', 'wis'],
     look: { body: 0x4a7a32, hat: 'hood', hatColor: 0x3a6a2c, weapon: 'bow', cape: 0x3a6a2c } },
   { id: 'wizard', talents: 'caster', name: 'Wizard', desc: 'A scholar of Sorcery whose words can call down fire and lightning. Frail in body.',
-    requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], armor: 'cloth', shields: false,
+    requires: 'arcane', hpBase: 8, hpLevel: 4, hitRate: 0.4, magic: [{ system: 'arcane', rate: 1 }], weapons: ['staff', 'dagger'], heavyWeapons: false, armor: 'cloth', shields: false,
     abilities: [], special: 'blink', skills: [learn('firebolt', 1), learn('frost_nova', 3), learn('arc_lightning', 5), learn('arcane_grasp', 7), learn('meteor', 9)], start: ['quarterstaff', 'robe'], primary: ['int', 'dex'],
     look: { body: 0x3446a8, robe: true, hat: 'wizard', hatColor: 0x3446a8, trim: 0xe2b24a, weapon: 'staff', pose: 'cast' } },
   { id: 'cleric', talents: 'healer', name: 'Cleric', desc: 'A servant of the Powers, healer of wounds and scourge of the restless dead.',
-    requires: 'divine', hpBase: 12, hpLevel: 6, hitRate: 0.6, magic: [{ system: 'divine', rate: 1 }], weapons: ['blunt', 'staff', 'sling'], armor: 'chain', shields: true,
+    requires: 'divine', hpBase: 12, hpLevel: 6, hitRate: 0.6, magic: [{ system: 'divine', rate: 1 }], weapons: ['blunt', 'staff', 'sling'], heavyWeapons: false, armor: 'chain', shields: true,
     abilities: [], special: 'mending', skills: [learn('healing_word', 1), learn('smite', 3), learn('hallowed_ground', 5), learn('sanctuary', 7), learn('breath_of_life', 9)], start: ['mace', 'sling', 'leather_armor', 'buckler'], primary: ['wis', 'str'],
     look: { body: 0xe6dcc4, robe: true, trim: 0xd8a83a, weapon: 'mace', shield: 0x8a5a32, mantle: 0xa87828 } },
   { id: 'burglar', talents: 'rogue', name: 'Burglar', desc: 'Quick of hand and quiet of foot. Picks locks, finds traps, and strikes from the shadows.',
-    hpBase: 10, hpLevel: 5, hitRate: 0.75, magic: [], weapons: ['dagger', 'blade', 'sling', 'bow'], armor: 'leather', shields: false,
+    hpBase: 10, hpLevel: 5, hitRate: 0.75, magic: [], weapons: ['dagger', 'blade', 'sling', 'bow'], heavyWeapons: false, armor: 'leather', shields: false,
     abilities: ['backstab', 'lockpick'], special: 'shadowstrike', skills: [learn('poison_blade', 1), learn('smoke_bomb', 3), learn('filch', 5), learn('caltrops', 7), learn('fan_of_knives', 9)], start: ['dagger', 'sling', 'leather_armor'], primary: ['dex', 'int'],
     look: { body: 0x5a5448, hat: 'hood', hatColor: 0x3e3a44, weapon: 'dagger', offhand: 'dagger', cape: 0x3e3a44, scarf: 0xb03a2a } },
   { id: 'paladin', talents: 'fighter', name: 'Paladin', desc: 'A holy knight sworn to a cause, mighty in arms and gifted with a little Prayer.',
-    requires: null, hpBase: 15, hpLevel: 7, hitRate: 0.9, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'greatblade', 'blunt', 'spear', 'axe'], armor: 'plate', shields: true,
+    requires: null, hpBase: 15, hpLevel: 7, hitRate: 0.9, magic: [{ system: 'divine', rate: 0.5 }], weapons: ['blade', 'greatblade', 'blunt', 'spear', 'axe'], heavyWeapons: true, armor: 'plate', shields: true,
     abilities: ['layHands'], special: 'rally', skills: [learn('holy_strike', 1), learn('lay_on_hands', 3), learn('holy_charge', 5), learn('aura_of_courage', 7), learn('shield_of_dawn', 9)], start: ['long_sword', 'chain_mail', 'buckler'], primary: ['str', 'wis'],
     look: { body: 0xd8d8e0, armor: 'plate', hat: 'helm', plume: 0xc03030, weapon: 'sword', shield: 0xcdd2da, cape: 0x2a4a9a } },
   { id: 'minstrel', talents: 'caster', name: 'Minstrel', desc: 'A singer of the old lays whose songs of power hearten friends and dismay foes.',
-    requires: 'song', hpBase: 10, hpLevel: 5, hitRate: 0.65, magic: [{ system: 'song', rate: 1 }], weapons: ['blade', 'dagger', 'bow', 'sling'], armor: 'leather', shields: false,
+    requires: 'song', hpBase: 10, hpLevel: 5, hitRate: 0.65, magic: [{ system: 'song', rate: 1 }], weapons: ['blade', 'dagger', 'bow', 'sling'], heavyWeapons: false, armor: 'leather', shields: false,
     abilities: [], special: 'dazzle', skills: [learn('cutting_words', 1), learn('inspire', 3), learn('lullaby', 5), learn('discord', 7), learn('encore', 9)], start: ['short_sword', 'short_bow', 'leather_armor'], primary: ['wis', 'dex'],
     look: { body: 0x9a3a8a, hat: 'cap', hatColor: 0x7a2a6a, weapon: 'sword', cape: 0xd8a83a, back: 'lute', pose: 'hip' } },
   { id: 'runesmith', talents: 'caster', name: 'Runesmith', desc: 'A forge-priest of the dwarves who carves runes of power, fuelled by rare reagents.',
-    requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], armor: 'chain', shields: true,
+    requires: 'runic', hpBase: 13, hpLevel: 6, hitRate: 0.75, magic: [{ system: 'runic', rate: 1 }], weapons: ['blunt', 'axe', 'dagger', 'crossbow'], heavyWeapons: true, armor: 'chain', shields: true,
     abilities: [], special: 'earthshaker', skills: [learn('thunder_hammer', 1), learn('ward_rune', 3), learn('rune_trap', 5), learn('lodestone', 7), learn('stone_warden', 9)], start: ['warhammer', 'crossbow', 'leather_armor', 'buckler'], primary: ['int', 'str'],
     // slate and steel with glowing cyan runes: never mistaken for the white-and-gold cleric
     look: { body: 0x3e5a78, armor: 'chain', hat: 'helm', hatColor: 0x8e9cae, weapon: 'hammer', shield: 0x4a5c70, runes: 0x5ee8ff } },
@@ -611,8 +642,8 @@ export const ITEMS = [
   { id: 'short_sword', name: 'Short Sword', type: 'weapon', wkind: 'blade', dmg: '1d6', hit: 0, range: 1, price: 18, model: 'sword', desc: 'A soldier\'s sidearm.' },
   { id: 'long_sword', name: 'Long Sword', type: 'weapon', wkind: 'blade', dmg: '1d8', hit: 0, range: 1, price: 40, model: 'sword', desc: 'The blade of knights and captains.' },
   { id: 'great_sword', name: 'Great Sword', type: 'weapon', wkind: 'greatblade', dmg: '2d6', hit: 0, range: 1, twoHanded: true, price: 90, model: 'greatsword', desc: 'A two-handed blade as tall as a dwarf.' },
-  { id: 'hand_axe', name: 'Hand Axe', type: 'weapon', wkind: 'axe', dmg: '1d6', hit: 0, range: 1, price: 12, model: 'axe', desc: 'A woodsman\'s axe.' },
-  { id: 'battle_axe', name: 'Battle Axe', type: 'weapon', wkind: 'axe', dmg: '1d10', hit: 0, range: 1, twoHanded: true, price: 70, model: 'axe', desc: 'Favoured by dwarven warriors.' },
+  { id: 'hand_axe', name: 'Hand Axe', type: 'weapon', wkind: 'axe', dmg: '1d6', hit: 0, range: 1, price: 12, model: 'axe', desc: 'A woodsman\'s axe, light enough for a ranger.' },
+  { id: 'battle_axe', name: 'Battle Axe', type: 'weapon', wkind: 'axe', dmg: '1d10', hit: 0, range: 1, twoHanded: true, heavy: true, price: 70, model: 'axe', desc: 'Favoured by dwarven warriors. A heavy weapon: only those trained in heavy weapons wield it well.' },
   { id: 'mace', name: 'Mace', type: 'weapon', wkind: 'blunt', dmg: '1d6+1', hit: 0, range: 1, price: 20, model: 'mace', desc: 'A flanged iron club.' },
   { id: 'warhammer', name: 'Warhammer', type: 'weapon', wkind: 'blunt', dmg: '1d8+1', hit: 0, range: 1, price: 45, model: 'hammer', desc: 'Breaks shields and bones alike.' },
   { id: 'quarterstaff', name: 'Quarterstaff', type: 'weapon', wkind: 'staff', dmg: '1d6', hit: 1, range: 1, price: 6, model: 'staff', desc: 'A stout walking staff of ash.' },
@@ -625,7 +656,7 @@ export const ITEMS = [
   { id: 'ember_bow', unique: true, name: 'Ember Bow', type: 'weapon', wkind: 'bow', dmg: '1d8+2', hit: 1, range: 7, price: 360, model: 'bow', glow: 0xff8030, desc: 'Red-lacquered horn; its arrows kindle in flight.' },
   { id: 'shadow_fang', name: 'Shadow Fang', type: 'weapon', wkind: 'dagger', dmg: '1d6+2', hit: 3, range: 1, price: 280, model: 'dagger', glow: 0x9a70ff, desc: 'A black blade that drinks the light. Finds the gaps in any armour.' },
   { id: 'runeblade', unique: true, name: 'Runeblade', type: 'weapon', wkind: 'blade', dmg: '1d10+2', hit: 2, range: 1, price: 450, model: 'sword', glow: 0x60e0ff, desc: 'A dwarf-forged sword etched with glowing runes. Bane of evil things.' },
-  { id: 'dwarf_axe', magical: true, glow: 0xffb060, name: 'Dwarven Axe', type: 'weapon', wkind: 'axe', dmg: '1d12+1', hit: 1, range: 1, twoHanded: true, price: 380, model: 'axe', desc: 'Forged deep beneath the mountains.' },
+  { id: 'dwarf_axe', magical: true, glow: 0xffb060, name: 'Dwarven Axe', type: 'weapon', wkind: 'axe', dmg: '1d12+1', hit: 1, range: 1, twoHanded: true, heavy: true, price: 380, model: 'axe', desc: 'Forged deep beneath the mountains.' },
   // (isles)
   { id: 'hookblade', name: 'Hookblade', type: 'weapon', wkind: 'blade', dmg: '1d8+1', hit: 1, range: 1, price: 120, model: 'sword', weaponColor: 0x9aa0a8,
     desc: 'A heavy, forward-curved blade with a hooked tip, made for cutting a road through the creepers — and for whatever waits on the road.' },
@@ -634,14 +665,17 @@ export const ITEMS = [
   { id: 'robe', name: 'Robe', type: 'armor', weight: 'cloth', ac: 1, price: 8, desc: 'Woven wool, warm but thin.' },
   { id: 'leather_armor', name: 'Leather Armour', type: 'armor', weight: 'leather', ac: 2, price: 25, desc: 'Boiled and oiled leather.' },
   { id: 'studded_leather', name: 'Studded Leather', type: 'armor', weight: 'leather', ac: 3, price: 60, desc: 'Leather set with iron rivets.' },
-  { id: 'chain_mail', name: 'Chain Mail', type: 'armor', weight: 'chain', ac: 4, price: 120, desc: 'A shirt of interlocking rings.' },
-  { id: 'scale_mail', name: 'Scale Mail', type: 'armor', weight: 'chain', ac: 5, price: 200, desc: 'Overlapping steel scales.' },
-  { id: 'plate_armor', name: 'Plate Armour', type: 'armor', weight: 'plate', ac: 7, price: 450, desc: 'Full harness of steel.' },
-  { id: 'truesilver_mail', magical: true, glow: 0xd8ecff, unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 7, price: 900, desc: 'Light as silk, hard as dragon-scale.' },
+  // (tactics) mail and plate trade a little armour for soak (ARMOR_SOAK: 1 and
+  // 2 off every blow that lands), so a knight is struck as often as before
+  // the curve flattened, but shrugs off a swarm of rats
+  { id: 'chain_mail', name: 'Chain Mail', type: 'armor', weight: 'chain', ac: 3, price: 120, desc: 'A shirt of interlocking rings.' },
+  { id: 'scale_mail', name: 'Scale Mail', type: 'armor', weight: 'chain', ac: 4, price: 200, desc: 'Overlapping steel scales.' },
+  { id: 'plate_armor', name: 'Plate Armour', type: 'armor', weight: 'plate', ac: 5, price: 450, desc: 'Full harness of steel.' },
+  { id: 'truesilver_mail', magical: true, glow: 0xd8ecff, unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 6, price: 900, desc: 'Light as silk, hard as dragon-scale.' },
   { id: 'elven_cloak', magical: true, glow: 0xa8f0c0, name: 'Elven Cloak', type: 'armor', weight: 'cloth', ac: 3, price: 240, desc: 'Grey-green and shimmering; the eye slides off it.' },
   { id: 'lizardhide', name: 'Lizardhide Armour', type: 'armor', weight: 'leather', ac: 3, price: 150, effects: [{ type: 'resist', status: 'poisoned', chance: 0.35 }],
     desc: 'Supple scaled hide of the great marsh lizards, light enough for the jungle\'s heat. It turns a little venom.' },
-  { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 6, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
+  { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 5, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
   { id: 'buckler', name: 'Buckler', type: 'shield', ac: 1, price: 15, desc: 'A small round shield.' },
   { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 55, desc: 'A tall knight\'s shield.' },
   // consumables
@@ -759,11 +793,12 @@ const L = (o) => ({ kind: 'humanoid', ...o });
 export const MONSTERS = [
   { id: 'giant_rat', name: 'Giant Rat', plural: 'Giant Rats', level: 1, hp: '2d4+2', ac: 10, hit: 2, dmg: '1d4+1', xp: 4, gold: '0', habitat: ['grass', 'dungeon', 'swamp', 'ruins'], group: [3, 6], poison: 0.1, ai: 'pack', moves: 4,
     look: { kind: 'quadruped', color: 0x4e3a2e, scale: 0.72, tail: 'long', long: 0.45 }, desc: 'A rat the size of a dog.' },
-  { id: 'wolf', name: 'Wolf', plural: 'Wolves', level: 1, hp: '3d6+4', ac: 12, hit: 4, dmg: '1d6+2', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], ai: 'pack', moves: 5,
+  // (tactics) the commonest first foes strike a little less surely and less hard (were +4, 1d6+2)
+  { id: 'wolf', name: 'Wolf', plural: 'Wolves', level: 1, hp: '3d6+4', ac: 12, hit: 3, dmg: '1d6+1', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], ai: 'pack', moves: 5,
     look: { kind: 'quadruped', color: 0x7a7470 }, desc: 'Grey wolves hunt in packs.' },
   { id: 'bat_swarm', name: 'Giant Bat', plural: 'Giant Bats', level: 1, hp: '2d4+2', ac: 13, hit: 3, dmg: '1d4+1', xp: 5, gold: '0', habitat: ['dungeon', 'swamp'], group: [3, 6], fly: true, speed: 2, ai: 'pack',
     look: { kind: 'bat', color: 0x3a2a2a, scale: 1.2 }, desc: 'Leathery wings in the dark.' },
-  { id: 'goblin', name: 'Goblin', plural: 'Goblins', level: 1, hp: '2d6+4', ac: 12, hit: 4, dmg: '1d6+2', xp: 7, gold: '1d6', habitat: ['hills', 'forest', 'dungeon'], group: [3, 6], ai: 'coward', fleeAt: 0.3, escort: [{ id: 'goblin_shaman', min: 0, max: 1 }],
+  { id: 'goblin', name: 'Goblin', plural: 'Goblins', level: 1, hp: '2d6+4', ac: 12, hit: 3, dmg: '1d6+1', xp: 7, gold: '1d6', habitat: ['hills', 'forest', 'dungeon'], group: [3, 6], ai: 'coward', fleeAt: 0.3, escort: [{ id: 'goblin_shaman', min: 0, max: 1 }],
     look: L({ race: 'goblin', body: 0x5a4a2a, weapon: 'dagger' }), desc: 'Small, cruel and cowardly — except in numbers.' },
   // (combat stream) a support caster so that goblin bands are worth thinking about
   { id: 'goblin_shaman', name: 'Goblin Shaman', plural: 'Goblin Shamans', level: 2, hp: '2d6', ac: 11, hit: 1, dmg: '1d4', xp: 12, gold: '1d8', habitat: [], group: [1, 1], ai: 'caster', abilities: ['mend', 'hex'],

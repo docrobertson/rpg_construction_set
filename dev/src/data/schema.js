@@ -29,6 +29,13 @@ export function defaultSettings() {
     dayNight: true,
     combatMoves: 3,
     loot: true,
+    // (tactics) weapon training, heroic health, the last stand, breaking away
+    untrainedWeapons: 'penalty', // or 'forbid': only the kinds a class is trained in
+    untrainedPenalty: 3,
+    heroicHealth: 4,
+    dodgeEvery: 3, // heroes in cloth or leather gain +1 armour every this-many levels (0: never)
+    lastStand: true,
+    breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
   };
 }
 

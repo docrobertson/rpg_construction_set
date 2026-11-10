@@ -1322,9 +1322,12 @@ export class PlaySession {
     // up to a level above the party (more on deeper maps); near its level is likeliest
     const cands = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(habitat) && (!allowed || allowed.has(m.id)) && (m.level || 1) <= lvl + 1 + (this.map.level || 1) - 1);
     if (!cands.length) return null;
+    // (tactics) foes three or more levels below the company come a quarter as
+    // often as they did: the curve measured them (tests/curve.mjs) as half the
+    // bands met by level 7, rats and goblins no hero needed to think about
     return new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
       const diff = (m.level || 1) - lvl;
-      return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : 1;
+      return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : diff === -2 ? 1 : 0.25;
     });
   }
 

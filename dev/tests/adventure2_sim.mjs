@@ -78,11 +78,22 @@ export const STAGES = [
   { name: 'Nhalia, by a company that did it all', level: 10, with: ['kit', 'mags', 'garrick', 'elowen', 'wren'], foes: [['drowned_queen', '1']], style: 'temple', min: 0.7, max: 1, lostMin: 0.2 },
 ];
 
+// Every roll of the run comes from the seed: the game's own dice (rng.f, which
+// rng.int and rng.chance draw on, not only rng.next) and Math.random (the
+// attributes that grow on levelling, reagents spared, new seeds), so the same
+// code always gives the same table and the suite's bounds never fail at random
 export async function simulate(n = 30, seed = 777, opt = {}) {
+  const real = Math.random;
+  let a = (seed * 7 + 1) >>> 0;
+  Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  try { return await simulateRun(n, seed, opt); } finally { Math.random = real; }
+}
+
+async function simulateRun(n, seed, opt) {
   const M = await load();
   const { rules: R, Battle, rng, RNG, byId } = M;
   const { PlaySession } = M.session;
-  { const r = new RNG(seed); rng.next = () => r.next(); }
+  { const r = new RNG(seed); rng.next = () => r.next(); rng.f = () => r.next(); }
   const game = M.buildLanternsGame();
   R.ensureCombatData(game);
   const any = () => new Proxy(function () {}, { get: (t, k) => (k === 'then' ? undefined : any()), apply: () => Promise.resolve() });
