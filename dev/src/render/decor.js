@@ -465,6 +465,28 @@ export const DECOR = {
       }
     }
   },
+  // a ford: flat, worn stepping stones in a line across the stream, set a
+  // stride apart, wet and mossy on top, the water parting white round them
+  ford(c) {
+    const { B, cx, cz, nb, r } = c;
+    const isF = (dx, dy) => nb(dx, dy).key === 'ford';
+    const landEW = !nb(-1, 0).water || !nb(1, 0).water || isF(-1, 0) || isF(1, 0);
+    const landNS = !nb(0, -1).water || !nb(0, 1).water || isF(0, -1) || isF(0, 1);
+    const ew = landEW !== landNS ? landEW : r(1) < 0.5;
+    const top = -0.02;
+    for (let i = 0; i < 4; i++) {
+      const along = -0.38 + i * 0.253 + (r(2 + i) - 0.5) * 0.06, across = (i % 2 ? 1 : -1) * 0.07 + (r(5 + i) - 0.5) * 0.08;
+      const x = cx + (ew ? along : across), z = cz + (ew ? across : along);
+      const w = 0.27 + r(8 + i) * 0.07, d = 0.24 + r(11 + i) * 0.06, ry = r(14 + i) * 3;
+      const stone = [0x8c877c, 0x7e7a72, 0x96907f, 0x88837a][i];
+      // the stone itself, its wet shoulders darker, a cap of moss on some
+      B.shape(TPL.ico1, shade(stone, 0.72), { x, y: top - 0.12, z, sx: w * 1.12, sy: 0.2, sz: d * 1.12, ry });
+      B.shape(TPL.ico1, stone, { x, y: top - 0.02, z, sx: w, sy: 0.12, sz: d, ry });
+      if (r(17 + i) < 0.45) B.shape(TPL.ico1, 0x5e7a3a, { x: x + 0.02, y: top + 0.025, z: z - 0.02, sx: w * 0.55, sy: 0.03, sz: d * 0.5, ry });
+      // the water breaking white about it
+      B.shape(TPL.cyl12, 0xe6f4fa, { x, y: -0.105, z, sx: w * 1.7, sy: 0.006, sz: d * 1.7 });
+    }
+  },
   lava(c) {
     const { B, cx, cz, y, r } = c;
     if (r(1) < 0.4) rock(B, cx + (r(2) - 0.5) * 0.6, y - 0.06, cz + (r(3) - 0.5) * 0.6, 0.7, r(4), 0x2a2220);

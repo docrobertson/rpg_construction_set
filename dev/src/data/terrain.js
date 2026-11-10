@@ -120,6 +120,9 @@ const defs = [
   // single trees for gardens, villages and battlefields on the isles
   [131, 'jungle_tree', 'Jungle Tree', 'town', { walk: false, sight: true, h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'jungletree' }],
   [132, 'palm_tree', 'Palm Tree', 'town', { walk: false, h: 0, top: 0xd6c186, side: 0xb59a62, deco: 'palmtree' }],
+  // stepping stones across a shallow stream: wet feet, slow going, but no
+  // bridge needed (and, like a bridge, no ship gets past)
+  [133, 'ford', 'Ford', 'world', { h: -0.2, water: true, deck: true, walk: true, cost: 2, top: 0x3c8fc0, deco: 'ford', arena: 'bridge' }],
 ];
 
 export const TERRAIN = [];

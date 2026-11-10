@@ -267,6 +267,17 @@ function paintWorld(w) {
     for (let i = 1; i < pts.length; i++) all.push(...line4(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
     return PATHS[k].apply(w, all, width, seed);
   };
+  // stepping stones on the river square nearest (x, y) that has dry land on
+  // two opposite sides, so the ford really does cross
+  const ford = (x, y) => {
+    for (let r = 0; r <= 5; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const fx = x + dx, fy = y + dy;
+      if (!inBounds(w, fx, fy) || terrain(getTile(w, fx, fy)).key !== 'shallows') continue;
+      if ((land(fx, fy - 1) && land(fx, fy + 1)) || (land(fx - 1, fy) && land(fx + 1, fy))) { tile(fx, fy, 'ford'); return { x: fx, y: fy }; }
+    }
+    return null;
+  };
   // fill a noisy region with a terrain picked per square
   const region = (cx, cy, r, seed, pick, rough = 0.35) => {
     for (let y = Math.floor(cy - r * 1.5); y <= cy + r * 1.5; y++) for (let x = Math.floor(cx - r * 1.5); x <= cx + r * 1.5; x++) {
@@ -337,7 +348,12 @@ function paintWorld(w) {
     else if (kn > 0.76) tile(x, y, 'hills');
   }
   // the Pebble Brook, down from the downs to the sea west of the village
-  path('river', [[38, 112], [32, 118], [26, 124], [18, 126], [10, 127]], 1);
+  // (all the way to the shore: it used to stop short in the fields)
+  path('river', [[38, 112], [32, 118], [26, 124], [18, 126], [10, 127], [6, 128], [2, 128]], 1);
+  // stepping stones where the shepherds' path crosses north of the village,
+  // and again upstream by the downs, so nobody walks round by the road
+  ford(14, 126);
+  ford(28, 121);
   // the river Wend, out of the Greyspine to the sea at Saltcombe
   path('river', [[52, 55], [51, 62], [53, 70], [52, 78], [55, 86], [60, 92], [66, 96], [72, 99], [80, 101]], 1);
   path('river', [[32, 76], [36, 84], [42, 90], [48, 92], [55, 87]], 1);
