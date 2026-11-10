@@ -224,7 +224,8 @@ const mapNamed = (n) => game.maps.find((m) => m.name === n);
 // ------------------------------------------------------------ the difficulty, fought out
 // (real battles at each point of the story, with the company a player has there)
 if (!process.env.NO_SIM) {
-  const rows = await simulate(parseInt(process.env.SIM_N, 10) || 12, 4242);
+  // (seeded throughout, so the same code gives the same table; 20 a stage, by three castaways, so a boss's cost is no fluke of a dozen fights)
+  const rows = await simulate(parseInt(process.env.SIM_N, 10) || 20, 4242);
   const pct = (x) => `${Math.round(x * 100)}%`;
   for (const r of rows) console.log(`   ${r.name.padEnd(38)} L${r.level} ×${1 + r.with.length}  win ${pct(r.win).padStart(4)}  health lost ${pct(r.lost).padStart(4)}  fallen ${r.dead.toFixed(1)}`);
   const solo = rows.filter((r) => r.with.length === 0);

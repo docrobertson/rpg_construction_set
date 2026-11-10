@@ -7,11 +7,11 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
- magicalOf, wearRule,
+ magicalOf, wearRule, training, kindOf, traitText, armorSoak, dodgeBonus, untrainedPenalty, kindWords, heavyTrained, isHeavy,
 } from '../game/rules.js';
 import { charmInfo, charmPrice, hasMagic } from '../game/charms.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
-import { STAT_NAMES, STATS, CHARM_KINDS, RARITIES } from '../data/defaults.js';
+import { STAT_NAMES, STATS, CHARM_KINDS, RARITIES, ARMOR_SOAK, WEAPON_TRAITS } from '../data/defaults.js';
 import { sfx, isMuted, setMuted } from '../core/sound.js';
 import { musicEnabled, setMusicEnabled } from '../core/music.js';
 import { loadState } from '../core/storage.js';
@@ -439,11 +439,13 @@ export class PlayUI {
           onclick: (e) => { e.stopPropagation(); if (spendPoint(g, m, st)) { sfx('level'); changed(); } },
         }, '+') : null))),
       h('div.nums',
-        h('div.num', { title: 'Armour class: foes must roll this or more to hit' }, h('span', 'Armour'), h('b', String(armorClass(g, m)))),
+        h('div.num', { title: `Armour class: foes must roll this or more to hit${armorClass(g, m, 'melee') > armorClass(g, m) ? ` (${armorClass(g, m, 'melee')} against blows hand to hand: the blade parries)` : ''}${armorSoak(g, m) ? `. The armour soaks ${armorSoak(g, m)} from every blow that lands` : ''}` },
+          h('span', 'Armour'), h('b', String(armorClass(g, m)), armorSoak(g, m) ? h('i.soak', ` −${armorSoak(g, m)}`) : null)),
         h('div.num', { title: 'Squares this hero can move in a battle turn before acting' }, h('span', 'Moves'), h('b', String(combatMoves(g, m)))),
-        h('div.num', { title: `${w.name}: ${w.dmg} damage` }, h('span', 'Melee'), h('b', `${fmtMod(attackBonus(g, m, w))} · ${w.dmg}`)),
-        h('div.num', { title: rw ? `${rw.name}: ${rw.dmg} damage, range ${rw.range}` : 'No ranged weapon' }, h('span', 'Ranged'), h('b', rw ? `${fmtMod(attackBonus(g, m, rw))} · ${rw.dmg} · ${rw.range}sq` : '—')),
+        h('div.num' + (training(g, m, w).ok ? '' : '.untrained'), { title: `${w.name}: ${w.dmg} damage${training(g, m, w).ok ? '' : `. ${training(g, m, w).why}: −${untrainedPenalty(g)} to hit`}` }, h('span', 'Melee'), h('b', `${fmtMod(attackBonus(g, m, w))} · ${w.dmg}`)),
+        h('div.num' + (!rw || training(g, m, rw).ok ? '' : '.untrained'), { title: rw ? `${rw.name}: ${rw.dmg} damage, range ${rw.range}${training(g, m, rw).ok ? '' : `. ${training(g, m, rw).why}: −${untrainedPenalty(g)} to hit`}` : 'No ranged weapon' }, h('span', 'Ranged'), h('b', rw ? `${fmtMod(attackBonus(g, m, rw))} · ${rw.dmg} · ${rw.range}sq` : '—')),
       ),
+      trainingPanel(g, m),
     );
     // equipment
     const eq = h('div.equip');
@@ -455,7 +457,7 @@ export class PlayUI {
       for (const it of g.items) {
         if (!(inv[it.id] > 0) || slotFor(it) !== slot || (cur && it.id === cur.id)) continue;
         const ok = canEquip(g, m, it);
-        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${magicalOf(it) ? '✦ ' : ''}${it.name} (${itemStats(it)})${ok.ok ? '' : ' — ' + ok.why}`));
+        sel.appendChild(h('option', { value: it.id, disabled: !ok.ok }, `${magicalOf(it) ? '✦ ' : ''}${it.name} (${itemStats(it)})${ok.ok ? (ok.untrained ? ` — untrained, −${untrainedPenalty(g)} to hit` : '') : ' — ' + ok.why}`));
       }
       sel.value = cur ? cur.id : '';
       sel.addEventListener('change', () => {
@@ -903,6 +905,7 @@ export class PlayUI {
 
   startTargeting(tg) {
     this.targeting = tg;
+    this.chud?.setMarks?.(null); // (the squares' cover marks give way to the aim; the foes' plates show theirs)
     if (tg.ally) this.refreshParty();
     const cells = tg.tiles || tg.units.map((u) => ({ x: u.x, y: u.y }));
     this.view.setHighlights(cells, tg.color || 0xffc030, 0.4);
@@ -1237,7 +1240,7 @@ export class PlayUI {
           const afford = s.party.gold >= price;
           const magic = magicNote(g, s.party.members, it);
           list.appendChild(h('div.shop-row' + (afford ? '' : '.dear') + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
-            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it) : null },
+            { title: hasMagic(it) || it.type === 'charm' || slotFor(it) ? itemTip(g, it) : null },
             itemTile(it),
             h('div.sr-main',
               h('div.sr-name', itemName(it), owned ? h('span.owned', { title: 'How many your company already carries' }, `×${owned} owned`) : null),
@@ -1288,7 +1291,7 @@ export class PlayUI {
           const price = this.priceOf(it, npc, true);
           const magic = magicNote(g, s.party.members, it);
           list.appendChild(h('div.shop-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''),
-            { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : null },
+            { title: hasMagic(it) || it.type === 'charm' || slotFor(it) ? itemTip(g, it, true) : null },
             itemTile(it),
             h('div.sr-main', h('div.sr-name', itemName(it), h('span.owned', `×${inv[it.id]}`)), h('span.sr-stats', itemStats(it)),
               magic ? h('div.sr-cmp', h('span.cmp.use.' + magic.cls, magic.text)) : null),
@@ -1453,7 +1456,7 @@ export class PlayUI {
             }, h('i', { html: iconSvg('quill') }), can.ok ? `Copy into ${x.name}'s spellbook` : can.why.replace(/\.$/, '')));
           }
         }
-        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''), { title: hasMagic(it) || it.type === 'charm' ? itemTip(g, it, true) : it.desc || null },
+        const row = h('div.inv-row' + (magic?.cls === 'no' ? '.useless' : '') + (it.type === 'charm' ? '.charm-row' : ''), { title: hasMagic(it) || it.type === 'charm' || slotFor(it) ? itemTip(g, it, true) : it.desc || null },
           itemTile(it),
           h('span.inv-name', itemName(it), inv[it.id] > 1 ? h('span.inv-n', `×${inv[it.id]}`) : null,
             h('span.inv-stats', itemStats(it)),
@@ -1768,29 +1771,30 @@ function swapCard(g, m, it, foot) {
   const cur = itemOf(g, m.equip[slot]);
   const c = compareText(g, m, it);
   const head = h('div.sw-head', h('span.cmp.' + c.cls, cmpArrow(c), `${m.name} ${c.text}`));
-  if (cur?.id === it.id) return h('div.swap-card', head, h('div.sw-cols.one', h('div.sw-col', swapPiece(g, it, null))));
+  if (cur?.id === it.id) return h('div.swap-card', head, h('div.sw-cols.one', h('div.sw-col', swapPiece(g, it, null, null, null, m))));
   const sh = it.twoHanded && slot === 'weapon' ? itemOf(g, m.equip.shield) : null;
   const got = magicLines(g, it);
   const had = [...magicLines(g, cur), ...magicLines(g, sh)];
   const slotName = (SLOT_NAMES[slot] || slot).toLowerCase();
   return h('div.swap-card', head,
     h('div.sw-cols',
-      h('div.sw-col.new', h('div.sw-label', 'Puts on'), swapPiece(g, it, had, 'gain')),
+      h('div.sw-col.new', h('div.sw-label', 'Puts on'), swapPiece(g, it, had, 'gain', null, m)),
       h('div.sw-col.old', h('div.sw-label', cur || sh ? 'Takes off' : 'In its place'),
-        cur ? swapPiece(g, cur, got, 'lose') : h('div.sw-plain', `No ${slotName} now`),
+        cur ? swapPiece(g, cur, got, 'lose', null, m) : h('div.sw-plain', `No ${slotName} now`),
         sh ? swapPiece(g, sh, got, 'lose', 'shield: both hands are needed') : null)),
     foot ? h('div.sw-foot', foot) : null);
 }
 
 // one side of a swap card: name, stats and the magic, each line marked by
 // whether the other side has it too
-function swapPiece(g, it, other, mark, note) {
+function swapPiece(g, it, other, mark, note, m = null) {
   const lines = magicLines(g, it);
   const mg = magicalOf(it);
   return h('div.sw-piece',
     h('div.sw-name', { style: mg ? { color: mg.color } : null }, mg ? '✦ ' : '', it.name),
     note ? h('div.sw-note', note) : null,
     itemStats(it) ? h('div.sw-stats', itemStats(it)) : null,
+    m ? handLine(g, m, it) : null,
     lines.length ? h('ul.sw-lines', ...lines.map((l) => h('li.' + (!other ? 'same' : other.includes(l) ? 'same' : mark), l)))
       : h('div.sw-plain', 'No magic'));
 }
@@ -1800,20 +1804,60 @@ function compareText(g, m, it) {
   const slot = slotFor(it);
   if (!slot) return null;
   const cur = itemOf(g, m.equip[slot]);
-  if (cur?.id === it.id) return { cls: 'same', text: 'equipped' };
+  if (cur?.id === it.id) return { cls: 'same', text: it.type === 'weapon' && !training(g, m, it).ok ? `equipped, untrained −${untrainedPenalty(g)} hit` : 'equipped' };
   // a charm is not better or worse, only different: say what it would replace
   if (it.type === 'charm') return cur ? { cls: 'swap', text: `instead of ${cur.name}` } : { cls: 'up', text: 'new charm' };
   if (it.type === 'weapon') {
-    const d = diceAvg(it.dmg || '1d2') + (it.hit || 0) * 0.5 - (cur ? diceAvg(cur.dmg || '1d2') + (cur.hit || 0) * 0.5 : slot === 'weapon' ? 1.5 : 0);
-    if (!cur && slot === 'ranged') return { cls: 'up', text: 'new: can shoot' };
+    // (an untrained hand is −3 to hit: counted, at half a point of damage a point, and named)
+    const pen = untrainedPenalty(g), untr = (w) => (w && !training(g, m, w).ok ? pen : 0);
+    const val = (w) => diceAvg(w.dmg || '1d2') + ((w.hit || 0) - untr(w)) * 0.5;
+    const d = val(it) - (cur ? val(cur) : slot === 'weapon' ? 1.5 : 0);
+    const un = untr(it) ? `, untrained −${pen} hit` : '';
+    if (!cur && slot === 'ranged') return { cls: un ? 'same' : 'up', text: `new: can shoot${un}`, untrained: !!un };
     const v = Math.round(d * 10) / 10;
     // a two-handed weapon takes the shield off: say so, with what it costs
     const sh = it.twoHanded && slot === 'weapon' && itemOf(g, m.equip.shield);
     const off = sh ? `, shield off (−${sh.ac || 0} armour)` : '';
-    return v > 0.05 ? { cls: sh ? 'same' : 'up', text: `+${v} dmg${off}` } : v < -0.05 ? { cls: 'down', text: `${v} dmg${off}` } : { cls: sh ? 'down' : 'same', text: `same dmg${off}` };
+    const r = v > 0.05 ? { cls: sh ? 'same' : 'up', text: `+${v} dmg${off}${un}` } : v < -0.05 ? { cls: 'down', text: `${v} dmg${off}${un}` } : { cls: sh || un ? 'down' : 'same', text: `same dmg${off}${un}` };
+    return { ...r, untrained: !!un };
   }
-  const v = (it.ac || 0) - (cur?.ac || 0);
-  return v > 0 ? { cls: 'up', text: `+${v} armour` } : v < 0 ? { cls: 'down', text: `${v} armour` } : { cls: 'same', text: 'same armour' };
+  // (armour: what it soaks counts too, a point of soak about a point of armour)
+  const soak = (a) => (a?.type === 'armor' ? Math.max(0, a.soak ?? ARMOR_SOAK[a.weight] ?? 0) : 0);
+  const v = (it.ac || 0) - (cur?.ac || 0), s = soak(it) - soak(cur);
+  const sw = s ? `, ${s > 0 ? '+' : '−'}${Math.abs(s)} soak` : '';
+  if (s && Math.sign(s) !== Math.sign(v) && v) return { cls: 'swap', text: `${v > 0 ? '+' : ''}${v} armour${sw}` };
+  return v + s > 0 ? { cls: 'up', text: `${v ? `${v > 0 ? '+' : ''}${v} armour` : 'same armour'}${sw}` } : v + s < 0 ? { cls: 'down', text: `${v ? `${v} armour` : 'same armour'}${sw}` } : { cls: 'same', text: `same armour${sw}` };
+}
+
+// A weapon in this hero's hands: its kind's trait, or untrained and why
+function handLine(g, m, it) {
+  if (it?.type !== 'weapon') return null;
+  const tr = training(g, m, it), kind = kindOf(g, it);
+  if (!tr.ok) return h('div.sw-hand.untrained', `${tr.why}: −${untrainedPenalty(g)} to hit${kind?.trait ? `, no ${WEAPON_TRAITS[kind.trait]}` : ''}`);
+  return kind?.trait ? h('div.sw-hand', traitText(kind)) : null;
+}
+
+// The hero sheet's weapons: what each in hand does in this hero's hands (its
+// kind's trait, or untrained and why), what the armour soaks and dodges, and
+// the kinds the calling is trained in
+function trainingPanel(g, m) {
+  const k = classOf(g, m);
+  const rows = [];
+  for (const w of [itemOf(g, m.equip?.weapon), rangedOf(g, m)]) {
+    if (!w) continue;
+    const tr = training(g, m, w), kind = kindOf(g, w);
+    rows.push(h('div.tr-row' + (tr.ok ? '' : '.untrained'), { title: kind?.desc || '' },
+      h('i.gi', { html: iconSvg(itemIcon(w)[0]) }),
+      h('span', h('b', w.name), ' ', tr.ok
+        ? (kind?.trait ? `${traitText(kind)}.` : `${kind?.name || 'Weapon'}: no trait.`)
+        : h('span.tr-warn', `Untrained: −${untrainedPenalty(g)} to hit${kind?.trait ? `, and no ${WEAPON_TRAITS[kind.trait]}` : ''} (${tr.why.replace(/^Untrained: /, '')}).`))));
+  }
+  const soak = armorSoak(g, m), dodge = dodgeBonus(g, m);
+  if (soak) rows.push(h('div.tr-row', h('i.gi', { html: iconSvg('shield') }), h('span', h('b', itemOf(g, m.equip.armor)?.name || 'Armour'), ` soaks ${soak} from every blow that lands.`)));
+  if (dodge) rows.push(h('div.tr-row', h('i.gi', { html: iconSvg('boot') }), h('span', h('b', 'Light on the feet'), ` +${dodge} armour (cloth or leather, level ${m.level}).`)));
+  const list = (k.weapons || []).length ? k.weapons.map((id) => kindWords(g, id)).join(', ') : 'every kind of weapon';
+  rows.push(h('div.tr-list', `A ${(k.name || 'hero').toLowerCase()} is trained with ${list}${heavyTrained(k) ? ', and heavy weapons' : ' — not heavy weapons'}.`));
+  return h('div.sheet-train', ...rows);
 }
 
 // Would anyone in the company gain from this? Gear: only if it would be an
@@ -1847,7 +1891,7 @@ function itemName(it) {
 
 // ▲ better, ▼ worse, = no change, in front of a comparison chip
 function cmpArrow(c) {
-  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text === 'equipped' ? '✓' : '=');
+  return h('b.cmp-arrow', c.cls === 'up' ? '▲' : c.cls === 'down' ? '▼' : c.cls === 'swap' ? '⇄' : c.text.startsWith('equipped') ? '✓' : '=');
 }
 
 // when no one in the company can wear a piece: a charm for one people or
@@ -1862,16 +1906,36 @@ const CHARM_SLOT_TIP = 'A ring, an amulet, a horn or another trinket of magic. A
 // action, who may wear it (pack: and that it sleeps there)
 export function itemTip(g, it, inPack = false) {
   const info = charmInfo(g, it);
-  if (!info) return it?.desc || '';
+  const gear = gearLines(g, it);
+  if (!info) return [it?.desc || '', ...gear].filter(Boolean).join('\n');
   const head = it.type === 'charm' ? `${it.name} — ${[info.rarity?.name, info.kind || 'charm'].filter(Boolean).join(' ').toLowerCase()}` : it.name;
   const out = [head];
   if (it.desc) out.push(it.desc);
   for (const l of magicalOf(it)?.notes || []) out.push(`• ${l}`);
   for (const l of info.lines) out.push(`• ${l}`);
+  out.push(...gear);
   if (info.ability) out.push(`⚔ Battle action: ${info.ability.name}${info.ability.tags ? ` (${info.ability.tags})` : ''}. ${info.ability.desc}`);
   if (info.only) out.push(`✋ ${info.only}.`);
   if (it.type === 'charm') out.push(inPack ? '☾ Asleep in the pack: it works only while worn in a hero\'s charm slot.' : '☾ Works only while worn in a hero\'s charm slot.');
   return out.join('\n');
+}
+
+// A weapon's kind and its trait (and who can use it well); armour's soak
+function gearLines(g, it) {
+  if (it?.type === 'weapon') {
+    const kind = kindOf(g, it);
+    const out = [];
+    if (kind) out.push(`⚔ ${kind.name}${kind.trait ? ` — ${traitText(kind)}` : ''}, in a trained hand.`);
+    if (isHeavy(g, it)) out.push('⚖ Heavy: wielded well only with heavy-weapon training.');
+    const who = (g.classes || []).filter((k) => (!(k.weapons || []).length || k.weapons.includes(it.wkind)) && (!isHeavy(g, it) || heavyTrained(k))).map((k) => k.name);
+    out.push(who.length ? `Trained: ${who.join(', ')}. Anyone else: −${untrainedPenalty(g)} to hit${g.settings?.untrainedWeapons === 'forbid' ? ' (forbidden here)' : ''}.` : 'No calling is trained in it.');
+    return out;
+  }
+  if (it?.type === 'armor') {
+    const s = Math.max(0, it.soak ?? ARMOR_SOAK[it.weight] ?? 0);
+    return s ? [`⛨ Soaks ${s} from every blow that lands.${it.weight === 'plate' ? ' Plate slows its wearer a square in battle.' : ''}`] : ['Light: a hero in it dodges better as they rise.'];
+  }
+  return [];
 }
 
 // The hero sheet's charm: what it does while worn (or what the slot is for)
@@ -1956,7 +2020,7 @@ function healthWord(f) {
 export function itemStats(it) {
   switch (it.type) {
     case 'weapon': return `${it.dmg}${it.hit ? ` ${it.hit > 0 ? '+' : ''}${it.hit} hit` : ''}${(it.range || 1) > 1 ? `, range ${it.range}` : ''}${it.twoHanded ? ', two-handed' : ''}`;
-    case 'armor': return `AC +${it.ac} (${it.weight})`;
+    case 'armor': { const s = Math.max(0, it.soak ?? ARMOR_SOAK[it.weight] ?? 0); return `AC +${it.ac} (${it.weight})${s ? `, soaks ${s}` : ''}${it.weight === 'plate' ? ', −1 move' : ''}`; }
     case 'shield': return `AC +${it.ac}`;
     case 'consumable': return it.effect === 'food' ? `+${it.power} food` : it.power ? `${it.effect} ${it.power}` : it.effect;
     case 'reagent': return (it.forage || []).length ? 'herb' : 'reagent';
@@ -2026,9 +2090,23 @@ The company holds six; to make room, open a hero's sheet and choose <b>Rest at t
 squares (click a blue square, or the arrows), then strike, shoot, cast, use a skill or an item. <b>Hover</b> any figure to see its
 health, conditions, what it is up to and your <b>chance to hit</b>; hover a square to see the path there.</p>
 <p><b>Tactics.</b> <b>Flanking</b>: +2 to hit a foe that a companion also stands beside. <b>From behind</b>: +2 and half as much
-damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: beside a tree, rock or wall, missiles from
-that side are −3 to hit. <b>Engaged</b>: shooting with a foe beside you is −4. <b>Breaking away</b>: stepping out of a foe's reach
-gives it a free strike (amber squares warn you).</p>
+damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: a tree, rock or wall on the side a shot
+comes from makes it −3 to hit (crossbows pierce it). While a hero moves, squares in cover from a foe's archers carry a small
+<b>shield</b>, and hovering one names the archers it shelters you from; when you aim, foes in cover from you wear the shield, and
+the odds card puts the −3 first. <b>Engaged</b>: shooting with a foe beside you is −4 (not with a sling).
+<b>Breaking away</b> is a gamble: a foe whose reach you leave strikes at you only by chance — about half the time, more if it
+is higher in level or quicker than you, less if you are (15–90%). Amber squares and the hovered path say who, and how likely;
+a seasoned hero slips away from goblins, and cuts down the goblin that runs. <b>Withdraw</b> (R) gives up the rest of your
+moves to step one square back with no free strike at all — then shoot, cast or guard.</p>
+<p><b>Arms and armour.</b> Anyone may wield anything, but only the kinds a calling is trained in work well: untrained, a
+weapon is −3 to hit and its trait sleeps (the sheet, the Pack and the shops say so). Each kind has a trait: a <b>blade</b>
+parries (+1 armour hand to hand), an <b>axe</b> hews armoured foes (+2 damage), a <b>mace</b> may stagger (the foe cannot move
+next turn), a <b>spear</b> strikes two squares off — even past a companion — and meets a charge point first, a <b>great
+blade</b> sweeps on into the next foe when it fells one, a <b>dagger</b> is quick (crits more, +2 flanking), a <b>staff</b>
+wards (+1 armour, +1 to spells), a <b>bow</b> reaches further, a <b>crossbow</b> pierces cover, a <b>sling</b> snaps off
+shots with a foe in your face. Heavy weapons need heavy-weapon training (warriors, paladins, runesmiths). <b>Mail and
+plate soak</b> 1 and 2 from every blow; heroes in cloth or leather dodge better as they rise. <b>Last stand</b>: a hero above
+half health survives any single blow on 1 health, once a battle — the next blow is real.</p>
 <p><b>Skills</b> (keys 1–9) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
 battle. Each calling learns new skills as it rises (levels 3, 5, 7 and 9 for the built-in ones), and on every second level one of
 the talents on offer is a <b>battle art</b> any hero can learn: Second Wind, Dash, First Aid, Throw Knife and more. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it
@@ -2036,6 +2114,7 @@ off. Every level brings a new <b>talent</b> to choose. Walk off the edge of the 
 <table class="keys">
 <tr><td>F</td><td>Attack / shoot</td><td>1–9</td><td>Skills</td></tr>
 <tr><td>Q</td><td>★ Special</td><td>G</td><td>Guard (+3 armour)</td></tr>
+<tr><td>R</td><td>Withdraw (one step, no free strike)</td><td></td><td></td></tr>
 <tr><td>C</td><td>Cast</td><td>U</td><td>Use item</td></tr>
 <tr><td>Space</td><td>End turn</td><td>Tab, Enter</td><td>Next / confirm target</td></tr>
 </table>

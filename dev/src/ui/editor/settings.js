@@ -9,7 +9,7 @@ export function renderSettings(ed, left, main) {
   left.appendChild(h('div.panel-title', 'Rules'));
   left.appendChild(h('p.hint', 'The rules of the realm: the company, food and time, which kinds of magic exist, and what heroes set out with.'));
   const jump = (id) => main.querySelector('#' + id)?.scrollIntoView({ behavior: 'smooth' });
-  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
+  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-battle', '⚔ Battle'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
     left.appendChild(h('button.entry', { onclick: () => jump(id) }, label));
   }
   const changed = () => ed.markDirty();
@@ -35,6 +35,16 @@ export function renderSettings(ed, left, main) {
     { key: 'settings.dayNight', label: 'Day and night', type: 'check', hint: 'Outdoors the sun sets every 300 turns: at night you see less and more monsters roam.' },
     { key: 'settings.loot', label: 'Monsters drop weapons and armour', type: 'check', hint: 'Sometimes, scaled to the foes defeated. Mark special items as never dropped.' },
     { key: 'settings.pitch', label: 'Camera angle', type: 'number', min: 35, max: 80, hint: 'Degrees above the horizon (52 gives a 3D diorama view; higher looks more straight down)' },
+  ], changed)));
+
+  // (tactics) the rules of a fight: weapon training, how hard heroes are to kill, breaking away
+  main.appendChild(section('set-battle', '⚔ Battle', h('p.hint', 'How fights go. Weapon kinds and their traits are under World Data → Weapon kinds; which kinds a class is trained in, under Classes.'), buildForm(game, [
+    { key: 'settings.untrainedWeapons', label: 'A weapon a hero is not trained in', type: 'select', rerender: true, options: [['penalty', 'May be wielded, at a penalty'], ['forbid', 'Cannot be wielded at all']] },
+    { key: 'settings.untrainedPenalty', label: 'Untrained: to hit', type: 'number', min: 0, max: 10, show: (o) => o.settings.untrainedWeapons !== 'forbid', hint: 'Taken off the hero\'s to-hit; the kind\'s trait does not work either. Heavy weapons need heavy-weapon training too.' },
+    { key: 'settings.heroicHealth', label: 'Heroic health', type: 'number', min: 0, max: 30, hint: 'Extra health every hero has, from level 1: it matters most early, when one goblin\'s blow could take half a wizard.' },
+    { key: 'settings.lastStand', label: 'Last stand', type: 'check', hint: 'A hero above half health survives any single blow on 1 health, once per battle: no one falls from full health in one stroke.' },
+    { key: 'settings.breakAway', label: 'Breaking away: chance of a free strike', type: 'number', step: 0.05, min: 0, max: 1, hint: 'When anyone steps out of a foe\'s reach. 0.5: half the time, more against a higher-level or quicker foe, less the other way (15–90%). 1: always, as of old. Withdraw always steps back safely.' },
+    { key: 'settings.dodgeEvery', label: 'Light armour dodges: +1 armour every … levels', type: 'number', min: 0, max: 10, hint: 'For heroes in cloth or leather (mail and plate soak blows instead). 3: at levels 3, 6 and 9. 0: never.' },
   ], changed)));
 
   const magic = h('div.magic-toggles');

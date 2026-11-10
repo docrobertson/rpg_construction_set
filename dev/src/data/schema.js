@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES, WEAPON_KIND_DEFS } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -29,6 +29,13 @@ export function defaultSettings() {
     dayNight: true,
     combatMoves: 3,
     loot: true,
+    // (tactics) weapon training, heroic health, the last stand, breaking away
+    untrainedWeapons: 'penalty', // or 'forbid': only the kinds a class is trained in
+    untrainedPenalty: 3,
+    heroicHealth: 4,
+    dodgeEvery: 3, // heroes in cloth or leather gain +1 armour every this-many levels (0: never)
+    lastStand: true,
+    breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
   };
 }
 
@@ -54,6 +61,8 @@ export function newGame(opts = {}) {
     items: deepClone(ITEMS),
     spells: deepClone(SPELLS),
     monsters: deepClone(MONSTERS),
+    // (tactics) the kinds of weapon and their traits
+    weaponKinds: deepClone(WEAPON_KIND_DEFS),
     quests: [],
     // the designer's outline: chapters that group quests (see game/story.js)
     story: { chapters: [] },
@@ -81,6 +90,7 @@ export function newGame(opts = {}) {
   game.maps.push(world);
   game.settings.charmsV = CHARMS_V; // (born with charms: nothing to migrate)
   game.settings.poolsV = 1;
+  game.settings.tacticsV = TACTICS_V; // (born with weapon training: nothing to migrate)
   game.settings.start = findStart(world);
   return game;
 }
@@ -178,8 +188,42 @@ export function migrateGame(game) {
   if (!Array.isArray(game.story.chapters)) game.story.chapters = [];
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   migrateCompany(game);
+  migrateTactics(game);
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// Weapon training and the tactics pass came later (TACTICS_V 1). Older games
+// gain the weapon kinds and their traits (World Data → Weapon kinds), the
+// built-in callings their heavy-weapon training, and the built-in mail and
+// plate, heavy weapons and first foes their new figures — each only while it
+// is still as it came: a designer's own pieces and changes are left alone.
+// (The new rules themselves — heroic health, the last stand, breaking away
+// as a gamble — are Rules settings, on with their defaults.)
+export const TACTICS_V = 1;
+const OLD_FIGURES = {
+  chain_mail: { ac: 4 }, scale_mail: { ac: 5 }, plate_armor: { ac: 7 }, truesilver_mail: { ac: 7 }, dragonscale: { ac: 6 },
+  goblin: { hit: 4, dmg: '1d6+2' }, wolf: { hit: 4, dmg: '1d6+2' },
+};
+export function migrateTactics(game) {
+  if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
+  if ((game.settings.tacticsV || 0) >= TACTICS_V) return;
+  game.settings.tacticsV = TACTICS_V;
+  for (const k of game.classes || []) {
+    const d = CLASSES.find((x) => x.id === k.id);
+    if (d && k.heavyWeapons === undefined) k.heavyWeapons = d.heavyWeapons;
+  }
+  const same = (o, was) => Object.entries(was).every(([key, v]) => o[key] === v);
+  for (const it of game.items || []) {
+    const d = ITEMS.find((x) => x.id === it.id);
+    if (!d) continue;
+    if (OLD_FIGURES[it.id] && same(it, OLD_FIGURES[it.id])) it.ac = d.ac;
+    if (d.heavy && it.heavy === undefined) it.heavy = true;
+  }
+  for (const m of game.monsters || []) {
+    const d = MONSTERS.find((x) => x.id === m.id);
+    if (d && OLD_FIGURES[m.id] && same(m, OLD_FIGURES[m.id])) { m.hit = d.hit; m.dmg = d.dmg; }
+  }
 }
 
 // (company) Starting heroes, companions' words and mysteries came later.

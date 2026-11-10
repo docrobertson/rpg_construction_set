@@ -1,5 +1,5 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
-import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES, RARITIES } from '../data/defaults.js';
+import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, ARMOR_SOAK, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES, RARITIES, WEAPON_KIND_DEFS, WEAPON_TRAITS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
 import { roll, RNG, hashString } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
@@ -64,11 +64,15 @@ export function createCharacter(game, { name, race, cls, stats, look }) {
 // Health grows a little over half the class's "per level" figure each level,
 // plus half the Strength bonus: heroes toughen, but a level-6 warrior is no
 // longer four times the man he was (the old curve made every fight trivial).
+// Every hero also has a little heroic health of the realm's (settings.heroicHealth,
+// 4 by default): it matters most at level 1, where a goblin's blow once took
+// most of a wizard's life.
 export function maxHp(game, c) {
   const k = classOf(game, c), r = raceOf(game, c);
   const per = Math.ceil((k.hpLevel || 6) * 0.6) + Math.floor(Math.max(-1, mod(c.str)) / 2) + Math.sign(r.hp || 0);
-  return Math.max(4, (k.hpBase || 10) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5 + wornBonus(game, c, 'hp'));
+  return Math.max(4, (k.hpBase || 10) + heroicHealth(game) + (r.hp || 0) * 2 + mod(c.str) + (c.level - 1) * Math.max(2, per) + perkCount(c, 'tough') * 5 + wornBonus(game, c, 'hp'));
 }
+export function heroicHealth(game) { return Math.max(0, Math.round(+game?.settings?.heroicHealth || 0)); }
 
 // --- talents chosen on levelling up
 export function perkCount(c, id) {
@@ -406,8 +410,11 @@ export function canEquip(game, c, item) {
   if (item.type === 'charm') return { ok: true, slot: 'charm' };
   const k = classOf(game, c);
   if (item.type === 'weapon') {
-    if (k.weapons && k.weapons.length && !k.weapons.includes(item.wkind)) return { ok: false, why: `A ${k.name} cannot wield that.` };
-    return { ok: true, slot: slotFor(item) };
+    // anyone may wield anything, but untrained at a penalty (or, in a realm
+    // that forbids it, not at all)
+    const tr = training(game, c, item);
+    if (!tr.ok && game.settings?.untrainedWeapons === 'forbid') return { ok: false, why: `${tr.why}.` };
+    return tr.ok ? { ok: true, slot: slotFor(item) } : { ok: true, slot: slotFor(item), untrained: true, note: tr.why };
   }
   if (item.type === 'armor') {
     const max = ARMOR_WEIGHTS.indexOf(k.armor || 'plate');
@@ -555,6 +562,62 @@ export function specialOf(game, c) {
 
 export function isRanged(w) { return (w.range || 1) > 1; }
 
+// ---- weapon kinds, training and traits (data: game.weaponKinds, see
+// WEAPON_KIND_DEFS in data/defaults.js; the traits' rules are in combat.js)
+export function weaponKinds(game) { return Array.isArray(game?.weaponKinds) && game.weaponKinds.length ? game.weaponKinds : WEAPON_KIND_DEFS; }
+export function kindOf(game, w) { return w?.wkind ? weaponKinds(game).find((k) => k.id === w.wkind) || null : null; }
+// "maces and hammers": a kind as it reads in a sentence
+export function kindWords(game, id) { const k = weaponKinds(game).find((x) => x.id === id); return k?.plural || (k?.name || id || 'that').toLowerCase(); }
+// Big two-handed weapons (great swords, battle axes) also need the class's
+// heavy-weapon training: an item's own mark, else its kind's, else two hands in melee
+export function isHeavy(game, w) {
+  if (!w || !w.id || (w.range || 1) > 1) return false;
+  return w.heavy ?? !!(kindOf(game, w)?.heavy || w.twoHanded);
+}
+// A class with no list is trained in every kind; heavy weapons need its mark
+// (older classes without one: those that list great blades)
+export function heavyTrained(k) { return k?.heavyWeapons ?? (!(k?.weapons || []).length || k.weapons.includes('greatblade')); }
+// Is the hero trained in this weapon? { ok, why } (why: what they lack)
+export function training(game, c, w) {
+  if (!w || !w.id || !w.wkind || w.wkind === 'none' || w.thrown) return { ok: true };
+  const k = classOf(game, c);
+  const an = (t) => `${/^[aeiou]/i.test(t) ? 'an' : 'a'} ${t}`;
+  const who = an((k.name || 'hero').toLowerCase());
+  if ((k.weapons || []).length && !k.weapons.includes(w.wkind)) return { ok: false, why: `Untrained: ${who} has no training with ${kindWords(game, w.wkind)}` };
+  if (isHeavy(game, w) && !heavyTrained(k)) return { ok: false, heavy: true, why: `Untrained: ${who} has no training with heavy weapons` };
+  return { ok: true };
+}
+export function untrainedPenalty(game) { return Math.max(0, Math.round(game?.settings?.untrainedPenalty ?? 3)); }
+// The trait of a weapon in a trained hand: its kind ({ trait, power, ... }), or null
+export function weaponTrait(game, c, w) {
+  const k = kindOf(game, w);
+  if (!k?.trait || !WEAPON_TRAITS[k.trait] || !training(game, c, w).ok) return null;
+  return k;
+}
+export function heroTrait(game, c, slot = 'weapon') {
+  const w = slot === 'ranged' ? rangedOf(game, c) : weaponOf(game, c);
+  const k = weaponTrait(game, c, w);
+  return k ? k : null;
+}
+// What a kind's trait does, in words: "Parry: +1 armour against melee blows"
+export function traitText(kind, short = false) {
+  if (!kind?.trait || !WEAPON_TRAITS[kind.trait]) return '';
+  const p = kind.power ?? 1;
+  const what = {
+    parry: `+${p} armour against melee blows`,
+    hew: `+${p} damage against foes with armour ${kind.minAc ?? 14} or more`,
+    stagger: `${Math.round((kind.chance ?? 0.3) * 100)}% a hit leaves the foe reeling: it cannot move on its next turn`,
+    reach: `strikes a foe ${Math.max(2, kind.range ?? 2)} squares off in a straight line (even past a companion), and strikes first at a foe that steps into reach`,
+    sweep: 'felling a foe carries the blow on to another foe beside you',
+    quick: `critical hits on one more number of the die, +${p} to hit when flanking or from behind`,
+    ward: `+${p} armour, and spells and magical skills deal +${p} damage`,
+    far: `+${p} range`,
+    pierce: 'cover does not help the target',
+    snap: 'no penalty for shooting with a foe beside you',
+  }[kind.trait];
+  return short ? what : `${WEAPON_TRAITS[kind.trait]}: ${what}`;
+}
+
 // Squares a hero may move in one battle turn before attacking or casting:
 // nimble heroes (Dexterity 16+) get one more, plate armour costs one.
 export function combatMoves(game, c) {
@@ -577,14 +640,38 @@ export function attackBonus(game, c, w = weaponOf(game, c)) {
   const stat = isRanged(w) || w.wkind === 'dagger' ? c.dex : c.str;
   let b = Math.floor(c.level * (k.hitRate ?? 0.75)) + mod(stat) + (w.hit || 0) + buffTotal(c, 'bless') + perkCount(c, 'precise') + wornBonus(game, c, 'hit');
   if (w.wkind === 'bow' && hasTrait(game, c, 'keenSight')) b += 1;
+  if (!training(game, c, w).ok) b -= untrainedPenalty(game);
   return b;
 }
 
-export function armorClass(game, c) {
+// vs: 'melee' adds a trained blade's Parry (a blow struck hand to hand)
+export function armorClass(game, c, vs = null) {
   const a = itemOf(game, c.equip.armor), s = itemOf(game, c.equip.shield);
   let ac = 10 + (a?.ac || 0) + (s?.ac || 0) + mod(c.dex) + buffTotal(c, 'shield') + perkCount(c, 'guard') + wornBonus(game, c, 'ac');
   if (hasAbility(game, c, 'layHands') && c.hp < maxHp(game, c) / 2) ac += 2;
-  return ac;
+  const tr = heroTrait(game, c);
+  if (tr?.trait === 'ward') ac += tr.power ?? 1;
+  if (tr?.trait === 'parry' && vs === 'melee') ac += tr.power ?? 1;
+  return ac + dodgeBonus(game, c);
+}
+
+// Heroes in cloth or leather (or nothing) learn to dodge as they rise: +1
+// armour every settings.dodgeEvery levels (3: at levels 3, 6 and 9), at most
+// 3. Mail and plate soak blows instead, so the curve stays level for both.
+export function dodgeBonus(game, c) {
+  const every = Math.round(+(game?.settings?.dodgeEvery ?? 0) || 0);
+  if (every <= 0) return 0;
+  const a = itemOf(game, c?.equip?.armor);
+  if (a && !['cloth', 'leather'].includes(a.weight || 'cloth')) return 0;
+  return Math.min(3, Math.floor((c.level || 1) / every));
+}
+
+// What the armour worn takes off every blow that lands (never below 1): an
+// item's own soak, else its weight's (chain 1, plate 2)
+export function armorSoak(game, c) {
+  const a = itemOf(game, c?.equip?.armor);
+  if (!a) return 0;
+  return Math.max(0, Math.round(a.soak ?? ARMOR_SOAK[a.weight] ?? 0));
 }
 
 export function damageRoll(game, c, w = weaponOf(game, c)) {
@@ -598,7 +685,10 @@ export function damageBonus(game, c, w = weaponOf(game, c)) {
 }
 
 // the lowest roll of the die that is a critical hit (never below 15)
-export function critRange(game, c) { return Math.max(15, (hasAbility(game, c, 'backstab') ? 18 : 20) - (perkCount(c, 'deadly') ? 1 : 0) - wornBonus(game, c, 'crit')); }
+export function critRange(game, c, w = null) {
+  const quick = w && weaponTrait(game, c, w)?.trait === 'quick' ? 1 : 0;
+  return Math.max(15, (hasAbility(game, c, 'backstab') ? 18 : 20) - (perkCount(c, 'deadly') ? 1 : 0) - wornBonus(game, c, 'crit') - quick);
+}
 
 // --- experience
 export function xpForLevel(l) { return XP_TABLE[Math.min(l, MAX_LEVEL)] ?? Infinity; }
@@ -707,5 +797,9 @@ if (typeof window !== 'undefined') {
   window.__skills = {
     classSkills, abilityLevel, heroAbilities, lockedAbilities, battleArts, heroArts, artsInReach, pickLevel, perkChoices, choosePerk, lastPick,
     newAtLevel, levelUpNote, gainXp, xpForLevel, normalizeMember, ensureCombatData, maxHp, SKILLS_V, ART_EVERY,
+  };
+  window.__tactics = {
+    training, weaponTrait, heroTrait, traitText, kindOf, weaponKinds, isHeavy, heavyTrained, untrainedPenalty, armorSoak, armorClass, attackBonus, dodgeBonus,
+    canEquip, equipItem, critRange, maxHp, heroicHealth, createCharacter, normalizeMember, gainXp, xpForLevel, equipKit, weaponOf, rangedOf,
   };
 }

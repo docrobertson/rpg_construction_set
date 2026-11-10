@@ -50,8 +50,9 @@ const KIT = {
   3: { warrior: ['long_sword', 'chain_mail', 'kite_shield'], cleric: ['mace', 'chain_mail', 'buckler'], wizard: ['quarterstaff', 'robe'], ranger: ['spear', 'short_bow', 'studded_leather'], runesmith: ['warhammer', 'leather_armor'] },
   5: { warrior: ['long_sword', 'scale_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['spear', 'kestrel_bow', 'studded_leather'],
     burglar: ['dagger', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'chain_mail', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
-  7: { warrior: ['sunsteel_spear', 'coral_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['spear', 'kestrel_bow', 'studded_leather'],
-    burglar: ['wreckers_hook', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'plate_armor', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
+  // (Gaff's boat-hook is a spear: it goes to Kit, a ranger trained with spears, not to Mags, who is not)
+  7: { warrior: ['sunsteel_spear', 'coral_mail', 'kite_shield'], cleric: ['aldhelm_mace', 'scale_mail', 'kite_shield'], wizard: ['quarterstaff', 'elven_cloak'], ranger: ['wreckers_hook', 'kestrel_bow', 'studded_leather'],
+    burglar: ['dagger', 'short_bow', 'saltwake_leathers'], paladin: ['long_sword', 'plate_armor', 'kite_shield'], runesmith: ['warhammer', 'chain_mail'] },
 };
 const COMPANIONS = { kit: ['human', 'ranger'], thrain: ['dwarf', 'warrior'], wren: ['human', 'runesmith'], mags: ['human', 'burglar'], garrick: ['human', 'paladin'], elowen: ['elf', 'wizard'] };
 
@@ -78,11 +79,22 @@ export const STAGES = [
   { name: 'Nhalia, by a company that did it all', level: 10, with: ['kit', 'mags', 'garrick', 'elowen', 'wren'], foes: [['drowned_queen', '1']], style: 'temple', min: 0.7, max: 1, lostMin: 0.2 },
 ];
 
+// Every roll of the run comes from the seed: the game's own dice (rng.f, which
+// rng.int and rng.chance draw on, not only rng.next) and Math.random (the
+// attributes that grow on levelling, reagents spared, new seeds), so the same
+// code always gives the same table and the suite's bounds never fail at random
 export async function simulate(n = 30, seed = 777, opt = {}) {
+  const real = Math.random;
+  let a = (seed * 7 + 1) >>> 0;
+  Math.random = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  try { return await simulateRun(n, seed, opt); } finally { Math.random = real; }
+}
+
+async function simulateRun(n, seed, opt) {
   const M = await load();
   const { rules: R, Battle, rng, RNG, byId } = M;
   const { PlaySession } = M.session;
-  { const r = new RNG(seed); rng.next = () => r.next(); }
+  { const r = new RNG(seed); rng.next = () => r.next(); rng.f = () => r.next(); }
   const game = M.buildLanternsGame();
   R.ensureCombatData(game);
   const any = () => new Proxy(function () {}, { get: (t, k) => (k === 'then' ? undefined : any()), apply: () => Promise.resolve() });

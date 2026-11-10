@@ -74,6 +74,7 @@ export function openHelpOverlay(ui, rulesHtml) {
         row(kbd('1–9'), 'Skills (more as heroes rise)'),
         row(kbd('Q'), '★ Special, once per battle'),
         row(kbd('G'), 'Guard (+3 armour)'),
+        row(kbd('R'), 'Withdraw: one step back, no free strike'),
         row(kbd('Space'), 'End the turn'))),
     game && magicGuide(game) ? h('section.hw-magic', h('h3', ico('sparkle'), ' Magic'), magicGuide(game),
       h('p.mg-note', 'Mana, faith and voice return when you rest. Runes burn reagents from herbalists; rangers gather herbs in wild country as you travel. Wizards copy spell scrolls into their spellbooks. The Pack says who can use each reagent, herb and scroll.')) : null,
