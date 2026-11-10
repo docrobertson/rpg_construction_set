@@ -1791,7 +1791,7 @@ function companions(game, P) {
     ],
   });
   set('npc_thrain', {
-    race: 'dwarf', cls: 'warrior', level: 3, after: 'q_warren', equip: ['battle_axe', 'chain_mail', 'buckler'], arts: ['hold_the_line'],
+    race: 'dwarf', cls: 'warrior', level: 3, after: 'q_warren', equip: ['battle_axe', 'chain_mail'], arts: ['hold_the_line'],
     notYet: 'Forty goblins and one dwarf: bad sums. Clear out the warren with me first.',
     offerText: 'Saucepan and all, gone! Well. The reeve has run out of pies, and you look like folk who eat well. I\'ll come — if you feed me.',
     joinText: 'Right. Axe sharp, belly full. Where are we going? Not on a boat, I hope.',
