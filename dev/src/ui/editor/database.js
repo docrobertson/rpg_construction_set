@@ -7,7 +7,7 @@ import {
   ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES, CHARM_KINDS, CHARM_KIND_ICONS, RARITIES,
   WEAPON_TRAITS, WEAPON_KIND_DEFS, ARMOR_SOAK, SHOP_THEMES, SHOP_KIND_NAMES,
 } from '../../data/defaults.js';
-import { themeStock, themeOf, followsTheme } from '../../game/shops.js';
+import { themeStock, themeOf, followsTheme, KIND_TYPES } from '../../game/shops.js';
 import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
@@ -289,7 +289,12 @@ export function categories(game) {
         { key: 'kind', label: 'Kind of shop', type: 'select', rerender: true, options: Object.entries(SHOP_KIND_NAMES),
           hint: 'Weaponsmiths and bowyers trade in weapons; armourers armour; provisioners provisions; herbalists reagents; sages scrolls; merchants a little of everything, or charms.' },
         { key: 'items', label: 'Sells', type: 'multicheck', wide: true, rerender: true,
-          options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]) },
+          hint: 'The things of its kind of shop (and anything already ticked); a merchant\'s theme may take anything at all.',
+          options: (o) => {
+            // a weaponsmith's list is arms and shields, a curio-seller's charms; charms where the kind sells them
+            const types = KIND_TYPES[o?.kind]?.filter((t) => t !== 'charm' || ['charms', 'scrolls'].includes(o.kind));
+            return game.items.filter((i) => i.type !== 'quest' && (!types || types.includes(i.type) || (o?.items || []).includes(i.id))).map((i) => [i.id, `${i.name} (◆${i.price})`]);
+          } },
         { type: 'info', label: (o) => themeSummary(game, o) },
         { key: 'priceMod', label: 'Its markup', type: 'number', step: 0.05, min: 0.1, nullable: true, placeholder: '1',
           hint: 'Blank or 1: the items\' own prices. 1.1–1.4 for a dear trade (a castle\'s armoury, a curio-seller), 0.85–0.95 for a cheap one (the militia\'s arms, second-hand mail). A shop may set its own instead.' },

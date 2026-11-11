@@ -102,7 +102,7 @@ function fieldInput(obj, f, changed) {
     case 'multicheck': {
       const arr = Array.isArray(val) ? val : [];
       const wrap = h('div.multicheck');
-      for (const [v, label] of optList(f.options)) {
+      for (const [v, label] of optList(f.options, obj)) {
         const cb = h('input', { type: 'checkbox' });
         cb.checked = arr.includes(v);
         cb.addEventListener('change', () => {

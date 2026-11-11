@@ -146,7 +146,7 @@ const waresText = (game, o) => {
   const ids = shopStock(game, o.shop);
   if (!ids.length) return 'Nothing for sale: choose a theme, or pick the wares by hand.';
   const its = ids.map((id) => game.items.find((i) => i.id === id)).filter(Boolean);
-  return `Sells ${its.length}: ${its.map((it) => `${it.name} ◆${Math.max(1, Math.round(buyBase(game, it, o.shop)))}`).join(' · ')}`;
+  return [`Sells ${its.length}: `, ...its.map((it) => h('span.ware', `${it.name} ◆${Math.max(1, Math.round(buyBase(game, it, o.shop)))}`))];
 };
 function tradeFields(game, ed) {
   // (to the theme itself, in World Data)

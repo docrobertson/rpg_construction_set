@@ -728,6 +728,10 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .insp-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .insp-head b { font-family: var(--font-display); font-size: 18px; color: #fff3d8; }
 .insp-head span { color: var(--muted); font-size: 12px; }
+/* (market) what a shop's theme gives, as chips, and the way to the theme */
+.insp-wares { display: block; line-height: 1.9; }
+.insp-wares .ware { display: inline-block; margin: 0 4px 0 0; padding: 0 7px; line-height: 1.6; border-radius: 9px; font-size: 12px; color: var(--text); background: rgba(236,198,110,.1); box-shadow: inset 0 0 0 1px rgba(184,145,63,.3); white-space: nowrap; }
+.insp-wares .to-theme { display: block; margin-top: 4px; }
 .insp-foot { margin-top: 14px; padding-top: 8px; border-top: 1px solid #3a2c1c; }
 .form { display: flex; flex-direction: column; gap: 7px; }
 .form-section { color: var(--gold); font: 600 13px var(--font-title); letter-spacing: .8px; margin-top: 10px; border-bottom: 1px solid #3a2c1c; padding-bottom: 3px; }
