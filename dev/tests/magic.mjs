@@ -168,7 +168,7 @@ r = await ev(async () => {
   };
   await new Promise((res) => setTimeout(res, 50));
   document.querySelector('.party-modal').closest('.modal-back').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  const herbalist = s.game.maps.flatMap((m) => m.entities).find((e) => e.shop?.kind === 'reagents' && e.shop.stock.includes('moonpetal') && e.shop.stock.includes('silverleaf'));
+  const herbalist = s.game.maps.flatMap((m) => m.entities).find((e) => e.shop?.kind === 'reagents' && ['moonpetal', 'silverleaf'].every((id) => window.__market.shopStock(s.game, e.shop).includes(id)) /* (market: a theme's wares, or its own list) */);
   s.ui.openShop(herbalist);
   await new Promise((res) => setTimeout(res, 200));
   const srows = [...document.querySelectorAll('.shop-modal .shop-row')];
@@ -216,7 +216,7 @@ r = await ev(() => {
     ranger: a.classes.find((k) => k.id === 'ranger').magic, desc: a.classes.find((k) => k.id === 'ranger').desc,
     herbal: !!a.magic.find((m) => m.id === 'herbal'), leaf: !!a.items.find((i) => i.id === 'silverleaf'), poultice: !!a.spells.find((sp) => sp.id === 'poultice'),
     looks: a.magic.find((m) => m.id === 'divine').resName, custom: b.classes.find((k) => k.id === 'ranger').magic,
-    shops: a.maps.flatMap((m) => m.entities).filter((e) => e.shop?.kind === 'reagents').every((e) => e.shop.stock.includes('silverleaf')),
+    shops: a.maps.flatMap((m) => m.entities).filter((e) => e.shop?.kind === 'reagents').every((e) => window.__market.shopStock(a, e.shop).includes('silverleaf')), // (market: a theme's wares, or its own list)
     hero,
   };
 });

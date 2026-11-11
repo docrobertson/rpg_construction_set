@@ -808,7 +808,6 @@ function layOutSettlement(kind, opt, P) {
   const mapType = kind === 'castle' ? 'castle' : 'town';
   const map = createMap({ type: mapType, w, h, name: opt.name || 'Settlement', fill: S.underground ? 'cave_wall' : S.ground });
   map.lighting = S.underground ? 'dark' : 'day';
-  map.settlement = kind; // (market) the kind of place, for the themes its shops take
   const buildings = [];
   const npcs = [];
   const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
@@ -1499,6 +1498,7 @@ export function generateFromPlan(game, plan, opt = {}) {
     res = plan.style === 'seacave' ? smugglersCave(game, name, seed, { plan: P }) : generateDungeon({ name, seed, plan: P, level: opt.level });
   } else {
     res = generateSettlement(SETTLEMENT_STYLES[plan.style] ? plan.style : 'town', { name, seed, plan });
+    res.map.settlement = SETTLEMENT_STYLES[plan.style] ? plan.style : 'town'; // (market) the kind of place, for the themes its shops take
     nameNpcs(res.map, game, seed, opt.where);
   }
   res.map.name = name;
@@ -1536,6 +1536,7 @@ export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   } else {
     const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : kind === 'harbour' ? 'harbour' : 'town';
     sub = generateSettlement(style, { name, seed: s }).map;
+    sub.settlement = style; // (market) the kind of place, for the themes its shops take
     nameNpcs(sub, game, s, { coast: byTheSea(world, x, y) });
   }
   sub.name = name;

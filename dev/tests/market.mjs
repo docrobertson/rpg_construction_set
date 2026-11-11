@@ -56,6 +56,7 @@ const shopsOf = (map) => map.entities.filter((e) => e.type === 'npc' && e.shop &
   for (const style of ['village', 'town', 'castle', 'elfhall', 'dwarfgate']) {
     for (let seed = 1; seed <= 4; seed++) {
       const { map } = G.generateSettlement(style, { seed: seed * 31 + style.length, name: `${style} ${seed}` });
+      map.settlement = style; // (as placeFeature and a plan record it)
       G.nameNpcs(map, g, seed);
       for (const e of shopsOf(map)) {
         const t = M.themeOf(g, e.shop), st = M.shopStock(g, e.shop);

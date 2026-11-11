@@ -2097,6 +2097,13 @@ in woods, meadows, hills and swamps as the company travels. The Pack and the sho
 Merchants answer to <b>BUY</b>, innkeepers to <b>ROOM</b>, healers to <b>HEAL</b>, and some folk will <b>JOIN</b> your company (some only once you have helped them).
 The company holds six; to make room, open a hero's sheet and choose <b>Rest at the inn</b>. They wait at that town's inn
 (or the last inn you passed): talk to them there to call them back, or to swap them for someone in the company.</p>
+<h3>Shops and gold</h3>
+<p>Every merchant keeps a <b>line of trade</b> — one smith sells blades, another axes and hammers, a bowyer bows, an armourer
+leather or mail or plate — and only a few things along it: the shop's window names its trade at the top, so look elsewhere
+for the rest. Villages and small towns sell the humble pieces; castles, dwarf holds and the big towns the dear ones, and
+some places are dearer or cheaper than others (the window says so). Basic gear costs a few fights' purses, good gear a
+little saving, and the great two-handers and plate a long one. Merchants buy back at about a third of the price (in most realms) — the
+<b>Sell</b> tab sells the clutter no one can use in one click.</p>
 <h3>Battle</h3>
 <p>Everyone acts in turn: the strip along the top shows who acts now and who comes next. On a hero's turn, move up to their
 squares (click a blue square, or the arrows), then strike, shoot, cast, use a skill or an item. <b>Hover</b> any figure to see its
