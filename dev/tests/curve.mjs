@@ -83,6 +83,10 @@ async function measureRun(opt) {
   { const r = new RNG(seed); rng.next = () => r.next(); rng.f = () => r.next(); }
   const game = M.buildSampleGame();
   R.ensureCombatData(game);
+  // spoils are left on the field: what a battle drops is drawn from the same
+  // seeded dice by price, so a change of shop prices would reshuffle every
+  // later blow and move the curve without any change to the fighting
+  Battle.prototype.dropLoot = function () {};
   const view = new Proxy({ rig: { pitch: 52, dist: 10, tdist: 10 } }, { get: (t, k) => (k in t ? t[k] : () => Promise.resolve()) });
   const makeSession = (party) => ({ game, view, party, map: { lighting: 'day', type: 'world' }, log: () => {}, currentLighting: () => 'day', app: { fade: async () => {} }, ui: new Proxy({}, { get: () => () => {} }) });
   const makeParty = (level) => {

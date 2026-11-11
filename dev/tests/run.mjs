@@ -18,7 +18,7 @@ import fs from 'node:fs';
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 const DEV = path.resolve(HERE, '..');
 const ALL = ['quick', 'smoke', 'deep', 'combat', 'flows', 'regressions', 'features', 'editor', 'quests', 'explore', 'progress', 'magic', 'places',
-  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills', 'company', 'puzzles', 'isles', 'adventure2', 'tactics', 'tactics2'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
+  'cs_shell', 'cs_places', 'cs_story', 'cs_checklist', 'delve', 'charms', 'containers', 'landmarks', 'skills', 'company', 'puzzles', 'isles', 'adventure2', 'tactics', 'tactics2', 'market'].filter((s) => fs.existsSync(path.join(HERE, s + '.mjs')));
 
 // what each part of the source can break (paths relative to dev/src)
 const RULES = [
@@ -27,13 +27,14 @@ const RULES = [
   [/^render\/isleDecor\.js$/, ['isles']],
   [/^data\/adventure2\.js$/, ['adventure2']],
   [/^data\/lanterns\.js$/, ['adventure2']],
-  [/^ui\/play\.js$/, ['tactics', 'tactics2']],
+  [/^ui\/play\.js$/, ['tactics', 'tactics2', 'market']],
+  [/^game\/shops\.js$|^ui\/editor\/inspector\.js$|^world\/generate\.js$/, ['market']],
   [/^(render|data)\/containers\.js$|^ui\/editor\/containerFields\.js$/, ['containers']],
   [/^render\/landmarks\.js$|^world\/countryside\.js$/, ['landmarks']],
   [/^render\/fx\.js$/, ['combat', 'features']],
   [/^render\//, ['explore', 'places']],
   [/^game\/combat\.js$|^ui\/combatHud\.js$/, ['combat', 'features', 'deep', 'regressions', 'delve', 'charms', 'skills', 'tactics', 'tactics2']],
-  [/^game\/rules\.js$|^data\/defaults\.js$/, ['combat', 'features', 'progress', 'magic', 'deep', 'charms', 'skills', 'tactics', 'tactics2']],
+  [/^game\/rules\.js$|^data\/defaults\.js$/, ['combat', 'features', 'progress', 'magic', 'deep', 'charms', 'skills', 'tactics', 'tactics2', 'market']],
   [/^game\/magic\.js$|^ui\/spellbook\.js$/, ['magic']],
   [/^game\/(quests|events|dialog)\.js$|^ui\/journal\.js$/, ['quests', 'progress']],
   [/^game\/treasure\.js$|^ui\/treasureMap\.js$/, ['progress']],
