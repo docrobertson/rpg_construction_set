@@ -12,6 +12,7 @@ export function generateHarbour(opt = {}) {
   const w = opt.w || 30, h = opt.h || 24;
   const map = createMap({ type: 'town', w, h, name: opt.name || 'Harbour', fill: 'grass' });
   map.lighting = 'day';
+  map.settlement = 'harbour'; // (market) its shops keep a harbour's trade
   const set = (x, y, k) => setTile(map, x, y, T[k]);
   const rect = (x0, y0, rw, rh, k) => { for (let y = y0; y < y0 + rh; y++) for (let x = x0; x < x0 + rw; x++) set(x, y, k); };
   const SHORE = 10;

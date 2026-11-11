@@ -8,6 +8,7 @@ import { uid } from '../core/util.js';
 import { eventFromTemplate } from '../game/events.js';
 import { fitWildCache, fitCache, DUNGEON_CACHES } from '../data/containers.js';
 import { generateHarbour } from './harbour.js';
+import { pickTheme, themesInUse, themeStock, defaultTheme } from '../game/shops.js';
 
 const def = (id) => terrain(id);
 const isWaterT = (id) => def(id).water && def(id).key !== 'bridge';
@@ -807,6 +808,7 @@ function layOutSettlement(kind, opt, P) {
   const mapType = kind === 'castle' ? 'castle' : 'town';
   const map = createMap({ type: mapType, w, h, name: opt.name || 'Settlement', fill: S.underground ? 'cave_wall' : S.ground });
   map.lighting = S.underground ? 'dark' : 'day';
+  map.settlement = kind; // (market) the kind of place, for the themes its shops take
   const buildings = [];
   const npcs = [];
   const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
@@ -1497,7 +1499,7 @@ export function generateFromPlan(game, plan, opt = {}) {
     res = plan.style === 'seacave' ? smugglersCave(game, name, seed, { plan: P }) : generateDungeon({ name, seed, plan: P, level: opt.level });
   } else {
     res = generateSettlement(SETTLEMENT_STYLES[plan.style] ? plan.style : 'town', { name, seed, plan });
-    nameNpcs(res.map, game, seed);
+    nameNpcs(res.map, game, seed, opt.where);
   }
   res.map.name = name;
   res.map.plan = JSON.parse(JSON.stringify({ ...plan, seed }));
@@ -1505,6 +1507,16 @@ export function generateFromPlan(game, plan, opt = {}) {
 }
 
 // ---------------------------------------------------------------- feature placement
+// (market) is a site by the sea (open water within a few squares)?
+function byTheSea(world, x, y, r = 4) {
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (!inBounds(world, x + dx, y + dy)) continue;
+    const t = terrain(getTile(world, x + dx, y + dy));
+    if (t.water && t.ship && !t.deck) return true;
+  }
+  return false;
+}
+
 // (plan: build the place's map to a plan instead of the kind's usual one)
 export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   const fk = FEATURE_KINDS[kind];
@@ -1513,7 +1525,7 @@ export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   let sub;
   const s = seed ?? Math.floor(Math.random() * 1e9);
   if (plan) {
-    sub = generateFromPlan(game, { ...plan, kind }, { name, seed: s }).map;
+    sub = generateFromPlan(game, { ...plan, kind }, { name, seed: s, where: { coast: byTheSea(world, x, y) } }).map;
   } else if (kind === 'seacave') {
     sub = smugglersCave(game, name, s).map;
   } else if (fk.mapType === 'dungeon') {
@@ -1524,7 +1536,7 @@ export function placeFeature(game, world, x, y, kind, name, seed, plan = null) {
   } else {
     const style = kind === 'castle' ? 'castle' : kind === 'village' ? 'village' : kind === 'elfhall' ? 'elfhall' : kind === 'dwarfgate' ? 'dwarfgate' : kind === 'harbour' ? 'harbour' : 'town';
     sub = generateSettlement(style, { name, seed: s }).map;
-    nameNpcs(sub, game, s);
+    nameNpcs(sub, game, s, { coast: byTheSea(world, x, y) });
   }
   sub.name = name;
   sub.exit = { map: world.id, x, y };
@@ -1646,11 +1658,15 @@ export function isMadeUpName(name) {
 // the shopkeepers, innkeepers and healers (each keeps a building)
 export const KEEPER_ROLES = Object.keys(SHOP_ROLES);
 
-export function nameNpcs(map, game, seed = 1) {
+// (where: what the world knows of the place, { coast: true } by the sea)
+export function nameNpcs(map, game, seed = 1, where = {}) {
   const rng = new RNG(seed + 77);
   // no new name may echo anyone already in the game, in any town
   const used = npcNameWords(game);
   for (const e of map.entities) if (e.type === 'npc') for (const w of nameWords(e.name)) used.add(w);
+  // (market) the themes the realm's other shops, and this place's, already follow
+  const themes = game ? themesInUse(game, map) : new Set();
+  for (const e of map.entities) if (e.shop?.theme) themes.add(e.shop.theme);
   for (const e of map.entities) {
     if (e.type !== 'npc') continue;
     const race = e.look?.race || 'human';
@@ -1665,34 +1681,32 @@ export function nameNpcs(map, game, seed = 1) {
       const title = SHOP_ROLES[e.role]?.title?.toLowerCase() || (e.role === 'villager' ? 'local' : e.role);
       e.desc = `a ${race === 'human' ? '' : race + ' '}${title}`.replace('  ', ' ');
     }
-    if (e.shop && game && !(e.shop.stock && e.shop.stock.length)) e.shop.stock = defaultStock(game, e.shop.kind);
+    // (market) a shop of its own: it trades along a theme that suits the place
+    // and its folk, and one no other shop of its kind in the realm has taken
+    if (e.shop && game && !e.shop.stock?.length && !e.shop.theme) {
+      e.shop.stock = [];
+      const style = map.settlement || settlementOf(map);
+      const theme = pickTheme(game, { kind: e.shop.kind, role: e.role, race, style: style === 'harbour' ? 'town' : style, coast: !!where.coast || style === 'harbour',
+        seed: `${seed}:${e.x},${e.y}`, used: themes });
+      if (theme) { e.shop.theme = theme; themes.add(theme); }
+    }
   }
 }
 
-// charms a shop keeps: up to n of those that pass, cheapest first, never a unique one
-const SAGE_CHARMS = ['orb', 'mirror', 'feather', 'lantern', 'ring', 'amulet'];
-function curios(items, pass, n) {
-  return items.filter((it) => it.type === 'charm' && !it.unique && (it.price || 0) > 0 && !(it.only?.races?.length || it.only?.classes?.length) && pass(it))
-    .sort((a, b) => (a.price || 0) - (b.price || 0)).slice(0, n).map((it) => it.id);
+// the kind of place a settlement map is, for one built before maps said so
+function settlementOf(map) {
+  if (map.type === 'castle') return 'castle';
+  const folk = (map.entities || []).filter((e) => e.type === 'npc');
+  const race = (r) => folk.filter((e) => e.look?.race === r).length > folk.length / 2;
+  if (race('dwarf')) return 'dwarfgate';
+  if (race('elf')) return 'elfhall';
+  return folk.filter((e) => e.shop).length <= 3 ? 'village' : 'town';
 }
 
-// What a shop sells unless the designer says otherwise: ordinary gear only.
-// The finest arms and armour are left for quests, hoards and hand-picked shops.
+// What a shop of a kind sells unless the designer says otherwise: what the
+// kind's first theme gives (World Data → Shop themes)
 export function defaultStock(game, kind) {
-  const items = game.items || [];
-  const ok = (it) => !it.unique && (it.price || 0) > 0;
-  switch (kind) {
-    case 'weapons': return items.filter((it) => it.type === 'weapon' && ok(it) && (it.price || 0) <= 100).map((it) => it.id);
-    case 'armor': return items.filter((it) => (it.type === 'armor' || it.type === 'shield') && ok(it) && (it.price || 0) <= 130).map((it) => it.id);
-    case 'provisions': return items.filter((it) => (it.type === 'consumable' || it.type === 'key') && ok(it)).map((it) => it.id);
-    case 'reagents': return items.filter((it) => it.type === 'reagent' && ok(it)).map((it) => it.id);
-    // sages keep a few curios of magic beside their scrolls, a trading post a
-    // few humble charms; a curio-seller (kind 'charms') all but the legends
-    case 'scrolls': return [...items.filter((it) => it.type === 'scroll' && ok(it)).map((it) => it.id), ...curios(items, (it) => ['uncommon', 'rare'].includes(it.rarity) && SAGE_CHARMS.includes(it.kind) && (it.price || 0) <= 450, 4)];
-    case 'mixed': return [...items.filter((it) => (it.type === 'consumable' || it.type === 'reagent') && ok(it) && (it.price || 0) <= 120).map((it) => it.id), ...curios(items, (it) => it.rarity === 'common' && (it.price || 0) <= 80, 4)];
-    case 'charms': return curios(items, (it) => it.rarity !== 'legendary' && (it.price || 0) <= 700, 12);
-    default: return [];
-  }
+  return themeStock(game, defaultTheme(game, kind));
 }
 
 // ---------------------------------------------------------------- arenas

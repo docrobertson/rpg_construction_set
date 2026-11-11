@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES, WEAPON_KIND_DEFS } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES, WEAPON_KIND_DEFS, SHOP_THEMES } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -36,6 +36,10 @@ export function defaultSettings() {
     dodgeEvery: 3, // heroes in cloth or leather gain +1 armour every this-many levels (0: never)
     lastStand: true,
     breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
+    // (market) what merchants pay for what they buy back, as a share of its price,
+    // and every shop price in the realm scaled at once
+    sellRate: 0.35,
+    priceScale: 1,
   };
 }
 
@@ -63,6 +67,8 @@ export function newGame(opts = {}) {
     monsters: deepClone(MONSTERS),
     // (tactics) the kinds of weapon and their traits
     weaponKinds: deepClone(WEAPON_KIND_DEFS),
+    // (market) the lines of trade a shop may follow
+    shopThemes: deepClone(SHOP_THEMES),
     quests: [],
     // the designer's outline: chapters that group quests (see game/story.js)
     story: { chapters: [] },
@@ -91,6 +97,7 @@ export function newGame(opts = {}) {
   game.settings.charmsV = CHARMS_V; // (born with charms: nothing to migrate)
   game.settings.poolsV = 1;
   game.settings.tacticsV = TACTICS_V; // (born with weapon training: nothing to migrate)
+  game.settings.marketV = MARKET_V; // (born with the new prices: nothing to migrate)
   game.settings.start = findStart(world);
   return game;
 }
@@ -189,6 +196,7 @@ export function migrateGame(game) {
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
   migrateCompany(game);
   migrateTactics(game);
+  migrateMarket(game);
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
 }
@@ -223,6 +231,38 @@ export function migrateTactics(game) {
   for (const m of game.monsters || []) {
     const d = MONSTERS.find((x) => x.id === m.id);
     if (d && OLD_FIGURES[m.id] && same(m, OLD_FIGURES[m.id])) { m.hit = d.hit; m.dmg = d.dmg; }
+  }
+}
+
+// (market) Shop themes and a real economy came later (MARKET_V 1). Older games
+// gain the built-in themes (World Data → Shop themes) and merchants who buy
+// back at the new sell rate (a Rules setting, on with its default); the
+// built-in items take their new prices only while still at the price they
+// came with (a designer's own prices are left alone). A shop keeps the stock
+// it was given: shops with a list of their own sell just what they did.
+export const MARKET_V = 1;
+const OLD_PRICES = {
+  dagger: 4, short_sword: 18, long_sword: 40, great_sword: 90, hand_axe: 12, battle_axe: 70, mace: 20, warhammer: 45, quarterstaff: 6, spear: 15, sling: 5,
+  short_bow: 30, long_bow: 75, crossbow: 80, elven_bow: 300, ember_bow: 360, shadow_fang: 280, runeblade: 450, dwarf_axe: 380, hookblade: 120, staff_of_power: 420,
+  robe: 8, leather_armor: 25, studded_leather: 60, chain_mail: 120, scale_mail: 200, plate_armor: 450, truesilver_mail: 900, elven_cloak: 240, lizardhide: 150,
+  dragonscale: 520, buckler: 15, kite_shield: 55, healing_draught: 25, greater_draught: 70, antidote: 15, mana_tonic: 45, votive_candle: 45, larks_honey: 45,
+  phoenix_feather: 300, torch: 3, scroll_seeing: 60, iron_key: 30, scroll_acid_arrow: 90, scroll_phantasm: 110, scroll_vampiric: 160, scroll_ice_storm: 240,
+  lucky_acorn: 25, tin_whistle: 18, giants_hobnail: 40, glowworm_jar: 35, rabbit_foot: 45, worry_stone: 22, hazel_twig: 65, copper_bangle: 30, shepherds_bell: 50,
+  honeycake_tin: 40, hearth_stone: 55, gull_feather: 30, selkie_shell: 150, goatfoot_amulet: 240, merchants_brooch: 150, nettle_ring: 140, leech_stone: 220,
+  owl_feather: 200, wolf_tooth: 160, shieldmaiden_brooch: 170, frostfang_pendant: 240, viper_amulet: 260, wanderers_pin: 230, bone_dice: 190, wildwood_whistle: 280,
+  salamander_scale: 320, oath_ring_aldred: 210, oath_ring_edric: 210, thieves_penny: 110, ember_ring: 200, thunder_egg: 180, menders_pendant: 170, barrow_bell: 230,
+  deep_runering: 300, leaf_brooch: 260, old_toby_pipe: 120, kings_coin: 220, golden_string: 300, hawk_eye: 260, shieldwall_torc: 280, forgespark_amulet: 260,
+  coral_charm: 140, quicksilver_hourglass: 300, ring_of_opening: 380, trollblood_ring: 480, warding_mirror: 360, phoenix_ember: 420, stormcaller_orb: 520,
+  horn_of_brannoc: 650, sunstone: 340, moonstone: 340, fox_ring: 330, star_ring: 420, dawn_medallion: 380, shadowsilk_mask: 340, jade_idol: 420,
+  heart_of_the_mountain: 1400, seers_eye: 900, phial_of_morning: 760, dragons_eye: 1600,
+};
+export function migrateMarket(game) {
+  if (!Array.isArray(game.shopThemes)) game.shopThemes = deepClone(SHOP_THEMES);
+  if ((game.settings.marketV || 0) >= MARKET_V) return;
+  game.settings.marketV = MARKET_V;
+  for (const it of game.items || []) {
+    const d = ITEMS.find((x) => x.id === it.id);
+    if (d && OLD_PRICES[it.id] != null && it.price === OLD_PRICES[it.id]) it.price = d.price;
   }
 }
 
