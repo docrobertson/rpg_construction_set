@@ -38,6 +38,7 @@ export function defaultSettings() {
     breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
     // (tactics II) seasoned foes, high ground
     veterans: 3, // a wandering kind this many levels below the company comes as veterans (0: never; rules.js veteranRise)
+    highGround: 1, // to hit with shots from high ground at a foe below, and off blows struck up at it (0: none, and no raised squares in battle)
   };
 }
 
@@ -259,6 +260,7 @@ export function migrateTactics(game) {
   }
   if (v < 2) {
     if (game.settings.veterans === undefined) game.settings.veterans = 3;
+    if (game.settings.highGround === undefined) game.settings.highGround = 1;
     // (the built-in beasts' seasoned names: "Dire Wolf", not "Wolf Veteran")
     for (const m of game.monsters || []) {
       const d = MONSTERS.find((x) => x.id === m.id);

@@ -101,7 +101,7 @@ export class Battle {
   setup() {
     if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
-    this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting, highGround: this.highBonus() ? 1 : 0 });
     if (this.s.map?.mood) this.arena.mood = this.s.map.mood; // (isles: a temple's gloom follows you into the fight)
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
@@ -385,6 +385,20 @@ export class Battle {
     return null;
   }
 
+  // (tactics II) High ground: a knoll, a rocky rise or a dais (a terrain's
+  // `high`). A fighter on it shoots down at +settings.highGround (1) to hit a
+  // foe below, and a foe below strikes up at it at −1 hand to hand.
+  highBonus() { return Math.max(0, Math.round(+(this.game.settings?.highGround ?? 1) || 0)); }
+  highGround(x, y) {
+    if (!inBounds(this.arena, x, y)) return false;
+    return !!terrain(getTile(this.arena, x, y)).high;
+  }
+  // what high ground gives a unit standing at (x, y), in words ('' for none)
+  highNote(x, y) {
+    const k = this.highBonus();
+    return k && this.highGround(x, y) ? `High ground: +${k} to your shots; blows from below are −${k}` : '';
+  }
+
   dist(a, b) { return cheb(a, b); }
   adjacent(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1; }
 
@@ -394,6 +408,15 @@ export class Battle {
     if (dx && this.obstacle(t.x + dx, t.y)) return true;
     if (dy && this.obstacle(t.x, t.y + dy)) return true;
     return false;
+  }
+
+  // the obstacles beside t that shelter it from a missile from `from` (as
+  // inCover reckons it): [{ x, y }]
+  coverSquares(t, from) {
+    const dx = Math.sign(from.x - t.x), dy = Math.sign(from.y - t.y), out = [];
+    if (dx && this.obstacle(t.x + dx, t.y)) out.push({ x: t.x + dx, y: t.y });
+    if (dy && this.obstacle(t.x, t.y + dy)) out.push({ x: t.x, y: t.y + dy });
+    return out;
   }
 
   // Who on the other side of `side` shoots (a bow, crossbow or sling; a
@@ -1131,7 +1154,10 @@ export class Battle {
     if (mark) { hit += mark; notes.push(`Marked +${mark}, +${mark} dmg`); }
     if (t.member && hasTrait(this.game, t.member, 'lucky')) { hit -= 2; notes.push('Lucky −2'); }
     let cover = null;
+    // (tactics II) high ground: down onto a foe below, up at one above
+    const hk = this.highBonus(), uHigh = hk && this.highGround(u.x, u.y), tHigh = hk && this.highGround(t.x, t.y);
     if (!kit.ranged) {
+      if (tHigh && !uHigh) { hit -= hk; notes.push(`Uphill −${hk}`); }
       if (u.member && !this.adjacent(u, t) && this.inReach(u, t)) notes.push('Reach (spear)');
       const flank = this.friendsOf(u).some((f) => f !== u && this.adjacent(f, t) && !this.helpless(f));
       if (flank) { hit += 2; notes.push('Flanking +2'); }
@@ -1149,6 +1175,7 @@ export class Battle {
       if (tr?.trait === 'stagger') notes.push(`Stagger ${Math.round((tr.chance ?? 0.3) * 100)}%`);
       if (tr?.trait === 'sweep' && this.foesOf(u).some((f) => f !== t && this.adjacent(f, u))) notes.push('Sweep on a kill');
     } else {
+      if (uHigh && !tHigh) { hit += hk; notes.push(`High ground +${hk}`); }
       if (!ab?.ignoreCover && !steady && this.inCover(t, u)) {
         if (tr?.trait === 'pierce') notes.push('Pierce: cover ignored');
         else { hit -= 3; cover = 'Cover −3'; }
@@ -2538,6 +2565,8 @@ export class Battle {
       if (c.d > 0) for (const f of this.provokers(m, c.x, c.y)) s -= 3 + 20 * this.breakChance(f, m);
       // (a shooter likes a square in cover from the heroes' own shooters)
       if (this.shooters(m.side).some((f) => this.inCover(c, f))) s += 4;
+      // (tactics II) ...and an archer likes high ground, to shoot down from
+      if (ai === 'archer' && this.highBonus() && this.highGround(c.x, c.y)) s += 7;
       if (this.inDanger(c.x, c.y, m.side)) s -= 40;
       if (s > bs) { bs = s; best = c; }
     }

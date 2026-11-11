@@ -334,11 +334,18 @@ export class BattleFx {
   // (tactics II) a blow turned aside on a shield: the shield's face flares
   // between the bearer and the blow, sparks fly off it, the bearer rocks back
   block(t, from) {
-    const a = this.pos(t.x, t.y, 0.62), b = from ? this.pos(from.x, from.y, 0.62) : a.clone().add(new THREE.Vector3(0, 0, 1));
-    const p = a.clone().lerp(b, Math.min(0.4, 0.34 / Math.max(0.5, a.distanceTo(b))));
-    this.pop(p, 'shield', 0xc8e0ff, 0.42, 0.78, 0.42);
-    this.pop(p, 'star', 0xffffff, 0.15, 0.85, 0.16);
-    this.particles(p, { count: 9, color: 0xfff2c0, size: 0.09, speed: 2.6, up: 1.1, gravity: -6, life: 0.36 });
+    const a = this.pos(t.x, t.y, 0.5), b = from ? this.pos(from.x, from.y, 0.5) : a.clone().add(new THREE.Vector3(0, 0, 1));
+    const p = a.clone().lerp(b, Math.min(0.4, 0.3 / Math.max(0.5, a.distanceTo(b))));
+    // (drawn over the figures: from the camera the bearer's own body would hide it)
+    const pops = [['glow', 0x8cc0ff, 0.6, 1.3, 0.5, true], ['shield', 0xb8d8ff, 0.85, 1.15, 0.85, false], ['star', 0xffffff, 0.25, 1.1, 0.24, true]];
+    for (const [tex, col, s0, s1, d, add] of pops) {
+      const s = this.sprite(tex, col, s0, add);
+      s.material.depthTest = false;
+      s.renderOrder = 12;
+      s.position.copy(p);
+      this.tween(d, (k) => { s.scale.setScalar(s0 + (s1 - s0) * (1 - (1 - k) * (1 - k))); s.material.opacity = 1 - k * k; }, () => this.drop(s));
+    }
+    this.particles(p, { count: 10, color: 0xfff2c0, size: 0.1, speed: 2.6, up: 1.1, gravity: -6, life: 0.4 });
     this.nudge(t, from, 0.08);
     this.number(t.x, t.y, 'Blocked!', 'miss', '#bcd8ff');
   }

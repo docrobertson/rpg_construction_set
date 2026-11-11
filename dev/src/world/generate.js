@@ -1696,6 +1696,12 @@ export function defaultStock(game, kind) {
 }
 
 // ---------------------------------------------------------------- arenas
+// (tactics II) the raised squares a battlefield of each style may hold
+export const HIGH_GROUND = {
+  grass: 'knoll', forest: 'knoll', hills: 'knoll', swamp: 'knoll', jungle: 'knoll',
+  desert: 'rise', snow: 'rise', ash: 'rise', beach: 'rise', cave: 'rise',
+  ruins: 'dais', temple: 'dais', indoor: 'dais',
+};
 export const ARENA_W = 13;
 export const ARENA_H = 9;
 
@@ -1774,6 +1780,29 @@ export function generateArena(style, seed, opt = {}) {
       for (let y = 0; y < H; y++) for (const x of [0, W - 1]) if (rng.chance(0.4)) setTile(map, x, y, T.jungle_tree);
       break;
     default: break;
+  }
+  // (tactics II) high ground: a knoll, a shelf of rock or a ruined dais or
+  // two of one to three squares, in the middle rows on either flank, so
+  // either side may take it (opt.highGround: 0 for none)
+  const high = opt.highGround === 0 ? null : HIGH_GROUND[style];
+  if (high) {
+    const n = rng.chance(0.6) ? 2 : 1;
+    const left = rng.chance(0.5);
+    for (let k = 0; k < n; k++) {
+      const west = k === 0 ? left : !left;
+      const size = rng.pick([1, 2, 2, 3]);
+      for (let a = 0; a < 12; a++) {
+        const x0 = west ? rng.int(1, 4) : rng.int(W - 5, W - 2);
+        // (one nearer the heroes' line, one nearer the foes')
+        const y0 = k === 0 ? rng.int(4, 5) : rng.int(2, 4);
+        const cells = [[x0, y0]];
+        if (size >= 2) cells.push(rng.chance(0.6) ? [x0 + (west ? 1 : -1), y0] : [x0, y0 + 1]);
+        if (size >= 3) cells.push([cells[1][0] === x0 ? x0 + (west ? 1 : -1) : x0, cells[1][0] === x0 ? y0 : y0 + 1]);
+        if (!cells.every(([cx, cy]) => cx >= 1 && cx <= W - 2 && cy >= 2 && cy <= H - 3 && !def(getTile(map, cx, cy)).water)) continue;
+        for (const [cx, cy] of cells) setTile(map, cx, cy, T[high]);
+        break;
+      }
+    }
   }
   // make sure spawn rows are walkable
   const clear = (key) => (x, y) => { if (!def(getTile(map, x, y)).walk) setTile(map, x, y, T[key]); };

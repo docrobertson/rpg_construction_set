@@ -604,6 +604,8 @@ export class TerrainView {
     // --- walls stand on the ground as blocks
     if (own) return;
     let top = center;
+    // (tactics II) high ground: a raised square, part of the ground itself
+    if (t.lift && !t.wall) { top = center + t.lift; this._raised(ground, x, y, t, center, nb); }
     if (t.wall) {
       top = center + t.h;
       const base = Math.min(this.gh(i0, j0), this.gh(i0 + 2, j0), this.gh(i0, j0 + 2), this.gh(i0 + 2, j0 + 2), center) - 0.06;
@@ -680,6 +682,48 @@ export class TerrainView {
       if ((dx || dy) && SITE_SCALE[this.tileAt(x + dx, y + dy).deco] > 1.2) return true;
     }
     return false;
+  }
+
+  // (tactics II) High ground: a raised square whose top stands t.lift above
+  // the ground, its sides sloping in a little (a knoll's turf further, a
+  // dais in two steps); where raised squares touch they run on as one
+  // plateau. Drawn with the ground, so no see-through window cuts it away.
+  _raised(B, x, y, t, center, nb) {
+    const i0 = this._gi(x), j0 = this._gi(y);
+    const base = Math.min(this.gh(i0, j0), this.gh(i0 + 2, j0), this.gh(i0, j0 + 2), this.gh(i0 + 2, j0 + 2), center) - 0.04;
+    const open = (dx, dy) => !nb(dx, dy).lift;
+    const self = this._tileRGB(x, y, t), side = lin(t.side);
+    const step = (foot, top, inset, topRGB, sideHi, sideLo) => {
+      const w = open(-1, 0) ? inset : 0, e = open(1, 0) ? inset : 0, n = open(0, -1) ? inset : 0, s = open(0, 1) ? inset : 0;
+      const X0 = x + w, X1 = x + 1 - e, Z0 = y + n, Z1 = y + 1 - s;
+      const tc = c3(topRGB), hi = c3(sideHi), lo = c3(sideLo);
+      B.quadC([X0, top, Z1], [X1, top, Z1], [X1, top, Z0], [X0, top, Z0], tc, tc, tc, tc);
+      // each open side runs from the square's edge at the foot to the inset edge on top
+      const fx0 = x + (w ? foot.inset : 0), fx1 = x + 1 - (e ? foot.inset : 0);
+      const fz0 = y + (n ? foot.inset : 0), fz1 = y + 1 - (s ? foot.inset : 0);
+      const faces = [
+        [0, 1, [fx0, fz1], [fx1, fz1], [X0, Z1], [X1, Z1]],
+        [0, -1, [fx1, fz0], [fx0, fz0], [X1, Z0], [X0, Z0]],
+        [1, 0, [fx1, fz1], [fx1, fz0], [X1, Z1], [X1, Z0]],
+        [-1, 0, [fx0, fz0], [fx0, fz1], [X0, Z0], [X0, Z1]],
+      ];
+      for (const [dx, dy, a, b, ta, tb] of faces) {
+        if (!open(dx, dy)) continue;
+        B.quadC([a[0], foot.y, a[1]], [b[0], foot.y, b[1]], [tb[0], top, tb[1]], [ta[0], top, ta[1]], lo, lo, hi, hi);
+      }
+    };
+    const top = center + t.lift;
+    if (t.key === 'dais') {
+      // two worn steps of dressed stone
+      const mid = center + t.lift * 0.5;
+      step({ y: base, inset: 0 }, mid, 0.02, scale3(self, 0.9), scale3(side, 1.05), scale3(side, 0.62));
+      step({ y: mid - 0.01, inset: 0.02 }, top, 0.16, self, side, scale3(side, 0.7));
+    } else if (t.key === 'knoll') {
+      // a turfed mound in two terraces: green ledges, earthen banks
+      const mid = center + t.lift * 0.5, bank = mix3(self, side, 0.4);
+      step({ y: base, inset: 0 }, mid, 0.05, scale3(self, 0.94), bank, scale3(side, 0.8));
+      step({ y: mid - 0.01, inset: 0.05 }, top, 0.17, self, mix3(self, side, 0.25), scale3(bank, 0.9));
+    } else step({ y: base, inset: 0 }, top, 0.09, self, side, scale3(side, 0.6));
   }
 
   // plain block (town walls keep their own style)

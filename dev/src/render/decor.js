@@ -376,6 +376,58 @@ export const DECOR = {
     if (r(9) < 0.2) { const [px, py, pz] = at(10, 0.5); rock(B, px, py - 0.04, pz, 0.8 + r(11) * 0.5, r(12), null, true); }
     if (r(13) < 0.12 && !c.thin) { const [px, py, pz] = at(14, 0.4); tree(B, px, py, pz, 0.9, r(16)); }
   },
+  // (tactics II) high ground in battle: the raised square itself is drawn
+  // with the ground (terrainView _raised); these dress its top (c.y) and
+  // foot so it reads as higher: tufts on a knoll's brow and stones bedded at
+  // its foot, boulders on a rocky rise's back edge, flagstones on a dais.
+  knoll(c) {
+    const { B, cx, cz, r } = c;
+    const top = (k, d) => { const a = r(k) * 6.28; return [cx + Math.cos(a) * d, c.y, cz + Math.sin(a) * d]; };
+    for (let i = 0; i < 3; i++) { const [px, py, pz] = top(10 + i, 0.1 + r(20 + i) * 0.08); grassTuft(B, px, py, pz, 1.15, r(30 + i), 0x96b450); }
+    if (r(70) < 0.5) { const a = Math.PI * (1.2 + r(71) * 0.6), px = cx + Math.cos(a) * 0.14, pz = cz + Math.sin(a) * 0.12; bush(B, px, c.y, pz, 0.6, r(72), 0x6f8a3a); }
+    // grass on its lower ledge, and stones at its foot, at the sides and back
+    // (none in front, where they would hide the figure)
+    const ledge = c.y - c.t.lift * 0.5;
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI * (0.85 + i * 0.42 + (r(90 + i) - 0.5) * 0.2), px = cx + Math.cos(a) * 0.41, pz = cz + Math.sin(a) * 0.4;
+      grassTuft(B, px, ledge, pz, 1.1, r(95 + i), 0x8aac4c);
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (0.9 + i * 0.7 + (r(40 + i) - 0.5) * 0.3), px = cx + Math.cos(a) * 0.52, pz = cz + Math.sin(a) * 0.5;
+      rock(B, px, c.gy(px, pz) - 0.05, pz, 0.45 + r(50 + i) * 0.25, r(60 + i), null, true);
+    }
+  },
+  rise(c) {
+    const { B, cx, cz, r, dark } = c;
+    const cols = dark ? [0x8a7f70, 0x9a8e7c, 0x7e7366] : [0x958c80, 0xa39a8c, 0x887f74];
+    // boulders along its back edge, pebbles on top, a few at its foot
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (1.25 + i * 0.5 + (r(10 + i) - 0.5) * 0.2), px = cx + Math.cos(a) * 0.32, pz = cz + Math.sin(a) * 0.3;
+      rock(B, px, c.y - 0.05, pz, 0.6 + r(30 + i) * 0.35, r(40 + i), cols[i % 3]);
+    }
+    for (let i = 0; i < 3; i++) {
+      const px = cx + (r(50 + i) - 0.5) * 0.5, pz = cz + (r(60 + i) - 0.5) * 0.4;
+      rock(B, px, c.y - 0.02, pz, 0.18 + r(70 + i) * 0.12, r(80 + i), cols[(i + 1) % 3]);
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (0.95 + i * 1.1), px = cx + Math.cos(a) * 0.52, pz = cz + Math.sin(a) * 0.5;
+      rock(B, px, c.gy(px, pz) - 0.04, pz, 0.4 + r(90 + i) * 0.2, r(95 + i), cols[i % 3], true);
+    }
+  },
+  dais(c) {
+    const { B, cx, cz, r, t } = c;
+    const st = t.top;
+    // flagstones on the top step, worn and a little uneven
+    for (let qj = 0; qj < 2; qj++) for (let qi = 0; qi < 2; qi++) {
+      const k = qj * 2 + qi, px = cx - 0.17 + qi * 0.34, pz = cz - 0.17 + qj * 0.34;
+      B.box(shade(st, 1.0 + r(30 + k) * 0.16), { x: px, y: c.y - 0.012, z: pz, sx: 0.31, sy: 0.022, sz: 0.31, ry: (r(70 + k) - 0.5) * 0.05 });
+    }
+    // a broken column's stump at a back corner, now and then
+    if (r(80) < 0.45) {
+      const px = cx + (r(81) < 0.5 ? -0.27 : 0.27), pz = cz - 0.27;
+      B.shape(TPL.cyl12, shade(st, 0.94), { x: px, y: c.y - 0.01, z: pz, sx: 0.16, sy: 0.22 + r(82) * 0.16, sz: 0.16, grad: 0.3 });
+    }
+  },
   mountain(c) { mountainDeco(c, false); },
   peak(c) { mountainDeco(c, true); },
   reeds(c) {

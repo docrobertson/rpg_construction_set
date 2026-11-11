@@ -80,7 +80,7 @@ export class CombatHud {
     this.ui.root.appendChild(this.tip);
     // leaving the map clears what hovering drew on it
     this.canvas = this.view.renderer?.domElement;
-    this.onLeave = () => { this.hideTip(); this.view.setLine?.(null); this.view.showCursor(null); this.hoverKey = null; if (this.b?.active && !this.ui.targeting) this.showMoves(this.b.active); };
+    this.onLeave = () => { this.hideTip(); this.view.setLine?.(null); this.view.showCursor(null); this.view.setCutKeep?.(null); this.hoverKey = null; if (this.b?.active && !this.ui.targeting) this.showMoves(this.b.active); };
     this.canvas?.addEventListener('mouseleave', this.onLeave);
     // on a touch screen there is no hovering: the first tap shows what would happen, the second does it
     this.onDown = (e) => { this.lastPointer = { type: e.pointerType, x: e.clientX, y: e.clientY }; };
@@ -103,6 +103,7 @@ export class CombatHud {
     this.onCallout = null;
     this.view.safeTop = 0;
     this.view.fieldBattle = false;
+    this.view.setCutKeep?.(null);
     if (this.onLeave) this.canvas?.removeEventListener('mouseleave', this.onLeave);
     if (this.onDown) this.canvas?.removeEventListener('pointerdown', this.onDown);
     this.onLeave = null;
@@ -370,7 +371,7 @@ export class CombatHud {
     add({
       icon: 'move', name: 'Move', key: '←↑→', sub: held ? (pinned ? 'Pinned!' : 'Reeling!') : `${mv} of ${u.maxMoves} left`, off: mv <= 0 || held,
       why: held ? (pinned ? 'Pinned in place: you can still fight.' : 'Reeling from a heavy blow: no moving this turn, but you can still fight.') : 'No moves left this turn.',
-      tip: `Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe: it may get a free strike (hover the square for the odds). A shield marks a square in cover from a foe's archers. ${b.field ? 'Step onto the stairs (green) to flee.' : 'Walk off the edge of the field to flee.'}`,
+      tip: `Click a blue square, or use the arrow keys. Amber squares mean breaking away from a foe: it may get a free strike (hover the square for the odds). A shield marks a square in cover from a foe's archers; a gold arrow, high ground (+1 to your shots). ${b.field ? 'Step onto the stairs (green) to flee.' : 'Walk off the edge of the field to flee.'}`,
       onClick: () => this.ui.hint('Click a blue square to move there.'),
     });
     // (tactics) a safe step back, for everyone
@@ -485,6 +486,7 @@ export class CombatHud {
   turn(u) {
     this.armed = null;
     this.hoverKey = null;
+    this.view.setCutKeep?.(null);
     this.setMarks(null);
     this.hideTip();
     this.view.setLine?.(null);
@@ -519,6 +521,8 @@ export class CombatHud {
         const from = b.coverFrom(c.x, c.y, u.side);
         if (from.length) marks.push({ x: c.x, y: c.y, icon: 'shield', cls: 'cover' + (c.d === 0 ? '.here' : ''), title: `In cover from ${from.map((f) => b.the(f)).join(', ')}` });
       }
+      // (tactics II) high ground to step up onto
+      if (b.highNote?.(c.x, c.y)) marks.push({ x: c.x, y: c.y, icon: 'up', cls: 'high' + (c.d === 0 ? '.here' : ''), up: 0.05, title: b.highNote(c.x, c.y) });
     }
     for (const e of hot.values()) marks.push({ x: e.x, y: e.y, cls: 'odds', icon: 'sword', text: `${Math.round(e.p * 100)}%`, up: 0.35, title: `${b.The(e.f)}: ${Math.round(e.p * 100)}% it strikes as you break away` });
     for (const e of b.attackTargets(u)) cells.push({ x: e.x, y: e.y, color: 0xff4030 });
@@ -551,7 +555,30 @@ export class CombatHud {
     return b.canAttack(u, unit) ? b.preview(u, unit) : null;
   }
 
+  // (tactics II) Hovering cuts a see-through window in the scenery round the
+  // square; the tree or rock that gives the foe (or the square) its cover is
+  // only ghosted in it, so the player sees what shields it (view.setCutKeep)
   hover(t, e) {
+    this.keepFor = null;
+    try { this.hoverAt(t, e); } finally { this.view.setCutKeep?.(this.keepFor); }
+  }
+
+  // the squares sheltering a foe at t from the active hero's shot, or a
+  // square from the foes' archers: [{ x, y }] (none when nothing shoots)
+  coverKeep(t, unit) {
+    const b = this.b, u = b?.active;
+    if (!u || !b.coverSquares) return null;
+    if (unit && unit.side !== u.side) {
+      if (b.adjacent(u, unit) || b.weaponRange(u) <= 1 || !b.inCover(unit, u)) return null;
+      return b.coverSquares(unit, u);
+    }
+    if (unit) return null;
+    const out = [];
+    for (const f of b.coverFrom(t.x, t.y, u.side)) for (const c of b.coverSquares(t, f)) if (!out.some((o) => o.x === c.x && o.y === c.y)) out.push(c);
+    return out.length ? out : null;
+  }
+
+  hoverAt(t, e) {
     const b = this.b;
     if (!b || !t) { this.hideTip(); this.view.showCursor(null); return; }
     const u = b.active;
@@ -560,6 +587,7 @@ export class CombatHud {
     const at = (card) => this.showTip(card, e.clientX + 18, e.clientY + 16);
     if (tg) {
       const valid = this.ui.targetValid(t);
+      if (valid && unit && (!tg.ab || tg.ab.attack === 'ranged' || tg.ab.thrown || (!tg.ab.attack && !tg.tiles))) this.keepFor = this.coverKeep(t, unit);
       this.view.showCursor(t.x, t.y, valid ? 0xffe040 : 0x808080);
       this.view.setLine?.(null);
       this.aimArea(tg, valid ? t : null);
@@ -571,6 +599,7 @@ export class CombatHud {
     }
     if (unit) {
       const attackable = u && unit.side === 'enemy' && b.canAttack(u, unit);
+      this.keepFor = this.coverKeep(t, unit);
       if (this.hoverKey) { this.hoverKey = null; if (u) this.showMoves(u); }
       this.view.showCursor(t.x, t.y, unit.side === 'enemy' ? (attackable ? 0xff4040 : 0xffffff) : 0x80ff80);
       this.view.setLine?.(null);
@@ -599,13 +628,16 @@ export class CombatHud {
         this.view.showCursor(t.x, t.y, 0x80c8ff);
         this.view.setLine?.(path.map(([x, y]) => ({ x, y })), 0xbfe4ff);
         const breaks = this.pathBreaks(u, t.x, t.y);
+        this.keepFor = this.coverKeep(t, null);
         if (this.hoverKey !== `${t.x},${t.y}`) { this.hoverKey = `${t.x},${t.y}`; this.showMoves(u, breaks); }
         // (a square in cover from the foe's archers, by name; open to them, likewise)
         const shelter = b.coverFrom ? b.coverFrom(t.x, t.y, u.side) : [];
         const open = b.shooters ? b.shooters(u.side).filter((f) => !shelter.includes(f) && b.dist(f, t) <= b.weaponRange(f) && b.lineClear(f, t)) : [];
         const beside = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => b.obstacle(t.x + dx, t.y + dy));
         const wd = b.canWithdraw?.(u);
+        const high = b.highNote?.(t.x, t.y);
         at(h('div.tc-move', h('b', `Move ${n} square${n > 1 ? 's' : ''}`), h('span', ` · ${u.moves - n} left after`),
+          high ? h('p.tc-good.tc-high', icon('up'), ` ${high}.`) : null,
           ...breaks.map((e) => h('p.tc-why', icon('warn'), ` Leaving ${b.the(e.f)}: ${Math.round(e.p * 100)}% it strikes.`)),
           breaks.length && wd?.ok ? h('p.tc-hint', icon('flee'), ' Withdraw (R): one square back, no free strike.') : null,
           shelter.length ? h('p.tc-good', icon('shield'), ` In cover from ${shelter.map((f) => b.the(f)).join(', ')}: −3 to ${shelter.length > 1 ? 'their' : 'its'} shots.`)
@@ -620,6 +652,7 @@ export class CombatHud {
     this.view.showCursor(t.x, t.y, 0x707070);
     if (lines.length) at(h('div.tc-move', ...lines));
     else if (u && b.obstacle(t.x, t.y)) at(h('div.tc-move', h('span', this.s.describeTile ? 'Impassable — but it gives cover beside it.' : 'Impassable.')));
+    else if (b.highNote?.(t.x, t.y)) at(h('div.tc-move', h('p.tc-good.tc-high', icon('up'), ` ${b.highNote(t.x, t.y)}.`)));
     else this.hideTip();
   }
 
@@ -642,6 +675,7 @@ export class CombatHud {
         h('div.tc-stats', ...stats.map((s) => h('span', s))),
         h('p.tc-ai', ...((AI_STYLES[ai] || ai).match(/^([^:]*):\s*(.*)$/) || [null, ai, '']).slice(1).map((t, i) => (i ? ` — ${t}` : h('b', t)))),
         abil.length ? h('p.tc-abil', 'Abilities: ', abil.join(', ')) : null,
+        this.highRow(unit),
         this.statusRows(unit),
         unit.charging ? h('p.tc-why', icon('warn'), ` Preparing ${unit.charging.ab.name}: it lands on the marked squares when it next acts. ${unit.charging.ab.desc}`) : null,
         eye && !this.ui.targeting ? h('p.tc-eye', `Has its eye on ${eye.name}.`) : null,
@@ -668,8 +702,16 @@ export class CombatHud {
         maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
       g.settings?.lastStand !== false ? h('p.tc-ai', unit.lastStood ? 'Last stand spent: the next felling blow is real.'
         : hp > mhp / 2 ? 'Last stand ready: a blow that would fell them leaves them on 1 health.' : 'Below half health: no last stand.') : null,
+      this.highRow(unit),
       this.statusRows(unit),
       this.previewBlock(pv, label, unit));
+  }
+
+  // (tactics II) a fighter standing on high ground
+  highRow(unit) {
+    const b = this.b, k = b?.highBonus?.() || 0;
+    if (!k || !b.highGround(unit.x, unit.y)) return null;
+    return h('p.tc-high', icon('up'), ` On high ground: +${k} to ${unit.member ? 'their' : 'its'} shots down, −${k} to blows struck up at ${unit.member ? 'them' : 'it'}.`);
   }
 
   // a foe beside the hero whose turn it is: the odds if the hero steps away from it
