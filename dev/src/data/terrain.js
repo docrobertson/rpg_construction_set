@@ -16,6 +16,8 @@
 //   deck   - planks over water (bridges, piers): walked on, never sailed
 //   habitat - the wild things met there, where it is not the arena's own
 //             (the isles keep fauna of their own: see game/session.js habitatOf)
+//   high   - high ground in battle: +1 to shots from it, −1 to blows from below
+//   lift   - drawn as a raised square whose top stands this far above the ground
 
 const defs = [
   // id, key, name, group, props
@@ -123,6 +125,14 @@ const defs = [
   // stepping stones across a shallow stream: wet feet, slow going, but no
   // bridge needed (and, like a bridge, no ship gets past)
   [133, 'ford', 'Ford', 'world', { h: -0.2, water: true, deck: true, walk: true, cost: 2, top: 0x3c8fc0, deco: 'ford', arena: 'bridge' }],
+  // (tactics II) high ground: walkable raised squares that give a fighter
+  // standing on them the upper hand (game/combat.js highGround): a grassy
+  // knoll, a shelf of rock, the steps of a ruined dais. Battlefields of
+  // fitting styles get a few (world/generate.js generateArena)
+  // (lift: how far its top stands above the ground round it)
+  [134, 'knoll', 'Knoll', 'any', { h: 0.02, top: 0x98bc58, side: 0x8a7046, deco: 'knoll', cost: 1.5, arena: 'grass', high: 1, lift: 0.44 }],
+  [135, 'rise', 'Rocky Rise', 'any', { h: 0.02, top: 0x9a9282, side: 0x6a6256, deco: 'rise', cost: 1.5, arena: 'hills', high: 1, lift: 0.48 }],
+  [136, 'dais', 'Raised Dais', 'any', { h: 0.02, top: 0xb0a890, side: 0x7e7866, deco: 'dais', cost: 1.25, arena: 'ruins', high: 1, lift: 0.4 }],
 ];
 
 export const TERRAIN = [];
@@ -152,6 +162,8 @@ for (const [id, key, name, group, p] of defs) {
     talkOver: !!p.talkOver,
     deck: !!p.deck,
     habitat: p.habitat || null,
+    high: p.high || 0,
+    lift: p.lift || 0,
   };
   TERRAIN[id] = t;
   T[key] = id;

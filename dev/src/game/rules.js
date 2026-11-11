@@ -1,7 +1,7 @@
 // Character rules: creation, derived stats, levelling, equipment and spells.
 import { XP_TABLE, MAX_LEVEL, ARMOR_WEIGHTS, ARMOR_SOAK, STATS, STAT_NAMES, ABILITIES, PERKS, CLASSES, MONSTERS, TALENT_TREES, RARITIES, WEAPON_KIND_DEFS, WEAPON_TRAITS } from '../data/defaults.js';
 import { byId } from '../data/schema.js';
-import { roll, RNG, hashString } from '../core/rng.js';
+import { roll, RNG, hashString, parseDice } from '../core/rng.js';
 import { uid, deepClone } from '../core/util.js';
 
 export const mod = (v) => Math.floor(((v || 10) - 10) / 2);
@@ -111,7 +111,7 @@ export function perkChoices(game, c) {
 }
 
 function talentChoices(game, c) {
-  const ok = PERKS.filter((p) => (p.stack || !perkCount(c, p.id))
+  const ok = PERKS.filter((p) => (p.stack ? !(perkCount(c, p.id) >= (p.max || Infinity)) : !perkCount(c, p.id))
     && (p.needs !== 'mana' || maxMp(game, c) > 0)
     && (p.needs !== 'magic' || (() => { const ids = casting(game, c).map((ci) => ci.sys.id); return (game.spells || []).some((sp) => ids.includes(sp.system) && (sp.effect === 'damage' || sp.effect === 'drain')); })())
     && (p.needs !== 'reagents' || casting(game, c).some((ci) => ci.sys.resource === 'reagents'))
@@ -674,6 +674,57 @@ export function armorSoak(game, c) {
   return Math.max(0, Math.round(a.soak ?? ARMOR_SOAK[a.weight] ?? 0));
 }
 
+// (tactics II) A shield's chance to turn aside a blow that would land: its
+// `block` (0.15 = 15%), at most 75%. Not a blow from behind, nor one on a
+// helpless bearer, nor a sure one (combat.js). None while a two-handed
+// weapon fills both hands, or on one who may not wear it.
+export function blockOf(it) {
+  const b = +it?.block || 0;
+  return b > 0 ? Math.round(Math.min(0.75, b) * 100) / 100 : 0;
+}
+export function shieldBlock(game, c) {
+  const s = itemOf(game, c?.equip?.shield);
+  if (!s || s.type !== 'shield' || !wearRule(game, c, s).ok) return 0;
+  if (itemOf(game, c.equip.weapon)?.twoHanded) return 0;
+  return blockOf(s);
+}
+
+// (tactics II) Seasoned foes. A wandering band of a kind the company has far
+// outgrown — settings.veterans (3) or more levels below the company's level —
+// comes as veterans: it rises to just inside that gap (two levels below the
+// company, for 3), +1 to hit and
+// +1 damage a level risen, a tenth more health a level, +1 armour every two,
+// and more experience; named so ("Orc Veteran", or the kind's own vetName:
+// "Dire Wolf"). Never a boss, a named foe or one marked veteran: false.
+// 0: none. Returns how many levels it rises (0: it comes as it is).
+export function veteranRise(game, def, partyLvl) {
+  const gap = Math.round(+(game?.settings?.veterans ?? 3) || 0);
+  if (gap <= 0 || !def || def.boss || def.named || def.veteran === false || def.vet) return 0;
+  const lvl = def.level || 1, diff = (partyLvl || 1) - lvl;
+  return diff >= gap ? diff - gap + 1 : 0;
+}
+export function veteranDef(game, def, rise) {
+  const r = Math.max(0, Math.round(+rise || 0));
+  if (!def || !r) return def;
+  const d = parseDice(def.dmg || '1d4'), hp = parseDice(def.hp || '2d8');
+  const avg = hp.n * (hp.d + 1) / 2 + hp.b;
+  const dice = (x, plus) => (x.d ? `${x.n}d${x.d}${x.b + plus ? (x.b + plus > 0 ? '+' : '') + (x.b + plus) : ''}` : String(x.b + plus));
+  const name = def.vetName || `${def.name} Veteran`;
+  return {
+    ...def, vet: r, base: def.name,
+    name, plural: def.vetName ? def.vetPlural || `${def.vetName}s` : `${def.name} Veterans`,
+    level: (def.level || 1) + r,
+    hit: (def.hit || 0) + r, dmg: dice(d, r), hp: dice(hp, Math.round(avg * 0.1 * r)), ac: (def.ac || 10) + Math.floor(r / 2),
+    xp: Math.round((def.xp || 0) * (1 + 0.25 * r)),
+    look: def.look ? { ...def.look, scale: (def.look.scale || 1) * 1.08 } : def.look,
+  };
+}
+// The foe a band on the map is: its kind, seasoned if the band came so (e.vet)
+export function bandDef(game, e) {
+  const def = byId(game.monsters || [], e?.monster);
+  return def && e.vet ? veteranDef(game, def, e.vet) : def;
+}
+
 export function damageRoll(game, c, w = weaponOf(game, c)) {
   const melee = !isRanged(w);
   return Math.max(1, roll(w.dmg || '1d2') + damageBonus(game, c, w));
@@ -801,5 +852,6 @@ if (typeof window !== 'undefined') {
   window.__tactics = {
     training, weaponTrait, heroTrait, traitText, kindOf, weaponKinds, isHeavy, heavyTrained, untrainedPenalty, armorSoak, armorClass, attackBonus, dodgeBonus,
     canEquip, equipItem, critRange, maxHp, heroicHealth, createCharacter, normalizeMember, gainXp, xpForLevel, equipKit, weaponOf, rangedOf,
+    shieldBlock, blockOf, veteranRise, veteranDef, bandDef, partyLevel,
   };
 }

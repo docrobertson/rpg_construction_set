@@ -176,6 +176,7 @@ export class View {
   // ---- map ----
   setMap(map) {
     this.map = map;
+    this.setCutKeep(null);
     this.clearEntities();
     this.clearFx();
     // buildings claim their walls before the terrain is built round them
@@ -287,6 +288,7 @@ export class View {
     if (t.key === 'lava') return LAVA_Y;
     const g = this.terrain.groundAt(x, y);
     if (t.wall) return g + t.h;
+    if (t.lift) return g + t.lift; // (tactics II) the top of high ground
     if (t.deco === 'stairsup') return g + 0.1;
     return g;
   }
@@ -298,6 +300,7 @@ export class View {
       const t = terrain(getTile(this.map, tx, ty));
       if (t.water) return t.deck ? 0.05 : WATER_Y;
       if (t.wall) return this.terrain.groundAt(tx, ty) + t.h;
+      if (t.lift) return this.terrain.groundAt(tx, ty) + t.lift;
     }
     return Math.max(this.terrain.heightAtPoint(px, pz), WATER_Y);
   }
@@ -872,6 +875,38 @@ export class View {
     if (this._followers) this._followers.update(dt);
     if (this._markers) this._markers.update();
     if (this._hoverGlow) this._hoverGlow.update();
+  }
+
+  // (tactics II) Squares whose scenery the see-through windows only ghost
+  // (at most k), never clear: in battle, the tree or rock that gives the foe
+  // being aimed at its cover, so the player sees what shields it. [{ x, y }] or null
+  setCutKeep(tiles, k = 0.3) {
+    const q = shared.uKeep.value;
+    const list = (tiles || []).slice(0, q.length);
+    // (a canopy spreads a little past its square)
+    list.forEach((t, i) => q[i].set(t.x - 0.2, t.y - 0.2, t.x + 1.2, t.y + 1.2));
+    shared.uKeepN.value = list.length;
+    shared.uKeepK.value = k;
+    this.cutKeep = list;
+  }
+
+  // How much of the scenery at a world point the see-through windows clear
+  // just now, as the shader reckons it: 0 none, 1 all of it (0.5 a ghost)
+  cutAt(x, y, z) {
+    const cuts = shared.uCut.value, ys = shared.uCutY.value, ks = shared.uCutK.value, n = shared.uCutN.value;
+    const pr = this.renderer.getPixelRatio(), H = this._h || 1;
+    const p = this.worldToScreen(x, y, z), fx = p.x * pr, fy = (H - p.y) * pr;
+    const ss = (e0, e1, v) => { const t = Math.max(0, Math.min(1, (v - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+    const q = shared.uKeep.value, keep = [...Array(shared.uKeepN.value).keys()].some((j) => x >= q[j].x && x <= q[j].z && z >= q[j].y && z <= q[j].w);
+    let most = 0;
+    for (let i = 0; i < n; i++) {
+      const c = cuts[i], d = Math.hypot(fx - c.x, fy - c.y);
+      if (d > c.z || z < c.w) continue;
+      let k = ss(c.z, c.z * 0.9, d) * ss(0, 0.1, y - ys[i]) * ss(0, 0.12, z - c.w) * ks[i];
+      if (keep) k = Math.min(k, shared.uKeepK.value);
+      most = Math.max(most, k);
+    }
+    return most;
   }
 
   // ---- cutaway & carried light ----

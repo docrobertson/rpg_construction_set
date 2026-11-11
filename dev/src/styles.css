@@ -2382,10 +2382,20 @@ button.pl-gate.on { color: #2a1606; background: linear-gradient(#f7d27a, #c99440
 .pv-notes span.cover { order: -1; display: inline-flex; align-items: center; gap: 2px; background: rgba(90,140,220,.2); color: #cfe2ff; border-color: rgba(120,170,240,.55); font-weight: bold; }
 .pv-notes span.cover svg { width: 11px; height: 11px; }
 .pv-notes span.trait { background: rgba(232,192,105,.16); color: #f2dca0; border-color: rgba(232,192,105,.45); }
+/* (tactics II) high ground: a gold chevron on the squares, a line on the cards; a shield's block on the odds */
+.cbt-mark.high svg { position: absolute; left: -7px; top: -16px; width: 14px; height: 14px; color: #ffd860; filter: drop-shadow(0 0 2px #2a1800) drop-shadow(0 1px 1px #000); opacity: .95; }
+.cbt-mark.high.here svg { color: #fff0a0; }
+.tc-high { color: #ffe08a; }
+.tc-high svg, .tc-move .tc-high svg { width: 12px; height: 12px; vertical-align: -1px; }
+.pv-notes span.block { display: inline-flex; align-items: center; gap: 2px; background: rgba(200,190,150,.16); color: #f0e4c0; border-color: rgba(220,200,150,.5); }
+.pv-notes span.block svg { width: 11px; height: 11px; }
 .tc-hint { color: #b8f0d0; font-size: 11.5px; }
 .num.untrained b { color: #ffb070; }
 .num.untrained span::after { content: ' ⚠'; color: #ffb070; }
 .num b i.soak { font-style: normal; color: #a8c8ff; font-size: 11px; margin-left: 2px; }
+.num b i.block { font-style: normal; color: #e8d29a; font-size: 11px; margin-left: 4px; display: inline-flex; align-items: center; gap: 1px; }
+.num b i.block .gi { width: 10px; height: 10px; display: inline-flex; }
+.num b i.block .gi svg { width: 10px; height: 10px; }
 .sheet-train { display: flex; flex-direction: column; gap: 3px; margin: 0 0 6px; padding: 5px 8px; border-radius: 6px; background: rgba(0,0,0,.22); box-shadow: inset 0 0 0 1px #3a2c1c; font: 11.5px/1.35 var(--font-ui); color: #d8ccb0; }
 .tr-row { display: flex; gap: 6px; align-items: flex-start; }
 .tr-row .gi { flex: none; width: 14px; height: 14px; margin-top: 1px; color: var(--gold); }

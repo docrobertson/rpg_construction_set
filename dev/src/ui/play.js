@@ -7,7 +7,7 @@ import { getTile } from '../world/map.js';
 import {
   maxHp, maxMp, armorClass, attackBonus, weaponOf, rangedOf, canEquip, itemOf, raceOf, classOf, xpForLevel, gainXp,
   statusLabel, mod, slotFor, equipItem, unequip, spendPoint, specialOf, combatMoves, charLook, EQUIP_SLOTS, SLOT_NAMES,
- magicalOf, wearRule, training, kindOf, traitText, armorSoak, dodgeBonus, untrainedPenalty, kindWords, heavyTrained, isHeavy,
+ magicalOf, wearRule, training, kindOf, traitText, armorSoak, dodgeBonus, untrainedPenalty, kindWords, heavyTrained, isHeavy, shieldBlock, blockOf,
 } from '../game/rules.js';
 import { charmInfo, charmPrice, hasMagic } from '../game/charms.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
@@ -439,8 +439,8 @@ export class PlayUI {
           onclick: (e) => { e.stopPropagation(); if (spendPoint(g, m, st)) { sfx('level'); changed(); } },
         }, '+') : null))),
       h('div.nums',
-        h('div.num', { title: `Armour class: foes must roll this or more to hit${armorClass(g, m, 'melee') > armorClass(g, m) ? ` (${armorClass(g, m, 'melee')} against blows hand to hand: the blade parries)` : ''}${armorSoak(g, m) ? `. The armour soaks ${armorSoak(g, m)} from every blow that lands` : ''}` },
-          h('span', 'Armour'), h('b', String(armorClass(g, m)), armorSoak(g, m) ? h('i.soak', ` −${armorSoak(g, m)}`) : null)),
+        h('div.num', { title: `Armour class: foes must roll this or more to hit${armorClass(g, m, 'melee') > armorClass(g, m) ? ` (${armorClass(g, m, 'melee')} against blows hand to hand: the blade parries)` : ''}${armorSoak(g, m) ? `. The armour soaks ${armorSoak(g, m)} from every blow that lands` : ''}${shieldBlock(g, m) ? `. The shield blocks ${Math.round(shieldBlock(g, m) * 100)}% of the blows that would land (not from behind)` : ''}` },
+          h('span', 'Armour'), h('b', String(armorClass(g, m)), armorSoak(g, m) ? h('i.soak', ` −${armorSoak(g, m)}`) : null, shieldBlock(g, m) ? h('i.block', h('i.gi', { html: iconSvg('shield') }), `${Math.round(shieldBlock(g, m) * 100)}%`) : null)),
         h('div.num', { title: 'Squares this hero can move in a battle turn before acting' }, h('span', 'Moves'), h('b', String(combatMoves(g, m)))),
         h('div.num' + (training(g, m, w).ok ? '' : '.untrained'), { title: `${w.name}: ${w.dmg} damage${training(g, m, w).ok ? '' : `. ${training(g, m, w).why}: −${untrainedPenalty(g)} to hit`}` }, h('span', 'Melee'), h('b', `${fmtMod(attackBonus(g, m, w))} · ${w.dmg}`)),
         h('div.num' + (!rw || training(g, m, rw).ok ? '' : '.untrained'), { title: rw ? `${rw.name}: ${rw.dmg} damage, range ${rw.range}${training(g, m, rw).ok ? '' : `. ${training(g, m, rw).why}: −${untrainedPenalty(g)} to hit`}` : 'No ranged weapon' }, h('span', 'Ranged'), h('b', rw ? `${fmtMod(attackBonus(g, m, rw))} · ${rw.dmg} · ${rw.range}sq` : '—')),
@@ -1817,9 +1817,20 @@ function compareText(g, m, it) {
     const v = Math.round(d * 10) / 10;
     // a two-handed weapon takes the shield off: say so, with what it costs
     const sh = it.twoHanded && slot === 'weapon' && itemOf(g, m.equip.shield);
-    const off = sh ? `, shield off (−${sh.ac || 0} armour)` : '';
+    const off = sh ? `, shield off (${[sh.ac ? `−${sh.ac} armour` : '', blockOf(sh) ? `no ${Math.round(blockOf(sh) * 100)}% block` : ''].filter(Boolean).join(', ') || 'no armour lost'})` : '';
     const r = v > 0.05 ? { cls: sh ? 'same' : 'up', text: `+${v} dmg${off}${un}` } : v < -0.05 ? { cls: 'down', text: `${v} dmg${off}${un}` } : { cls: sh || un ? 'down' : 'same', text: `same dmg${off}${un}` };
     return { ...r, untrained: !!un };
+  }
+  // (tactics II) a shield: its armour and its block (5% of block about a point of armour)
+  if (it.type === 'shield') {
+    const blk = (x) => (x ? Math.round(blockOf(x) * 100) : 0);
+    // (a two-handed weapon in hand: the shield would block nothing)
+    const busy = itemOf(g, m.equip.weapon)?.twoHanded;
+    const v = (it.ac || 0) - (cur?.ac || 0), b = blk(it) - blk(cur);
+    const parts = [v ? `${v > 0 ? '+' : ''}${v} armour` : '', b ? `${b > 0 ? '+' : '−'}${Math.abs(b)}% block` : ''].filter(Boolean);
+    const text = (parts.join(', ') || 'same armour and block') + (busy ? ' (both hands busy)' : '');
+    const worth = v + b / 5;
+    return { cls: busy ? 'same' : v && b && Math.sign(v) !== Math.sign(b) ? 'swap' : worth > 0 ? 'up' : worth < 0 ? 'down' : 'same', text };
   }
   // (armour: what it soaks counts too, a point of soak about a point of armour)
   const soak = (a) => (a?.type === 'armor' ? Math.max(0, a.soak ?? ARMOR_SOAK[a.weight] ?? 0) : 0);
@@ -1854,6 +1865,10 @@ function trainingPanel(g, m) {
   }
   const soak = armorSoak(g, m), dodge = dodgeBonus(g, m);
   if (soak) rows.push(h('div.tr-row', h('i.gi', { html: iconSvg('shield') }), h('span', h('b', itemOf(g, m.equip.armor)?.name || 'Armour'), ` soaks ${soak} from every blow that lands.`)));
+  // (tactics II) a shield blocks
+  const sh = itemOf(g, m.equip?.shield), blk = shieldBlock(g, m);
+  if (sh && blk) rows.push(h('div.tr-row.block', h('i.gi', { html: iconSvg('shield') }), h('span', h('b', sh.name), ` blocks ${Math.round(blk * 100)}% of the blows that would land — not one from behind.`)));
+  else if (sh && blockOf(sh) && itemOf(g, m.equip?.weapon)?.twoHanded) rows.push(h('div.tr-row.untrained', h('i.gi', { html: iconSvg('shield') }), h('span', h('b', sh.name), h('span.tr-warn', ' blocks nothing while both hands hold the weapon.'))));
   if (dodge) rows.push(h('div.tr-row', h('i.gi', { html: iconSvg('boot') }), h('span', h('b', 'Light on the feet'), ` +${dodge} armour (cloth or leather, level ${m.level}).`)));
   const list = (k.weapons || []).length ? k.weapons.map((id) => kindWords(g, id)).join(', ') : 'every kind of weapon';
   rows.push(h('div.tr-list', `A ${(k.name || 'hero').toLowerCase()} is trained with ${list}${heavyTrained(k) ? ', and heavy weapons' : ' — not heavy weapons'}.`));
@@ -1935,6 +1950,7 @@ function gearLines(g, it) {
     const s = Math.max(0, it.soak ?? ARMOR_SOAK[it.weight] ?? 0);
     return s ? [`⛨ Soaks ${s} from every blow that lands.${it.weight === 'plate' ? ' Plate slows its wearer a square in battle.' : ''}`] : ['Light: a hero in it dodges better as they rise.'];
   }
+  if (it?.type === 'shield' && blockOf(it)) return [`Blocks ${Math.round(blockOf(it) * 100)}% of the blows and shots that would land — not one from behind, nor any while its bearer sleeps. No help with a two-handed weapon.`];
   return [];
 }
 
@@ -2021,7 +2037,7 @@ export function itemStats(it) {
   switch (it.type) {
     case 'weapon': return `${it.dmg}${it.hit ? ` ${it.hit > 0 ? '+' : ''}${it.hit} hit` : ''}${(it.range || 1) > 1 ? `, range ${it.range}` : ''}${it.twoHanded ? ', two-handed' : ''}`;
     case 'armor': { const s = Math.max(0, it.soak ?? ARMOR_SOAK[it.weight] ?? 0); return `AC +${it.ac} (${it.weight})${s ? `, soaks ${s}` : ''}${it.weight === 'plate' ? ', −1 move' : ''}`; }
-    case 'shield': return `AC +${it.ac}`;
+    case 'shield': return [it.ac || !blockOf(it) ? `AC +${it.ac || 0}` : '', blockOf(it) ? `blocks ${Math.round(blockOf(it) * 100)}%` : ''].filter(Boolean).join(', ');
     case 'consumable': return it.effect === 'food' ? `+${it.power} food` : it.power ? `${it.effect} ${it.power}` : it.effect;
     case 'reagent': return (it.forage || []).length ? 'herb' : 'reagent';
     case 'scroll': return 'spell scroll';
@@ -2093,7 +2109,10 @@ health, conditions, what it is up to and your <b>chance to hit</b>; hover a squa
 damage again when you strike a foe's back (burglars backstab for double). <b>Cover</b>: a tree, rock or wall on the side a shot
 comes from makes it −3 to hit (crossbows pierce it). While a hero moves, squares in cover from a foe's archers carry a small
 <b>shield</b>, and hovering one names the archers it shelters you from; when you aim, foes in cover from you wear the shield, and
-the odds card puts the −3 first. <b>Engaged</b>: shooting with a foe beside you is −4 (not with a sling).
+the odds card puts the −3 first; the tree or rock that gives a foe its cover stays in sight when you hover it.
+<b>High ground</b>: knolls, rocky rises and ruined daises stand above the field (a gold arrow marks them while you move). From
+one you shoot at +1 to hit a foe below, and a foe below strikes up at you at −1; archers on both sides like them.
+<b>Engaged</b>: shooting with a foe beside you is −4 (not with a sling).
 <b>Breaking away</b> is a gamble: a foe whose reach you leave strikes at you only by chance — about half the time, more if it
 is higher in level or quicker than you, less if you are (15–90%). Amber squares and the hovered path say who, and how likely;
 a seasoned hero slips away from goblins, and cuts down the goblin that runs. <b>Withdraw</b> (R) gives up the rest of your
@@ -2105,8 +2124,11 @@ next turn), a <b>spear</b> strikes two squares off — even past a companion —
 blade</b> sweeps on into the next foe when it fells one, a <b>dagger</b> is quick (crits more, +2 flanking), a <b>staff</b>
 wards (+1 armour, +1 to spells), a <b>bow</b> reaches further, a <b>crossbow</b> pierces cover, a <b>sling</b> snaps off
 shots with a foe in your face. Heavy weapons need heavy-weapon training (warriors, paladins, runesmiths). <b>Mail and
-plate soak</b> 1 and 2 from every blow; heroes in cloth or leather dodge better as they rise. <b>Last stand</b>: a hero above
-half health survives any single blow on 1 health, once a battle — the next blow is real.</p>
+plate soak</b> 1 and 2 from every blow; heroes in cloth or leather dodge better as they rise. <b>Shields block</b>: a buckler
+turns aside one blow or shot in ten that would land, a kite shield one in five — but not a blow from behind, and not while
+its bearer sleeps or holds a two-handed weapon. <b>Last stand</b>: a hero above
+half health survives any single blow on 1 health, once a battle — the next blow is real. <b>Veterans</b>: once your company
+has far outgrown the wild things of a land, they come seasoned — an Orc Veteran, a Dire Wolf — tougher, and worth more.</p>
 <p><b>Skills</b> (keys 1–9) recharge after a few turns; free actions do not end the turn. The <b>★ special</b> (Q) works once per
 battle. Each calling learns new skills as it rises (levels 3, 5, 7 and 9 for the built-in ones), and on every second level one of
 the talents on offer is a <b>battle art</b> any hero can learn: Second Wind, Dash, First Aid, Throw Knife and more. When a great foe winds up a blow, <b>red squares</b> show where it lands on its next turn: step aside, or stun it to break it

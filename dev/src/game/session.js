@@ -8,7 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember, growStat, abilityOf,
+  equipKit, normalizeMember, growStat, abilityOf, veteranRise, veteranDef, bandDef,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -330,7 +330,7 @@ export class PlaySession {
   entityLook(e) {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid', race: 'human' };
-      case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
+      case 'monster': return bandDef(this.game, e)?.look || { kind: 'blob' };
       case 'chest': return this.chestLook(e);
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
@@ -1304,6 +1304,7 @@ export class PlaySession {
       const mon = this.pickMonster(habitat);
       if (!mon) return;
       const e = { id: uid('roam'), type: 'monster', monster: mon.id, x, y, roaming: true, count: encounterCount(mon, partyLevel(this.party)), wander: 99 };
+      if (mon.vet) e.vet = mon.vet; // (tactics II) a seasoned band
       if (!this.passableFor(e, x, y)) continue;
       // (company) a lone hero's first few bands come sized for them
       const share = gentleBand(this);
@@ -1326,15 +1327,20 @@ export class PlaySession {
     // often as they did: the curve measured them (tests/curve.mjs) as half the
     // bands met by level 7, rats and goblins no hero needed to think about;
     // where nothing stronger lives, they still come)
-    return new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
+    const mon = new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
       const diff = (m.level || 1) - lvl;
       return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : diff === -2 ? 1 : 0.1;
     });
+    // (tactics II) ...and when they do come, a kind the company has far
+    // outgrown comes seasoned (rules.js veteranRise): the open country still
+    // bites at levels 7 and 8, where it holds little above level 5
+    const rise = veteranRise(this.game, mon, lvl);
+    return rise ? veteranDef(this.game, mon, rise) : mon;
   }
 
   // ------------------------------------------------------------ combat
   enemiesFor(e) {
-    const def = byId(this.game.monsters, e.monster);
+    const def = bandDef(this.game, e);
     if (!def) return [];
     let n = 1;
     if (e.count) {
@@ -1346,11 +1352,16 @@ export class PlaySession {
     if (!def.boss && company > 4) n += Math.round(n * (company - 4) * 0.2);
     if (e.gentle > 0 && e.gentle < 1) n = Math.max(1, Math.round(n * e.gentle)); // (company) a gentle band
     const list = [{ id: def.id, n: Math.max(1, Math.min(n, 12)) }];
+    if (e.vet) list[0].vet = e.vet; // (tactics II) seasoned: see rules.js veteranDef
     if (e.as) list[0].as = e.as; // (company) a turncoat at their head
     if (e.gentle) return list; // (company) a gentle band comes without its escort
     for (const esc of def.escort || []) {
       const k = rng.int(esc.min || 0, esc.max || 0);
-      if (k > 0 && byId(this.game.monsters, esc.id)) list.push({ id: esc.id, n: k });
+      const ed = byId(this.game.monsters, esc.id);
+      if (k <= 0 || !ed) continue;
+      // (a veteran band's escort is seasoned as far as it, too, has been outgrown)
+      const rise = e.vet && this.party ? veteranRise(this.game, ed, partyLevel(this.party)) : 0;
+      list.push(rise ? { id: esc.id, n: k, vet: rise } : { id: esc.id, n: k });
     }
     return list;
   }
@@ -1887,7 +1898,7 @@ export class PlaySession {
       const mon = this.pickMonster(this.map.type === 'dungeon' ? this.map.habitat || 'dungeon' : habitatOf(t) || 'grass');
       if (mon) {
         this.log('Ambush! Your camp is attacked!', 'bad');
-        await this.engage({ id: uid('amb'), monster: mon.id, roaming: true });
+        await this.engage({ id: uid('amb'), monster: mon.id, roaming: true, ...(mon.vet ? { vet: mon.vet } : {}) });
         return;
       }
     }
@@ -1983,7 +1994,7 @@ export class PlaySession {
           const note = mk === 'quest' ? ' (!) — has a task for you' : mk === 'turnin' ? ' (?) — about your quest' : '';
           parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
         }
-        else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
+        else if (e.type === 'monster') { const d = bandDef(this.game, e); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
         else if (e.type === 'chest') parts.push(this.chestWords(e).a);
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');

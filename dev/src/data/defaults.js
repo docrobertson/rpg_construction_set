@@ -275,7 +275,8 @@ export const TALENT_TREES = { fighter: 'Fighter', archer: 'Archer', healer: 'Hea
 export const PERKS = [
   { id: 'tough', name: 'Tough', icon: 'heart', stack: true, trees: ['fighter', 'healer'], desc: '+5 maximum health.' },
   { id: 'precise', name: 'Precise', icon: 'aim', stack: true, trees: ['fighter', 'archer', 'rogue'], desc: '+1 to hit with every weapon.' },
-  { id: 'guard', name: 'Guarded', icon: 'shield', stack: true, trees: ['fighter', 'healer'], desc: '+1 armour.' },
+  // (tactics II) at most twice: plate, a shield and a stack of these made a knight no ordinary foe could touch
+  { id: 'guard', name: 'Guarded', icon: 'shield', stack: true, max: 2, trees: ['fighter', 'healer'], desc: '+1 armour (taken at most twice).' },
   { id: 'brutal', name: 'Brutal', icon: 'hammer', stack: true, trees: ['fighter'], desc: '+2 melee damage.' },
   { id: 'fleet', name: 'Fleet-footed', icon: 'boot', trees: ['archer', 'rogue'], desc: '+1 square of movement in battle.' },
   { id: 'deadly', name: 'Deadly', icon: 'dagger', trees: ['rogue', 'archer'], desc: 'Critical hits on one more number of the die.' },
@@ -677,8 +678,11 @@ export const ITEMS = [
   { id: 'lizardhide', name: 'Lizardhide Armour', type: 'armor', weight: 'leather', ac: 3, price: 150, effects: [{ type: 'resist', status: 'poisoned', chance: 0.35 }],
     desc: 'Supple scaled hide of the great marsh lizards, light enough for the jungle\'s heat. It turns a little venom.' },
   { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 5, price: 520, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
-  { id: 'buckler', name: 'Buckler', type: 'shield', ac: 1, price: 15, desc: 'A small round shield.' },
-  { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 55, desc: 'A tall knight\'s shield.' },
+  // (tactics II) shields block: a chance to turn aside a blow that would land
+  // (not one from behind), traded for flat armour, so plate, a kite shield and
+  // talents of armour no longer stack into a knight no one can touch
+  { id: 'buckler', name: 'Buckler', type: 'shield', ac: 0, block: 0.1, price: 15, desc: 'A small round shield.' },
+  { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 0, block: 0.2, price: 55, desc: 'A tall knight\'s shield.' },
   // consumables
   { id: 'healing_draught', name: 'Healing Draught', type: 'consumable', effect: 'heal', power: '2d8+2', price: 25, combat: true, desc: 'A bitter green draught that knits wounds.' },
   { id: 'greater_draught', name: 'Greater Draught', type: 'consumable', effect: 'heal', power: '4d8+6', price: 70, combat: true, desc: 'A potent restorative.' },
@@ -792,31 +796,32 @@ export const SPELLS = [
 const L = (o) => ({ kind: 'humanoid', ...o });
 
 export const MONSTERS = [
-  { id: 'giant_rat', name: 'Giant Rat', plural: 'Giant Rats', level: 1, hp: '2d4+2', ac: 10, hit: 2, dmg: '1d4+1', xp: 4, gold: '0', habitat: ['grass', 'dungeon', 'swamp', 'ruins'], group: [3, 6], poison: 0.1, ai: 'pack', moves: 4,
+  // (tactics II) vetName: what a seasoned band of the kind is called (rules.js veteranDef)
+  { id: 'giant_rat', name: 'Giant Rat', plural: 'Giant Rats', vetName: 'Plague Rat', level: 1, hp: '2d4+2', ac: 10, hit: 2, dmg: '1d4+1', xp: 4, gold: '0', habitat: ['grass', 'dungeon', 'swamp', 'ruins'], group: [3, 6], poison: 0.1, ai: 'pack', moves: 4,
     look: { kind: 'quadruped', color: 0x4e3a2e, scale: 0.72, tail: 'long', long: 0.45 }, desc: 'A rat the size of a dog.' },
   // (tactics) the commonest first foes strike a little less surely and less hard (were +4, 1d6+2)
-  { id: 'wolf', name: 'Wolf', plural: 'Wolves', level: 1, hp: '3d6+4', ac: 12, hit: 3, dmg: '1d6+1', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], ai: 'pack', moves: 5,
+  { id: 'wolf', name: 'Wolf', plural: 'Wolves', vetName: 'Dire Wolf', vetPlural: 'Dire Wolves', level: 1, hp: '3d6+4', ac: 12, hit: 3, dmg: '1d6+1', xp: 8, gold: '0', habitat: ['grass', 'forest', 'hills', 'snow'], group: [2, 5], ai: 'pack', moves: 5,
     look: { kind: 'quadruped', color: 0x7a7470 }, desc: 'Grey wolves hunt in packs.' },
-  { id: 'bat_swarm', name: 'Giant Bat', plural: 'Giant Bats', level: 1, hp: '2d4+2', ac: 13, hit: 3, dmg: '1d4+1', xp: 5, gold: '0', habitat: ['dungeon', 'swamp'], group: [3, 6], fly: true, speed: 2, ai: 'pack',
+  { id: 'bat_swarm', name: 'Giant Bat', plural: 'Giant Bats', vetName: 'Vampire Bat', level: 1, hp: '2d4+2', ac: 13, hit: 3, dmg: '1d4+1', xp: 5, gold: '0', habitat: ['dungeon', 'swamp'], group: [3, 6], fly: true, speed: 2, ai: 'pack',
     look: { kind: 'bat', color: 0x3a2a2a, scale: 1.2 }, desc: 'Leathery wings in the dark.' },
   { id: 'goblin', name: 'Goblin', plural: 'Goblins', level: 1, hp: '2d6+4', ac: 12, hit: 3, dmg: '1d6+1', xp: 7, gold: '1d6', habitat: ['hills', 'forest', 'dungeon'], group: [3, 6], ai: 'coward', fleeAt: 0.3, escort: [{ id: 'goblin_shaman', min: 0, max: 1 }],
     look: L({ race: 'goblin', body: 0x5a4a2a, weapon: 'dagger' }), desc: 'Small, cruel and cowardly — except in numbers.' },
   // (combat stream) a support caster so that goblin bands are worth thinking about
-  { id: 'goblin_shaman', name: 'Goblin Shaman', plural: 'Goblin Shamans', level: 2, hp: '2d6', ac: 11, hit: 1, dmg: '1d4', xp: 12, gold: '1d8', habitat: [], group: [1, 1], ai: 'caster', abilities: ['mend', 'hex'],
+  { id: 'goblin_shaman', name: 'Goblin Shaman', plural: 'Goblin Shamans', vetName: 'Goblin Elder', level: 2, hp: '2d6', ac: 11, hit: 1, dmg: '1d4', xp: 12, gold: '1d8', habitat: [], group: [1, 1], ai: 'caster', abilities: ['mend', 'hex'],
     look: L({ race: 'goblin', body: 0x5a2a4a, robe: true, hat: 'hood', hatColor: 0x6a2a50, weapon: 'staff', weaponGlow: 0x80ff60, pose: 'cast' }), desc: 'A wizened goblin hung with bones, who patches up its kin and curses their foes.' },
   { id: 'bandit', name: 'Bandit', plural: 'Bandits', level: 2, hp: '4d8+6', ac: 13, hit: 5, dmg: '1d8+2', xp: 14, gold: '3d6', habitat: ['grass', 'forest'], group: [2, 4], fleeAt: 0.25, ai: 'coward',
     look: L({ race: 'human', body: 0x3a3028, hat: 'hood', hatColor: 0x2a2420, weapon: 'sword' }), desc: 'Outlaws who prey on travellers.' },
   { id: 'orc', name: 'Orc', plural: 'Orcs', level: 2, hp: '4d8+6', ac: 13, hit: 6, dmg: '1d8+3', xp: 16, gold: '2d6', habitat: ['hills', 'forest', 'grass', 'ash', 'dungeon'], group: [2, 5], ai: 'brute', escort: [{ id: 'orc_archer', min: 0, max: 1 }],
     look: L({ race: 'orc', body: 0x3a2a24, armor: 'leather', weapon: 'axe', pose: 'overhead' }), desc: 'Servants of the Shadow, bred for war.' },
-  { id: 'orc_archer', name: 'Orc Archer', plural: 'Orc Archers', level: 2, hp: '3d8+4', ac: 12, hit: 5, dmg: '1d8+2', range: 5, xp: 16, gold: '2d6', habitat: ['hills', 'ash'], group: [2, 3], ai: 'archer',
+  { id: 'orc_archer', name: 'Orc Archer', plural: 'Orc Archers', vetName: 'Orc Bowmaster', level: 2, hp: '3d8+4', ac: 12, hit: 5, dmg: '1d8+2', range: 5, xp: 16, gold: '2d6', habitat: ['hills', 'ash'], group: [2, 3], ai: 'archer',
     look: L({ race: 'orc', body: 0x4a3a24, weapon: 'bow', fletch: 0x1a1a1a }), desc: 'Orcs with black-feathered arrows.' },
-  { id: 'giant_spider', name: 'Giant Spider', plural: 'Giant Spiders', level: 3, hp: '8d8+4', ac: 13, hit: 7, dmg: '1d10+3', poison: 0.4, xp: 24, gold: '0', habitat: ['forest', 'dungeon'], group: [1, 3], spells: ['web'], castChance: 0.25,
+  { id: 'giant_spider', name: 'Giant Spider', plural: 'Giant Spiders', vetName: 'Elder Spider', level: 3, hp: '8d8+4', ac: 13, hit: 7, dmg: '1d10+3', poison: 0.4, xp: 24, gold: '0', habitat: ['forest', 'dungeon'], group: [1, 3], spells: ['web'], castChance: 0.25,
     look: { kind: 'spider', color: 0x2a2424, mark: 0xa02020, scale: 1.2 }, desc: 'Bloated spiders with venomous fangs.' },
   { id: 'skeleton', name: 'Skeleton', plural: 'Skeletons', level: 3, hp: '7d8+8', ac: 13, hit: 7, dmg: '1d10+3', undead: true, sleepImmune: true, xp: 20, gold: '1d10', habitat: ['dungeon', 'ruins'], group: [2, 5],
     moves: 3, look: L({ race: 'skeleton', weapon: 'sword', shield: 0x5a4a3a, eyes: 0xff5030 }), desc: 'Bones bound by an evil will.' },
-  { id: 'warg', name: 'Warg', plural: 'Wargs', level: 3, hp: '7d8+10', ac: 13, hit: 7, dmg: '1d10+4', xp: 28, gold: '0', habitat: ['hills', 'grass', 'snow', 'ash'], group: [2, 4], ai: 'pack', moves: 5, abilities: ['pounce'],
+  { id: 'warg', name: 'Warg', plural: 'Wargs', vetName: 'Great Warg', level: 3, hp: '7d8+10', ac: 13, hit: 7, dmg: '1d10+4', xp: 28, gold: '0', habitat: ['hills', 'grass', 'snow', 'ash'], group: [2, 4], ai: 'pack', moves: 5, abilities: ['pounce'],
     look: { kind: 'quadruped', color: 0x3a3430, spikes: true, scale: 1.35, eyes: 0xffd040 }, desc: 'Great evil wolves, ridden by orcs.' },
-  { id: 'bog_lurker', name: 'Bog Lurker', plural: 'Bog Lurkers', level: 3, hp: '9d8', ac: 11, hit: 7, dmg: '1d10+3', poison: 0.3, xp: 26, gold: '1d8', habitat: ['swamp'], group: [1, 3], abilities: ['engulf'],
+  { id: 'bog_lurker', name: 'Bog Lurker', plural: 'Bog Lurkers', vetName: 'Elder Lurker', level: 3, hp: '9d8', ac: 11, hit: 7, dmg: '1d10+3', poison: 0.3, xp: 26, gold: '1d8', habitat: ['swamp'], group: [1, 3], abilities: ['engulf'],
     moves: 2, look: { kind: 'blob', color: 0x4a6a3a }, desc: 'A heap of slime and reeds that lunges from the mire.' },
   { id: 'orc_captain', name: 'Orc Captain', plural: 'Orc Captains', level: 4, hp: '9d8+15', ac: 15, hit: 8, dmg: '1d10+5', xp: 50, gold: '5d10', habitat: ['ash', 'hills', 'dungeon'], group: [1, 1], abilities: ['war_cry', 'brutal_smash'], escort: [{ id: 'orc', min: 2, max: 4 }, { id: 'orc_archer', min: 1, max: 2 }],
     look: L({ race: 'orc', body: 0x4a1a1a, armor: 'chain', hat: 'hornhelm', hatColor: 0x3a3a3a, weapon: 'greatsword', cape: 0x8a1a16, tabard: 0x8a1a16, pose: 'raise', scale: 1.15 }), desc: 'A brutal leader of orcs.' },
@@ -838,9 +843,9 @@ export const MONSTERS = [
     look: { kind: 'wraith', color: 0x1a1820, eyes: 0xff3030, hat: 'crown', weapon: 'sword', weaponGlow: 0xff4040, scale: 1.4 }, desc: 'The Enemy himself, crowned in iron and shadow.' },
   // (isles) the folk and beasts of the tropical isles: their habitats are the
   // isles' own (jungle, beach, temple, reef), so they keep to that land
-  { id: 'giant_frog', name: 'Giant Frog', plural: 'Giant Frogs', level: 1, hp: '2d8+2', ac: 11, hit: 3, dmg: '1d6+1', xp: 7, gold: '0', habitat: ['jungle'], group: [2, 4], beast: true, ai: 'brute', moves: 4, poison: 0.15,
+  { id: 'giant_frog', name: 'Giant Frog', plural: 'Giant Frogs', vetName: 'Bull Frog', level: 1, hp: '2d8+2', ac: 11, hit: 3, dmg: '1d6+1', xp: 7, gold: '0', habitat: ['jungle'], group: [2, 4], beast: true, ai: 'brute', moves: 4, poison: 0.15,
     abilities: ['tongue_lash'], look: { kind: 'frog', color: 0x5aa83a, belly: 0xe8d870, spots: 0x2a4a1a, scale: 1.35 }, desc: 'A frog as big as a pig, with a tongue that reaches further than you would like.' },
-  { id: 'jungle_cat', name: 'Jungle Cat', plural: 'Jungle Cats', level: 2, hp: '4d6+4', ac: 13, hit: 5, dmg: '1d8+2', xp: 18, gold: '0', habitat: ['jungle'], group: [1, 2], beast: true, ai: 'pack', moves: 5,
+  { id: 'jungle_cat', name: 'Jungle Cat', plural: 'Jungle Cats', vetName: 'Scarred Jungle Cat', level: 2, hp: '4d6+4', ac: 13, hit: 5, dmg: '1d8+2', xp: 18, gold: '0', habitat: ['jungle'], group: [1, 2], beast: true, ai: 'pack', moves: 5,
     abilities: ['pounce'], look: { kind: 'cat', color: 0xd89a3a, spots: 0x3a2414, scale: 1.2 }, desc: 'A spotted cat that drops from the boughs without a sound.' },
   { id: 'lizardfolk', name: 'Lizardfolk', plural: 'Lizardfolk', level: 2, hp: '4d8+6', ac: 13, hit: 5, dmg: '1d8+2', xp: 16, gold: '2d6', habitat: ['jungle', 'temple', 'beach'], group: [2, 4], ai: 'brute',
     escort: [{ id: 'lizard_shaman', min: 0, max: 1 }],
@@ -848,7 +853,7 @@ export const MONSTERS = [
   { id: 'lizard_shaman', name: 'Lizard Shaman', plural: 'Lizard Shamans', level: 3, hp: '3d8+3', ac: 12, hit: 3, dmg: '1d6', xp: 24, gold: '2d8', habitat: ['temple'], group: [1, 1], ai: 'caster',
     abilities: ['mend', 'venom_spit'],
     look: L({ race: 'lizard', skin: 0x4a8a6a, body: 0x6a3a6a, robe: true, mantle: 0x2a6a5a, weapon: 'staff', weaponGlow: 0x9be050, crest: 0x9a50d8, pose: 'cast' }), desc: 'A painted elder of the lizardfolk who speaks with the old gods — and spits their venom.' },
-  { id: 'reef_shark', name: 'Reef Shark', plural: 'Reef Sharks', level: 3, hp: '6d8+6', ac: 13, hit: 6, dmg: '2d4+3', xp: 30, gold: '0', habitat: ['reef'], group: [1, 3], beast: true, ai: 'brute', swim: true, moves: 5,
+  { id: 'reef_shark', name: 'Reef Shark', plural: 'Reef Sharks', vetName: 'Great Reef Shark', level: 3, hp: '6d8+6', ac: 13, hit: 6, dmg: '2d4+3', xp: 30, gold: '0', habitat: ['reef'], group: [1, 3], beast: true, ai: 'brute', swim: true, moves: 5,
     abilities: ['shark_lunge', 'thrash'], look: { kind: 'shark', color: 0x6a7e8e, scale: 1.1 }, desc: 'Grey shadows in the clear water over the reef. Keep your feet out of it.' },
   { id: 'mist_wraith', name: 'Mist Wraith', plural: 'Mist Wraiths', level: 4, hp: '8d8+8', ac: 14, hit: 6, dmg: '1d8+3', undead: true, sleepImmune: true, xp: 60, gold: '2d10', habitat: ['temple', 'jungle'], group: [1, 3],
     spells: ['drain_life'], castChance: 0.35, ai: 'caster', abilities: ['wail'], fly: true,
