@@ -4,7 +4,8 @@ import { buildForm } from './forms.js';
 import { ACTIONS, CONDITIONS } from '../../game/dialog.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 import { MAP_TYPES } from '../../world/map.js';
-import { defaultStock } from '../../world/generate.js';
+import { ROLE_SHOP_KINDS, followsTheme, shopStock, themeOf, themeById, themesFor, pickTheme, themesInUse, buyBase } from '../../game/shops.js';
+import { SHOP_KIND_NAMES } from '../../data/defaults.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
@@ -136,7 +137,45 @@ export function companionFields(game, mapId = null) {
   ];
 }
 
-export function npcFields(game) {
+// (market) A keeper's shop: the theme it trades along (World Data → Shop
+// themes), what that gives, and the wares picked by hand instead; its markup
+const isShop = (o) => !!SHOP_KINDS[o.role];
+const handPicked = (o) => isShop(o) && !followsTheme(o.shop);
+const pct = (k) => (k > 1 ? `+${Math.round((k - 1) * 100)}%` : k < 1 ? `−${Math.round((1 - k) * 100)}%` : 'none');
+const waresText = (game, o) => {
+  const ids = shopStock(game, o.shop);
+  if (!ids.length) return 'Nothing for sale: choose a theme, or pick the wares by hand.';
+  const its = ids.map((id) => game.items.find((i) => i.id === id)).filter(Boolean);
+  return [`Sells ${its.length}: `, ...its.map((it) => h('span.ware', `${it.name} ◆${Math.max(1, Math.round(buyBase(game, it, o.shop)))}`))];
+};
+function tradeFields(game, ed) {
+  // (to the theme itself, in World Data)
+  const toTheme = (o) => (ed && themeOf(game, o.shop) ? h('button.small.link.to-theme', {
+    title: 'Open this shop\'s theme in World Data → Shop themes', onclick: (ev) => { ev.preventDefault(); ed.goTo({ tab: 'data', cat: 'shopThemes', id: themeOf(game, o.shop).id }); },
+  }, 'Edit the theme…') : null);
+  return [
+    { key: 'shop.theme', label: 'Trades in', type: 'select', show: isShop, rerender: true, empty: (o) => (handPicked(o) ? '— no theme: just the wares below —' : '— the first theme of its kind —'), nullable: true,
+      options: (o) => themesFor(game, o.role).map((t) => [t.id, `${t.name} — ${t.desc || SHOP_KIND_NAMES[t.kind] || t.kind}`]),
+      put: (o, v) => {
+        if (!o.shop) o.shop = { kind: SHOP_KINDS[o.role], stock: [] };
+        if (v) { o.shop.theme = v; const t = themeById(game, v); if (t) o.shop.kind = t.kind; } else delete o.shop.theme;
+        o.shop.chosen = true; // (the designer's own choice: kept when the place is built again)
+      },
+      hint: 'Its line of trade, named on the shop screen. Edit the themes, or add your own, under World Data → Shop themes.' },
+    { key: 'shop.own', label: 'Pick the wares by hand', type: 'check', show: isShop,
+      get: (o) => handPicked(o),
+      put: (o, v) => { if (!o.shop) o.shop = { kind: SHOP_KINDS[o.role], stock: [] }; o.shop.stock = v ? shopStock(game, { ...o.shop, stock: [] }) : []; },
+      hint: 'Off: it sells what its theme gives, and changes with the theme. On: just the wares ticked below (the theme still names it).' },
+    { type: 'info', label: (o) => h('span.insp-wares', waresText(game, o), ' ', toTheme(o)), show: isShop },
+    { key: 'shop.stock', label: 'Sells', type: 'multicheck', show: handPicked,
+      options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]) },
+    { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.05, min: 0.1, nullable: true, show: isShop,
+      placeholder: (o) => `${+(parseFloat(themeOf(game, o.shop)?.priceMod) || 1).toFixed(2)} — the theme's`,
+      hint: (o) => `Blank: the theme's markup (${pct(parseFloat(themeOf(game, o.shop)?.priceMod) || 1)}). 1.2 makes this shop a fifth dearer — a remote isle, a castle; 0.9 a little cheaper, for its own speciality.` },
+  ];
+}
+
+export function npcFields(game, ed = null) {
   return [
     { type: 'section', label: 'Character' },
     { key: 'name', label: 'Name', type: 'text' },
@@ -153,8 +192,7 @@ export function npcFields(game) {
     { key: 'keywords', label: 'Keywords', type: 'list', fields: keywordFields(game), rowLabel: (r) => (r.key || '(new keyword)').toUpperCase(), newRow: () => ({ key: '', text: '' }), addLabel: '+ Add keyword', wide: true },
     { key: 'rumour', label: 'Rumour', type: 'text', hint: 'Barkeeps anywhere may repeat this when asked for RUMOURS.' },
     { type: 'section', label: 'Trade', show: (o) => !!SHOP_KINDS[o.role] || o.role === 'inn' },
-    { key: 'shop.stock', label: 'Sells', type: 'multicheck', options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]), show: (o) => !!SHOP_KINDS[o.role] },
-    { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.1, min: 0.1, show: (o) => !!SHOP_KINDS[o.role], hint: '1 = normal prices' },
+    ...tradeFields(game, ed),
     { key: 'price', label: 'Room price per hero', type: 'number', min: 0, show: (o) => o.role === 'inn' },
     { type: 'section', label: 'The ship for sale', show: (o) => o.role === 'shipwright' },
     { type: 'info', label: 'Players ask about the SHIP and say BUY. Once paid for, she is moored on the world map in the nearest open water beside this person\'s site (or at the square below).', show: (o) => o.role === 'shipwright' },
@@ -181,11 +219,15 @@ export function inspectEntity(ed, ent, container) {
         if (ent.role === 'shipwright' && !ent.ship) ent.ship = { name: 'Seahorse', price: 450 };
         const kind = SHOP_KINDS[ent.role];
         if (kind) {
-          if (!ent.shop || ent.shop.kind !== kind) ent.shop = { kind, stock: defaultStock(game, kind), priceMod: 1 };
+          // (market) a new shop trades along a theme fitting its keeper and place
+          if (!ent.shop || !(ROLE_SHOP_KINDS[ent.role] || [kind]).includes(ent.shop.kind)) {
+            const theme = pickTheme(game, { kind, role: ent.role, race: ent.look?.race, style: ed.map?.settlement, seed: ent.id, used: themesInUse(game) });
+            ent.shop = { kind, stock: [], ...(theme ? { theme } : {}) };
+          }
         } else ent.shop = null;
       };
       // a sage placed before sages sold scrolls has no shop yet: ticking stock opens one
-      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
+      container.appendChild(buildForm(ent, npcFields(game, ed), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
       // companion section (custom)
       flagDatalist(game); // (company) suggestions for the flag fields
       const rec = h('div.form');

@@ -508,7 +508,7 @@ export class Editor {
     let m;
     if (gen === 'world') { m = generateWorld(80, 80, seed); buryTreasures(this.game, m, seed); }
     else if (DUNGEON_STYLES[gen]) m = generateDungeon({ style: gen, seed, name, monsters: this.game.monsters.filter((x) => (x.habitat || []).includes(gen === 'temple' ? 'temple' : 'dungeon') && x.level <= 3).map((x) => x.id) }).map;
-    else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; nameNpcs(m, this.game, seed); }
+    else if (SETTLEMENT_STYLES[gen]) { m = generateSettlement(gen, { seed, name }).map; m.settlement = gen; nameNpcs(m, this.game, seed); } // (market: its shops' themes suit the place)
     else m = createMap({ type, name });
     m.name = name;
     m.type = type === 'castle' || gen === 'castle' ? 'castle' : type;

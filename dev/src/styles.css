@@ -589,6 +589,14 @@ a.kw:hover { color: #d04010; background: rgba(208,64,16,.08); }
 .shop-food i, .pack-purse i { display: inline-flex; color: #e8a070; }
 i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .shop-gold { color: var(--gold); }
+/* (market) the shop's line of trade, and whether it is dear or cheap here */
+.shop-theme { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; margin: -2px 0 10px; padding: 6px 12px; border-radius: 8px; font-size: 14px;
+  color: var(--text); background: rgba(0,0,0,.22); box-shadow: inset 0 0 0 1px rgba(184,145,63,.28); }
+.shop-theme b { color: var(--gold); font-weight: 700; }
+.shop-theme .hint { margin: 0 0 0 auto; font-size: 12px; opacity: .75; }
+.shop-dear, .shop-cheap { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 10px; }
+.shop-dear { color: #ffb8a0; background: rgba(160,50,30,.35); }
+.shop-cheap { color: #b8f0a8; background: rgba(40,120,40,.35); }
 .shop-list { display: grid; grid-template-columns: 1fr; gap: 7px; }
 .shop-modal .shop-list { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
 .shop-modal .shop-list > p, .shop-modal .shop-list > .hint, .shop-modal .shop-list > .shop-head { grid-column: 1 / -1; }
@@ -720,6 +728,10 @@ i.coin { display: inline-flex; color: var(--gold); font-style: normal; }
 .insp-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .insp-head b { font-family: var(--font-display); font-size: 18px; color: #fff3d8; }
 .insp-head span { color: var(--muted); font-size: 12px; }
+/* (market) what a shop's theme gives, as chips, and the way to the theme */
+.insp-wares { display: block; line-height: 1.9; }
+.insp-wares .ware { display: inline-block; margin: 0 4px 0 0; padding: 0 7px; line-height: 1.6; border-radius: 9px; font-size: 12px; color: var(--text); background: rgba(236,198,110,.1); box-shadow: inset 0 0 0 1px rgba(184,145,63,.3); white-space: nowrap; }
+.insp-wares .to-theme { display: block; margin-top: 4px; }
 .insp-foot { margin-top: 14px; padding-top: 8px; border-top: 1px solid #3a2c1c; }
 .form { display: flex; flex-direction: column; gap: 7px; }
 .form-section { color: var(--gold); font: 600 13px var(--font-title); letter-spacing: .8px; margin-top: 10px; border-bottom: 1px solid #3a2c1c; padding-bottom: 3px; }

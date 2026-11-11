@@ -21,8 +21,9 @@
 //     on a plate, runes), seed }
 import { FEATURE_KINDS, T, terrain } from '../data/terrain.js';
 import { getTile, setTile, inBounds } from './map.js';
-import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, defaultStock, STAMPS, PATHS, line4 } from './generate.js';
+import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, STAMPS, PATHS, line4 } from './generate.js';
 import { findBuildings } from './buildings.js';
+import { themeStock, themeOf } from '../game/shops.js'; // (market)
 import { RNG, hash2 } from '../core/rng.js';
 
 // ------------------------------------------------------------ the catalogue
@@ -390,9 +391,12 @@ export function authoredReasons(game, e, refs = referencedIds(game)) {
   const w = madeUpWords(e.role);
   if ((e.greeting && e.greeting !== w.greeting) || (e.job && e.job !== w.job) || (e.desc && !MADE_DESC.test(e.desc))) out.push('has words of their own');
   else if (e.name && !isMadeUpName(e.name)) out.push('named by you');
-  if (e.shop?.stock?.length && e.shop.kind && game.items) {
-    const def = defaultStock(game, e.shop.kind);
-    if (e.shop.stock.length !== def.length || e.shop.stock.some((id) => !def.includes(id)) || e.shop.priceMod != null) out.push('sells a stock you chose');
+  // (market) a list of wares of the designer's own, a markup, or a theme chosen in the editor
+  if (e.shop?.kind && game.items) {
+    const def = themeStock(game, themeOf(game, { ...e.shop, stock: [] }));
+    const own = e.shop.stock?.length && (e.shop.stock.length !== def.length || e.shop.stock.some((id) => !def.includes(id)));
+    if (own || e.shop.priceMod != null) out.push('sells a stock you chose');
+    else if (e.shop.chosen) out.push('trades along a theme you chose');
   }
   if (e.ship && (e.ship.name !== 'Seahorse' || e.ship.price !== 450 || e.ship.pitch)) out.push('sells a ship you set out');
   if (e.hostile) out.push('is hostile');
@@ -472,7 +476,7 @@ export function rebuildPlace(game, map, plan) {
   const old = planOf(map);
   plan = normalizePlan(clone(plan || old), plan?.kind || old?.kind);
   if (isDungeonKind(plan.kind) !== (map.type === 'dungeon')) throw new Error('A town cannot be rebuilt as a dungeon, nor a dungeon as a town.');
-  const { map: fresh, missing } = generateFromPlan(game, plan, { name: map.name, seed: plan.seed, level: map.level });
+  const { map: fresh, missing } = generateFromPlan(game, plan, { name: map.name, seed: plan.seed, level: map.level, where: { replaces: map.id } }); // (market: its shops may take the old ones' themes again)
   const notes = missingNotes(missing);
   const ctx = { game, old: map, fresh, notes, moved: [], refs: referencedIds(game) };
   const entities = map.type === 'dungeon' ? mergeDungeon(ctx, plan) : mergeSettlement(ctx);
@@ -490,6 +494,7 @@ export function rebuildPlace(game, map, plan) {
   map.fill = fresh.fill;
   map.entry = fresh.entry;
   map.type = fresh.type;
+  if (fresh.settlement) map.settlement = fresh.settlement; // (market) the kind of place its shops suit
   if (!sameStyle) map.lighting = fresh.lighting;
   map.entities = entities;
   map.plan = fresh.plan;

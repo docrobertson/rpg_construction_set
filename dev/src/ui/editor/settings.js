@@ -9,7 +9,7 @@ export function renderSettings(ed, left, main) {
   left.appendChild(h('div.panel-title', 'Rules'));
   left.appendChild(h('p.hint', 'The rules of the realm: the company, food and time, which kinds of magic exist, and what heroes set out with.'));
   const jump = (id) => main.querySelector('#' + id)?.scrollIntoView({ behavior: 'smooth' });
-  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-battle', '⚔ Battle'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
+  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-battle', '⚔ Battle'], ['set-trade', '◆ Trade'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
     left.appendChild(h('button.entry', { onclick: () => jump(id) }, label));
   }
   const changed = () => ed.markDirty();
@@ -50,6 +50,15 @@ export function renderSettings(ed, left, main) {
       hint: 'Battlefields of grass, wood, hill, swamp, sand, snow, ash, cave, ruin and temple hold a knoll, a rocky rise or a dais or two. A fighter on one shoots at this much more to hit a foe below, and a foe below strikes up at it at this much less. Paint Knoll, Rocky Rise or Raised Dais for a dungeon\'s own fights. 0: none.' },
     { key: 'settings.veterans', label: 'Seasoned foes: a wandering kind … levels below the company comes as veterans', type: 'number', min: 0, max: 10, nullable: true, placeholder: '3',
       hint: 'So the open country still bites when the company has outgrown it. 3: a band three or more levels below rises to two levels below the company (+1 to hit and damage a level, more health, and more experience), named so: "Orc Veteran". 0: never. A monster can be kept as it is (World Data → Monsters).' },
+  ], changed)));
+
+  // (market) what merchants pay, and every price in the realm at once
+  main.appendChild(section('set-trade', '◆ Trade', h('p.hint', 'Prices are the items\' own (World Data → Items), times a shop\'s markup or its theme\'s. What each shop sells follows its theme (World Data → ',
+    h('button.small.link', { onclick: () => ed.goTo({ tab: 'data', cat: 'shopThemes' }) }, 'Shop themes'), ') unless its wares are picked by hand on the person.'), buildForm(game, [
+    { key: 'settings.sellRate', label: 'Merchants pay', type: 'number', step: 0.05, min: 0, max: 1, placeholder: '0.35',
+      hint: 'A share of an item\'s price, for what the company sells: 0.35 (the default) and a found great sword buys a long sword, not the shop; 0.5 is generous.' },
+    { key: 'settings.priceScale', label: 'Price scale', type: 'number', step: 0.05, min: 0.1, max: 5, placeholder: '1',
+      hint: 'Every shop price in the realm at once: 1.25 for a hard, poor land, 0.8 for a kind one. (What merchants pay follows the items\' own prices.)' },
   ], changed)));
 
   const magic = h('div.magic-toggles');

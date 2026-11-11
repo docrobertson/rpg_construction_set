@@ -37,11 +37,13 @@ export function buildForm(obj, fields, onChange, opts = {}) {
     if (f.type === 'section') { root.appendChild(h('div.form-section', f.label)); continue; }
     if (f.type === 'info') { root.appendChild(h('p.hint', typeof f.label === 'function' ? f.label(obj) : f.label)); continue; }
     const el = fieldInput(obj, f, changed);
-    if (f.type === 'check') root.appendChild(h('label.field.check', el, h('span.field-label', f.label), f.hint ? h('span.field-hint', f.hint) : null));
+    // (a hint may be a function of the object: "blank: the theme's ×1.1")
+    const hint = typeof f.hint === 'function' ? f.hint(obj) : f.hint;
+    if (f.type === 'check') root.appendChild(h('label.field.check', el, h('span.field-label', f.label), hint ? h('span.field-hint', hint) : null));
     else {
       // complex widgets must not live inside a <label> (clicks would be forwarded to the first input)
       const tag = ['list', 'multicheck', 'itemlist', 'ids', 'statmods', 'color'].includes(f.type) ? 'div' : 'label';
-      root.appendChild(h(tag + '.field' + (f.wide ? '.wide' : ''), h('span.field-label', f.label), el, f.hint ? h('span.field-hint', f.hint) : null));
+      root.appendChild(h(tag + '.field' + (f.wide ? '.wide' : ''), h('span.field-label', f.label), el, hint ? h('span.field-hint', hint) : null));
     }
   }
   return root;
@@ -60,7 +62,7 @@ function fieldInput(obj, f, changed) {
       return el;
     }
     case 'number': {
-      const el = h('input', { type: 'number', value: val ?? '', step: f.step ?? 1, min: f.min, max: f.max, placeholder: f.placeholder });
+      const el = h('input', { type: 'number', value: val ?? '', step: f.step ?? 1, min: f.min, max: f.max, placeholder: typeof f.placeholder === 'function' ? f.placeholder(obj) : f.placeholder });
       el.addEventListener('input', () => { const v = parseFloat(el.value); set(isNaN(v) ? (f.nullable ? undefined : 0) : v); });
       return el;
     }
@@ -100,7 +102,7 @@ function fieldInput(obj, f, changed) {
     case 'multicheck': {
       const arr = Array.isArray(val) ? val : [];
       const wrap = h('div.multicheck');
-      for (const [v, label] of optList(f.options)) {
+      for (const [v, label] of optList(f.options, obj)) {
         const cb = h('input', { type: 'checkbox' });
         cb.checked = arr.includes(v);
         cb.addEventListener('change', () => {

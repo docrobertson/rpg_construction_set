@@ -39,9 +39,9 @@ await fresh();
 let r = await ev(() => {
   const s = window.__app.session, g = s.game;
   const town = g.maps.find((m) => m.name === 'Westhold');
-  const stock = town.entities.filter((e) => e.shop).flatMap((e) => e.shop.stock || []);
+  const stock = town.entities.filter((e) => e.shop).flatMap((e) => window.__market.shopStock(g, e.shop)); // (market: a theme's wares, or its own list)
   const items = stock.map((id) => g.items.find((i) => i.id === id)).filter(Boolean);
-  const all = g.maps.flatMap((m) => m.entities.filter((e) => e.shop).flatMap((e) => e.shop.stock || []));
+  const all = g.maps.flatMap((m) => m.entities.filter((e) => e.shop).flatMap((e) => window.__market.shopStock(g, e.shop)));
   return {
     unique: items.filter((i) => i.unique).map((i) => i.id),
     dear: items.filter((i) => ['weapon', 'armor', 'shield'].includes(i.type) && i.price > 150).map((i) => i.id),
