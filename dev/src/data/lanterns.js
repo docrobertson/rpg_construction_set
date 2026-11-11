@@ -93,7 +93,11 @@ function build() {
   addCountryside(game, w, P);
   tropicalUndergrowth(w);
 
-  S.start = { map: w.id, ...nearestWhere(w, P.pebblewickAt.x + 2, P.pebblewickAt.y + 3, (t) => t.key === 'sand' || t.key === 'grass' || t.key === 'meadow') };
+  // the castaway wakes on the strand a couple of paces from the wreck of the
+  // Cormorant, the roofs of Pebblewick just up the beach
+  const wreck = w.entities.find((e) => e.id === 'ev_cormorant'), tw = P.pebblewickAt;
+  const sx = wreck ? wreck.x - 2 : tw.x + 2, sy = wreck ? wreck.y : tw.y + 3;
+  S.start = { map: w.id, ...nearestWhere(w, sx, sy, (t) => t.key === 'sand' || t.key === 'grass' || t.key === 'meadow') };
   return game;
 }
 
@@ -617,7 +621,7 @@ function dressPebblewick(game, map) {
       kw('LANTERNS|LANTERN', 'There\'s a chain of them, all along the coast and out across the Glass Sea, three hundred years old. The Lanternwrights\' GUILD in Saltcombe keeps them. Lately they go out, one by one, and the MIST comes in after.'),
       kw('MIST', 'Cold and grey, and it comes in off the Glass Sea where the lights have died. They say there are voices in it. They say the drowned walk in it. I say keep your door shut and your lamp lit.'),
       kw('GUILD', 'The Lanternwrights. Master Vane runs it — a good man, Aurelian Vane. Lost his own little girl to the sea, years back, and never got over it. He\'ll want to know what\'s happening to his lights.'),
-      kw('CORMORANT|SHIP|WRECK', 'Your ship lies broken on the rocks under Gannet Head. The sea takes, and sometimes it gives a little back. Anything of hers that washed up will be on the strand by the old wreck.'),
+      kw('CORMORANT|SHIP|WRECK', 'Your ship lies broken on the rocks of the bay, just below the village. The sea takes, and sometimes it gives a little back. Anything of hers that washed up will be on the strand by the old wreck.'),
       kw('KIT', 'My granddaughter. Wild as a gull and twice as loud. She wants to go up the Rock after her da, and I\'ve said no. I\'ll not lose them both.'),
       kw('SALTCOMBE', 'The great port, up the coast road east past Thornby. The Harbour MAGISTRATE sits there, and the Guild. If anyone can get to the bottom of this, it\'s them.'),
       kw('MAGISTRATE', 'Eleanor Thorne. Hard as a ship\'s nail and honest as the tide. She\'ll listen to you, if you go to her with a letter from me.'),
@@ -1323,9 +1327,11 @@ function placeWild(game, w, P, MON) {
 
   // ---------------------------------------------------------- the strand and the Head
   const pw = at('pebblewick');
-  const cormorant = put('ev_cormorant', 'wreck', pw.x - 9, pw.y + 9, {
+  // (in the bay below the village, where the castaway wakes: the wreck and the
+  // roofs of Pebblewick both in sight from the first step)
+  const cormorant = put('ev_cormorant', 'wreck', pw.x + 1, pw.y + 4, {
     name: 'Wreck of the Cormorant',
-    text: 'Your ship. The Cormorant lies broken-backed on the rocks under Gannet Head, her mast gone, her ribs bare, gulls on every spar. Up on the Head, the dead lighthouse stands black against the sky.',
+    text: 'Your ship. The Cormorant lies broken-backed on the rocks of the bay below Pebblewick, her mast gone, her ribs bare, gulls on every spar. Out on Gannet Head to the south-west, the dead lighthouse stands black against the sky.',
     choices: [
       { label: 'Search the hold', text: 'Salt-sodden biscuit, a keg of fresh water, a coil of rope — and in the purser\'s cubby, a page of the ship\'s manifest with a note scrawled on the back.', effects: { food: 15, items: [{ id: 'tmap_cormorant', n: 1 }], flag: '{id}_hold' }, hideFlag: '{id}_hold' },
       { label: 'Climb to the captain\'s cabin', text: 'Captain Hale\'s log, the ink run: "Gannet Rock dark. No lamp, no fire. A small boat pulling AWAY from the Rock, no light on her. Mist closing. God help us." His sword still hangs on its hook.', effects: { lore: true, xp: 15, items: [{ id: 'short_sword', n: 1 }], flag: '{id}_cabin' }, hideFlag: '{id}_cabin' },
