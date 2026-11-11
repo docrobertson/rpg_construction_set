@@ -18,7 +18,7 @@ import { getTile, inBounds } from '../world/map.js';
 import { rng, roll } from '../core/rng.js';
 import { DIR4, uid } from '../core/util.js';
 import { hasLOS, computeVisible } from './los.js';
-import { partyAlive, charLook, hasTrait, hasAbility, raceOf, classOf, partyLevel } from './rules.js';
+import { partyAlive, charLook, hasTrait, hasAbility, raceOf, classOf, partyLevel, veteranDef, bandDef } from './rules.js';
 import { checkQuests } from './quests.js';
 import { hasBlessing } from './events.js';
 import { Battle } from './combat.js';
@@ -134,7 +134,7 @@ export class Delve {
     const g = { aware: false, m: [] };
     const taken = new Set();
     const o = origin || { x: e.x, y: e.y };
-    for (const { id, n } of roster) {
+    for (const { id, n, vet } of roster) {
       const def = byId(this.game.monsters, id);
       if (!def) continue;
       for (let k = 0; k < n; k++) {
@@ -142,8 +142,8 @@ export class Delve {
         const spot = this.freeSquares(o.x, o.y, 1, ok, (x, y) => this.walkable(x, y, def))[0];
         if (!spot) break;
         taken.add(sq(spot.x, spot.y));
-        const hp = Math.max(1, roll(def.hp || '2d8'));
-        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1], ...(k === 0 && roster.find((r) => r.id === id)?.as ? { as: roster.find((r) => r.id === id).as } : {}) }); // (company: a turncoat by name)
+        const hp = Math.max(1, roll((vet ? veteranDef(this.game, def, vet) : def).hp || '2d8'));
+        g.m.push({ id: def.id, x: spot.x, y: spot.y, hx: spot.x, hy: spot.y, hp, max: hp, dead: false, f: [rng.int(-1, 1), 1], ...(vet ? { vet } : {}), ...(k === 0 && roster.find((r) => r.id === id)?.as ? { as: roster.find((r) => r.id === id).as } : {}) }); // (company: a turncoat by name)
       }
     }
     if (e.roaming) g.ent = { ...e };
@@ -159,12 +159,12 @@ export class Delve {
     this.applyVis(this.s.visible);
   }
 
-  def(mm) { const d = byId(this.game.monsters, mm.id); return d && mm.as ? { ...d, ...mm.as } : d; } // (company: a turncoat keeps their name and face)
+  def(mm) { const b = byId(this.game.monsters, mm.id), d = b && mm.vet ? veteranDef(this.game, b, mm.vet) : b; return d && mm.as ? { ...d, ...mm.as } : d; } // (company: a turncoat keeps their name and face; tactics II: a seasoned one is a veteran)
   living(g) { return (g?.m || []).filter((mm) => !mm.dead); }
   entityOf(gid) { return this.map.entities.find((e) => e.id === gid) || this.groups[gid]?.ent || this.groups[gid]?.src || null; }
   mainDef(gid) {
     const e = this.entityOf(gid);
-    return byId(this.game.monsters, e?.monster) || this.def(this.groups[gid]?.m?.[0] || {}) || null;
+    return (e?.monster && bandDef(this.game, e)) || this.def(this.groups[gid]?.m?.[0] || {}) || null;
   }
 
   // "The goblins", "The goblin", "Ulfgar the Hollow King"

@@ -13,7 +13,7 @@ import { DIR4, deepClone } from '../core/util.js';
 import {
   attackBonus, armorClass, damageRoll, damageBonus, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
   canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf, combatMoves, heroAbilities, abilityOf, ensureCombatData,
-  perkCount, mod, classOf, levelUpNote, magicalOf, weaponTrait, training, armorSoak, untrainedPenalty,
+  perkCount, mod, classOf, levelUpNote, magicalOf, weaponTrait, training, armorSoak, untrainedPenalty, shieldBlock, itemOf, veteranDef,
 } from './rules.js';
 import { hasMagic } from './charms.js';
 import { sfx } from '../core/sound.js';
@@ -135,7 +135,7 @@ export class Battle {
     }
     // enemies
     for (const grp of this.enemyList) {
-      const def = byId(this.game.monsters, grp.id);
+      const def = this.groupDef(grp);
       if (!def) continue;
       // (company) grp.as: the first of them is someone in particular — a
       // turncoat companion fights under their own name and face
@@ -146,11 +146,18 @@ export class Battle {
     for (const e of this.enemies) if (!e.def.named) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
     const seen = {};
     for (const e of this.enemies) if (!e.def.named && counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
-    const names = this.enemyList.flatMap((g) => (g.as && g.n > 1 ? [{ ...g, n: 1 }, { id: g.id, n: g.n - 1 }] : [g])).map((g) => {
-      const d = g.as ? { ...byId(this.game.monsters, g.id), ...g.as, boss: true } : byId(this.game.monsters, g.id);
+    const names = this.enemyList.flatMap((g) => (g.as && g.n > 1 ? [{ ...g, n: 1 }, { id: g.id, n: g.n - 1, vet: g.vet }] : [g])).map((g) => {
+      const d = g.as ? { ...byId(this.game.monsters, g.id), ...g.as, boss: true } : this.groupDef(g);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean);
     this.log(`Battle! You face ${names.join(' and ')}.`, 'bad');
+  }
+
+  // the monster a group of the roster is: its kind, seasoned when the band
+  // came as veterans (grp.vet: the levels it rose, see rules.js veteranDef)
+  groupDef(grp) {
+    const def = byId(this.game.monsters, grp.id);
+    return def && grp.vet ? veteranDef(this.game, def, grp.vet) : def;
   }
 
   spawnEnemy(def, near = null) {
@@ -184,14 +191,14 @@ export class Battle {
     for (const f of F.foes) this.addFoe(f);
     this.retag();
     const counts = {};
-    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
-    this.log(`Battle! You face ${this.facing(Object.entries(counts).map(([id, n]) => ({ id, n })))}.`, 'bad');
+    for (const e of this.enemies) { const k = `${e.def.id}|${e.def.vet || 0}`; counts[k] = (counts[k] || 0) + 1; }
+    this.log(`Battle! You face ${this.facing(Object.entries(counts).map(([k, n]) => ({ id: k.split('|')[0], vet: +k.split('|')[1], n })))}.`, 'bad');
   }
 
   // "3 goblins and a giant spider"
   facing(list) {
     return list.map((g) => {
-      const d = byId(this.game.monsters, g.id);
+      const d = this.groupDef(g);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean).join(' and ');
   }
@@ -1109,7 +1116,7 @@ export class Battle {
   // Situational modifiers, with a note for each so the player can see why
   strikeMods(u, t, kit, ab) {
     const notes = [];
-    let hit = 0, mult = 1, auto = false, dmg = 0;
+    let hit = 0, mult = 1, auto = false, dmg = 0, back = false;
     const tr = kit.trait;
     // (the hand: an untrained one is already −3 in the weapon's figure; a trait is named)
     if (kit.untrained) notes.push(`Untrained −${untrainedPenalty(this.game)}`);
@@ -1136,6 +1143,7 @@ export class Battle {
         mult *= stab ? 2 : 1.5;
         notes.push(hidden ? 'Unseen +4' : 'From behind +2', stab ? 'Backstab ×2 dmg' : 'Rear ×1.5 dmg');
       }
+      if (rear) back = true;
       if (tr?.trait === 'quick' && (flank || rear)) { hit += tr.power ?? 2; notes.push(`Quick +${tr.power ?? 2}`); }
       if (tr?.trait === 'hew' && this.acOf(t) >= (tr.minAc ?? 14)) { dmg += tr.power ?? 2; notes.push(`Hew +${tr.power ?? 2} dmg`); }
       if (tr?.trait === 'stagger') notes.push(`Stagger ${Math.round((tr.chance ?? 0.3) * 100)}%`);
@@ -1155,8 +1163,29 @@ export class Battle {
     if (this.helpless(t)) { auto = true; notes.push('Helpless: sure hit'); }
     // a finishing blow on a badly wounded foe
     if (ab?.execute && this.hpOf(t) <= this.maxHpOf(t) * ab.execute) { auto = true; mult *= 2; notes.push('Wounded: sure hit, ×2 dmg'); }
-    return { hit, mult, auto, crit: !!ab?.autoCrit, notes, mark, dmg, cover: !!cover };
+    // (tactics II) a shield may turn the blow aside: not one from behind, nor a sure one
+    const block = auto || ab?.autoCrit ? 0 : this.blockChance(t, u, back);
+    if (block) notes.push(`Shield blocks ${Math.round(block * 100)}%`);
+    else if (back && this.blockChance(t, u, false)) notes.push('From behind: no block');
+    return { hit, mult, auto, crit: !!ab?.autoCrit, notes, mark, dmg, cover: !!cover, block, back };
   }
+
+  // (tactics II) The chance t's shield turns aside a blow from u that would
+  // land: a hero's shield (rules.js shieldBlock), a monster's own `block`.
+  // A shield guards the front and flanks: none against a blow from behind
+  // (back: struck from the rear square, or by one unseen; a missile from the
+  // half behind its facing), nor while it sleeps or reels stunned.
+  blockChance(t, u, back = false) {
+    if (!t || this.helpless(t)) return 0;
+    const p = t.member ? shieldBlock(this.game, t.member) : Math.max(0, Math.min(0.75, +t.def?.block || 0));
+    if (!p || back) return 0;
+    const f = t.face || [0, 1];
+    if (u && cheb(u, t) > 1 && (u.x - t.x) * f[0] + (u.y - t.y) * f[1] < 0) return 0;
+    return p;
+  }
+
+  // the name of what t blocks with ("Kite Shield"; a monster's "shield")
+  shieldName(t) { return (t.member && itemOf(this.game, t.member.equip?.shield)?.name) || t.def?.shieldName || 'shield'; }
 
   hitChance(bonus, ac, critMin, auto) {
     if (auto) return 1;
@@ -1185,7 +1214,7 @@ export class Battle {
     const kit = this.strikeKit(u, t, ab);
     if (!kit) return null;
     const md = this.strikeMods(u, t, kit, ab);
-    const chance = md.crit ? 1 : this.hitChance(kit.hit + md.hit, this.acOf(t, kit.ranged ? 'ranged' : 'melee'), kit.critMin, md.auto);
+    const chance = (md.crit ? 1 : this.hitChance(kit.hit + md.hit, this.acOf(t, kit.ranged ? 'ranged' : 'melee'), kit.critMin, md.auto)) * (1 - (md.block || 0));
     const weak = this.has(u, 'weakened') ? 2 : 0;
     const k = md.mult * (ab?.mult ?? 1);
     let lo = Math.max(1, Math.round((kit.min - weak) * k)) + md.dmg, hi = Math.max(1, Math.round((kit.max - weak) * k)) + md.dmg;
@@ -1196,7 +1225,7 @@ export class Battle {
     if (ab?.undeadBonus && t.def?.undead) { lo *= ab.undeadBonus; hi *= ab.undeadBonus; }
     lo += md.mark; hi += md.mark;
     if (md.crit) { lo *= 2; hi *= 2; md.notes.push('Certain critical'); }
-    return { chance, lo, hi, crit: md.crit ? 1 : Math.max(0, (21 - kit.critMin) / 20), notes: md.notes, ranged: kit.ranged, weapon: kit.name, cover: md.cover, untrained: !!kit.untrained, trait: kit.trait || null };
+    return { chance, lo, hi, crit: md.crit ? 1 : Math.max(0, (21 - kit.critMin) / 20), notes: md.notes, ranged: kit.ranged, weapon: kit.name, cover: md.cover, untrained: !!kit.untrained, trait: kit.trait || null, block: md.block || 0 };
   }
 
   async shoot(from, to, kit, ab) {
@@ -1235,6 +1264,18 @@ export class Battle {
       this.log(`${this.The(u)} misses ${this.the(t)}.`);
       await this.riposte(u, t, kit);
       return { hit: false };
+    }
+    // (tactics II) the blow would land, but a shield may turn it aside (the
+    // bearer's own roll, as a d20 is: rng.float, not the attacker's chances)
+    if (md.block > 0 && rng.float() < md.block) {
+      this.fx.block?.(t, u);
+      sfx('block');
+      const what = kit.ranged ? (kit.w?.thrown ? 'throw' : 'shot') : 'blow';
+      const whose = u.member ? `${u.name}'s` : `${this.the(u)}'s`;
+      this.log(t.member ? `${t.name} blocks ${whose} ${what} with the ${this.shieldName(t)}!` : `${this.The(t)} turns ${whose} ${what} aside on its ${this.shieldName(t)}.`, t.side === 'party' ? 'good' : '');
+      this.emit('block', { u, t, p: md.block });
+      await this.riposte(u, t, kit);
+      return { hit: false, blocked: true, crit };
     }
     // A monster's critical on a hero is the most its weapon can do and one
     // die more, not double: still a terrible blow, but no longer one that

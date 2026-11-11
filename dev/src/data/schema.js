@@ -36,6 +36,8 @@ export function defaultSettings() {
     dodgeEvery: 3, // heroes in cloth or leather gain +1 armour every this-many levels (0: never)
     lastStand: true,
     breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
+    // (tactics II) seasoned foes, high ground
+    veterans: 3, // a wandering kind this many levels below the company comes as veterans (0: never; rules.js veteranRise)
   };
 }
 
@@ -200,29 +202,72 @@ export function migrateGame(game) {
 // is still as it came: a designer's own pieces and changes are left alone.
 // (The new rules themselves — heroic health, the last stand, breaking away
 // as a gamble — are Rules settings, on with their defaults.)
-export const TACTICS_V = 1;
+//
+// (tactics II, TACTICS_V 2) Shields came to block: the built-in shields
+// still at their old armour take their new figures (less armour, a chance to
+// turn a blow aside); a designer's own are left alone. And a class from
+// before training (TACTICS_V 0) that is not a built-in calling as it came
+// keeps every weapon it could wield then: heavy weapons too, if it listed a
+// kind a heavy weapon of the game belongs to (an old "axes" class keeps its
+// battle axe), or listed none.
+export const TACTICS_V = 2;
 const OLD_FIGURES = {
   chain_mail: { ac: 4 }, scale_mail: { ac: 5 }, plate_armor: { ac: 7 }, truesilver_mail: { ac: 7 }, dragonscale: { ac: 6 },
   goblin: { hit: 4, dmg: '1d6+2' }, wolf: { hit: 4, dmg: '1d6+2' },
 };
+// the built-in shields as they were before they blocked, and as they are
+// now (the two of the sample realm too: its pieces are not in ITEMS)
+export const OLD_SHIELDS = {
+  buckler: { was: { ac: 1 }, now: { ac: 0, block: 0.1 } }, kite_shield: { was: { ac: 2 }, now: { ac: 0, block: 0.2 } },
+  serpent_shield: { was: { ac: 3 }, now: { ac: 1, block: 0.2 } }, gilded_buckler: { was: { ac: 3 }, now: { ac: 0, block: 0.25 } },
+};
+// Could a class wield a heavy weapon before heavy training existed? Any
+// weapon of a kind it listed (or any, with no list): so if the game holds a
+// heavy weapon of a kind it lists, or it lists a heavy kind
+export function oldHeavyTraining(game, k) {
+  const list = k?.weapons || [];
+  if (!list.length) return true;
+  const kinds = Array.isArray(game.weaponKinds) && game.weaponKinds.length ? game.weaponKinds : WEAPON_KIND_DEFS;
+  if (kinds.some((x) => x.heavy && list.includes(x.id))) return true;
+  return (game.items || []).some((it) => it.type === 'weapon' && (it.range || 1) <= 1 && list.includes(it.wkind)
+    && (it.heavy ?? (!!kinds.find((x) => x.id === it.wkind)?.heavy || !!it.twoHanded)));
+}
 export function migrateTactics(game) {
   if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
-  if ((game.settings.tacticsV || 0) >= TACTICS_V) return;
+  const v = game.settings.tacticsV || 0;
+  if (v >= TACTICS_V) return;
   game.settings.tacticsV = TACTICS_V;
-  for (const k of game.classes || []) {
-    const d = CLASSES.find((x) => x.id === k.id);
-    if (d && k.heavyWeapons === undefined) k.heavyWeapons = d.heavyWeapons;
+  const same = (o, was) => Object.entries(was).every(([key, val]) => o[key] === val);
+  if (v < 1) {
+    for (const k of game.classes || []) {
+      if (k.heavyWeapons !== undefined) continue;
+      // (a built-in calling still as it came takes its own; any other keeps what it could wield)
+      const d = CLASSES.find((x) => x.id === k.id);
+      const asCame = d && JSON.stringify([...(k.weapons || [])].sort()) === JSON.stringify([...(d.weapons || [])].sort());
+      k.heavyWeapons = asCame ? d.heavyWeapons : oldHeavyTraining(game, k);
+    }
+    for (const it of game.items || []) {
+      const d = ITEMS.find((x) => x.id === it.id);
+      if (!d) continue;
+      if (OLD_FIGURES[it.id] && same(it, OLD_FIGURES[it.id])) it.ac = d.ac;
+      if (d.heavy && it.heavy === undefined) it.heavy = true;
+    }
+    for (const m of game.monsters || []) {
+      const d = MONSTERS.find((x) => x.id === m.id);
+      if (d && OLD_FIGURES[m.id] && same(m, OLD_FIGURES[m.id])) { m.hit = d.hit; m.dmg = d.dmg; }
+    }
   }
-  const same = (o, was) => Object.entries(was).every(([key, v]) => o[key] === v);
-  for (const it of game.items || []) {
-    const d = ITEMS.find((x) => x.id === it.id);
-    if (!d) continue;
-    if (OLD_FIGURES[it.id] && same(it, OLD_FIGURES[it.id])) it.ac = d.ac;
-    if (d.heavy && it.heavy === undefined) it.heavy = true;
-  }
-  for (const m of game.monsters || []) {
-    const d = MONSTERS.find((x) => x.id === m.id);
-    if (d && OLD_FIGURES[m.id] && same(m, OLD_FIGURES[m.id])) { m.hit = d.hit; m.dmg = d.dmg; }
+  if (v < 2) {
+    if (game.settings.veterans === undefined) game.settings.veterans = 3;
+    // (the built-in beasts' seasoned names: "Dire Wolf", not "Wolf Veteran")
+    for (const m of game.monsters || []) {
+      const d = MONSTERS.find((x) => x.id === m.id);
+      if (d?.vetName && m.vetName === undefined && m.name === d.name) { m.vetName = d.vetName; if (d.vetPlural) m.vetPlural = d.vetPlural; }
+    }
+    for (const it of game.items || []) {
+      const o = OLD_SHIELDS[it.id];
+      if (o && it.type === 'shield' && it.block === undefined && same(it, o.was)) Object.assign(it, o.now);
+    }
   }
 }
 

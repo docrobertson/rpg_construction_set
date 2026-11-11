@@ -66,6 +66,19 @@ function textures() {
       g.arc(0, s * 0.3, s * 0.4, Math.PI * 1.9, Math.PI * 1.1, true);
       g.closePath(); g.fill();
     }),
+    // (tactics II) a heater shield's face, for a blow turned aside
+    shield: canvasTex(64, (g, s) => {
+      const path = () => {
+        g.beginPath();
+        g.moveTo(s * 0.2, s * 0.16); g.lineTo(s * 0.8, s * 0.16); g.lineTo(s * 0.8, s * 0.44);
+        g.quadraticCurveTo(s * 0.78, s * 0.74, s * 0.5, s * 0.9); g.quadraticCurveTo(s * 0.22, s * 0.74, s * 0.2, s * 0.44);
+        g.closePath();
+      };
+      g.shadowColor = 'rgba(255,255,255,.9)'; g.shadowBlur = s * 0.12;
+      path(); g.fillStyle = 'rgba(255,255,255,.38)'; g.fill();
+      g.shadowBlur = 0; g.lineWidth = s * 0.07; g.strokeStyle = 'rgba(255,255,255,1)'; path(); g.stroke();
+      g.lineWidth = s * 0.035; g.beginPath(); g.moveTo(s * 0.5, s * 0.22); g.lineTo(s * 0.5, s * 0.8); g.moveTo(s * 0.27, s * 0.4); g.lineTo(s * 0.73, s * 0.4); g.stroke();
+    }),
     tile: canvasTex(64, (g, s) => {
       g.fillStyle = 'rgba(255,255,255,.32)'; g.fillRect(0, 0, s, s);
       g.strokeStyle = 'rgba(255,255,255,1)'; g.lineWidth = 5; g.strokeRect(3, 3, s - 6, s - 6);
@@ -317,6 +330,18 @@ export class BattleFx {
   }
 
   miss(t) { this.number(t.x, t.y, 'Miss', 'miss'); }
+
+  // (tactics II) a blow turned aside on a shield: the shield's face flares
+  // between the bearer and the blow, sparks fly off it, the bearer rocks back
+  block(t, from) {
+    const a = this.pos(t.x, t.y, 0.62), b = from ? this.pos(from.x, from.y, 0.62) : a.clone().add(new THREE.Vector3(0, 0, 1));
+    const p = a.clone().lerp(b, Math.min(0.4, 0.34 / Math.max(0.5, a.distanceTo(b))));
+    this.pop(p, 'shield', 0xc8e0ff, 0.42, 0.78, 0.42);
+    this.pop(p, 'star', 0xffffff, 0.15, 0.85, 0.16);
+    this.particles(p, { count: 9, color: 0xfff2c0, size: 0.09, speed: 2.6, up: 1.1, gravity: -6, life: 0.36 });
+    this.nudge(t, from, 0.08);
+    this.number(t.x, t.y, 'Blocked!', 'miss', '#bcd8ff');
+  }
 
   // ---------------------------------------------------------------- projectiles
   // A glowing bolt with a trail. kind tunes the look: fire, frost, arcane,

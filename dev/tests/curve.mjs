@@ -5,8 +5,10 @@
 // (PlaySession.pickMonster over open country). Two measures, both with the
 // real combat code (effects and sound stubbed out):
 //   blows   each foe strikes each hero many times from full health, one on
-//           one, on open ground: how often it hits, what an ordinary hit
-//           costs as a share of health, how often one blow fells a hero
+//           one, on open ground: how often it hits (a blow turned aside on a
+//           shield counts as a miss; how often shields block is shown too),
+//           what an ordinary hit costs as a share of health, how often one
+//           blow fells a hero
 //   fights  whole battles against wandering bands, a sensible player at the
 //           helm: wins, health lost, heroes fallen, and every blow struck
 // Used by tests/tactics.mjs; run alone for the table:
@@ -187,7 +189,7 @@ async function measureRun(opt) {
       if (u.side !== 'enemy' || !t.member) return strike(u, t, o);
       const m = t.member, max = R.maxHp(game, m), before = m.hp;
       const r = await strike(u, t, o);
-      list.push({ cls: m.cls, foe: u.def.id, lv: u.def.level || 1, hit: !!r.hit, dmg: Math.max(0, before - Math.max(0, m.hp)), raw: r.dmg || 0, crit: !!r.crit, max, full: before >= max, fell: m.status === 'dead' });
+      list.push({ cls: m.cls, foe: u.def.id, lv: u.def.level || 1, vet: !!u.def.vet, hit: !!r.hit, blocked: !!r.blocked, dmg: Math.max(0, before - Math.max(0, m.hp)), raw: r.dmg || 0, crit: !!r.crit, max, full: before >= max, fell: m.status === 'dead' });
       return r;
     };
   };
@@ -240,7 +242,7 @@ async function measureRun(opt) {
       const sp = { game, party: p, map: { encounters: [], level: 1, type: 'world' } };
       const mon = PlaySession.prototype.pickMonster.call(sp, rng.pick(HABITATS));
       if (!mon) continue;
-      const enemies = PlaySession.prototype.enemiesFor.call({ game, party: p }, { monster: mon.id, count: encounterCount(mon, level) });
+      const enemies = PlaySession.prototype.enemiesFor.call({ game, party: p }, { monster: mon.id, count: encounterCount(mon, level), ...(mon.vet ? { vet: mon.vet } : {}) });
       const before = p.members.reduce((t, m) => t + m.hp, 0), max = p.members.reduce((t, m) => t + R.maxHp(game, m), 0);
       const b = new Battle(s, enemies, rng.pick(['grass', 'grass', 'forest', 'hills']));
       b.heroTurn = (u) => heroAI(b, u);
@@ -259,7 +261,9 @@ async function measureRun(opt) {
     const worst = (list) => { const h = list.filter((x) => x.hit && !x.crit).map((x) => x.raw / x.max).sort((a, b) => a - b); return h.length ? h[Math.floor(h.length * 0.95)] : 0; };
     const oneShot = (list) => { const f = list.filter((x) => x.full); return f.length ? f.filter((x) => x.fell).length / f.length : 0; };
     const counts = {};
-    for (const m of mix) counts[m.id] = (counts[m.id] || 0) + 1;
+    for (const m of mix) { const k = m.vet ? `${m.id}*` : m.id; counts[k] = (counts[k] || 0) + 1; }
+    // a shield's blocks: the share of the blows that would have landed on its bearer
+    const blockRate = (list) => { const would = list.filter((x) => x.hit || x.blocked); return would.length ? would.filter((x) => x.blocked).length / would.length : 0; };
     rows.push({
       level,
       foes: Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([id, n]) => `${id} ${Math.round((n / mix.length) * 100)}%`).join(', '),
@@ -270,6 +274,8 @@ async function measureRun(opt) {
       hitLv: rate(blowsList.filter((x) => Math.abs(x.lv - level) <= 1)),
       hitLvBy: Object.fromEntries(COMPANY.map(([, c]) => [c, rate(of(blowsList, c).filter((x) => Math.abs(x.lv - level) <= 1))])),
       hit: rate(blowsList), hitBy: Object.fromEntries(COMPANY.map(([, c]) => [c, rate(of(blowsList, c))])),
+      blockBy: Object.fromEntries(COMPANY.map(([, c]) => [c, blockRate(of(blowsList, c))])),
+      vets: mix.filter((m) => m.vet).length / Math.max(1, mix.length),
       share: Object.fromEntries(COMPANY.map(([, c]) => [c, share(of(blowsList, c))])),
       worst: Object.fromEntries(COMPANY.map(([, c]) => [c, worst(of(blowsList, c))])),
       oneShot: oneShot(blowsList), oneShotBy: Object.fromEntries(COMPANY.map(([, c]) => [c, oneShot(of(blowsList, c))])),
@@ -284,15 +290,16 @@ async function measureRun(opt) {
 export function table(rows) {
   const pct = (x) => `${Math.round(x * 100)}%`;
   const out = [];
-  out.push('Lv | foes hit heroes: all  war  ran  wiz  cle | foes of its level: all war wiz | ordinary hit, share of health: war  wiz (95th: war wiz) | one blow fells from full: all wiz | heroes hit foes | fights: win  lost  fallen  rounds');
+  out.push('Lv | foes hit heroes: all  war  ran  wiz  cle | foes of its level: all war wiz | blocked: war cle | ordinary hit, share of health: war  wiz (95th: war wiz) | one blow fells from full: all wiz | heroes hit foes | fights: win  lost  fallen  rounds');
   for (const r of rows) {
     out.push(`L${r.level} | ${pct(r.hit).padStart(4)} ${pct(r.hitBy.warrior).padStart(4)} ${pct(r.hitBy.ranger).padStart(4)} ${pct(r.hitBy.wizard).padStart(4)} ${pct(r.hitBy.cleric).padStart(4)} | ${pct(r.hitLv).padStart(4)} ${pct(r.hitLvBy.warrior).padStart(4)} ${pct(r.hitLvBy.wizard).padStart(4)}`
+      + ` | ${pct(r.blockBy.warrior).padStart(4)} ${pct(r.blockBy.cleric).padStart(4)}`
       + ` | ${pct(r.share.warrior).padStart(4)} ${pct(r.share.wizard).padStart(4)} (${pct(r.worst.warrior)} ${pct(r.worst.wizard)})`
       + ` | ${pct(r.oneShot).padStart(4)} ${pct(r.oneShotBy.wizard).padStart(4)} | ${pct(r.heroHit).padStart(4)}`
       + ` | ${pct(r.win).padStart(4)} ${pct(r.lost).padStart(4)} ${r.fallen.toFixed(2)} ${r.rounds.toFixed(1)}`);
   }
   out.push('');
-  for (const r of rows) out.push(`L${r.level}  armour ${Object.entries(r.ac).map(([k, v]) => `${k} ${v}`).join(', ')} · health ${Object.entries(r.hp).map(([k, v]) => `${k} ${v}`).join(', ')} · foes met (avg +${r.foeHit} to hit): ${r.foes}`);
+  for (const r of rows) out.push(`L${r.level}  armour ${Object.entries(r.ac).map(([k, v]) => `${k} ${v}`).join(', ')} · health ${Object.entries(r.hp).map(([k, v]) => `${k} ${v}`).join(', ')} · foes met (avg +${r.foeHit} to hit; * veterans, ${pct(r.vets)}): ${r.foes}`);
   return out.join('\n');
 }
 

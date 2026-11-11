@@ -231,6 +231,8 @@ export function categories(game) {
           hint: 'The ✦ mark and the name take this colour; a weapon also glows in the hero\'s hand. Setting it marks the piece magical.' },
         { key: 'weight', label: 'Weight', type: 'select', options: ARMOR_WEIGHTS, show: (o) => o.type === 'armor' },
         { key: 'ac', label: 'Armour bonus', type: 'number', min: 0, show: (o) => o.type === 'armor' || o.type === 'shield' },
+        { key: 'block', label: 'Blocks (0.15 = 15%)', type: 'number', step: 0.05, min: 0, max: 0.75, nullable: true, show: (o) => o.type === 'shield', placeholder: '0',
+          hint: 'The chance it turns aside a blow or shot that would land (not one from behind). The built-in buckler blocks 10%, the kite shield 20%.' },
         { key: 'soak', label: 'Soaks from every blow', type: 'number', min: 0, max: 6, nullable: true, show: (o) => o.type === 'armor', placeholder: 'by weight',
           hint: 'Damage taken off each blow that lands (never below 1). Empty: as its weight (chain 1, plate 2)' },
         { key: 'effect', label: 'Effect', type: 'select', options: ITEM_EFFECTS, show: (o) => o.type === 'consumable', rerender: true },
@@ -334,6 +336,13 @@ export function categories(game) {
         { key: 'sleepImmune', label: 'Immune to sleep', type: 'check' },
         // (isles) a statue shrugs off blows and the conditions of the living
         { key: 'hardened', label: 'Shrugs off per blow', type: 'number', min: 0, max: 10, hint: 'Each blow that lands on it does this much less (never below 1). Stone, thick hide, a shell.' },
+        // (tactics II) a shield of its own, and its seasoned kind
+        { key: 'block', label: 'Shield blocks (0.1 = 10%)', type: 'number', step: 0.05, min: 0, max: 0.75, nullable: true, placeholder: '0', hint: 'The chance it turns aside a hero\'s blow or shot that would land (not one from behind).' },
+        { type: 'section', label: 'Seasoned (veterans)' },
+        { key: 'veteran', label: 'Comes seasoned when the company has far outgrown it', type: 'check', get: (o) => o.veteran !== false, put: (o, v) => { if (v) delete o.veteran; else o.veteran = false; },
+          hint: 'A wandering band this many levels below the company (Rules → Battle: seasoned foes) comes as veterans: tougher, and worth more.' },
+        { key: 'vetName', label: 'Its seasoned name', type: 'text', placeholder: 'empty: "<name> Veteran"', show: (o) => o.veteran !== false && !o.boss, hint: 'A beast reads better with a name of its own: Dire Wolf, Plague Rat.' },
+        { key: 'vetPlural', label: 'Seasoned, plural', type: 'text', placeholder: 'empty: the name and an s', show: (o) => o.veteran !== false && !o.boss && !!o.vetName },
         { key: 'immune', label: 'Proof against', type: 'multicheck', options: () => Object.entries(STATUS_EFFECTS).filter(([, d]) => d.bad).map(([k, d]) => [k, d.name]) },
         { key: 'swim', label: 'Lives in water', type: 'check' },
         { key: 'fly', label: 'Flies (crosses water)', type: 'check' },

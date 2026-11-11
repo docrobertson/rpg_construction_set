@@ -45,6 +45,9 @@ export function renderSettings(ed, left, main) {
     { key: 'settings.lastStand', label: 'Last stand', type: 'check', hint: 'A hero above half health survives any single blow on 1 health, once per battle: no one falls from full health in one stroke.' },
     { key: 'settings.breakAway', label: 'Breaking away: chance of a free strike', type: 'number', step: 0.05, min: 0, max: 1, hint: 'When anyone steps out of a foe\'s reach. 0.5: half the time, more against a higher-level or quicker foe, less the other way (15–90%). 1: always, as of old. Withdraw always steps back safely.' },
     { key: 'settings.dodgeEvery', label: 'Light armour dodges: +1 armour every … levels', type: 'number', min: 0, max: 10, hint: 'For heroes in cloth or leather (mail and plate soak blows instead). 3: at levels 3, 6 and 9. 0: never.' },
+    // (tactics II)
+    { key: 'settings.veterans', label: 'Seasoned foes: a wandering kind … levels below the company comes as veterans', type: 'number', min: 0, max: 10, nullable: true, placeholder: '3',
+      hint: 'So the open country still bites when the company has outgrown it. 3: a band three or more levels below rises to two levels below the company (+1 to hit and damage a level, more health, and more experience), named so: "Orc Veteran". 0: never. A monster can be kept as it is (World Data → Monsters).' },
   ], changed)));
 
   const magic = h('div.magic-toggles');

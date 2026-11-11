@@ -10,7 +10,7 @@ import { findBuildings, buildingMap } from '../world/buildings.js';
 import { npcMarker } from '../game/quests.js';
 import { eventLabel, EVENT_KINDS } from '../game/events.js';
 import { bfsPath, cheapestPath } from '../game/walk.js';
-import { partyAlive, partyLevel, raceOf, classOf, itemOf } from '../game/rules.js';
+import { partyAlive, partyLevel, raceOf, classOf, itemOf, bandDef } from '../game/rules.js';
 import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
 import { markerGlyph } from '../render/markers.js';
@@ -334,7 +334,7 @@ export class Explorer {
         if (steps > 0) {
           const near = foes().find((e) => e.id !== plan.track?.id && (!known.has(e.id) && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 7 || Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 2));
           if (near) {
-            const d = byId(s.game.monsters, near.monster);
+            const d = bandDef(s.game, near);
             s.log(`You stop: ${d ? (d.boss ? d.name : d.plural || d.name) : 'something'} ahead!`, 'warn');
             break;
           }
@@ -374,7 +374,7 @@ export class Explorer {
   // ------------------------------------------------------------ describing
   monsterInfo(e) {
     const s = this.s;
-    const d = byId(s.game.monsters, e.monster);
+    const d = bandDef(s.game, e); // (tactics II) a seasoned band says so: "Orc Veterans"
     if (!d) return { title: 'Something', sub: '' };
     const lvl = d.level || 1, pl = partyLevel(s.party);
     const diff = lvl - pl;
@@ -382,7 +382,7 @@ export class Explorer {
     const m = String(e.count || '').match(/^(\d+)(?:\s*-\s*(\d+))?$/);
     const n = m ? (m[2] ? `${m[1]}–${m[2]}` : m[1]) : d.group ? `${d.group[0]}–${d.group[1]}` : '1';
     const group = n === '1' ? '' : `a band of ${n} · `;
-    return { title: (e.boss ? '★ ' : '') + (n === '1' ? d.name : d.plural || d.name), sub: `${group}level ${lvl} · ${threat}` };
+    return { title: (e.boss ? '★ ' : '') + (n === '1' ? d.name : d.plural || d.name), sub: `${group}level ${lvl}${d.vet ? ' · seasoned' : ''} · ${threat}` };
   }
 
   npcInfo(e) {

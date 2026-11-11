@@ -8,7 +8,7 @@ import { icon, itemTile } from './icons.js';
 import { portrait } from '../render/portrait.js';
 import {
   maxHp, maxMp, charLook, rangedOf, weaponOf, canCast, classOf, raceOf, xpForLevel, perkChoices, choosePerk, perkOf, heroAbilities, lockedAbilities,
-  heroArts, battleArts, lastPick, pickLevel, ART_EVERY, armorSoak,
+  heroArts, battleArts, lastPick, pickLevel, ART_EVERY, armorSoak, shieldBlock,
 } from '../game/rules.js';
 import { AI_STYLES } from '../data/defaults.js';
 import { perkText, heroSchool, poolName, noNeed } from '../game/magic.js';
@@ -632,8 +632,8 @@ export class CombatHud {
     if (enemy) {
       const d = unit.def;
       const ai = b.aiOf(d);
-      sub = `Level ${d.level || 1}${d.undead ? ' · Undead' : ''}${d.boss ? ' · Boss' : ''}`;
-      stats = [`Armour ${b.acOf(unit)}`, `Attack +${d.hit || 0} · ${d.dmg}${(d.range || 1) > 1 ? ` · range ${d.range}` : ''}`];
+      sub = `Level ${d.level || 1}${d.vet ? ` · Veteran ${d.base || ''}`.trimEnd() : ''}${d.undead ? ' · Undead' : ''}${d.boss ? ' · Boss' : ''}`;
+      stats = [`Armour ${b.acOf(unit)}`, `Attack +${d.hit || 0} · ${d.dmg}${(d.range || 1) > 1 ? ` · range ${d.range}` : ''}`, b.blockChance?.(unit) ? `Shield ${Math.round(b.blockChance(unit) * 100)}%` : null].filter(Boolean);
       const abil = (d.abilities || []).map((id) => b.abilitiesOf(unit).find((a) => a.id === id)?.name).filter(Boolean);
       const eye = !unit.charging && b.pickTarget ? b.pickTarget(unit, ai) : null;
       return h('div.tc-unit.enemy',
@@ -664,7 +664,8 @@ export class CombatHud {
       h('div.tc-head', pic ? h('img', { src: pic }) : null, h('div', h('b', m.name), h('span.tc-sub', `Level ${m.level} ${raceOf(g, m).name} ${classOf(g, m).name}`))),
       this.hpBar(hp, mhp),
       h('div.tc-stats', h('span', `Armour ${b.acOf(unit)}${b.acOf(unit, 'melee') > b.acOf(unit) ? ` (${b.acOf(unit, 'melee')} hand to hand)` : ''}`),
-        armorSoak(g, m) ? h('span', `Soaks ${armorSoak(g, m)}`) : null, maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
+        armorSoak(g, m) ? h('span', `Soaks ${armorSoak(g, m)}`) : null, shieldBlock(g, m) ? h('span', { title: 'The shield turns aside this share of the blows that would land: not one from behind' }, `Blocks ${Math.round(shieldBlock(g, m) * 100)}%`) : null,
+        maxMp(g, m) ? h('span', `${poolName(g, m)} ${m.mp}/${maxMp(g, m)}`) : null),
       g.settings?.lastStand !== false ? h('p.tc-ai', unit.lastStood ? 'Last stand spent: the next felling blow is real.'
         : hp > mhp / 2 ? 'Last stand ready: a blow that would fell them leaves them on 1 health.' : 'Below half health: no last stand.') : null,
       this.statusRows(unit),
@@ -774,7 +775,8 @@ export class CombatHud {
         pv.hi >= this.b.hpOf(unit) ? h('em', pv.lo >= this.b.hpOf(unit) ? ' · deadly' : ' · could kill') : null),
       h('div.pv-sub', `${label || (pv.ranged ? `Shoot (${pv.weapon})` : `Strike (${pv.weapon})`)}${pv.crit && pv.crit < 1 ? ` · ${Math.round(pv.crit * 100)}% critical` : ''}`),
       pv.notes.length ? h('div.pv-notes', ...pv.notes.map((n) => (/^Cover/.test(n) ? h('span.neg.cover', icon('shield'), ` ${n}`)
-        : h('span' + (/[−]|Lucky|Engaged|Weakened|Untrained/.test(n) ? '.neg' : /^(Hew|Quick|Pierce|Snap|Reach|Stagger|Sweep)/.test(n) ? '.trait' : ''), n)))) : null);
+        : /^Shield blocks/.test(n) ? h('span.neg.block', icon('shield'), ` ${n}`)
+          : h('span' + (/[−]|Lucky|Engaged|Weakened|Untrained/.test(n) ? '.neg' : /^(Hew|Quick|Pierce|Snap|Reach|Stagger|Sweep|High ground|From behind: no block)/.test(n) ? '.trait' : ''), n)))) : null);
   }
 
   showTip(card, x, y, mode) {
