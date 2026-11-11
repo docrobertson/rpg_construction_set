@@ -5,8 +5,9 @@ import { LOOK_FIELDS } from './inspector.js';
 import {
   STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
   ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES, CHARM_KINDS, CHARM_KIND_ICONS, RARITIES,
-  WEAPON_TRAITS, WEAPON_KIND_DEFS, ARMOR_SOAK,
+  WEAPON_TRAITS, WEAPON_KIND_DEFS, ARMOR_SOAK, SHOP_THEMES, SHOP_KIND_NAMES,
 } from '../../data/defaults.js';
+import { themeStock, themeOf, followsTheme } from '../../game/shops.js';
 import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
@@ -117,6 +118,18 @@ const effectFields = (game) => [
   { key: 'radius', label: 'Senses within (squares)', type: 'number', min: 1, max: 12, show: takes('radius') },
 ];
 
+// (market) a theme in a line: what it gives, its price range, and who follows it
+function themeSummary(game, t) {
+  const ids = themeStock(game, t);
+  const its = ids.map((id) => game.items.find((i) => i.id === id));
+  const prices = its.map((it) => it.price || 0);
+  const missing = (t.items || []).filter((id) => !ids.includes(id));
+  const keepers = [];
+  for (const m of game.maps) for (const e of m.entities || []) if (e.type === 'npc' && e.shop && themeOf(game, e.shop) === t) keepers.push(`${e.name || 'someone'}${followsTheme(e.shop) ? '' : ' (by hand)'}, ${m.name}`);
+  const count = !its.length ? 'Sells nothing yet: tick a few things.' : `${its.length} thing${its.length === 1 ? '' : 's'}, ◆${Math.min(...prices)}–${Math.max(...prices)}${its.length > 7 ? ' — more than a shop should show: think of splitting it' : its.length < 4 ? ' — a little thin' : ''}.`;
+  return `${count}${missing.length ? ` (${missing.join(', ')}: not in this game, ignored.)` : ''} ${keepers.length ? `Kept by ${keepers.length}: ${keepers.join('; ')}.` : 'No shop trades in it yet.'}`;
+}
+
 // a battle action granted by a worn piece: the ability fields, kept on item.ability
 const itemAbilityFields = () => abilityFields().map((f) => ({ ...f, key: f.key ? `ability.${f.key}` : undefined, show: (o) => !!o.ability && (!f.show || f.show(o.ability)) }));
 const NEW_ACTION = (o) => ({ name: `${o.name || 'Charm'}'s Power`, icon: o.icon || CHARM_KIND_ICONS[o.kind] || 'star', target: 'nearbyFoes', radius: 2, perBattle: 1, statuses: [{ id: 'stunned', rounds: 1, chance: 0.3 }], vfx: 'arcane', fx: o.tint ?? 0xc8b8ff, desc: 'Once per battle. Describe what it does.' });
@@ -145,6 +158,7 @@ export function categories(game) {
   const sysOf = (sp) => game.magic.find((m) => m.id === sp.system);
   // (tactics) the kinds of weapon, each with its trait
   if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
+  if (!Array.isArray(game.shopThemes)) game.shopThemes = deepClone(SHOP_THEMES); // (market)
   const kinds = () => weaponKinds(game).map((k) => [k.id, k.trait && WEAPON_TRAITS[k.trait] ? `${k.name} — ${WEAPON_TRAITS[k.trait]}` : k.name]);
   const heavyOf = (k) => k.heavyWeapons ?? (!(k.weapons || []).length || k.weapons.includes('greatblade'));
   return {
@@ -261,6 +275,30 @@ export function categories(game) {
         { key: 'only.races', label: 'Only these peoples', type: 'multicheck', options: () => game.races.map((r) => [r.id, r.name]), show: wearable, hint: 'None ticked: anyone' },
         { key: 'only.classes', label: 'Only these callings', type: 'multicheck', options: () => game.classes.map((k) => [k.id, k.name]), show: wearable, hint: 'None ticked: anyone' },
         { key: 'onlyText', label: 'Said to anyone else', type: 'text', placeholder: 'Only a dwarf can wake its runes', show: (o) => wearable(o) && ((o.only?.races || []).length || (o.only?.classes || []).length), hint: 'Empty: "Only a … can wear it"' },
+      ],
+    },
+    // (market) the lines of trade a shop may follow
+    shopThemes: {
+      label: 'Shop themes', icon: '🏪', list: game.shopThemes,
+      group: (t) => SHOP_KIND_NAMES[t.kind] || t.kind,
+      blank: () => ({ name: 'New Trade', kind: 'weapons', desc: 'what it sells, in a few words', items: [], styles: [], races: [] }),
+      fields: [
+        { type: 'info', label: 'A shop follows its theme unless its wares are picked by hand (the person\'s Trade section on the map). Four to seven things make a shop worth the visit without selling everything: the realm\'s other shops sell the rest.' },
+        { key: 'name', label: 'Name', type: 'text', hint: 'On the shop screen after its keeper\'s name: “Ambrose\'s Blades”' },
+        { key: 'desc', label: 'In a few words', type: 'text', placeholder: 'swords and daggers', hint: 'After the name: “Blades — swords and daggers”' },
+        { key: 'kind', label: 'Kind of shop', type: 'select', rerender: true, options: Object.entries(SHOP_KIND_NAMES),
+          hint: 'Weaponsmiths and bowyers trade in weapons; armourers armour; provisioners provisions; herbalists reagents; sages scrolls; merchants a little of everything, or charms.' },
+        { key: 'items', label: 'Sells', type: 'multicheck', wide: true, rerender: true,
+          options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]) },
+        { type: 'info', label: (o) => themeSummary(game, o) },
+        { key: 'priceMod', label: 'Its markup', type: 'number', step: 0.05, min: 0.1, nullable: true, placeholder: '1',
+          hint: 'Blank or 1: the items\' own prices. 1.1–1.4 for a dear trade (a castle\'s armoury, a curio-seller), 0.85–0.95 for a cheap one (the militia\'s arms, second-hand mail). A shop may set its own instead.' },
+        { type: 'section', label: 'Where new towns use it' },
+        { key: 'styles', label: 'In places like', type: 'multicheck', options: [['village', 'Villages'], ['town', 'Towns'], ['castle', 'Castles'], ['elfhall', 'Elf-halls'], ['dwarfgate', 'Dwarf holds']],
+          hint: 'When a place is built (Quick Start, Places, a shop room) its shops take a fitting theme, one no other shop in the realm has where they can. None ticked: anywhere.' },
+        { key: 'races', label: 'Kept by', type: 'multicheck', options: () => game.races.map((r) => [r.id, r.name]), hint: 'The keeper\'s folk. None ticked: anyone.' },
+        { key: 'coast', label: 'Only by the sea (a harbour, a coastal town)', type: 'check', hint: 'A place by the sea takes a theme like this first.' },
+        { key: 'roles', label: 'For keepers who are', type: 'multicheck', show: (o) => o.kind === 'weapons', options: [['weapons', 'Weaponsmiths'], ['bowyer', 'Bowyers']], hint: 'A bowyer\'s shop takes a theme ticked for bowyers where there is one. None ticked: any keeper of arms.' },
       ],
     },
     spells: {

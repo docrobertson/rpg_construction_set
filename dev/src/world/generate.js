@@ -1665,7 +1665,7 @@ export function nameNpcs(map, game, seed = 1, where = {}) {
   const used = npcNameWords(game);
   for (const e of map.entities) if (e.type === 'npc') for (const w of nameWords(e.name)) used.add(w);
   // (market) the themes the realm's other shops, and this place's, already follow
-  const themes = game ? themesInUse(game, map) : new Set();
+  const themes = game ? themesInUse(game, map, where.replaces) : new Set();
   for (const e of map.entities) if (e.shop?.theme) themes.add(e.shop.theme);
   for (const e of map.entities) {
     if (e.type !== 'npc') continue;

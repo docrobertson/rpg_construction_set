@@ -105,12 +105,18 @@ export function pickTheme(game, { kind, role, race, style, coast = false, seed =
   return new RNG(hashString(`${seed}:${kind}:${role}`)).pick(list).id;
 }
 
-// the themes the shops of a game already follow (name: but not this place's own)
-export function themesInUse(game, skip = null) {
+// the themes the shops of a game already follow (but not this place's own,
+// nor the map it is built to replace)
+export function themesInUse(game, skip = null, replaces = null) {
   const out = new Set();
   for (const m of game?.maps || []) {
-    if (skip && (m === skip || (skip.name && m.name === skip.name))) continue;
+    if (m === skip || (replaces && m.id === replaces)) continue;
     for (const e of m.entities || []) if (e.type === 'npc' && e.shop?.theme) out.add(e.shop.theme);
   }
   return out;
+}
+
+// (for the tests and the editor's console)
+if (typeof window !== 'undefined') {
+  window.__market = { shopStock, themeOf, themeStock, themeById, pickTheme, shopPriceMod, buyBase, sellBase, sellRate, priceScale, shopTitle, followsTheme, themesInUse, ROLE_SHOP_KINDS };
 }

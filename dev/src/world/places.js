@@ -476,7 +476,7 @@ export function rebuildPlace(game, map, plan) {
   const old = planOf(map);
   plan = normalizePlan(clone(plan || old), plan?.kind || old?.kind);
   if (isDungeonKind(plan.kind) !== (map.type === 'dungeon')) throw new Error('A town cannot be rebuilt as a dungeon, nor a dungeon as a town.');
-  const { map: fresh, missing } = generateFromPlan(game, plan, { name: map.name, seed: plan.seed, level: map.level });
+  const { map: fresh, missing } = generateFromPlan(game, plan, { name: map.name, seed: plan.seed, level: map.level, where: { replaces: map.id } }); // (market: its shops may take the old ones' themes again)
   const notes = missingNotes(missing);
   const ctx = { game, old: map, fresh, notes, moved: [], refs: referencedIds(game) };
   const entities = map.type === 'dungeon' ? mergeDungeon(ctx, plan) : mergeSettlement(ctx);
@@ -494,6 +494,7 @@ export function rebuildPlace(game, map, plan) {
   map.fill = fresh.fill;
   map.entry = fresh.entry;
   map.type = fresh.type;
+  if (fresh.settlement) map.settlement = fresh.settlement; // (market) the kind of place its shops suit
   if (!sameStyle) map.lighting = fresh.lighting;
   map.entities = entities;
   map.plan = fresh.plan;
