@@ -10,6 +10,7 @@ import {
  magicalOf, wearRule, training, kindOf, traitText, armorSoak, dodgeBonus, untrainedPenalty, kindWords, heavyTrained, isHeavy,
 } from '../game/rules.js';
 import { charmInfo, charmPrice, hasMagic } from '../game/charms.js';
+import { shopStock, themeOf, shopPriceMod, shopTitle, buyBase, sellBase, sellRate, sellWords } from '../game/shops.js';
 import { markKeywords, knownKeywords } from '../game/dialog.js';
 import { STAT_NAMES, STATS, CHARM_KINDS, RARITIES, ARMOR_SOAK, WEAPON_TRAITS } from '../data/defaults.js';
 import { sfx, isMuted, setMuted } from '../core/sound.js';
@@ -1191,17 +1192,21 @@ export class PlayUI {
   }
 
   // ------------------------------------------------------------ shops
+  // (market) the shop's price: its markup or its theme's, and the realm's
+  // price scale; merchants buy back at the sell rate (game/shops.js)
   priceOf(item, npc, selling = false) {
-    const mod = npc.shop?.priceMod || 1;
-    const base = item.price || 0;
+    const g = this.s.game;
     // (a charm of haggling: the merchant asks less and pays more)
-    return selling ? Math.max(1, Math.floor(charmPrice(this.s, base * 0.5, true))) : Math.max(1, Math.round(charmPrice(this.s, base * mod)));
+    return selling ? Math.max(1, Math.floor(charmPrice(this.s, sellBase(g, item), true))) : Math.max(1, Math.round(charmPrice(this.s, buyBase(g, item, npc.shop))));
   }
 
   openShop(npc) {
     const s = this.s, g = s.game;
     // (a treasure map is sold only while the company has none and its hoard is undug)
-    const stock = (npc.shop?.stock || []).map((id) => itemOf(g, id)).filter((it) => it && !(it.type === 'map' && ((s.party.inventory[it.id] || 0) > 0 || isDug(s, it.treasure))));
+    const stock = shopStock(g, npc.shop).map((id) => itemOf(g, id)).filter((it) => it && !(it.type === 'map' && ((s.party.inventory[it.id] || 0) > 0 || isDug(s, it.treasure))));
+    // (market) the line of trade, so the company knows to look elsewhere for the rest
+    const theme = themeOf(g, npc.shop);
+    const mod = shopPriceMod(g, npc.shop);
     const body = h('div.shop');
     const coin = () => h('i.coin', { html: iconSvg('coin') });
     const face = portrait(this.view, s.entityLook(npc));
@@ -1231,6 +1236,13 @@ export class PlayUI {
         h('div.tabs',
           h('button' + (tab === 'buy' ? '.on' : ''), { onclick: () => { tab = 'buy'; render(); } }, 'Buy'),
           h('button' + (tab === 'sell' ? '.on' : ''), { onclick: () => { tab = 'sell'; render(); } }, 'Sell'))));
+      if (tab === 'buy' && (theme || mod !== 1)) {
+        body.append(h('div.shop-theme',
+          theme ? h('span', h('b', theme.name), theme.desc ? ` — ${theme.desc}` : '') : null,
+          mod > 1.001 ? h('span.shop-dear', { title: `Prices here are ${Math.round((mod - 1) * 100)}% above the usual` }, `dear here: +${Math.round((mod - 1) * 100)}%`)
+            : mod < 0.999 ? h('span.shop-cheap', { title: `Prices here are ${Math.round((1 - mod) * 100)}% below the usual` }, `cheap here: −${Math.round((1 - mod) * 100)}%`) : null,
+          theme ? h('span.hint', 'Other shops of the realm trade in other things.') : null));
+      }
       const list = h('div.shop-list');
       if (tab === 'buy') {
         if (!stock.length) list.appendChild(h('p', 'Nothing for sale today.'));
@@ -1299,13 +1311,13 @@ export class PlayUI {
               onclick: () => { inv[it.id]--; s.party.gold += price; sfx('gold'); render(); this.refresh(); },
             }, 'Sell'))));
         }
-        list.appendChild(h('p.hint', 'Only what is in the pack can be sold: take gear off on the hero\'s sheet (click their portrait) first. Merchants pay half the price.'));
+        list.appendChild(h('p.hint', `Only what is in the pack can be sold: take gear off on the hero's sheet (click their portrait) first. Merchants pay ${sellWords(sellRate(g))} the price.`));
       }
       body.append(list);
       if (scroller) scroller.scrollTop = keep;
     };
     render();
-    modal(body, { title: `${npc.name}'s wares`, icon: 'shop', sub: npc.desc || null, cls: 'wide shop-modal' });
+    modal(body, { title: shopTitle(g, npc), icon: 'shop', sub: npc.desc || null, cls: 'wide shop-modal' });
   }
 
   openInn(npc) {

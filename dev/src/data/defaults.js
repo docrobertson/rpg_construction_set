@@ -641,10 +641,10 @@ export const ITEMS = [
   // weapons
   { id: 'dagger', name: 'Dagger', type: 'weapon', wkind: 'dagger', dmg: '1d4', hit: 1, range: 1, price: 12, model: 'dagger', desc: 'A long knife. Quick and easily hidden.' },
   { id: 'short_sword', name: 'Short Sword', type: 'weapon', wkind: 'blade', dmg: '1d6', hit: 0, range: 1, price: 35, model: 'sword', desc: 'A soldier\'s sidearm.' },
-  { id: 'long_sword', name: 'Long Sword', type: 'weapon', wkind: 'blade', dmg: '1d8', hit: 0, range: 1, price: 150, model: 'sword', desc: 'The blade of knights and captains.' },
+  { id: 'long_sword', name: 'Long Sword', type: 'weapon', wkind: 'blade', dmg: '1d8', hit: 0, range: 1, price: 140, model: 'sword', desc: 'The blade of knights and captains.' },
   { id: 'great_sword', name: 'Great Sword', type: 'weapon', wkind: 'greatblade', dmg: '2d6', hit: 0, range: 1, twoHanded: true, price: 760, model: 'greatsword', desc: 'A two-handed blade as tall as a dwarf.' },
   { id: 'hand_axe', name: 'Hand Axe', type: 'weapon', wkind: 'axe', dmg: '1d6', hit: 0, range: 1, price: 30, model: 'axe', desc: 'A woodsman\'s axe, light enough for a ranger.' },
-  { id: 'battle_axe', name: 'Battle Axe', type: 'weapon', wkind: 'axe', dmg: '1d10', hit: 0, range: 1, twoHanded: true, heavy: true, price: 520, model: 'axe', desc: 'Favoured by dwarven warriors. A heavy weapon: only those trained in heavy weapons wield it well.' },
+  { id: 'battle_axe', name: 'Battle Axe', type: 'weapon', wkind: 'axe', dmg: '1d10', hit: 0, range: 1, twoHanded: true, heavy: true, price: 580, model: 'axe', desc: 'Favoured by dwarven warriors. A heavy weapon: only those trained in heavy weapons wield it well.' },
   { id: 'mace', name: 'Mace', type: 'weapon', wkind: 'blunt', dmg: '1d6+1', hit: 0, range: 1, price: 45, model: 'mace', desc: 'A flanged iron club.' },
   { id: 'warhammer', name: 'Warhammer', type: 'weapon', wkind: 'blunt', dmg: '1d8+1', hit: 0, range: 1, price: 240, model: 'hammer', desc: 'Breaks shields and bones alike.' },
   { id: 'quarterstaff', name: 'Quarterstaff', type: 'weapon', wkind: 'staff', dmg: '1d6', hit: 1, range: 1, price: 10, model: 'staff', desc: 'A stout walking staff of ash.' },
@@ -669,7 +669,7 @@ export const ITEMS = [
   // (tactics) mail and plate trade a little armour for soak (ARMOR_SOAK: 1 and
   // 2 off every blow that lands), so a knight is struck as often as before
   // the curve flattened, but shrugs off a swarm of rats
-  { id: 'chain_mail', name: 'Chain Mail', type: 'armor', weight: 'chain', ac: 3, price: 220, desc: 'A shirt of interlocking rings.' },
+  { id: 'chain_mail', name: 'Chain Mail', type: 'armor', weight: 'chain', ac: 3, price: 200, desc: 'A shirt of interlocking rings.' },
   { id: 'scale_mail', name: 'Scale Mail', type: 'armor', weight: 'chain', ac: 4, price: 420, desc: 'Overlapping steel scales.' },
   { id: 'plate_armor', name: 'Plate Armour', type: 'armor', weight: 'plate', ac: 5, price: 900, desc: 'Full harness of steel.' },
   { id: 'truesilver_mail', magical: true, glow: 0xd8ecff, unique: true, name: 'Truesilver Mail', type: 'armor', weight: 'chain', ac: 6, price: 2200, desc: 'Light as silk, hard as dragon-scale.' },
@@ -678,7 +678,7 @@ export const ITEMS = [
     desc: 'Supple scaled hide of the great marsh lizards, light enough for the jungle\'s heat. It turns a little venom.' },
   { id: 'dragonscale', magical: true, glow: 0xff7050, name: 'Dragonscale Mail', type: 'armor', weight: 'chain', ac: 5, price: 1400, desc: 'Scales shed by a wyrm: hard as iron, light as leather.' },
   { id: 'buckler', name: 'Buckler', type: 'shield', ac: 1, price: 30, desc: 'A small round shield.' },
-  { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 140, desc: 'A tall knight\'s shield.' },
+  { id: 'kite_shield', name: 'Kite Shield', type: 'shield', ac: 2, price: 150, desc: 'A tall knight\'s shield.' },
   // consumables
   { id: 'healing_draught', name: 'Healing Draught', type: 'consumable', effect: 'heal', power: '2d8+2', price: 35, combat: true, desc: 'A bitter green draught that knits wounds.' },
   { id: 'greater_draught', name: 'Greater Draught', type: 'consumable', effect: 'heal', power: '4d8+6', price: 100, combat: true, desc: 'A potent restorative.' },
@@ -760,7 +760,7 @@ export const SHOP_THEMES = [
     styles: ['elfhall'], races: ['elf'], roles: ['bowyer', 'weapons'] },
   { id: 'boarding_arms', name: 'Boarding Arms', kind: 'weapons', desc: 'cutlasses, boarding-axes and crossbows', items: ['dagger', 'short_sword', 'long_sword', 'hand_axe', 'crossbow'],
     styles: ['town', 'village'], races: ['human', 'dwarf'], coast: true },
-  { id: 'castle_armoury', name: 'Castle Armoury', kind: 'weapons', desc: 'arms for knights and men-at-arms, at a knight\'s price', priceMod: 1.15,
+  { id: 'castle_armoury', name: 'Castle Armoury', kind: 'weapons', desc: 'arms for knights and men-at-arms, at a knight\'s price', priceMod: 1.1,
     items: ['long_sword', 'spear', 'warhammer', 'crossbow', 'battle_axe', 'great_sword'], styles: ['castle'], races: ['human', 'dwarf'] },
   // armourers
   { id: 'leatherwork', name: 'Leatherwork', kind: 'armor', desc: 'leather coats, jerkins and bucklers', items: ['robe', 'leather_armor', 'studded_leather', 'buckler'],

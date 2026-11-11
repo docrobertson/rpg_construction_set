@@ -22,6 +22,7 @@ import { GOAL_TYPES } from './quests.js';
 import { mooringFor, sellsShip } from './ships.js';
 import { mysteriesOf, needFlags, startHeroes } from './company.js';
 import { isPuzzle, puzzleName, flagSources, needUnmet, tileId } from './puzzles.js'; // (puzzles)
+import { shopStock } from './shops.js'; // (market)
 
 export const AREAS = [
   ['campaign', 'Campaign'], ['land', 'Land'], ['places', 'Places'], ['story', 'Story'], ['map', 'Details'], ['test', 'Test'],
@@ -358,7 +359,7 @@ function indexGame(game) {
       switch (e.type) {
         case 'npc':
           ix.npcs.set(e.id, { e, map: m });
-          srcList(e.shop?.stock, `${e.name || 'a shop'} in ${m.name}`);
+          srcList(e.shop ? shopStock(game, e.shop) : null, `${e.name || 'a shop'} in ${m.name}`); // (market) its theme's wares or its own list
           for (const k of e.keywords || []) {
             const a = k.action || {};
             if (a.type === 'give_item') src(a.value, `${e.name || 'someone'} in ${m.name}`);
@@ -549,7 +550,7 @@ export function analyzeCampaign(game, opt = {}) {
       add(`entry:${m.id}`, 'places', 'warn', `The way into ${m.name} arrives ${inBounds(m, m.entry.x, m.entry.y) ? 'inside solid ground' : 'outside the map'}: move its arrival point.`, { tab: 'map', map: m.id, x: m.entry.x, y: m.entry.y });
     }
     for (const e of ents) {
-      if (e.type === 'npc' && e.shop && ['weapons', 'armor', 'provisions', 'reagents', 'scrolls', 'mixed'].includes(e.shop.kind) && !(e.shop.stock || []).length) {
+      if (e.type === 'npc' && e.shop && ['weapons', 'armor', 'provisions', 'reagents', 'scrolls', 'mixed', 'charms'].includes(e.shop.kind) && !shopStock(game, e.shop).length) {
         emptyShops++;
         add(`shop:${e.id}`, 'places', 'warn', `${e.name || 'A shopkeeper'} in ${m.name} keeps a shop with nothing for sale.`, goEnt(m, e));
       }

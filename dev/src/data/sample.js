@@ -4,7 +4,7 @@
 // the original ones, so saves made before the quest update keep their places.
 import { newGame, findStart } from './schema.js';
 import { createMap, setTile, getTile, inBounds } from '../world/map.js';
-import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, defaultStock, npcLook, uniqueTownsfolk, smugglersCave } from '../world/generate.js';
+import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, npcLook, uniqueTownsfolk, smugglersCave } from '../world/generate.js';
 import { T, terrain } from './terrain.js';
 import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
@@ -34,7 +34,7 @@ function buildSample() {
   };
   const S = game.settings;
   S.victory = { type: 'kill', target: 'shadow_lord' };
-  S.startGold = 120;
+  S.startGold = 130; // (market) a little more to kit out with, now that gear is dear
   S.startFood = 90;
 
   // a unique quest item and a few treasures
@@ -225,7 +225,70 @@ function buildSample() {
   addCharms(game, w);
   harbourYard(game, w);
   addCountryside(game, w);
+  stockShops(game);
   return game;
+}
+
+// (market) Every shop in Eldmark keeps a line of trade, and no two towns'
+// smiths are alike. Westhold, where the company sets out, sells the humble
+// tiers: militia arms, leatherwork, a chandler's stores and herbs. The dear
+// gear is a road away: the knightly arms and plate of Caer Aldon, the elves'
+// bows and swords, the dwarves' axes and mail (cheaper at the forge). A great
+// sword is sold only at the castle, and costs a long saving. (theme: what the
+// shop sells, or with a list of wares, what it is called and its markup.)
+const ELDMARK_THEMES = [
+  { id: 'castle_stores', name: 'Castle Stores', kind: 'provisions', desc: 'rations, torches, draughts and tonics for the King\'s champions',
+    items: ['rations', 'torch', 'healing_draught', 'greater_draught', 'antidote', 'mana_tonic', 'votive_candle'], styles: ['castle'] },
+];
+const ELDMARK_SHOPS = {
+  Westhold: {
+    weapons: { theme: 'militia_arms' },
+    armor: { theme: 'leatherwork' },
+    provisions: { theme: 'chandlery' },
+    reagents: { theme: 'herbs_simples' },
+  },
+  'Caer Aldon': {
+    weapons: { theme: 'castle_armoury' },
+    armor: { theme: 'plate_steel' },
+    npc_bryce: { theme: 'castle_stores' },
+    // the sage keeps rings of the Magi and a mirror of warding among his scrolls
+    npc_merek: { theme: 'arcana', stock: ['scroll_acid_arrow', 'scroll_phantasm', 'star_ring', 'warding_mirror', 'owl_feather'] },
+  },
+  Lindaleth: {
+    weapons: { theme: 'elven_arms' },
+    npc_nimrodel: { theme: 'pilgrim_fare' },
+    reagents: { theme: 'moon_garden', stock: ['moonpetal', 'silverleaf', 'hawkweed', 'nightshade', 'silverdust', 'wildwood_whistle', 'hawk_eye'] },
+  },
+  Hammerdeep: {
+    // the dwarves' own work: the axe of the deep forges, and a forge-spark amulet
+    weapons: { theme: 'axes_hammers', stock: ['hand_axe', 'mace', 'warhammer', 'battle_axe', 'dwarf_axe', 'crossbow', 'forgespark_amulet'] },
+    armor: { theme: 'dwarf_mail', stock: ['chain_mail', 'scale_mail', 'plate_armor', 'kite_shield', 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc'] },
+    // (and the salts of rune-craft, for the runesmiths of the hold)
+    provisions: { theme: 'delvers_supplies', stock: ['rations', 'torch', 'iron_key', 'healing_draught', 'greater_draught', 'wyrmroot', 'silverdust'] },
+  },
+  Brookend: {
+    provisions: { theme: 'village_stores', stock: ['rations', 'torch', 'healing_draught', 'antidote', 'iron_key', 'honeycake_tin', 'hearth_stone'] },
+  },
+  Eldmark: {
+    // Pell walks the great road with what the shops of the realm do not sell, at a pedlar's price
+    npc_pell: { theme: 'oddments', stock: ['greater_draught', 'scroll_seeing', 'studded_leather', 'crossbow', 'lucky_acorn', 'giants_hobnail', 'honeycake_tin'], priceMod: 1.2 },
+  },
+};
+function stockShops(game) {
+  for (const t of ELDMARK_THEMES) if (!game.shopThemes.some((x) => x.id === t.id)) game.shopThemes.push(JSON.parse(JSON.stringify(t)));
+  for (const [place, shops] of Object.entries(ELDMARK_SHOPS)) {
+    const map = game.maps.find((m) => m.name === place);
+    for (const [who, set] of Object.entries(shops)) {
+      const e = map?.entities.find((x) => x.type === 'npc' && x.shop && (x.id === who || (!who.startsWith('npc_') && x.shop.kind === who)));
+      if (!e) continue;
+      e.shop.theme = set.theme;
+      e.shop.stock = set.stock ? [...set.stock] : [];
+      if (set.priceMod != null) e.shop.priceMod = set.priceMod; else delete e.shop.priceMod;
+    }
+  }
+  // a thief's ring, from a thief
+  const nim = game.maps.flatMap((m) => m.entities).find((e) => e.id === 'npc_nim');
+  if (nim?.shop && !nim.shop.stock.includes('fox_ring')) nim.shop.stock.push('fox_ring');
 }
 
 // Four torn maps and the hoards they lead to, each found a different way: in
@@ -425,7 +488,6 @@ function addCharms(game, w) {
   const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
   const placed = (monster) => w.entities.find((e) => e.type === 'monster' && e.monster === monster);
   const give = (holder, ...ids) => { if (holder) holder.loot = [...(holder.loot || []), ...ids.map((id) => ({ id, n: 1 }))]; };
-  const sell = (shop, ...ids) => { if (shop?.shop) shop.shop.stock = [...new Set([...(shop.shop.stock || []), ...ids])]; };
   const reward = (qid, ...ids) => { const q = game.quests.find((x) => x.id === qid); if (q) q.reward.items = [...(q.reward.items || []), ...ids.map((id) => ({ id, n: 1 }))]; };
 
   // the tale's magic arms and armour gain a little magic of their own
@@ -451,18 +513,12 @@ function addCharms(game, w) {
       kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
       kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
     ],
-    shop: { kind: 'charms', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'gull_feather', 'hazel_twig', 'selkie_shell', 'thunder_egg', 'owl_feather'], priceMod: 1.25 },
+    // (market) a small tray, and dear: the six she talks of, a charm a real find
+    shop: { kind: 'charms', theme: 'curios', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'hazel_twig', 'selkie_shell', 'owl_feather'], priceMod: 1.25 },
     rumour: 'There\'s an old woman in the square sells charms. Selkie shells and the like — dear, mind. My cousin swears by his lucky acorn.',
   });
-  // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
-  sell(npc('npc_merek'), 'star_ring', 'warding_mirror', 'owl_feather');
-  const deep = mapNamed('Hammerdeep');
-  sell(deep?.entities.find((e) => e.shop?.kind === 'armor'), 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc');
-  sell(deep?.entities.find((e) => e.shop?.kind === 'weapons'), 'forgespark_amulet');
-  sell(npc('npc_pell'), 'lucky_acorn', 'giants_hobnail', 'honeycake_tin');
-  sell(npc('npc_nim'), 'fox_ring'); // (a thief's ring, from a thief)
-  sell(mapNamed('Lindaleth')?.entities.find((e) => e.shop?.kind === 'reagents'), 'wildwood_whistle', 'hawk_eye');
-  sell(mapNamed('Brookend')?.entities.find((e) => e.shop?.kind === 'provisions'), 'honeycake_tin', 'hearth_stone');
+  // (the sage's rings of the Magi, the dwarves' own work, Pell's and Nim's
+  // trinkets and the rest: each shop's wares are set out in stockShops)
 
   // quest rewards and what the great foes carry
   reward('q_wolf', 'wolf_tooth');
@@ -527,6 +583,7 @@ function addCharms(game, w) {
 
   // --- the old vault of Hammerdeep, sealed by Fennick's art
   const durgan = npc('npc_durgan');
+  const deep = mapNamed('Hammerdeep');
   if (deep && durgan) {
     const at = freeSpot(deep, durgan.x + 4, durgan.y);
     deep.entities.push({ id: 'chest_vault', type: 'chest', x: at.x, y: at.y, gold: '250', items: [{ id: 'heart_of_the_mountain', n: 1 }], sealed: true,
@@ -690,7 +747,7 @@ function placeWonders(game, w, { barrow, fortress, tower, village }) {
     lookExtra: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x8a2a2a, cape: 0x5a3a1a },
     greeting: 'Pell\'s Peerless Provisions! Rare goods from four kingdoms! Wouldst thou BUY?',
     job: 'I walk the roads with the finest goods in Eldmark. Prices are fair — mostly. Ask to BUY.',
-    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'votive_candle', 'larks_honey', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
+    shop: { kind: 'mixed', stock: [] }, // (wares and prices: stockShops)
     keywords: [kw('RUMOURS', 'They say a troll has claimed the Eldwater bridge. Pays to be clever with trolls — or rich.')],
     rumour: 'Pell the pedlar walks the great road. He sells things you won\'t find in any shop.',
   });
@@ -1062,7 +1119,7 @@ function dressCastle(game, map) {
   const sage = byRole(map, 'sage')[0];
   if (sage) Object.assign(sage, {
     id: 'npc_merek', name: 'Merek', desc: 'the royal sage, ink-stained and absent-minded',
-    shop: { kind: 'scrolls', stock: ['scroll_acid_arrow', 'scroll_phantasm'], priceMod: 1 },
+    shop: { kind: 'scrolls', stock: [] }, // (wares: stockShops)
     greeting: 'Hmm? Oh — visitors! Do mind the scrolls.',
     job: 'I study the five ARTS of MAGIC, and the stars. I sell spell SCROLLS too — wouldst thou BUY?',
     keywords: [
@@ -1088,13 +1145,10 @@ function dressCastle(game, map) {
     greeting: 'Provisions for the King\'s champions? Thou\'lt not march far on an empty belly.',
     job: 'I keep the castle stores: FOOD, torches and draughts. Wouldst thou BUY?',
     keywords: [kw('FOOD', 'Rations, waybread, salt pork. Every hero eats a ration each twenty paces or so in the wild — more than folk expect. Stock up before the road.')],
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'votive_candle', 'larks_honey', 'iron_key'] },
+    shop: { kind: 'provisions', stock: [] }, // (wares: stockShops)
   });
   nameNpcs(map, game, 2);
-  const smith = map.entities.find((x) => x.shop?.kind === 'weapons');
-  if (smith) smith.shop.stock = ['dagger', 'short_sword', 'long_sword', 'great_sword', 'spear', 'mace', 'warhammer', 'battle_axe', 'long_bow', 'crossbow', 'sling'];
-  const armorer = map.entities.find((x) => x.shop?.kind === 'armor');
-  if (armorer) armorer.shop.stock = ['leather_armor', 'studded_leather', 'chain_mail', 'scale_mail', 'buckler', 'kite_shield'];
+  // (the smith and the armourer keep the wares set out in stockShops)
   for (const v of byRole(map, 'villager')) v.rumour = 'The King has not slept well since the orcs burned the farms at Brookend.';
   // the road crosses the moat on the bridge, not through the water beside it
   for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
@@ -1133,8 +1187,7 @@ function dressElves(game, map) {
   });
   const bowyer = byRole(map, 'bowyer')[0] || map.entities.find((e) => e.shop?.kind === 'weapons');
   if (bowyer) {
-    bowyer.name = 'Faelon';
-    bowyer.shop.stock = ['short_bow', 'long_bow', 'dagger', 'short_sword', 'long_sword', 'spear'];
+    bowyer.name = 'Faelon'; // (his wares: stockShops)
   }
   for (const e of map.entities) if (e.type === 'npc' && e.role === 'villager') e.look.race = 'elf';
   addNpc(map, 18, 24, {
@@ -1142,7 +1195,7 @@ function dressElves(game, map) {
     lookExtra: { body: 0x8ab06a, robe: true, trim: 0xf0e0b0 },
     greeting: 'Thou lookest hungry. Elven waybread keeps for a month and fills a soldier for a day.',
     job: 'I bake the waybread of Lindaleth, and keep a few draughts besides. Wouldst thou BUY?',
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'votive_candle', 'larks_honey', 'torch'] },
+    shop: { kind: 'provisions', stock: [] }, // (wares: stockShops)
   });
   nameNpcs(map, game, 3);
   const singer = addNpc(map, 12, 22, {
@@ -1177,12 +1230,7 @@ function dressDwarves(game, map) {
   });
   for (const e of map.entities) if (e.type === 'npc' && (e.role === 'villager' || e.role === 'guard')) e.look.race = 'dwarf';
   nameNpcs(map, game, 4);
-  const smith = map.entities.find((e) => e.shop?.kind === 'weapons');
-  if (smith) smith.shop.stock = ['hand_axe', 'battle_axe', 'dwarf_axe', 'mace', 'warhammer', 'crossbow'];
-  const armorer = map.entities.find((e) => e.shop?.kind === 'armor');
-  if (armorer) armorer.shop.stock = ['leather_armor', 'chain_mail', 'scale_mail', 'plate_armor', 'buckler', 'kite_shield'];
-  const prov = map.entities.find((e) => e.shop?.kind === 'provisions');
-  if (prov) prov.shop.stock = [...defaultStock(game, 'provisions'), ...defaultStock(game, 'reagents')];
+  // (the smith, the armourer and the provisioner keep the wares set out in stockShops)
 }
 
 function dressVillage(game, map) {

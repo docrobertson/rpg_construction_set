@@ -61,6 +61,12 @@ export function shopPriceMod(game, shop) {
 export const priceScale = (game) => { const k = parseFloat(game?.settings?.priceScale); return k > 0 ? k : 1; };
 export const sellRate = (game) => { const k = parseFloat(game?.settings?.sellRate); return k >= 0 && k <= 1 ? k : DEFAULT_SELL_RATE; };
 
+// "half", "35% of": what merchants pay, in words
+export function sellWords(k) {
+  const p = Math.round(k * 100);
+  return p === 50 ? 'half' : p === 25 ? 'a quarter of' : p === 33 ? 'a third of' : p === 100 ? 'all of' : `${p}% of`;
+}
+
 // what a shop asks for an item, and what a merchant pays for one, before any charm
 export const buyBase = (game, item, shop) => (item?.price || 0) * shopPriceMod(game, shop) * priceScale(game);
 export const sellBase = (game, item) => (item?.price || 0) * sellRate(game);

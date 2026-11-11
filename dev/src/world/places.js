@@ -21,8 +21,9 @@
 //     on a plate, runes), seed }
 import { FEATURE_KINDS, T, terrain } from '../data/terrain.js';
 import { getTile, setTile, inBounds } from './map.js';
-import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, defaultStock, STAMPS, PATHS, line4 } from './generate.js';
+import { placeFeature, generateFromPlan, SETTLEMENT_STYLES, SETTLEMENT_WALLS, DUNGEON_SIZES, KEEPER_ROLES, madeUpWords, isMadeUpName, STAMPS, PATHS, line4 } from './generate.js';
 import { findBuildings } from './buildings.js';
+import { themeStock, themeOf } from '../game/shops.js'; // (market)
 import { RNG, hash2 } from '../core/rng.js';
 
 // ------------------------------------------------------------ the catalogue
@@ -390,9 +391,12 @@ export function authoredReasons(game, e, refs = referencedIds(game)) {
   const w = madeUpWords(e.role);
   if ((e.greeting && e.greeting !== w.greeting) || (e.job && e.job !== w.job) || (e.desc && !MADE_DESC.test(e.desc))) out.push('has words of their own');
   else if (e.name && !isMadeUpName(e.name)) out.push('named by you');
-  if (e.shop?.stock?.length && e.shop.kind && game.items) {
-    const def = defaultStock(game, e.shop.kind);
-    if (e.shop.stock.length !== def.length || e.shop.stock.some((id) => !def.includes(id)) || e.shop.priceMod != null) out.push('sells a stock you chose');
+  // (market) a list of wares of the designer's own, a markup, or a theme chosen in the editor
+  if (e.shop?.kind && game.items) {
+    const def = themeStock(game, themeOf(game, { ...e.shop, stock: [] }));
+    const own = e.shop.stock?.length && (e.shop.stock.length !== def.length || e.shop.stock.some((id) => !def.includes(id)));
+    if (own || e.shop.priceMod != null) out.push('sells a stock you chose');
+    else if (e.shop.chosen) out.push('trades along a theme you chose');
   }
   if (e.ship && (e.ship.name !== 'Seahorse' || e.ship.price !== 450 || e.ship.pitch)) out.push('sells a ship you set out');
   if (e.hostile) out.push('is hostile');

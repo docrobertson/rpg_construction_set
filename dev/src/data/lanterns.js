@@ -53,7 +53,7 @@ function build() {
     startHeroes: 1, // (one hero, washed ashore alone: the company is found on the way)
     gentleStart: 5, // (the first wandering bands come sized for a lone hero and a small company)
     maxParty: 6,
-    startGold: 30,
+    startGold: 50, // (market) a castaway's purse: a draught or a buckler, now that gear is dear
     startFood: 40,
     startItems: [{ id: 'healing_draught', n: 2 }, { id: 'torch', n: 1 }, { id: 'moonpetal', n: 2 }, { id: 'ember_salt', n: 2 }, { id: 'silverleaf', n: 2 }, { id: 'bitterwort', n: 1 }],
     victory: { type: 'kill', target: 'drowned_queen' },
@@ -81,6 +81,7 @@ function build() {
   dressHighcrown(game, P.highcrown);
   dressLandfall(game, P.landfall);
   dressTzalKa(game, P.tzalka, MON);
+  stockShops(game);
   uniqueTownsfolk(game, (e) => !madeUp.has(e) || madeUp.get(e) !== e.name, 11);
 
   buildDungeons(game, w, P, MON);
@@ -660,6 +661,52 @@ function dressPebblewick(game, map) {
   nameNpcs(map, game, 21);
 }
 
+// ------------------------------------------------------------ the shops
+// (market) Each shop of the Glass Sea keeps a line of trade. Merrow's
+// villages sell the humble tiers (village stores, a farm barrow, militia
+// arms); Saltcombe, the great port, its boarding arms, mail and a chandlery;
+// Highcrown the Queen's armoury and plate, the only great swords in the land.
+// Ixara is far over the sea: the camp's stores are dear, and the lizardfolk
+// sell their own spears, cures and jungle herbs. (theme: what a shop sells,
+// or with a list of wares, what it is called and its markup.)
+const LANTERNS_THEMES = [
+  { id: 'farm_barrow', name: 'Farm Barrow', kind: 'provisions', desc: 'apples, cheese, honey and a remedy or two, cheap', priceMod: 0.9, items: ['rations', 'larks_honey', 'healing_draught', 'antidote', 'torch'], styles: ['village'] },
+  { id: 'colony_stores', name: 'Colony Stores', kind: 'provisions', desc: 'whatever the last ship brought, at an isle\'s price', priceMod: 1.3,
+    items: ['rations', 'torch', 'healing_draught', 'greater_draught', 'antidote', 'mana_tonic'], coast: true },
+  { id: 'finds_oddments', name: 'Finds & Oddments', kind: 'mixed', desc: 'what the jungle gives up, and what the last ship left behind', priceMod: 1.3,
+    items: ['healing_draught', 'antidote', 'scroll_seeing', 'lizardhide', 'coral_charm', 'worry_stone', 'lucky_acorn'] },
+  { id: 'jungle_arms', name: 'Jungle Arms', kind: 'weapons', desc: 'obsidian spears, machetes and blowpipe-slings of the isle', priceMod: 1.2, items: ['dagger', 'sling', 'short_bow', 'spear', 'hookblade'] },
+  { id: 'isle_larder', name: 'Isle Larder', kind: 'provisions', desc: 'fruit, smoked fish and swamp-cures', priceMod: 1.1, items: ['rations', 'torch', 'antidote', 'healing_draught', 'greater_draught'] },
+  { id: 'jungle_simples', name: 'Jungle Simples', kind: 'reagents', desc: 'roots, spores and venoms from the deep jungle', priceMod: 1.1, items: ['bitterwort', 'puffcap', 'nightshade', 'wyrmroot', 'spidersilk', 'silverdust'] },
+];
+const LANTERNS_SHOPS = {
+  Pebblewick: { provisions: { theme: 'village_stores' } },
+  Thornby: { weapons: { theme: 'militia_arms' }, provisions: { theme: 'farm_barrow' } },
+  Saltcombe: {
+    weapons: { theme: 'boarding_arms' }, armor: { theme: 'mail_shields' }, provisions: { theme: 'chandlery' }, reagents: { theme: 'herbs_simples' },
+    merchant: { theme: 'oddments', stock: ['tmap_skerry', 'healing_draught', 'antidote', 'torch', 'selkie_shell', 'gull_feather', 'copper_bangle'] },
+  },
+  Highcrown: {
+    weapons: { theme: 'castle_armoury', stock: ['long_sword', 'long_bow', 'warhammer', 'crossbow', 'battle_axe', 'great_sword'] }, armor: { theme: 'plate_steel', priceMod: 1 }, // (the Queen's own armourer asks no more than plate is worth)
+    sage: { theme: 'scriptorium', stock: ['scroll_seeing', 'scroll_acid_arrow', 'scroll_phantasm', 'scroll_vampiric'] },
+  },
+  Landfall: { provisions: { theme: 'colony_stores' }, merchant: { theme: 'finds_oddments' } },
+  'Tzal-Ka': { weapons: { theme: 'jungle_arms' }, provisions: { theme: 'isle_larder' }, reagents: { theme: 'jungle_simples' } },
+};
+function stockShops(game) {
+  for (const t of LANTERNS_THEMES) if (!game.shopThemes.some((x) => x.id === t.id)) game.shopThemes.push(JSON.parse(JSON.stringify(t)));
+  for (const [place, shops] of Object.entries(LANTERNS_SHOPS)) {
+    const map = game.maps.find((m) => m.name === place);
+    for (const [role, set] of Object.entries(shops)) {
+      const e = map?.entities.find((x) => x.type === 'npc' && x.shop && x.role === role);
+      if (!e) continue;
+      e.shop.theme = set.theme;
+      e.shop.stock = set.stock ? [...set.stock] : [];
+      if (set.priceMod != null) e.shop.priceMod = set.priceMod; else delete e.shop.priceMod;
+    }
+  }
+}
+
 // ------------------------------------------------------------ Thornby
 // The farming village in the Wend valley, plagued by goblins out of Hollin Wood.
 function dressThornby(game, map) {
@@ -785,8 +832,7 @@ function dressSaltcombe(game, map) {
   cast(map, 'armor', { name: 'Isolde Fenn', desc: 'an armourer hammering a breastplate', greeting: 'If it\'s not dented, it\'s not been worn properly.' });
   cast(map, 'reagents', { name: 'Old Myrtle', desc: 'a herb-woman among bunches of drying weed', greeting: 'Sea-holly, samphire, moonpetal and salt. Ask to BUY.' });
   cast(map, 'merchant', { name: 'Hassan Varo', desc: 'a far-travelled trader in a sea-green coat', greeting: 'Goods of every shore, friend! Some of them even legal.', job: 'I trade up and down the Glass Sea. Since the lights went out, no one sails to IXARA — so I\'ve charts I can\'t use. Ask to BUY.', keywords: [kw('IXARA', 'The jade isle. Lizardfolk, ruins, a mountain that smokes. And the reefs in the south-east — the sailors call them the Queen\'s Teeth, and say there\'s a palace under the water there.')] });
-  const merchant = map.entities.find((e) => e.name === 'Hassan Varo');
-  if (merchant?.shop) merchant.shop.stock = ['tmap_skerry', 'healing_draught', 'antidote', 'rations', 'torch', 'selkie_shell', 'gull_feather', 'copper_bangle'];
+  // (Hassan's charts and charms, and every shop's wares: stockShops)
   // the harbourmaster, on the quays by day, and his books in his office
   const grell = addNpc(map, Math.floor(map.w / 2) + 6, Math.floor(map.h / 2) + 4, {
     id: 'npc_grell', name: 'Harbourmaster Grell', race: 'human', wander: 3, desc: 'Odo Grell, the harbourmaster, red-nosed and suspicious, with a ledger under his arm',
@@ -1600,7 +1646,7 @@ function buildQuests(game, P) {
         { text: 'Tell Kit in Pebblewick that her father is alive', goal: talk(''),
           say: 'He\'s ALIVE? Oh — oh, saints. Gran! GRAN! ...Right. I\'m coming with you. Don\'t argue. Somebody nearly killed my da, and I want to see their face.' },
       ],
-      reward: { gold: 15, xp: 30, items: [{ id: 'healing_draught', n: 2 }] },
+      reward: { gold: 30, xp: 30, items: [{ id: 'healing_draught', n: 2 }] },
       thanks: 'Da\'s home, and Gran\'s cooked enough for a regiment. Thank you.',
     },
     {
@@ -1613,7 +1659,7 @@ function buildQuests(game, P) {
         { text: 'Tell Ezra in Pebblewick', goal: talk(''),
           say: 'Old Snapper? Dead? Ha! HA! Here — I pulled this out of the nets the year I married. Hold it in your fist and you can walk on the shallows like a seal. My wife said it was bad luck. She was wrong about that, and so much else.' },
       ],
-      reward: { gold: 30, xp: 40, items: [{ id: 'selkie_shell', n: 1 }] },
+      reward: { gold: 45, xp: 40, items: [{ id: 'selkie_shell', n: 1 }] },
       thanks: 'Nets full every day. Fish for a week, if you want them.',
     },
     {
@@ -1626,7 +1672,7 @@ function buildQuests(game, P) {
         { text: 'Tell Reeve Haskett in Thornby', goal: talk(''),
           say: 'Grubnose? Gone? And his saucepan? Ha! Here — the village\'s thanks, and a hearth-stone from my own fire. Every home in Thornby will have a pie for you.' },
       ],
-      reward: { gold: 60, xp: 70, food: 25, items: [{ id: 'hearth_stone', n: 1 }] },
+      reward: { gold: 90, xp: 70, food: 25, items: [{ id: 'hearth_stone', n: 1 }] },
       thanks: 'Not a pig lost since. Thornby owes you.',
     },
     {
@@ -1639,7 +1685,7 @@ function buildQuests(game, P) {
         { text: 'Bring the ledger to Mags in Saltcombe gaol', goal: { type: 'deliver', npc: '', item: 'wreckers_ledger' },
           say: 'That\'s Gaff\'s hand! "Lights out — Guild boat on the water — keep clear." Not me, you see? Not even Gaff. Somebody with a Guild boat. Thorne\'ll have to let me go now. And the Black Gull\'s yours to sail, for a crown, for luck. If you\'ll have me along, ask me to JOIN.' },
       ],
-      reward: { gold: 50, xp: 90, items: [{ id: 'fox_ring', n: 1 }] },
+      reward: { gold: 70, xp: 90, items: [{ id: 'fox_ring', n: 1 }] },
       thanks: 'Free as a gull, thanks to you.',
     },
     {
@@ -1652,7 +1698,7 @@ function buildQuests(game, P) {
         { text: 'Tell Brother Cadoc at the abbey gate', goal: talk(''),
           say: 'The bells have stopped. Do you hear? They have stopped. ...Take this. It hung in the bell-tower before the bells were taken. It still rings, for the dead, sometimes.' },
       ],
-      reward: { gold: 50, xp: 100, items: [{ id: 'barrow_bell', n: 1 }] },
+      reward: { gold: 70, xp: 100, items: [{ id: 'barrow_bell', n: 1 }] },
       thanks: 'The abbey is quiet at last. I shall stay, I think. Someone should keep a light here.',
     },
     {
@@ -1665,7 +1711,7 @@ function buildQuests(game, P) {
         { text: 'Tell Sir Garrick in Highcrown', goal: talk(''),
           say: 'Red Jory beaten! Splendid! Magnificent! I shall write a ballad. ...Very well, I shall get someone else to write a ballad. And now — the Queen has given me leave. Ask me to JOIN, and the Knights of the Lantern ride with you. Both of us.' },
       ],
-      reward: { gold: 120, xp: 110 },
+      reward: { gold: 150, xp: 110 },
       thanks: 'The pass is safe, the carts run, and I have started the ballad. It has eleven verses so far.',
     },
     {

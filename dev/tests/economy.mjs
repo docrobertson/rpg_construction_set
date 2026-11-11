@@ -32,11 +32,14 @@ import { pathToFileURL } from 'node:url';
 const HERE = path.dirname(new URL(import.meta.url).pathname);
 
 // the milestones the prices are set against: what a company first wants,
-// what it saves a little for, and what it saves a long time for
+// what it saves a little for, and what it saves a long time for. (The
+// warhammer is one-handed here, 1d8+1, and a runesmith's starting weapon: a
+// great-tier price would let a new runesmith sell it for a fortune, so it
+// tops the good tier.) A piece is in reach at the cheapest shop that sells it.
 export const TIERS = {
   basic: ['dagger', 'club', 'short_sword', 'sling', 'leather_armor', 'buckler'],
-  good: ['long_sword', 'spear', 'long_bow', 'chain_mail', 'kite_shield'],
-  great: ['great_sword', 'battle_axe', 'warhammer', 'plate_armor', 'tower_shield', 'dwarf_axe'],
+  good: ['long_sword', 'spear', 'long_bow', 'chain_mail', 'kite_shield', 'warhammer'],
+  great: ['great_sword', 'battle_axe', 'plate_armor', 'tower_shield', 'dwarf_axe'],
 };
 
 // who walks the road at each level (the Lanterns' castaway gathers a company
@@ -58,7 +61,11 @@ async function load(src) {
   const [sample, lanterns, defaults, session, combat, rngM, terrainM] = await Promise.all([
     at('data/sample.js'), at('data/lanterns.js'), at('data/defaults.js'), at('game/session.js'), at('game/combat.js'), at('core/rng.js'), at('data/terrain.js'),
   ]);
-  return { sample, lanterns, defaults, session, combat, rngM, terrainM };
+  // (a source tree from before shop themes sells each shop's own list at its own markup)
+  const shops = await at('game/shops.js').catch(() => ({
+    shopStock: (g, shop) => shop?.stock || [], buyBase: (g, it, shop) => (it.price || 0) * (shop?.priceMod || 1),
+  }));
+  return { sample, lanterns, defaults, session, combat, rngM, terrainM, shops };
 }
 
 const avgDice = (spec, parseDice) => { const d = parseDice(spec || '0'); return d.n * (d.d + 1) / 2 + d.b; };
@@ -91,6 +98,17 @@ function measureAdventure(M, which, opt) {
   const top = levels[levels.length - 1];
   const item = (id) => game.items.find((i) => i.id === id);
   const price = (id) => item(id)?.price || 0;
+  // what the cheapest shop in the realm asks, and who that is (null: sold nowhere)
+  const sold = {};
+  for (const m of game.maps) for (const e of m.entities || []) {
+    if (e.type !== 'npc' || !e.shop) continue;
+    for (const id of M.shops.shopStock(game, e.shop)) {
+      const it = item(id);
+      if (!it) continue;
+      const p = Math.max(1, Math.round(M.shops.buyBase(game, it, e.shop)));
+      if (!sold[id] || p < sold[id].price) sold[id] = { price: p, where: `${e.name}, ${m.name}` };
+    }
+  }
   const sellRate = game.settings.sellRate ?? 0.5;
   const sell = (it) => Math.max(1, Math.floor((it.price || 0) * sellRate));
   const mon = (id) => game.monsters.find((m) => m.id === id);
@@ -156,12 +174,19 @@ function measureAdventure(M, which, opt) {
       const xp = Math.max(0, ...(e.choices || []).map((c) => (parseInt(c.effects?.xp, 10) || 0) + (parseInt(c.win?.xp, 10) || 0)));
       add(levelAt(m, e.x, e.y), best, xp, `event ${e.name || e.id}`);
     } else if (e.type === 'npc') {
-      for (const k of e.keywords || []) if (k.action?.type === 'give_gold') add(2, parseInt(k.action.value, 10) || 0, 0, `${e.name}'s gift`);
+      for (const k of e.keywords || []) if (k.action?.type === 'give_gold') add(2, parseInt(k.action.n ?? k.action.value, 10) || 0, 0, `${e.name}'s gift`);
     }
   }
   for (const q of game.quests || []) {
     // each stage's reward at that stage's level, the quest's own at its end
-    for (const s of q.stages || []) if (s.reward) add(goalLevel(s.goal, 0) ?? questLevel(q), parseInt(s.reward.gold, 10) || 0, parseInt(s.reward.xp, 10) || 0, `${q.id}: a stage`);
+    // (the main quest runs the whole journey: a stage with no foe of its own
+    // to kill comes as far along the levels as it is along the quest)
+    const n = (q.stages || []).length;
+    (q.stages || []).forEach((s, i) => {
+      if (!s.reward) return;
+      const l = q.main ? (s.goal?.type === 'kill' && goalLevel(s.goal, 0)) || 1 + (top - 1) * i / Math.max(1, n) : goalLevel(s.goal, 0) ?? questLevel(q);
+      add(l, parseInt(s.reward.gold, 10) || 0, parseInt(s.reward.xp, 10) || 0, `${q.id}: stage ${i + 1}`);
+    });
     add(q.main ? top : questLevel(q), parseInt(q.reward?.gold, 10) || 0, parseInt(q.reward?.xp, 10) || 0, `quest ${q.id}`);
   }
   ledger.sort((a, b) => a.level - b.level);
@@ -207,67 +232,91 @@ function measureAdventure(M, which, opt) {
     bands[level] = { xp: xp / k, gold: gold / k, sold: sold / k, upkeep, lootSeen };
   }
 
-  // ---- the journey
-  const rows = levels.map((level) => ({ level, heroes: heroes(level), inHand: 0, fights: 0, goldFights: 0, goldLoot: 0, goldContent: 0, upkeep: 0, income: 0, lootSeen: bands[level].lootSeen }));
-  const row = (l) => rows.find((r) => r.level === l);
-  let lvl = levels[0], xp = XP_TABLE[lvl] ?? 0, purse = game.settings.startGold ?? 100;
-  row(lvl).inHand = Math.round(purse);
-  const next = () => XP_TABLE[lvl + 1] ?? Infinity;
-  const levelUp = () => { while (lvl <= top && xp >= next()) { lvl++; if (row(lvl)) row(lvl).inHand = Math.round(purse); } };
-  // f wandering bands fought at the level the company is at
-  const fight = (f) => {
-    const b = bands[lvl], r = row(lvl);
-    r.fights += f; r.goldFights += f * b.gold; r.goldLoot += f * b.sold; r.upkeep += f * b.upkeep; r.income += f * (b.gold + b.sold);
-    purse += f * (b.gold + b.sold - b.upkeep);
-    xp += f * b.xp;
-  };
-  let i = 0;
-  while (lvl <= top) {
-    for (; i < ledger.length && ledger[i].level <= lvl && lvl <= top; i++) {
-      const c = ledger[i], r = row(lvl);
-      purse += c.gold; xp += c.xp;
-      r.goldContent += c.gold; r.income += c.gold;
+  // ---- the journey: within a level the content comes in no particular order
+  // (a quest's reward is not always the last thing found), so the journey is
+  // walked in many orders, the same ones every run, and the purses averaged
+  const KEYS = ['inHand', 'fights', 'goldFights', 'goldLoot', 'goldContent', 'upkeep', 'income'];
+  const mix = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+  const journey = (salt) => {
+    const order = ledger.map((c, i) => ({ c, k: mix(`${salt}:${c.what}#${i}`) })).sort((a, b) => a.c.level - b.c.level || a.k - b.k).map((o) => o.c);
+    const rows = levels.map((level) => ({ level, inHand: 0, fights: 0, goldFights: 0, goldLoot: 0, goldContent: 0, upkeep: 0, income: 0 }));
+    const row = (l) => rows.find((r) => r.level === l);
+    let lvl = levels[0], xp = XP_TABLE[lvl] ?? 0, purse = game.settings.startGold ?? 100;
+    row(lvl).inHand = purse;
+    const next = () => XP_TABLE[lvl + 1] ?? Infinity;
+    const levelUp = () => { while (lvl <= top && xp >= next()) { lvl++; if (row(lvl)) row(lvl).inHand = purse; } };
+    // f wandering bands fought at the level the company is at
+    const fight = (f) => {
+      const b = bands[lvl], r = row(lvl);
+      r.fights += f; r.goldFights += f * b.gold; r.goldLoot += f * b.sold; r.upkeep += f * b.upkeep; r.income += f * (b.gold + b.sold);
+      purse += f * (b.gold + b.sold - b.upkeep);
+      xp += f * b.xp;
+    };
+    let i = 0;
+    while (lvl <= top) {
+      for (; i < order.length && order[i].level <= lvl && lvl <= top; i++) {
+        const c = order[i], r = row(lvl);
+        purse += c.gold; xp += c.xp;
+        r.goldContent += c.gold; r.income += c.gold;
+        levelUp();
+        // and the wanderers met on the way to it
+        if (lvl <= top) { fight(TRAVEL_FIGHTS); levelUp(); }
+      }
+      if (lvl > top) break;
+      fight(Math.max(0, next() - xp) / Math.max(1, bands[lvl].xp));
+      xp = Math.max(xp, next());
       levelUp();
-      // and the wanderers met on the way to it
-      if (lvl <= top) { fight(TRAVEL_FIGHTS); levelUp(); }
     }
-    if (lvl > top) break;
-    fight(Math.max(0, next() - xp) / Math.max(1, bands[lvl].xp));
-    xp = Math.max(xp, next());
-    levelUp();
-  }
+    return rows;
+  };
+  const WALKS = opt.walks ?? 24;
+  const walks = Array.from({ length: WALKS }, (_, k) => journey(k));
+  const rows = levels.map((level, li) => {
+    const r = { level, heroes: heroes(level), lootSeen: bands[level].lootSeen };
+    for (const k of KEYS) r[k] = walks.reduce((t, w) => t + w[li][k], 0) / WALKS;
+    return r;
+  });
+  // the milestones: each at the cheapest shop that sells it (shop: null where none does)
+  const prices = Object.fromEntries(Object.values(TIERS).flat().filter((id) => item(id)).map((id) => [id, { price: price(id), shop: sold[id]?.price ?? null, where: sold[id]?.where || null }]));
   for (const r of rows) {
-    for (const k of ['goldFights', 'goldLoot', 'goldContent', 'upkeep', 'income']) r[k] = Math.round(r[k]);
+    for (const k of ['inHand', 'goldFights', 'goldLoot', 'goldContent', 'upkeep', 'income']) r[k] = Math.round(r[k]);
     r.fights = +r.fights.toFixed(1);
-    r.buys = affordable(game, r.inHand);
+    r.buys = affordable(prices, r.inHand);
   }
-  return { rows, ledger, bands, sellRate, startGold: game.settings.startGold, prices: Object.fromEntries(Object.values(TIERS).flat().filter((id) => item(id)).map((id) => [id, price(id)])), game };
+  return { rows, ledger, bands, sellRate, startGold: game.settings.startGold, prices, game };
 }
 
-// what a purse of this much can buy: the pieces of each tier in reach
-export function affordable(game, gold) {
+// what a purse of this much can buy: the pieces of each tier on sale and in reach
+export function affordable(prices, gold) {
   const out = {};
-  for (const [tier, ids] of Object.entries(TIERS)) out[tier] = ids.map((id) => game.items.find((i) => i.id === id)).filter((it) => it && (it.price || 0) <= gold).map((it) => it.id);
+  for (const [tier, ids] of Object.entries(TIERS)) out[tier] = ids.filter((id) => prices[id]?.shop != null && prices[id].shop <= gold);
   return out;
 }
 
-// the first level whose purse buys this piece outright (Infinity: none of them)
+// the first level whose purse buys this piece outright at the cheapest shop
+// that sells it (Infinity: none of them, or no shop sells it)
 export function levelToAfford(res, id) {
-  const p = res.prices[id] ?? res.game.items.find((i) => i.id === id)?.price;
+  const p = res.prices[id]?.shop;
+  if (p == null) return Infinity;
   const r = res.rows.find((x) => x.inHand >= p);
   return r ? r.level : Infinity;
 }
 
 export function table(res, name) {
   const lines = [`${name}: start ${res.startGold} gold, merchants pay ${Math.round(res.sellRate * 100)}%`];
-  lines.push('lvl heroes  fights  in hand | + purses  + loot  + content  - upkeep | in reach (the dearest of each tier)');
+  lines.push('lvl heroes  fights  in hand | + purses  + loot  + content  - upkeep | in reach (the dearest of each tier, at the cheapest shop)');
   for (const r of res.rows) {
-    const dear = (ids) => (ids.length ? ids.map((id) => [id, res.prices[id]]).sort((a, b) => b[1] - a[1])[0].join(' ') : '—');
+    const dear = (ids) => (ids.length ? ids.map((id) => [id, res.prices[id].shop]).sort((a, b) => b[1] - a[1])[0].join(' ') : '—');
     lines.push(`${String(r.level).padStart(3)} ${String(r.heroes).padStart(6)} ${String(r.fights).padStart(7)} ${String(r.inHand).padStart(8)} | ${String(r.goldFights).padStart(8)} ${String(r.goldLoot).padStart(7)} ${String(r.goldContent).padStart(10)} ${String(r.upkeep).padStart(9)} | basic: ${dear(r.buys.basic)}; good: ${dear(r.buys.good)}; great: ${dear(r.buys.great)}`);
   }
   lines.push('a wandering band, by level: ' + res.rows.map((r) => { const b = res.bands[r.level]; return `${r.level}: ${Math.round(b.xp)} xp ${Math.round(b.gold)}+${Math.round(b.sold)} gold`; }).join(' · '));
-  const first = Object.values(TIERS).flat().filter((id) => res.prices[id] != null).map((id) => `${id} ${res.prices[id]}→${levelToAfford(res, id) === Infinity ? '—' : levelToAfford(res, id)}`);
-  lines.push('first in reach at level: ' + first.join(', '));
+  for (const [tier, ids] of Object.entries(TIERS)) {
+    const first = ids.filter((id) => res.prices[id]).map((id) => {
+      const p = res.prices[id], l = levelToAfford(res, id);
+      return p.shop == null ? `${id} ${p.price} (sold nowhere)` : `${id} ${p.shop}${p.shop !== p.price ? ` (list ${p.price})` : ''} → ${l === Infinity ? 'past 8' : l}`;
+    });
+    lines.push(`first in reach, ${tier}: ${first.join(', ')}`);
+  }
   return lines.join('\n');
 }
 
