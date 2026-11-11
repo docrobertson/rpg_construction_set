@@ -104,6 +104,31 @@ check('…the map\'s hover names them and says so', !!rules.info && rules.info.t
 check('high ground: most grass, ruin and cave battlefields hold some, a town square and a ship\'s deck none, and none when the Rules say 0', rules.high.grass >= 12 && rules.high.ruins >= 12 && rules.high.cave >= 12 && rules.high.town === 0 && rules.high.water === 0 && rules.high.off === 0, rules.high);
 check('…in the middle rows, clear of where either side starts', rules.highRows.length > 0 && rules.highRows.every((y) => y >= 2 && y <= 6), rules.highRows);
 
+// ------------------------------------------------------------ the hero sheet, tooltips and chips
+const sheet = await ev(async () => {
+  const s = window.__app.session, ui = window.__app.playUI, g = s.game;
+  const w = s.party.members.find((m) => m.cls === 'warrior') || s.party.members[0];
+  w.cls = 'warrior'; w.equip.weapon = 'long_sword'; w.equip.shield = 'kite_shield'; w.equip.armor = 'chain_mail';
+  s.party.inventory.buckler = 1;
+  document.querySelectorAll('.chbanner, .qbanner').forEach((e) => e.remove());
+  ui.openParty();
+  await new Promise((r) => setTimeout(r, 300));
+  const row = [...document.querySelectorAll('.inv-row')].find((r) => r.textContent.includes('Buckler'));
+  const chip = row && [...row.querySelectorAll('.cmp')].find((c) => c.textContent.includes(w.name));
+  const title = row?.title || '';
+  document.querySelectorAll('.modal-back').forEach((m) => m.remove());
+  ui.selectHero(w);
+  await new Promise((r) => setTimeout(r, 300));
+  const num = document.querySelector('.num i.block')?.textContent || '';
+  const train = [...document.querySelectorAll('.sheet-train .tr-row')].map((e) => e.textContent).join(' | ');
+  return { chip: chip?.textContent || '', title, num, train, name: w.name };
+});
+check('the hero sheet shows the shield\'s block beside the armour, and says what it does', /^20%$/.test(sheet.num) && /Kite Shield blocks 20% of the blows that would land — not one from behind/.test(sheet.train), sheet);
+check('…the Pack\'s chip for a buckler says what it costs her (−10% block)', /−10% block/.test(sheet.chip), sheet.chip);
+check('…and its tooltip how it blocks', /Blocks 10% of the blows and shots that would land/.test(sheet.title), sheet.title);
+await shot('tactics2-sheet-block');
+await ev(() => window.__app.playUI.closeHero());
+
 // ------------------------------------------------------------ a battle to try it all in
 await ev(() => {
   const s = window.__app.session;
@@ -383,31 +408,6 @@ check('a seasoned band fights under its seasoned name and figures: "an Orc Veter
 await ev(() => { const s = window.__app.session; if (s.battle) s.battle.abort(); });
 for (let i = 0; i < 40 && await ev(() => !!window.__app.session.battle || window.__app.session.mode === 'combat'); i++) await wait(100);
 await wait(600);
-
-// ------------------------------------------------------------ the hero sheet, tooltips and chips
-const sheet = await ev(async () => {
-  const s = window.__app.session, ui = window.__app.playUI, g = s.game;
-  const w = s.party.members.find((m) => m.cls === 'warrior') || s.party.members[0];
-  w.cls = 'warrior'; w.equip.weapon = 'long_sword'; w.equip.shield = 'kite_shield'; w.equip.armor = 'chain_mail';
-  s.party.inventory.buckler = 1;
-  document.querySelectorAll('.chbanner, .qbanner').forEach((e) => e.remove());
-  ui.openParty();
-  await new Promise((r) => setTimeout(r, 300));
-  const row = [...document.querySelectorAll('.inv-row')].find((r) => r.textContent.includes('Buckler'));
-  const chip = row && [...row.querySelectorAll('.cmp')].find((c) => c.textContent.includes(w.name));
-  const title = row?.title || '';
-  document.querySelectorAll('.modal-back').forEach((m) => m.remove());
-  ui.selectHero(w);
-  await new Promise((r) => setTimeout(r, 300));
-  const num = document.querySelector('.num i.block')?.textContent || '';
-  const train = [...document.querySelectorAll('.sheet-train .tr-row')].map((e) => e.textContent).join(' | ');
-  return { chip: chip?.textContent || '', title, num, train, name: w.name };
-});
-check('the hero sheet shows the shield\'s block beside the armour, and says what it does', /^20%$/.test(sheet.num) && /Kite Shield blocks 20% of the blows that would land — not one from behind/.test(sheet.train), sheet);
-check('…the Pack\'s chip for a buckler says what it costs her (−10% block)', /−10% block/.test(sheet.chip), sheet.chip);
-check('…and its tooltip how it blocks', /Blocks 10% of the blows and shots that would land/.test(sheet.title), sheet.title);
-await shot('tactics2-sheet-block');
-await ev(() => window.__app.playUI.closeHero());
 
 // ------------------------------------------------------------ older games
 const old = await ev(() => {
