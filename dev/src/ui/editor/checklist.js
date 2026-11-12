@@ -9,6 +9,7 @@ import { placesOf } from '../../world/places.js';
 import { getMap } from '../../data/schema.js';
 import { FEATURE_KINDS } from '../../data/terrain.js';
 import { suggestLevel } from '../testTools.js';
+import { startHeroes } from '../../game/company.js';
 
 const LEVELS = { error: ['⛔', 'must fix'], warn: ['⚠', 'worth a look'], todo: ['○', 'still to do'], ok: ['✓', 'done'] };
 const ORDER = { error: 0, warn: 1, todo: 2, ok: 3 };
@@ -79,7 +80,7 @@ export function playtestForm(ed, { button = true } = {}) {
     radio('from', 'here', o.from === 'here', 'From here', `${here.map.name} (${here.x}, ${here.y}) — where you last looked in Details`),
     h('div.pt-label', 'Company'),
     h('div.pt-two',
-      radio('quick', 'quick', o.quick, 'Ready-made', 'four heroes, no fuss'),
+      radio('quick', 'quick', o.quick, 'Ready-made', (() => { const n = startHeroes(game).n; return n === 1 ? 'one hero, as the story begins' : `${['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'][n] || n} heroes, no fuss`; })()), // (company)
       radio('quick', 'make', !o.quick, 'Make my own', 'choose races and callings')),
     h('div.pt-label', 'Level'),
     h('div.pt-lvl', h('button.small', { onclick: () => { lvl.value = o.level = Math.max(1, o.level - 1); o.levelSet = true; sync(); } }, '−'), lvl,

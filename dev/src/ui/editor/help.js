@@ -16,8 +16,8 @@ it in a click. People you have written stay.</li>
 <li><b>Details</b> — tile by tile: paint, and place and script people, monsters, treasure and wonders.</li>
 <li><b>Test</b> — the checklist of what still needs work, and playtesting from the start, a chapter, or anywhere.</li>
 </ol>
-<p>Beside the steps: <b>World Data</b> (races, classes, items, spells, monsters) and <b>Rules</b> (the company,
-food, magic schools, starting kit). The numbers on the steps count what the checklist still finds there.
+<p>Beside the steps: <b>World Data</b> (races, classes, items, spells, monsters, shop themes) and <b>Rules</b> (the company,
+food, trade, magic schools, starting kit). The numbers on the steps count what the checklist still finds there.
 <b>Ctrl+K</b> finds anything — a person, a place, a quest — and takes you to it.</p>`;
 
 const STEP = {
@@ -59,9 +59,15 @@ offers, towns without a healer, people who still say nothing of their own. <b>Go
 before it counted as done), or from wherever you were looking. In a playtest the 🛠 button jumps about, hands out
 gold and levels, and <b>Edit here</b> brings you back to that very spot.</p>`,
   data: `<p>The stuff of the realm: <b>races</b>, <b>classes</b>, <b>items</b>, <b>spells</b> and <b>monsters</b>.
-Choose a kind on the left, then an entry; changes apply at once. Monsters show as a model on the right.</p>`,
+Choose a kind on the left, then an entry; changes apply at once. Monsters show as a model on the right.</p>
+<p><b>Shop themes</b> are the lines of trade a merchant follows — <i>Blades</i>, <i>Axes &amp; Hammers</i>, a
+<i>Chandlery</i>, <i>Curios</i> — each the four to seven things it sells, its markup, and the places and folk it suits.
+A shop follows its theme (edit the theme and every shop on it changes) unless its wares are picked by hand on the
+person; new towns' shops take a fitting theme, a different one in every town where they can.</p>`,
   rules: `<p>The rules of play: how big a company may be, food and hunger, line of sight, wandering monsters,
-day and night, the magic schools that exist, and the gold and kit heroes set out with.</p>`,
+day and night, the magic schools that exist, and the gold and kit heroes set out with.</p>
+<p><b>Trade</b>: what merchants pay for what the company sells (35% of the price unless you say otherwise), and a
+price scale for every shop in the realm at once.</p>`,
 };
 
 const TITLES = { campaign: 'Campaign', land: 'Land', places: 'Places', story: 'Story', map: 'Details', test: 'Test', data: 'World Data', rules: 'Rules' };

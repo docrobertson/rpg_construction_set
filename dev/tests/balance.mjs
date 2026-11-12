@@ -200,7 +200,8 @@ function worldGroup(level) {
   const s = sess(level);
   const hab = rng.pick(['grass', 'grass', 'forest', 'hills', 'swamp']);
   const mon = PlaySession.prototype.pickMonster.call(s, hab);
-  return mon ? PlaySession.prototype.enemiesFor.call({ game }, { monster: mon.id, count: encounterCount(mon, level) }) : null;
+  // (a band the company has far outgrown comes seasoned: mon.vet, see rules.js veteranDef)
+  return mon ? PlaySession.prototype.enemiesFor.call({ game }, { monster: mon.id, count: encounterCount(mon, level), ...(mon.vet ? { vet: mon.vet } : {}) }) : null;
 }
 // rooms of the two dungeons, with the group sizes the sample gives them
 function roomGroup(map) {

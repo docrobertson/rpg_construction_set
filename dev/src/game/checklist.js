@@ -20,6 +20,9 @@ import { ROLE_TEXT } from '../world/generate.js';
 import { chapterList, questsInChapter, questSpans, walkStory } from './story.js';
 import { GOAL_TYPES } from './quests.js';
 import { mooringFor, sellsShip } from './ships.js';
+import { mysteriesOf, needFlags, startHeroes } from './company.js';
+import { isPuzzle, puzzleName, flagSources, needUnmet, tileId } from './puzzles.js'; // (puzzles)
+import { shopStock } from './shops.js'; // (market)
 
 export const AREAS = [
   ['campaign', 'Campaign'], ['land', 'Land'], ['places', 'Places'], ['story', 'Story'], ['map', 'Details'], ['test', 'Test'],
@@ -95,8 +98,20 @@ function tileHash(map) {
 // squares the party cannot stand on). Water the party can sail is labelled
 // too (sea[i]), with the land patches each stretch of water touches.
 const TILE_CACHE = new WeakMap();
+// (adventure) the squares a map's triggers may change, and to what: a
+// causeway that rises from the sea counts as a road (index → tile)
+function raisedTiles(map) {
+  const out = new Map();
+  for (const e of map.entities || []) {
+    if (e.type !== 'trigger') continue;
+    for (const t of e.tiles || []) { const id = tileId(t.t); if (id != null && inBounds(map, +t.x, +t.y)) out.set(+t.y * map.w + +t.x, id); }
+  }
+  return out;
+}
+
 function mapPatches(map) {
-  const sig = tileHash(map);
+  const raised = raisedTiles(map);
+  const sig = tileHash(map) + (raised.size ? ':' + [...raised].join(';') : '');
   const hit = TILE_CACHE.get(map);
   if (hit && hit.sig === sig && hit.tiles === map.tiles) return hit;
   const { w, h } = map;
@@ -104,7 +119,7 @@ function mapPatches(map) {
   const kind = new Uint8Array(n); // 1 walk, 2 sail, 0 neither
   const stairs = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
-    const t = terrain(map.tiles[i]);
+    const t = terrain(raised.get(i) ?? map.tiles[i]);
     kind[i] = walkable(t) ? 1 : sailable(t) ? 2 : 0;
     if (t.key === 'stairs_up' || t.key === 'stairs_down') stairs[i] = 1;
   }
@@ -344,7 +359,7 @@ function indexGame(game) {
       switch (e.type) {
         case 'npc':
           ix.npcs.set(e.id, { e, map: m });
-          srcList(e.shop?.stock, `${e.name || 'a shop'} in ${m.name}`);
+          srcList(e.shop ? shopStock(game, e.shop) : null, `${e.name || 'a shop'} in ${m.name}`); // (market) its theme's wares or its own list
           for (const k of e.keywords || []) {
             const a = k.action || {};
             if (a.type === 'give_item') src(a.value, `${e.name || 'someone'} in ${m.name}`);
@@ -371,6 +386,24 @@ function indexGame(game) {
       }
     }
   }
+  // (company) a companion who leaves sets left_<id> (and a turncoat beaten,
+  // defeated_<id>); a mystery solved or wrongly accused sets its flags
+  const leavers = new Set();
+  for (const m of game.maps) for (const e of m.entities || []) {
+    if (e.type === 'npc' && e.recruit?.leaves) { leavers.add(e.id); if (e.recruit.leaves.hostile?.monster) { ix.flagSrc.add('defeated_' + e.id); meet(e.recruit.leaves.hostile.monster); } }
+    for (const k of e.keywords || []) if (k.action?.type === 'leave_party') leavers.add(k.action.value || e.id);
+    for (const c of e.choices || []) for (const fx of [c.effects, c.failEffects]) if (fx?.leave) leavers.add(fx.leave);
+  }
+  for (const id of leavers) ix.flagSrc.add('left_' + id);
+  // (puzzles) levers, plates, runes, braziers and riddles set flags too: a
+  // clue or a companion's line may wait on one
+  for (const f of flagSources(game).keys()) ix.flagSrc.add(f);
+  for (const my of mysteriesOf(game)) {
+    reward(my.right?.reward, `solving ${my.name || 'a mystery'}`);
+    flag(my.right?.flag);
+    flag(my.wrong?.flag);
+    effects(my.wrong?.effects, `a false accusation in ${my.name || 'a mystery'}`);
+  }
   // the map to a hoard, the scrolls and gear a fight may drop, and monsters met in the wild
   for (const it of game.items || []) {
     if (it.type === 'map' && it.auto) src(it.id, 'an encounter on the road');
@@ -382,15 +415,57 @@ function indexGame(game) {
   for (const m of game.maps) {
     if (!((m.encounterRate ?? 0) > 0) || (s.encounterRate ?? 1) <= 0) continue;
     const allowed = m.encounters?.length ? new Set(m.encounters) : null;
-    if (m.type === 'dungeon') wild.add('dungeon');
+    if (m.type === 'dungeon') wild.add(m.habitat || 'dungeon'); // (isles: a temple keeps its own)
     else wild.add('*'); // (the ground of a world map is a mix; any habitat but dungeon is likely)
     for (const mon of game.monsters || []) if (allowed?.has(mon.id) && !mon.boss) meet(mon.id);
   }
   for (const mon of game.monsters || []) {
     if (mon.boss || !(mon.habitat || []).length) continue;
-    if ((wild.has('dungeon') && mon.habitat.includes('dungeon')) || (wild.has('*') && mon.habitat.some((x) => x !== 'dungeon'))) meet(mon.id);
+    if ((wild.has('dungeon') && mon.habitat.includes('dungeon')) || (wild.has('*') && mon.habitat.some((x) => x !== 'dungeon')) || mon.habitat.some((x) => x !== 'dungeon' && wild.has(x))) meet(mon.id);
   }
   return ix;
+}
+
+// ------------------------------------------------------------ mysteries (company)
+// What in a mystery would leave it unsolvable or unfair: [{ level, text }]
+export function mysteryProblems(game, my, ix = null) {
+  ix ||= indexGame(game);
+  const out = [];
+  const name = (id) => ix.npcs.get(id)?.e.name || 'someone';
+  const sus = (my.suspects || []).filter(Boolean);
+  if (!my.judge) out.push({ level: 'error', text: 'nobody judges it: choose the person the company accuses to.' });
+  else if (!ix.npcs.has(my.judge)) out.push({ level: 'error', text: 'its judge is no longer in the realm.' });
+  if (sus.length < 2) out.push({ level: 'warn', text: sus.length ? 'there is only one suspect: give the company a choice.' : 'it has no suspects yet.' });
+  for (const id of sus) if (!ix.npcs.has(id)) out.push({ level: 'warn', text: 'a suspect is no longer in the realm.' });
+  if (!my.culprit) out.push({ level: 'error', text: 'nobody is guilty: choose the culprit.' });
+  else if (!sus.includes(my.culprit)) out.push({ level: 'error', text: `the culprit, ${name(my.culprit)}, is not among the suspects.` });
+  const clues = (my.clues || []).filter((c) => c?.flag);
+  if (!clues.length) out.push({ level: 'warn', text: 'it has no clues: the company could accuse at once, on a guess.' });
+  for (const c of clues) if (!ix.flagSrc.has(c.flag)) out.push({ level: 'warn', text: `the clue “${c.text || c.flag}” is found when the flag “${c.flag}” is set, but nothing sets it.` });
+  const n = parseInt(my.need, 10);
+  if (n > clues.length && clues.length) out.push({ level: 'todo', text: `it asks for ${n} clues before an accusation but has only ${clues.length}: the company may accuse once it has them all.` });
+  if (!String(my.right?.text || '').trim()) out.push({ level: 'todo', text: 'nothing is said when the guilty one is named.' });
+  return out;
+}
+
+// Every story flag the realm sets or waits on, sorted (for the editor's
+// suggestions): what sets one, and what a need, a condition or a goal reads
+export function flagsInGame(game) {
+  const out = new Set(indexGame(game).flagSrc);
+  const read = (need) => { for (const f of needFlags(need)) out.add(f); };
+  const walk = (o, depth = 0) => {
+    if (!o || typeof o !== 'object' || depth > 7) return;
+    if (Array.isArray(o)) { for (const x of o) walk(x, depth + 1); return; }
+    for (const [k, v] of Object.entries(o)) {
+      if (typeof v === 'string' && ['need', 'flag', 'flags', 'hideFlag', 'opens'].includes(k)) read(v);
+      else if (typeof v === 'object') walk(v, depth + 1);
+    }
+    if ((o.type === 'flag' || o.type === 'noflag') && typeof o.value === 'string') read(o.value);
+  };
+  for (const m of game.maps) walk(m.entities);
+  walk(game.quests); walk(game.story); walk(game.mysteries);
+  if (game.settings?.victory?.type === 'flag') read(game.settings.victory.target);
+  return [...out].filter((f) => f && !f.startsWith('_') && !f.includes('{id}')).sort();
 }
 
 // ------------------------------------------------------------ the checklist
@@ -475,7 +550,7 @@ export function analyzeCampaign(game, opt = {}) {
       add(`entry:${m.id}`, 'places', 'warn', `The way into ${m.name} arrives ${inBounds(m, m.entry.x, m.entry.y) ? 'inside solid ground' : 'outside the map'}: move its arrival point.`, { tab: 'map', map: m.id, x: m.entry.x, y: m.entry.y });
     }
     for (const e of ents) {
-      if (e.type === 'npc' && e.shop && ['weapons', 'armor', 'provisions', 'reagents', 'scrolls', 'mixed'].includes(e.shop.kind) && !(e.shop.stock || []).length) {
+      if (e.type === 'npc' && e.shop && ['weapons', 'armor', 'provisions', 'reagents', 'scrolls', 'mixed', 'charms'].includes(e.shop.kind) && !shopStock(game, e.shop).length) {
         emptyShops++;
         add(`shop:${e.id}`, 'places', 'warn', `${e.name || 'A shopkeeper'} in ${m.name} keeps a shop with nothing for sale.`, goEnt(m, e));
       }
@@ -518,6 +593,36 @@ export function analyzeCampaign(game, opt = {}) {
     const end = ch.ends || {};
     if (end.type === 'stage' && !quests.some((q) => q.id === end.quest)) add(`ch-end:${ch.id}`, 'story', 'warn', `Chapter “${ch.name}” ends at a step of a quest that no longer exists.`, go);
     if (end.type === 'flag' && end.flag && !ix.flagSrc.has(end.flag)) add(`ch-end:${ch.id}`, 'story', 'warn', `Chapter “${ch.name}” ends when “${end.flag}” is set, but nothing sets it.`, go);
+  }
+  // (company) mysteries: someone to judge, a culprit among the suspects, clues that can be found
+  const myst = mysteriesOf(game);
+  let mystTrouble = 0;
+  for (const my of myst) {
+    const probs = mysteryProblems(game, my, ix);
+    mystTrouble += probs.length;
+    for (const p of probs) add(`myst:${my.id}:${shortHash(p.text)}`, 'story', p.level, `Mystery “${my.name || my.id}”: ${p.text}`, { tab: 'story', mystery: my.id });
+  }
+  if (myst.length && !mystTrouble) add('ok-myst', 'story', 'ok', `${plural(myst.length, 'mystery', 'mysteries')}, each with a judge, a culprit among the suspects and clues to find.`, { tab: 'story' });
+  // (company) companions' banter and leaving rules wait on flags something must set
+  for (const m of game.maps) for (const e of m.entities || []) {
+    const r = e.type === 'npc' && e.recruit;
+    if (!r) continue;
+    const who = e.name || 'A companion';
+    const lv = r.leaves;
+    if (lv) {
+      for (const f of needFlags(lv.need)) if (!ix.flagSrc.has(f) && !/^killed_/.test(f)) add(`leaveflag:${e.id}:${f}`, 'story', 'warn', `${who} leaves the company when “${f}” is set, but nothing sets it.`, goEnt(m, e));
+      if (lv.hostile && !(game.monsters || []).some((x) => x.id === lv.hostile.monster)) add(`leavefoe:${e.id}`, 'story', 'warn', `${who} turns on the company as a monster that no longer exists.`, goEnt(m, e));
+      if (lv.goTo && !mapById.get(lv.goTo.map)) add(`leaveto:${e.id}`, 'story', 'warn', `${who} goes, on leaving, to a map that no longer exists.`, goEnt(m, e));
+    }
+    (r.banter || []).forEach((b, i) => {
+      for (const f of needFlags(b?.need)) if (!ix.flagSrc.has(f) && !/^killed_/.test(f)) add(`banterflag:${e.id}:${i}:${f}`, 'story', 'todo', `${who} has a line for when “${f}” is set, but nothing sets it.`, goEnt(m, e));
+    });
+  }
+  // (company) more heroes set out than the company can hold
+  const sh = parseInt(game.settings?.startHeroes, 10);
+  if (sh > 0 && sh > (game.settings?.maxParty || 6)) add('startheroes', 'campaign', 'warn', `${plural(sh, 'hero sets', 'heroes set')} out, but the largest company is ${game.settings?.maxParty || 6}: only ${game.settings?.maxParty || 6} will. Change one of them on the Rules page.`, { tab: 'rules' });
+  else if (startHeroes(game).fixed && startHeroes(game).n < 4 && !game.maps.some((m) => (m.entities || []).some((e) => e.type === 'npc' && (e.recruit || (e.keywords || []).some((k) => k.action?.type === 'join'))))) {
+    add('lonely', 'story', 'todo', `${startHeroes(game).n === 1 ? 'A lone hero sets out' : `Only ${startHeroes(game).n} heroes set out`}, but nobody in the realm can join them: tick “Can JOIN the party” on someone.`, { tab: 'story' });
   }
   // the story played through step by step, as a company would: where it stalls
   if (quests.length) {
@@ -600,6 +705,7 @@ export function analyzeCampaign(game, opt = {}) {
     }
     if (plain >= 3 && plain * 2 >= people) add(`plain:${m.id}`, 'map', 'todo', `${plain} of the ${people} people in ${m.name} still say only the words they were made with: give a few of them something to tell.`, { tab: 'map', map: m.id });
   }
+  puzzleChecks(game, add, goEnt, ix);
 
   // ---------------------------------------------------------- test
   const cov = opt.coverage;
@@ -621,6 +727,56 @@ export function analyzeCampaign(game, opt = {}) {
   const ignored = new Set(game.meta?.checklistIgnore || []);
   for (const f of out) if (ignored.has(f.id)) f.ignored = true;
   return opt.withIgnored ? out : out.filter((f) => !f.ignored);
+}
+
+// (puzzles) gates and triggers that wait on flags nothing sets, rune groups
+// with a gap in their order, riddles with no answer
+function puzzleChecks(game, add, goEnt, ix) {
+  let src = null;
+  const sources = () => {
+    if (src) return src;
+    src = flagSources(game);
+    for (const f of ix.flagSrc) if (!src.has(f)) src.set(f, [{ what: 'elsewhere' }]);
+    return src;
+  };
+  let gates = 0;
+  for (const m of game.maps) {
+    const groups = new Map();
+    for (const e of m.entities || []) {
+      if (!isPuzzle(e)) continue;
+      const name = puzzleName(e).replace(/^A /, 'a ').replace(/^An /, 'an ');
+      if (e.type === 'gate' || e.type === 'trigger' || (e.type === 'lever' && e.need)) {
+        if (e.type === 'gate') gates++;
+        if (e.type === 'trigger' && !String(e.need || '').trim()) { add(`pz-noneed:${e.id}`, 'map', 'todo', `A trigger in ${m.name} waits on nothing, so it never fires: give it a need.`, goEnt(m, e)); continue; }
+        if (e.type === 'trigger' && !(e.tiles || []).length) add(`pz-notiles:${e.id}`, 'map', 'todo', `A trigger in ${m.name} changes no tiles: pick the squares it changes.`, goEnt(m, e));
+        const missing = needUnmet(e.need, sources());
+        if (missing.length) {
+          const what = e.type === 'gate' ? `${name} in ${m.name} can never open` : e.type === 'trigger' ? `A trigger in ${m.name} can never fire` : `${name} in ${m.name} stays locked for ever`;
+          add(`pz-never:${e.id}`, 'map', 'warn', `${what.replace(/^./, (c) => c.toUpperCase())}: nothing sets ${missing.map((f) => `“${f}”`).join(', ')} (a lever, a plate, runes, a brazier, a riddle, a chest, a conversation or an event could).`, goEnt(m, e));
+        }
+      } else if (e.type === 'rune') {
+        if (!String(e.group || '').trim()) { add(`pz-rune-nogroup:${e.id}`, 'map', 'warn', `A rune in ${m.name} belongs to no group, so treading it does nothing: name its group.`, goEnt(m, e)); continue; }
+        let g = groups.get(e.group);
+        if (!g) groups.set(e.group, g = []);
+        g.push(e);
+      } else if (e.type === 'riddle') {
+        if (!(e.answers || []).some((a) => String(a).trim())) add(`pz-noanswer:${e.id}`, 'map', 'warn', `${name.replace(/^./, (c) => c.toUpperCase())} in ${m.name} asks a riddle with no answer: write the answers it takes.`, goEnt(m, e));
+        if (!String(e.text || '').trim()) add(`pz-noriddle:${e.id}`, 'map', 'todo', `${name.replace(/^./, (c) => c.toUpperCase())} in ${m.name} has no riddle to ask.`, goEnt(m, e));
+      }
+    }
+    for (const [g, list] of groups) {
+      const orders = list.map((r) => +r.order || 0);
+      const n = list.length;
+      const gap = [];
+      for (let i = 1; i <= n; i++) if (!orders.includes(i)) gap.push(i);
+      const twice = orders.filter((o, i) => o && orders.indexOf(o) !== i);
+      if (gap.length || twice.length || orders.some((o) => !o)) {
+        const why = [gap.length ? `no rune is number ${gap.join(', ')}` : '', twice.length ? `${[...new Set(twice)].join(', ')} is used twice` : ''].filter(Boolean).join(' and ') || 'some have no number';
+        add(`pz-order:${m.id}:${g}`, 'map', 'warn', `The runes “${g}” in ${m.name} cannot be trodden in order: ${why} (number them 1 to ${n}).`, goEnt(m, list.find((r) => !r.order) || list[0]));
+      }
+    }
+  }
+  if (gates) add('ok-puzzles', 'map', 'ok', `${gates} gate${gates === 1 ? '' : 's'} with a way to open ${gates === 1 ? 'it' : 'them'}.`);
 }
 
 // Does a map (once reached) lead anywhere else?

@@ -3,13 +3,15 @@ import { h, clear, confirmDialog, toast } from '../dom.js';
 import { buildForm } from './forms.js';
 import { LOOK_FIELDS } from './inspector.js';
 import {
-  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, WEAPON_KINDS, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
+  STATS, STAT_NAMES, RACE_TRAITS, CLASS_ABILITIES, ARMOR_WEIGHTS, ITEM_TYPES, ITEM_EFFECTS, SPELL_TARGETS, SPELL_EFFECTS, HABITATS,
   ABILITY_TARGETS, ABILITY_VFX, STATUS_EFFECTS, AI_STYLES, TALENT_TREES, MAGIC_STYLES, CHARM_KINDS, CHARM_KIND_ICONS, RARITIES,
+  WEAPON_TRAITS, WEAPON_KIND_DEFS, ARMOR_SOAK, SHOP_THEMES, SHOP_KIND_NAMES,
 } from '../../data/defaults.js';
+import { themeStock, themeOf, followsTheme, KIND_TYPES } from '../../game/shops.js';
 import { EFFECT_TYPES, BONUS_STATS, newEffect, effectText, isBeast } from '../../game/charms.js';
 import { uniqueId, deepClone } from '../../core/util.js';
 import { MODEL_KINDS } from '../../render/models.js';
-import { ensureCombatData, classSkills, SPECIAL_LEVEL } from '../../game/rules.js';
+import { ensureCombatData, classSkills, SPECIAL_LEVEL, weaponKinds, traitText, isHeavy } from '../../game/rules.js';
 import { ICON_NAMES } from '../icons.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 
@@ -81,6 +83,7 @@ const abilityFields = () => [
   { key: 'perBattle', label: 'Uses per battle', type: 'number', min: 0, max: 5, hint: '0 or empty = unlimited' },
   { key: 'free', label: 'Free action (does not end the turn)', type: 'check' },
   { key: 'windup', label: 'Telegraphed: lands next turn on the marked squares', type: 'check' },
+  { key: 'windupVerb', label: 'What a monster is seen to do as it winds up', type: 'text', placeholder: 'raises its weapon high', show: (o) => !!o.windup },
   { type: 'section', label: 'Look' },
   { key: 'vfx', label: 'Effect', type: 'select', options: ABILITY_VFX },
   { key: 'fx', label: 'Colour', type: 'color' },
@@ -115,6 +118,18 @@ const effectFields = (game) => [
   { key: 'radius', label: 'Senses within (squares)', type: 'number', min: 1, max: 12, show: takes('radius') },
 ];
 
+// (market) a theme in a line: what it gives, its price range, and who follows it
+function themeSummary(game, t) {
+  const ids = themeStock(game, t);
+  const its = ids.map((id) => game.items.find((i) => i.id === id));
+  const prices = its.map((it) => it.price || 0);
+  const missing = (t.items || []).filter((id) => !ids.includes(id));
+  const keepers = [];
+  for (const m of game.maps) for (const e of m.entities || []) if (e.type === 'npc' && e.shop && themeOf(game, e.shop) === t) keepers.push(`${e.name || 'someone'}${followsTheme(e.shop) ? '' : ' (by hand)'}, ${m.name}`);
+  const count = !its.length ? 'Sells nothing yet: tick a few things.' : `${its.length} thing${its.length === 1 ? '' : 's'}, ◆${Math.min(...prices)}–${Math.max(...prices)}${its.length > 7 ? ' — more than a shop should show: think of splitting it' : its.length < 4 ? ' — a little thin' : ''}.`;
+  return `${count}${missing.length ? ` (${missing.join(', ')}: not in this game, ignored.)` : ''} ${keepers.length ? `Kept by ${keepers.length}: ${keepers.join('; ')}.` : 'No shop trades in it yet.'}`;
+}
+
 // a battle action granted by a worn piece: the ability fields, kept on item.ability
 const itemAbilityFields = () => abilityFields().map((f) => ({ ...f, key: f.key ? `ability.${f.key}` : undefined, show: (o) => !!o.ability && (!f.show || f.show(o.ability)) }));
 const NEW_ACTION = (o) => ({ name: `${o.name || 'Charm'}'s Power`, icon: o.icon || CHARM_KIND_ICONS[o.kind] || 'star', target: 'nearbyFoes', radius: 2, perBattle: 1, statuses: [{ id: 'stunned', rounds: 1, chance: 0.3 }], vfx: 'arcane', fx: o.tint ?? 0xc8b8ff, desc: 'Once per battle. Describe what it does.' });
@@ -141,6 +156,11 @@ export function categories(game) {
   const items = () => game.items.map((i) => [i.id, i.name]);
   const systems = () => game.magic.map((m) => [m.id, m.name]);
   const sysOf = (sp) => game.magic.find((m) => m.id === sp.system);
+  // (tactics) the kinds of weapon, each with its trait
+  if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
+  if (!Array.isArray(game.shopThemes)) game.shopThemes = deepClone(SHOP_THEMES); // (market)
+  const kinds = () => weaponKinds(game).map((k) => [k.id, k.trait && WEAPON_TRAITS[k.trait] ? `${k.name} — ${WEAPON_TRAITS[k.trait]}` : k.name]);
+  const heavyOf = (k) => k.heavyWeapons ?? (!(k.weapons || []).length || k.weapons.includes('greatblade'));
   return {
     races: {
       label: 'Races', icon: '🧝', list: game.races,
@@ -172,7 +192,9 @@ export function categories(game) {
           { key: 'system', label: 'System', type: 'select', options: systems },
           { key: 'rate', label: 'Aptitude', type: 'number', step: 0.25, min: 0.25, max: 1, hint: '1 = full caster, 0.5 = learns slowly' },
         ], rowLabel: (r) => game.magic.find((m) => m.id === r.system)?.name || 'Magic', newRow: () => ({ system: game.magic[0].id, rate: 1 }), addLabel: '+ Add magic' },
-        { key: 'weapons', label: 'Weapons allowed', type: 'multicheck', options: WEAPON_KINDS },
+        { key: 'weapons', label: 'Weapons trained in', type: 'multicheck', options: kinds,
+          hint: 'Anyone may wield any weapon, but untrained it is −3 to hit and its trait does not work (Rules: or forbid it). None ticked: trained in all. Each kind\'s trait is under Weapon kinds.' },
+        { key: 'heavyWeapons', label: 'Trained in heavy weapons', type: 'check', get: (o) => heavyOf(o), hint: 'Great swords, battle axes and other heavy pieces need this too (warriors, paladins, runesmiths)' },
         { key: 'armor', label: 'Heaviest armour', type: 'select', options: ARMOR_WEIGHTS },
         { key: 'shields', label: 'Can use shields', type: 'check' },
         { key: 'abilities', label: 'Special abilities', type: 'multicheck', options: Object.entries(CLASS_ABILITIES) },
@@ -208,7 +230,11 @@ export function categories(game) {
         { key: 'price', label: 'Price (gold)', type: 'number', min: 0 },
         { key: 'unique', label: 'Unique — never sold in shops', type: 'check' },
         { key: 'noLoot', label: 'Never dropped by defeated monsters or found in hoards', type: 'check', show: wearable },
-        { key: 'wkind', label: 'Weapon type', type: 'select', options: WEAPON_KINDS, show: (o) => o.type === 'weapon' },
+        { key: 'wkind', label: 'Weapon type', type: 'select', options: kinds, show: (o) => o.type === 'weapon', rerender: true,
+          hint: 'Its kind\'s trait works for a hero trained in it (World Data → Weapon kinds; Classes → weapons trained in)' },
+        { type: 'info', label: (o) => traitText(weaponKinds(game).find((k) => k.id === o.wkind)) || 'This kind has no trait.', show: (o) => o.type === 'weapon' },
+        { key: 'heavy', label: 'Heavy weapon — needs heavy-weapon training', type: 'check', show: (o) => o.type === 'weapon' && (o.range || 1) <= 1, get: (o) => isHeavy(game, { id: 'x', ...o }),
+          hint: 'Unticked by default unless it is two-handed or its kind is heavy' },
         { key: 'dmg', label: 'Damage', type: 'dice', placeholder: '1d8', show: (o) => o.type === 'weapon' },
         { key: 'hit', label: 'To-hit bonus', type: 'number', show: (o) => o.type === 'weapon' },
         { key: 'range', label: 'Range', type: 'number', min: 1, max: 12, show: (o) => o.type === 'weapon', hint: '1 = melee (hand weapon); 2 or more = ranged, carried in its own slot beside a hand weapon' },
@@ -219,6 +245,10 @@ export function categories(game) {
           hint: 'The ✦ mark and the name take this colour; a weapon also glows in the hero\'s hand. Setting it marks the piece magical.' },
         { key: 'weight', label: 'Weight', type: 'select', options: ARMOR_WEIGHTS, show: (o) => o.type === 'armor' },
         { key: 'ac', label: 'Armour bonus', type: 'number', min: 0, show: (o) => o.type === 'armor' || o.type === 'shield' },
+        { key: 'block', label: 'Blocks (0.15 = 15%)', type: 'number', step: 0.05, min: 0, max: 0.75, nullable: true, show: (o) => o.type === 'shield', placeholder: '0',
+          hint: 'The chance it turns aside a blow or shot that would land (not one from behind). The built-in buckler blocks 10%, the kite shield 20%.' },
+        { key: 'soak', label: 'Soaks from every blow', type: 'number', min: 0, max: 6, nullable: true, show: (o) => o.type === 'armor', placeholder: 'by weight',
+          hint: 'Damage taken off each blow that lands (never below 1). Empty: as its weight (chain 1, plate 2)' },
         { key: 'effect', label: 'Effect', type: 'select', options: ITEM_EFFECTS, show: (o) => o.type === 'consumable', rerender: true },
         { key: 'pool', label: 'Refills', type: 'multicheck', show: (o) => o.type === 'consumable' && o.effect === 'mp',
           options: () => (game.magic || []).filter((m) => m.resource === 'mp' && !m.monsterOnly).map((m) => [m.id, `${m.resName || 'Mana'} (${m.name})`]),
@@ -247,6 +277,35 @@ export function categories(game) {
         { key: 'only.races', label: 'Only these peoples', type: 'multicheck', options: () => game.races.map((r) => [r.id, r.name]), show: wearable, hint: 'None ticked: anyone' },
         { key: 'only.classes', label: 'Only these callings', type: 'multicheck', options: () => game.classes.map((k) => [k.id, k.name]), show: wearable, hint: 'None ticked: anyone' },
         { key: 'onlyText', label: 'Said to anyone else', type: 'text', placeholder: 'Only a dwarf can wake its runes', show: (o) => wearable(o) && ((o.only?.races || []).length || (o.only?.classes || []).length), hint: 'Empty: "Only a … can wear it"' },
+      ],
+    },
+    // (market) the lines of trade a shop may follow
+    shopThemes: {
+      label: 'Shop themes', icon: '🏪', list: game.shopThemes,
+      group: (t) => SHOP_KIND_NAMES[t.kind] || t.kind,
+      blank: () => ({ name: 'New Trade', kind: 'weapons', desc: 'what it sells, in a few words', items: [], styles: [], races: [] }),
+      fields: [
+        { type: 'info', label: 'A shop follows its theme unless its wares are picked by hand (the person\'s Trade section on the map). Four to seven things make a shop worth the visit without selling everything: the realm\'s other shops sell the rest.' },
+        { key: 'name', label: 'Name', type: 'text', hint: 'On the shop screen after its keeper\'s name: “Ambrose\'s Blades”' },
+        { key: 'desc', label: 'In a few words', type: 'text', placeholder: 'swords and daggers', hint: 'After the name: “Blades — swords and daggers”' },
+        { key: 'kind', label: 'Kind of shop', type: 'select', rerender: true, options: Object.entries(SHOP_KIND_NAMES),
+          hint: 'Weaponsmiths and bowyers trade in weapons; armourers armour; provisioners provisions; herbalists reagents; sages scrolls; merchants a little of everything, or charms.' },
+        { key: 'items', label: 'Sells', type: 'multicheck', wide: true, rerender: true,
+          hint: 'The things of its kind of shop (and anything already ticked); a merchant\'s theme may take anything at all.',
+          options: (o) => {
+            // a weaponsmith's list is arms and shields, a curio-seller's charms; charms where the kind sells them
+            const types = KIND_TYPES[o?.kind]?.filter((t) => t !== 'charm' || ['charms', 'scrolls'].includes(o.kind));
+            return game.items.filter((i) => i.type !== 'quest' && (!types || types.includes(i.type) || (o?.items || []).includes(i.id))).map((i) => [i.id, `${i.name} (◆${i.price})`]);
+          } },
+        { type: 'info', label: (o) => themeSummary(game, o) },
+        { key: 'priceMod', label: 'Its markup', type: 'number', step: 0.05, min: 0.1, nullable: true, placeholder: '1',
+          hint: 'Blank or 1: the items\' own prices. 1.1–1.4 for a dear trade (a castle\'s armoury, a curio-seller), 0.85–0.95 for a cheap one (the militia\'s arms, second-hand mail). A shop may set its own instead.' },
+        { type: 'section', label: 'Where new towns use it' },
+        { key: 'styles', label: 'In places like', type: 'multicheck', options: [['village', 'Villages'], ['town', 'Towns'], ['castle', 'Castles'], ['elfhall', 'Elf-halls'], ['dwarfgate', 'Dwarf holds']],
+          hint: 'When a place is built (Quick Start, Places, a shop room) its shops take a fitting theme, one no other shop in the realm has where they can. None ticked: anywhere.' },
+        { key: 'races', label: 'Kept by', type: 'multicheck', options: () => game.races.map((r) => [r.id, r.name]), hint: 'The keeper\'s folk. None ticked: anyone.' },
+        { key: 'coast', label: 'Only by the sea (a harbour, a coastal town)', type: 'check', hint: 'A place by the sea takes a theme like this first.' },
+        { key: 'roles', label: 'For keepers who are', type: 'multicheck', show: (o) => o.kind === 'weapons', options: [['weapons', 'Weaponsmiths'], ['bowyer', 'Bowyers']], hint: 'A bowyer\'s shop takes a theme ticked for bowyers where there is one. None ticked: any keeper of arms.' },
       ],
     },
     spells: {
@@ -310,12 +369,24 @@ export function categories(game) {
         { key: 'ai', label: 'Behaviour in battle', type: 'select', options: Object.entries(AI_STYLES) },
         { key: 'abilities', label: 'Battle abilities', type: 'ids', options: abilities, hint: 'Defined under Abilities. Used when ready (bosses more eagerly).' },
         { key: 'init', label: 'Initiative bonus', type: 'number', min: -10, max: 20, hint: 'Higher acts earlier in each round' },
+        { key: 'reflex', label: 'Reflexes', type: 'number', min: -4, max: 6, nullable: true, placeholder: 'from its pace',
+          hint: 'Like a hero\'s Dexterity when someone breaks away from it (or it from them): each point is 5% on the chance of a free strike. Empty: +1 for the fleet, −1 for the slow' },
         { key: 'poison', label: 'Chance to poison', type: 'number', step: 0.05, min: 0, max: 1 },
         { key: 'regen', label: 'Regenerates per round', type: 'number', min: 0 },
         { key: 'fleeAt', label: 'Flees below (fraction of health)', type: 'number', step: 0.05, min: 0, max: 1 },
         { key: 'undead', label: 'Undead', type: 'check' },
         { key: 'beast', label: 'A wild beast (a charm of calming soothes it)', type: 'check', get: (o) => isBeast(o) },
         { key: 'sleepImmune', label: 'Immune to sleep', type: 'check' },
+        // (isles) a statue shrugs off blows and the conditions of the living
+        { key: 'hardened', label: 'Shrugs off per blow', type: 'number', min: 0, max: 10, hint: 'Each blow that lands on it does this much less (never below 1). Stone, thick hide, a shell.' },
+        // (tactics II) a shield of its own, and its seasoned kind
+        { key: 'block', label: 'Shield blocks (0.1 = 10%)', type: 'number', step: 0.05, min: 0, max: 0.75, nullable: true, placeholder: '0', hint: 'The chance it turns aside a hero\'s blow or shot that would land (not one from behind).' },
+        { type: 'section', label: 'Seasoned (veterans)' },
+        { key: 'veteran', label: 'Comes seasoned when the company has far outgrown it', type: 'check', get: (o) => o.veteran !== false, put: (o, v) => { if (v) delete o.veteran; else o.veteran = false; },
+          hint: 'A wandering band this many levels below the company (Rules → Battle: seasoned foes) comes as veterans: tougher, and worth more.' },
+        { key: 'vetName', label: 'Its seasoned name', type: 'text', placeholder: 'empty: "<name> Veteran"', show: (o) => o.veteran !== false && !o.boss, hint: 'A beast reads better with a name of its own: Dire Wolf, Plague Rat.' },
+        { key: 'vetPlural', label: 'Seasoned, plural', type: 'text', placeholder: 'empty: the name and an s', show: (o) => o.veteran !== false && !o.boss && !!o.vetName },
+        { key: 'immune', label: 'Proof against', type: 'multicheck', options: () => Object.entries(STATUS_EFFECTS).filter(([, d]) => d.bad).map(([k, d]) => [k, d.name]) },
         { key: 'swim', label: 'Lives in water', type: 'check' },
         { key: 'fly', label: 'Flies (crosses water)', type: 'check' },
         { key: 'boss', label: 'Unique boss (never random)', type: 'check' },
@@ -333,7 +404,31 @@ export function categories(game) {
         { key: 'look.scale', label: 'Size', type: 'number', step: 0.05, min: 0.3, max: 3 },
         { key: 'look.color', label: 'Colour', type: 'color', show: (o) => o.look?.kind !== 'humanoid' },
         { key: 'look.eyes', label: 'Glowing eyes', type: 'color', nullable: true },
+        // (isles) the finer touches of the newer beasts
+        { key: 'look.belly', label: 'Belly', type: 'color', nullable: true, show: (o) => ['frog', 'naga', 'serpent', 'dragon', 'shark', 'quadruped'].includes(o.look?.kind) },
+        { key: 'look.spots', label: 'Spots', type: 'color', nullable: true, show: (o) => ['frog', 'cat'].includes(o.look?.kind) },
+        { key: 'look.mist', label: 'Wreathed in mist', type: 'check', show: (o) => o.look?.kind === 'wraith' },
+        { key: 'look.glow', label: 'Glowing runes', type: 'color', nullable: true, show: (o) => o.look?.kind === 'guardian' },
+        { key: 'look.crest', label: 'Crest', type: 'color', nullable: true, show: (o) => o.look?.kind === 'humanoid' && o.look?.race === 'lizard' },
         ...LOOK_FIELDS.map((f) => ({ ...f, show: (o) => o.look?.kind === 'humanoid' && (!f.show || f.show(o)) })),
+      ],
+    },
+    weaponKinds: {
+      label: 'Weapon kinds', icon: '🏹', list: game.weaponKinds,
+      blank: () => ({ name: 'New Kind', plural: 'new kinds', trait: 'parry', power: 1, desc: '' }),
+      fields: [
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'plural', label: 'As it reads in a sentence', type: 'text', placeholder: 'blades', hint: '"A wizard has no training with blades"' },
+        { key: 'desc', label: 'Description', type: 'textarea', rows: 2 },
+        { key: 'trait', label: 'Trait (works in a trained hand)', type: 'select', empty: '— none —', nullable: true, rerender: true, options: Object.entries(WEAPON_TRAITS) },
+        { type: 'info', label: (o) => traitText(o) || 'A weapon of this kind has no trait of its own.' },
+        { key: 'power', label: 'Strength', type: 'number', min: 0, max: 6, show: (o) => ['parry', 'hew', 'quick', 'ward', 'far'].includes(o.trait),
+          hint: 'Parry and Ward: armour; Hew: damage; Quick: to hit when flanking; Far shot: squares of range' },
+        { key: 'minAc', label: 'Against armour of at least', type: 'number', min: 0, max: 30, placeholder: '14', show: (o) => o.trait === 'hew' },
+        { key: 'chance', label: 'Chance a hit staggers', type: 'number', step: 0.05, min: 0, max: 1, placeholder: '0.3', show: (o) => o.trait === 'stagger' },
+        { key: 'range', label: 'Reach (squares)', type: 'number', min: 2, max: 3, placeholder: '2', show: (o) => o.trait === 'reach' },
+        { key: 'heavy', label: 'A heavy kind — needs heavy-weapon training', type: 'check' },
+        { type: 'info', label: () => `The built-in kinds: ${WEAPON_KIND_DEFS.map((k) => `${k.name} (${WEAPON_TRAITS[k.trait]})`).join(', ')}.` },
       ],
     },
     abilities: {
@@ -458,3 +553,6 @@ export class DatabaseEditor {
     this.render();
   }
 }
+
+// (for the tests) the World Data forms, as the editor builds them for a game
+if (typeof window !== 'undefined') window.__editorCats = categories;

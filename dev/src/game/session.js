@@ -8,7 +8,7 @@ import { computeVisible, computeLitMask, hasLOS } from './los.js';
 import { stepToward, findPath } from './path.js';
 import {
   createCharacter, maxHp, maxMp, charLook, partyAlive, partyLevel, hasTrait, hasAbility, itemOf, xpForLevel, gainXp, knownSpells, canCast, payForSpell, spellPower,
-  equipKit, normalizeMember, growStat, abilityOf,
+  equipKit, normalizeMember, growStat, abilityOf, veteranRise, veteranDef, bandDef,
 } from './rules.js';
 import { respond, fillText } from './dialog.js';
 import { Battle } from './combat.js';
@@ -32,6 +32,10 @@ import { Delve, isBattleground } from './delve.js';
 // (charms) what heroes wear: battle hooks, and the ways and paces it opens
 import { battleHook as charmHook, charmWay, charmPace, charmRations, charmSight, charmLit, charmEncounters, charmCamp, charmCalms, charmOpens, charmHoard, charmStep, charmFireproof, hideUnseen, isHoard } from './charms.js';
 import { chestLook, containerWords } from '../data/containers.js';
+// (company) banter, partings, mysteries and the gentle start for a small company
+import { companyTick, gentleBand, leaveCompany, hasLeft, mayRejoin, mysteryOfJudge, canAccuse, needMet as flagsMet } from './company.js';
+// (puzzles) levers, plates, boulders, gates, riddles, runes, braziers, triggers
+import { Puzzles, isPuzzle, puzzleSolid, puzzleLook, applyPuzzleState } from './puzzles.js';
 
 // the parts of a person's look that are theirs, not their clothes
 const LOOK_PERSON = ['skin', 'hair', 'hairStyle', 'beard', 'face', 'iris', 'lashes'];
@@ -170,6 +174,7 @@ export class PlaySession {
     this.ui = null; // set by PlayUI
     this.dv = null; // (delve) the battleground the company is in, if any
     this.roamCount = 0;
+    this.puzzles = new Puzzles(this); // (puzzles)
     for (const m of state.party.members) normalizeMember(game, m, state.party.inventory);
     ensureQuestState(state); // older saves have no quest log
     dropSpentMaps(this); // (maps for hoards dug before they were tidied away)
@@ -205,6 +210,7 @@ export class PlaySession {
       e.home = { x: e.x, y: e.y };
     }
     hideUnseen(map, ms); // (charms) things hidden from mortal eyes wait for true sight
+    this.presence(map, true); // (adventure) people about only while their story says so
     // a ship the company has sailed is theirs to keep, even if the map no
     // longer has it (saves from when Westhold lent its ship for nothing)
     for (const [id, at] of Object.entries(ms.moved)) {
@@ -214,6 +220,7 @@ export class PlaySession {
     if (v && this.state.pos.map === id && !map.entities.some((e) => e.id === v.id)) map.entities.push({ id: v.id, type: 'ship', x: this.state.pos.x, y: this.state.pos.y, home: { ...this.state.pos } });
     for (const r of this.state.reserve || []) if (r.map === id) map.entities.push(this.restingNpc(map, r.member));
     map.explored = ms.explored ? rleDecode(ms.explored, map.w * map.h) : new Uint8Array(map.w * map.h);
+    applyPuzzleState(this, map); // (puzzles) levers as pulled, braziers as lit, gates as their flags say
     map.litMask = computeLitMask(map);
     return map;
   }
@@ -229,6 +236,29 @@ export class PlaySession {
     } finally {
       this.transitioning = false;
       this.queued = null;
+    }
+    this.companyTick('map'); // (company) a companion may have a word for this place
+  }
+
+  // (company) banter, partings and clues: see game/company.js
+  companyTick(trigger = null) { companyTick(this, trigger); this.presence(); }
+
+  // (adventure) A person with a need (npc.need: story flags) is about only
+  // while it holds: a traitor gone from his hall once unmasked, a prisoner
+  // in the palace only once he has fled there. Asked as the flags move.
+  presence(map = this.map, quiet = false) {
+    if (!map?.entities) return;
+    const flags = this.state.party.flags;
+    const away = (map._absent ||= []);
+    for (const e of map.entities.filter((x) => x.type === 'npc' && x.need && !flagsMet(flags, x.need))) {
+      map.entities.splice(map.entities.indexOf(e), 1);
+      away.push(e);
+      if (!quiet) this.view?.removeEntity(e.id);
+    }
+    for (const e of away.filter((x) => flagsMet(flags, x.need))) {
+      away.splice(away.indexOf(e), 1);
+      map.entities.push(e);
+      if (!quiet) this.addVisual(e);
     }
   }
 
@@ -275,12 +305,17 @@ export class PlaySession {
     this.view.setZoom(zoomFor(map));
     this.camFocus(x, y, true);
     this.spawnVisuals();
+    this.puzzles.enter(); // (puzzles) braziers' light; a trigger whose flag was set elsewhere
     this.updateVisibility(true);
     this.ui && this.ui.refresh();
     if (!opts.instant) await this.app.fade(false);
     if (!opts.quiet) this.log(map.type === 'world' ? `You are in ${map.name}.` : `You enter ${map.name}.`, 'place');
     // (delve) the first battleground: how it works, once
-    if (this.dv && this.ui) this.tip('delve', 'A battleground: every monster here stands where it is, and each hero has a square of their own. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares. Tab sends one hero on alone, G brings the company together; the leader carries the torch.');
+    if (this.dv && this.ui) {
+      // (company) a lone hero has nobody to split from
+      this.tip('delve', this.party.members.length > 1 ? 'A battleground: every monster here stands where it is, and each hero has a square of their own. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares. Tab sends one hero on alone, G brings the company together; the leader carries the torch.'
+        : 'A battleground: every monster here stands where it is. Monsters marked Zz have not noticed you — sneak past, or strike first to catch them unawares (you get a free turn).');
+    }
     this.ui && this.ui.onMapChanged();
     // quests: the opening goals on a fresh game, and "reach a place" goals
     if (this.ui && !this.state.questsBegun) { this.state.questsBegun = true; startAutoQuests(this); }
@@ -295,13 +330,13 @@ export class PlaySession {
   entityLook(e) {
     switch (e.type) {
       case 'npc': return e.look || { kind: 'humanoid', race: 'human' };
-      case 'monster': return byId(this.game.monsters, e.monster)?.look || { kind: 'blob' };
+      case 'monster': return bandDef(this.game, e)?.look || { kind: 'blob' };
       case 'chest': return this.chestLook(e);
       case 'sign': return { kind: 'sign' };
       case 'ship': return { kind: 'ship' };
       case 'portal': return e.style === 'waygate' ? { kind: 'waygate' } : null;
       case 'event': return eventLook(e, this.map);
-      default: return null;
+      default: return isPuzzle(e) ? puzzleLook(e) : null; // (puzzles)
     }
   }
 
@@ -318,6 +353,7 @@ export class PlaySession {
   addVisual(e) {
     // (delve) a band in a battleground stands as its monsters, one figure each
     if (this.dv && e.type === 'monster') { if (!this.dv.groups[e.id]) this.dv.addGroup(e, !!e.roaming); else this.dv.spawnGroup(e.id); return; }
+    if (isPuzzle(e)) { this.puzzles.addVisual(e); return; } // (puzzles) a part that moves, a flame that flickers
     const look = this.entityLook(e);
     if (!look) return;
     if (this.state.vehicle && this.state.vehicle.id === e.id) return;
@@ -536,8 +572,9 @@ export class PlaySession {
 
   blockingAt(x, y) {
     // (delve) in a battleground the monsters stand on their own squares
-    if (this.dv) return this.dv.blockerAt(x, y) || this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'sign' || e.type === 'event'));
-    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event'));
+    // (puzzles: a lever, a boulder, a closed gate hold their squares too)
+    if (this.dv) return this.dv.blockerAt(x, y) || this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'sign' || e.type === 'event' || puzzleSolid(e)));
+    return this.map.entities.find((e) => e.x === x && e.y === y && (e.type === 'npc' || e.type === 'monster' || e.type === 'sign' || e.type === 'event' || puzzleSolid(e)));
   }
 
   async move(dx, dy) {
@@ -578,6 +615,8 @@ export class PlaySession {
       if (blocker.type === 'monster') return this.engage(blocker);
       if (blocker.type === 'sign') { this.readSign(blocker); return; }
       if (blocker.type === 'event') { this.queued = null; return this.ui.openEvent(blocker); }
+      // (puzzles) pull it, light it, ask it; a boulder pushed aside lets the step go on
+      if (isPuzzle(blocker) && !(await this.puzzles.bump(blocker, dx, dy))) return;
     }
     const t = terrain(getTile(map, nx, ny));
     const gate = this.map.entities.find((e) => e.type === 'portal' && e.x === nx && e.y === ny && e.requires);
@@ -790,6 +829,7 @@ export class PlaySession {
       if (map.type === 'world') this.forage(t.key);
       charmStep(this, t); // (charms) true sight, dowsing, food from the wild
     }
+    await this.puzzles.afterStep(noMove); // (puzzles) the rune underfoot, plates, gates, triggers
     for (let k = 0; k < ticks; k++) {
       if (k > 0) this.updateVisibility();
       this.passTime(1);
@@ -1095,7 +1135,7 @@ export class PlaySession {
     } else if (!t.walk || t.door) {
       if (!(t.walk && t.door && e.type === 'npc')) return false;
     }
-    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship' || o.type === 'event'))) return false;
+    if (this.map.entities.some((o) => o !== e && o.x === x && o.y === y && (o.type === 'npc' || o.type === 'monster' || o.type === 'sign' || o.type === 'ship' || o.type === 'event' || puzzleSolid(o)))) return false;
     if (e.type === 'monster' && this.map.entities.some((o) => o.type === 'portal' && o.x === x && o.y === y)) return false;
     if (this.dv?.occupied(x, y)) return false; // (delve) a hero's or a monster's square
     return true;
@@ -1259,12 +1299,16 @@ export class PlaySession {
       if (this.dv?.nearHero(x, y, 9)) continue;
       if (world && !hasLOS(map, x, y, p.x, p.y)) continue;
       const t = terrain(getTile(map, x, y));
-      const habitat = map.type === 'dungeon' ? 'dungeon' : t.water ? 'water' : habitatOf(t);
+      const habitat = map.type === 'dungeon' ? map.habitat || 'dungeon' : t.water ? t.habitat || 'water' : habitatOf(t); // (isles: a temple, a reef)
       if (!habitat) continue;
       const mon = this.pickMonster(habitat);
       if (!mon) return;
       const e = { id: uid('roam'), type: 'monster', monster: mon.id, x, y, roaming: true, count: encounterCount(mon, partyLevel(this.party)), wander: 99 };
+      if (mon.vet) e.vet = mon.vet; // (tactics II) a seasoned band
       if (!this.passableFor(e, x, y)) continue;
+      // (company) a lone hero's first few bands come sized for them
+      const share = gentleBand(this);
+      if (share < 1) e.gentle = share;
       e.home = { x, y };
       map.entities.push(e);
       this.addVisual(e);
@@ -1279,15 +1323,24 @@ export class PlaySession {
     // up to a level above the party (more on deeper maps); near its level is likeliest
     const cands = this.game.monsters.filter((m) => !m.boss && (m.habitat || []).includes(habitat) && (!allowed || allowed.has(m.id)) && (m.level || 1) <= lvl + 1 + (this.map.level || 1) - 1);
     if (!cands.length) return null;
-    return new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
+    // (tactics) foes three or more levels below the company come a tenth as
+    // often as they did: the curve measured them (tests/curve.mjs) as half the
+    // bands met by level 7, rats and goblins no hero needed to think about;
+    // where nothing stronger lives, they still come)
+    const mon = new RNG(rng.int(0, 1e9)).weighted(cands, (m) => {
       const diff = (m.level || 1) - lvl;
-      return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : 1;
+      return diff === 0 ? 4 : diff === -1 ? 3 : diff === 1 ? (lvl <= 2 ? 1 : 2) : diff === -2 ? 1 : 0.1;
     });
+    // (tactics II) ...and when they do come, a kind the company has far
+    // outgrown comes seasoned (rules.js veteranRise): the open country still
+    // bites at levels 7 and 8, where it holds little above level 5
+    const rise = veteranRise(this.game, mon, lvl);
+    return rise ? veteranDef(this.game, mon, rise) : mon;
   }
 
   // ------------------------------------------------------------ combat
   enemiesFor(e) {
-    const def = byId(this.game.monsters, e.monster);
+    const def = bandDef(this.game, e);
     if (!def) return [];
     let n = 1;
     if (e.count) {
@@ -1297,10 +1350,18 @@ export class PlaySession {
     // a big company draws a bigger crowd (the numbers were made for four)
     const company = this.party ? partyAlive(this.party).length : 4;
     if (!def.boss && company > 4) n += Math.round(n * (company - 4) * 0.2);
+    if (e.gentle > 0 && e.gentle < 1) n = Math.max(1, Math.round(n * e.gentle)); // (company) a gentle band
     const list = [{ id: def.id, n: Math.max(1, Math.min(n, 12)) }];
+    if (e.vet) list[0].vet = e.vet; // (tactics II) seasoned: see rules.js veteranDef
+    if (e.as) list[0].as = e.as; // (company) a turncoat at their head
+    if (e.gentle) return list; // (company) a gentle band comes without its escort
     for (const esc of def.escort || []) {
       const k = rng.int(esc.min || 0, esc.max || 0);
-      if (k > 0 && byId(this.game.monsters, esc.id)) list.push({ id: esc.id, n: k });
+      const ed = byId(this.game.monsters, esc.id);
+      if (k <= 0 || !ed) continue;
+      // (a veteran band's escort is seasoned as far as it, too, has been outgrown)
+      const rise = e.vet && this.party ? veteranRise(this.game, ed, partyLevel(this.party)) : 0;
+      list.push(rise ? { id: esc.id, n: k, vet: rise } : { id: esc.id, n: k });
     }
     return list;
   }
@@ -1313,7 +1374,7 @@ export class PlaySession {
     const t = terrain(getTile(this.map, p.x, p.y));
     // (a fight may bring its own ground: the sand of a fighting pit)
     let style = e.style || (this.state.vehicle ? 'water' : t.arena);
-    if (this.map.type === 'dungeon' && !['cave', 'indoor'].includes(style)) style = 'cave';
+    if (this.map.type === 'dungeon' && !['cave', 'indoor', 'temple'].includes(style)) style = 'cave'; // (isles: a temple's own court)
     if (this.mapIsTown() && style === 'grass') style = 'town';
     if (style === 'water' && !this.state.vehicle) style = 'swamp'; // (charms) a fight in the shallows, wading
     const res = await this.fight(enemies, style, { boss: e.boss, source: e });
@@ -1461,6 +1522,8 @@ export class PlaySession {
       partyLevel: partyLevel(this.party),
       leaderName: this.leader?.name,
       rumour: () => (rumours.length ? rng.pick(rumours) : null),
+      // (company) the mystery this person judges, and whether it may be put to them now
+      judgeOf: (npcId) => { const my = mysteryOfJudge(this, npcId); return my ? { my, can: canAccuse(this, my) } : null; },
     };
   }
 
@@ -1524,6 +1587,10 @@ export class PlaySession {
       case 'inn': res.inn = true; break;
       case 'healer': res.healer = true; break;
       case 'buy_ship': ok = buyShip(this, npc, res); break;
+      // (company) a companion leaves (this person, or the one named)
+      case 'leave_party': ok = leaveCompany(this, a.value || npc.id); if (!ok) res.note = `${npc.name || 'They'} ${hasLeft(this.state, a.value || npc.id) ? 'has already gone' : 'is not in the company'}.`; break;
+      // (company) name the guilty one: the window with the suspects opens
+      case 'accuse': { const my = mysteryOfJudge(this, npc.id); if (my && canAccuse(this, my).ok) res.accuse = my.id; else ok = false; break; }
       default: break;
     }
     checkQuests(this);
@@ -1535,28 +1602,36 @@ export class PlaySession {
   // toInn: the company is full, so the newcomer waits at the inn instead
   recruit(npc, { toInn = false } = {}) {
     if (!this.map.entities.includes(npc) && !npc.mapId) return `${npc.name} has already joined thee.`;
+    if (!mayRejoin(this.state, npc)) return `${npc.name} has gone their own way.`; // (company; adventure: unless they may come back)
     const max = this.game.settings.maxParty || 6;
     if (this.party.members.length >= max && !(toInn && this.lodging())) return `Thy company is full (${max}).`;
     const busy = questNeeding(this, npc.id);
     if (busy) return `${npc.name} cannot leave yet — there is still the matter of “${busy.name}”.`;
     const r = npc.recruit || {};
-    const c = createCharacter(this.game, {
+    // (adventure) one coming back returns as they were when they left
+    const was = this.state.company?.gone?.[npc.id];
+    if (was) delete this.state.company.gone[npc.id];
+    const c = was || createCharacter(this.game, {
       name: npc.name,
       race: r.race || npc.look?.race || 'human',
       cls: r.cls || 'warrior',
       stats: r.stats || { str: 13, dex: 13, int: 12, wis: 12 },
     });
-    c.level = Math.max(1, parseInt(r.level, 10) || 1);
-    c.xp = xpForLevel(c.level);
-    // seasoned companions arrive with the attributes their years have grown
-    for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
+    if (!was) {
+      c.level = Math.max(1, parseInt(r.level, 10) || 1);
+      c.xp = xpForLevel(c.level);
+      // seasoned companions arrive with the attributes their years have grown
+      for (let lv = 2; lv <= c.level; lv += 2) growStat(this.game, c);
+      // battle arts the companion already knows (learned, as it were, on even levels)
+      c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
+      equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
+      c.ownKit = Object.values(c.equip).filter(Boolean); // (company) theirs to take if they leave
+      // they keep their own face and hair; the class dresses them
+      c.look = {};
+      for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    }
     c.hp = maxHp(this.game, c); c.mp = maxMp(this.game, c);
-    // battle arts the companion already knows (learned, as it were, on even levels)
-    c.arts = (r.arts || []).filter((id) => abilityOf(this.game, id)?.general).map((id, i) => ({ id, level: Math.min(c.level, 2 + i * 2) }));
-    equipKit(this.game, c, r.equip || byId(this.game.classes, c.cls)?.start);
-    // they keep their own face and hair; the class dresses them
-    c.look = {};
-    for (const k of LOOK_PERSON) if (npc.look?.[k] != null) c.look[k] = npc.look[k];
+    if (c.status === 'dead') c.status = 'ok';
     if (this.party.members.length >= max) {
       const lodge = this.lodging();
       (this.state.reserve ||= []).push({ member: c, map: lodge.map, since: this.state.turn || 0 });
@@ -1820,10 +1895,10 @@ export class PlaySession {
     if (rng.chance(0.18) && (this.map.encounterRate ?? 0) > 0) {
       this.busy = false;
       const t = terrain(getTile(this.map, p.x, p.y));
-      const mon = this.pickMonster(this.map.type === 'dungeon' ? 'dungeon' : habitatOf(t) || 'grass');
+      const mon = this.pickMonster(this.map.type === 'dungeon' ? this.map.habitat || 'dungeon' : habitatOf(t) || 'grass');
       if (mon) {
         this.log('Ambush! Your camp is attacked!', 'bad');
-        await this.engage({ id: uid('amb'), monster: mon.id, roaming: true });
+        await this.engage({ id: uid('amb'), monster: mon.id, roaming: true, ...(mon.vet ? { vet: mon.vet } : {}) });
         return;
       }
     }
@@ -1919,7 +1994,7 @@ export class PlaySession {
           const note = mk === 'quest' ? ' (!) — has a task for you' : mk === 'turnin' ? ' (?) — about your quest' : '';
           parts.push((e.name ? `${e.name}, ${e.desc || ''}` : e.desc || 'someone') + note);
         }
-        else if (e.type === 'monster') { const d = byId(this.game.monsters, e.monster); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
+        else if (e.type === 'monster') { const d = bandDef(this.game, e); parts.push(d ? (d.boss ? d.name : d.plural || d.name) : 'monsters'); }
         else if (e.type === 'chest') parts.push(this.chestWords(e).a);
         else if (e.type === 'ship') parts.push('a ship');
         else if (e.type === 'sign') parts.push('a sign');
@@ -1957,6 +2032,7 @@ export function encounterCount(mon, lvl) {
 }
 
 export function habitatOf(t) {
+  if (t.habitat) return t.habitat; // (isles: jungle, beach, temple and reef keep their own wild things)
   switch (t.arena) {
     case 'grass': case 'bridge': case 'town': return 'grass';
     case 'forest': return 'forest';

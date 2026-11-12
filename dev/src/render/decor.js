@@ -16,6 +16,7 @@ import { hash2 } from '../core/rng.js';
 import { TOWN_DECOR } from './townDecor.js';
 import { HARBOUR_DECOR, gull, hullFrame, framed, seaward, facing } from './harbourDecor.js';
 import { tube } from './sculpt.js';
+import { ISLE_DECOR, ISLE_ARENA_PROPS } from './isleDecor.js';
 
 // GeoBuilder with one extra float per vertex ('aux'): how far a vertex sways
 // in the wind for props, closeness to the shore for water.
@@ -375,6 +376,58 @@ export const DECOR = {
     if (r(9) < 0.2) { const [px, py, pz] = at(10, 0.5); rock(B, px, py - 0.04, pz, 0.8 + r(11) * 0.5, r(12), null, true); }
     if (r(13) < 0.12 && !c.thin) { const [px, py, pz] = at(14, 0.4); tree(B, px, py, pz, 0.9, r(16)); }
   },
+  // (tactics II) high ground in battle: the raised square itself is drawn
+  // with the ground (terrainView _raised); these dress its top (c.y) and
+  // foot so it reads as higher: tufts on a knoll's brow and stones bedded at
+  // its foot, boulders on a rocky rise's back edge, flagstones on a dais.
+  knoll(c) {
+    const { B, cx, cz, r } = c;
+    const top = (k, d) => { const a = r(k) * 6.28; return [cx + Math.cos(a) * d, c.y, cz + Math.sin(a) * d]; };
+    for (let i = 0; i < 3; i++) { const [px, py, pz] = top(10 + i, 0.1 + r(20 + i) * 0.08); grassTuft(B, px, py, pz, 1.15, r(30 + i), 0x96b450); }
+    if (r(70) < 0.5) { const a = Math.PI * (1.2 + r(71) * 0.6), px = cx + Math.cos(a) * 0.14, pz = cz + Math.sin(a) * 0.12; bush(B, px, c.y, pz, 0.6, r(72), 0x6f8a3a); }
+    // grass on its lower ledge, and stones at its foot, at the sides and back
+    // (none in front, where they would hide the figure)
+    const ledge = c.y - c.t.lift * 0.5;
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI * (0.85 + i * 0.42 + (r(90 + i) - 0.5) * 0.2), px = cx + Math.cos(a) * 0.41, pz = cz + Math.sin(a) * 0.4;
+      grassTuft(B, px, ledge, pz, 1.1, r(95 + i), 0x8aac4c);
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (0.9 + i * 0.7 + (r(40 + i) - 0.5) * 0.3), px = cx + Math.cos(a) * 0.52, pz = cz + Math.sin(a) * 0.5;
+      rock(B, px, c.gy(px, pz) - 0.05, pz, 0.45 + r(50 + i) * 0.25, r(60 + i), null, true);
+    }
+  },
+  rise(c) {
+    const { B, cx, cz, r, dark } = c;
+    const cols = dark ? [0x8a7f70, 0x9a8e7c, 0x7e7366] : [0x958c80, 0xa39a8c, 0x887f74];
+    // boulders along its back edge, pebbles on top, a few at its foot
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (1.25 + i * 0.5 + (r(10 + i) - 0.5) * 0.2), px = cx + Math.cos(a) * 0.32, pz = cz + Math.sin(a) * 0.3;
+      rock(B, px, c.y - 0.05, pz, 0.6 + r(30 + i) * 0.35, r(40 + i), cols[i % 3]);
+    }
+    for (let i = 0; i < 3; i++) {
+      const px = cx + (r(50 + i) - 0.5) * 0.5, pz = cz + (r(60 + i) - 0.5) * 0.4;
+      rock(B, px, c.y - 0.02, pz, 0.18 + r(70 + i) * 0.12, r(80 + i), cols[(i + 1) % 3]);
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = Math.PI * (0.95 + i * 1.1), px = cx + Math.cos(a) * 0.52, pz = cz + Math.sin(a) * 0.5;
+      rock(B, px, c.gy(px, pz) - 0.04, pz, 0.4 + r(90 + i) * 0.2, r(95 + i), cols[i % 3], true);
+    }
+  },
+  dais(c) {
+    const { B, cx, cz, r, t } = c;
+    const st = t.top;
+    // flagstones on the top step, worn and a little uneven
+    for (let qj = 0; qj < 2; qj++) for (let qi = 0; qi < 2; qi++) {
+      const k = qj * 2 + qi, px = cx - 0.17 + qi * 0.34, pz = cz - 0.17 + qj * 0.34;
+      B.box(shade(st, 1.0 + r(30 + k) * 0.16), { x: px, y: c.y - 0.012, z: pz, sx: 0.31, sy: 0.022, sz: 0.31, ry: (r(70 + k) - 0.5) * 0.05 });
+    }
+    // a broken column's stump at a back corner, now and then
+    if (r(80) < 0.45) {
+      const px = cx + (r(81) < 0.5 ? -0.27 : 0.27), pz = cz - 0.27;
+      B.shape(TPL.cyl12, shade(st, 0.94), { x: px, y: c.y - 0.01, z: pz, sx: 0.16, sy: 0.22 + r(82) * 0.16, sz: 0.16, grad: 0.3 });
+    }
+  },
   mountain(c) { mountainDeco(c, false); },
   peak(c) { mountainDeco(c, true); },
   reeds(c) {
@@ -462,6 +515,28 @@ export const DECOR = {
       for (const p of [-0.4, 0.4]) {
         B.box(0x5a3e24, ew ? { x: cx + p, y: deckY - 0.3, z: cz + side * 0.4, sx: 0.07, sy: 0.52, sz: 0.07 } : { x: cx + side * 0.4, y: deckY - 0.3, z: cz + p, sx: 0.07, sy: 0.52, sz: 0.07 });
       }
+    }
+  },
+  // a ford: flat, worn stepping stones in a line across the stream, set a
+  // stride apart, wet and mossy on top, the water parting white round them
+  ford(c) {
+    const { B, cx, cz, nb, r } = c;
+    const isF = (dx, dy) => nb(dx, dy).key === 'ford';
+    const landEW = !nb(-1, 0).water || !nb(1, 0).water || isF(-1, 0) || isF(1, 0);
+    const landNS = !nb(0, -1).water || !nb(0, 1).water || isF(0, -1) || isF(0, 1);
+    const ew = landEW !== landNS ? landEW : r(1) < 0.5;
+    const top = -0.02;
+    for (let i = 0; i < 4; i++) {
+      const along = -0.38 + i * 0.253 + (r(2 + i) - 0.5) * 0.06, across = (i % 2 ? 1 : -1) * 0.07 + (r(5 + i) - 0.5) * 0.08;
+      const x = cx + (ew ? along : across), z = cz + (ew ? across : along);
+      const w = 0.27 + r(8 + i) * 0.07, d = 0.24 + r(11 + i) * 0.06, ry = r(14 + i) * 3;
+      const stone = [0x8c877c, 0x7e7a72, 0x96907f, 0x88837a][i];
+      // the stone itself, its wet shoulders darker, a cap of moss on some
+      B.shape(TPL.ico1, shade(stone, 0.72), { x, y: top - 0.12, z, sx: w * 1.12, sy: 0.2, sz: d * 1.12, ry });
+      B.shape(TPL.ico1, stone, { x, y: top - 0.02, z, sx: w, sy: 0.12, sz: d, ry });
+      if (r(17 + i) < 0.45) B.shape(TPL.ico1, 0x5e7a3a, { x: x + 0.02, y: top + 0.025, z: z - 0.02, sx: w * 0.55, sy: 0.03, sz: d * 0.5, ry });
+      // the water breaking white about it
+      B.shape(TPL.cyl12, 0xe6f4fa, { x, y: -0.105, z, sx: w * 1.7, sy: 0.006, sz: d * 1.7 });
     }
   },
   lava(c) {
@@ -920,7 +995,7 @@ export const DECOR = {
   },
 };
 
-Object.assign(DECOR, TOWN_DECOR, HARBOUR_DECOR);
+Object.assign(DECOR, TOWN_DECOR, HARBOUR_DECOR, ISLE_DECOR);
 
 // A mountain tile: one great faceted peak with lesser ones at its shoulders.
 // Ranges grow taller where mountains crowd together.
@@ -1014,7 +1089,7 @@ export function wallTorchAt(map, x, y) {
   if (!map || map.lighting !== 'dark' || x < 0 || y < 0 || x >= map.w || y + 1 >= map.h) return false;
   const at = (xx, yy) => TERRAIN[map.tiles[yy * map.w + xx]];
   const t = at(x, y);
-  if (!t || !(t.key === 'dungeon_wall' || t.key === 'cave_wall')) return false;
+  if (!t || !(t.key === 'dungeon_wall' || t.key === 'cave_wall' || t.key === 'temple_wall')) return false; // (isles: a temple's walls carry sconces)
   const s = at(x, y + 1);
   if (!s || s.wall || !s.walk) return false;
   const p = t.key === 'cave_wall' ? 0.1 : 0.2;
@@ -1134,6 +1209,7 @@ export const ARENA_PROPS = {
     if (c.map?.fill === 'floor_stone') return k < 0.5 ? pillar(c, false) : k < 0.8 ? crates(c) : pillar(c, true);
     return k < 0.7 ? pillar(c, true) : pillar(c, false);
   },
+  ...ISLE_ARENA_PROPS,
 };
 
 export { T };

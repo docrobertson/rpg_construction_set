@@ -4,7 +4,7 @@
 // work, an old king's statue, dragon bones and a wreck on the strand — and
 // the ruins of several (spec.ruined), and a farm the raiders have burned.
 // The same painted-toy style as the points of interest in models.js: chunky
-// stone, wood and thatch with ink outlines, warm light in the windows. Each
+// stone, wood and thatch, painted like the land, warm light in the windows. Each
 // is built to stand on about one square (towns draw them so); the world map
 // draws them larger (LANDMARK_WORLD_SCALE). A mill's sails and wheel are
 // models of their own that the view turns (SPINNERS).
@@ -40,7 +40,7 @@ function pebbles(B, n, r, col = 0x8a8478, seed = 1) {
 }
 
 // trodden ground under a place: a ragged patch, paler in the middle (flat,
-// so it goes in the detail layer, which carries no ink outline)
+// so it goes in the detail layer, which the hover glow does not outline)
 function yard(B, r, cols = EARTH, sq = 1, x = 0, z = 0, seed = 1) {
   const N = 26, c0 = new THREE.Color(cols[0]), c1 = new THREE.Color(cols[1]);
   const rim = (k) => {

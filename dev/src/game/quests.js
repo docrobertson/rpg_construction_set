@@ -133,7 +133,7 @@ export function npcMarker(session, npc) {
   if (npc.role === 'healer') return 'healer';
   if (npc.role === 'trainer') return 'trainer';
   if (npc.reserveOf) return 'recruit';
-  if (npc.recruit && (!npc.recruit.after || st.quests?.[npc.recruit.after]?.status === 'done')) return 'recruit';
+  if (npc.recruit && !st.company?.left?.[npc.id] && (!npc.recruit.after || st.quests?.[npc.recruit.after]?.status === 'done')) return 'recruit'; // (company: not one who left)
   return null;
 }
 
@@ -347,6 +347,8 @@ export function checkQuests(session) {
     if (!moved) break;
   }
   checkChapters(session); // (a story flag set in passing can end a chapter too)
+  session.companyTick?.(); // (company) clues, banter and partings follow the flags too
+  session.puzzles?.evaluate?.(); // (puzzles) a flag set in passing can open a gate or raise a bridge
 }
 
 // Begin-of-game: open the first chapter, then start every auto quest without a prerequisite

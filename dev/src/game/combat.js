@@ -13,7 +13,7 @@ import { DIR4, deepClone } from '../core/util.js';
 import {
   attackBonus, armorClass, damageRoll, damageBonus, weaponOf, rangedOf, critRange, maxHp, maxMp, charLook, hasTrait, hasAbility,
   canCast, payForSpell, spellPower, gainXp, partyAlive, knownSpells, specialOf, combatMoves, heroAbilities, abilityOf, ensureCombatData,
-  perkCount, mod, classOf, levelUpNote, magicalOf,
+  perkCount, mod, classOf, levelUpNote, magicalOf, weaponTrait, training, armorSoak, untrainedPenalty, shieldBlock, itemOf, veteranDef,
 } from './rules.js';
 import { hasMagic } from './charms.js';
 import { sfx } from '../core/sound.js';
@@ -38,6 +38,10 @@ const LEGACY = { stunned: 'stun', asleep: 'sleep', afraid: 'fear' };
 const FREE_STRIKE = { id: '_free', name: 'Free strike', attack: 'melee' };
 // the blow a riposting fighter answers with
 const RIPOSTE = { id: '_riposte', name: 'Riposte', attack: 'melee', fx: 0xffd0a0 };
+// (weapon traits) a spear set against a foe stepping into reach, and a great
+// blade's swing carried on from a foe it felled
+const BRACE = { id: '_brace', name: 'Set spear', attack: 'melee', fx: 0xd8e0ff };
+const SWEEP = { id: '_sweep', name: 'Sweep', attack: 'melee', fx: 0xffe0c0 };
 // "1d6+2" with n more: a called creature fights at its caller's level
 function plusDice(dice, n) {
   if (!n) return dice || '1d4';
@@ -97,7 +101,8 @@ export class Battle {
   setup() {
     if (this.field) return this.setupField();
     const lighting = this.s.map?.lighting === 'dark' ? 'dark' : this.s.currentLighting ? this.s.currentLighting() : this.s.map?.lighting === 'night' ? 'night' : 'day';
-    this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting });
+    this.arena = generateArena(this.style, rng.int(1, 1e9), { lighting, highGround: this.highBonus() ? 1 : 0 });
+    if (this.s.map?.mood) this.arena.mood = this.s.map.mood; // (isles: a temple's gloom follows you into the fight)
     // sea monsters that strike at a party on the shore need water to fight from
     const swimmers = this.enemyList.some((g) => byId(this.game.monsters, g.id)?.swim);
     // (the whole north half is open sea running off the edges, shallows at
@@ -130,20 +135,29 @@ export class Battle {
     }
     // enemies
     for (const grp of this.enemyList) {
-      const def = byId(this.game.monsters, grp.id);
+      const def = this.groupDef(grp);
       if (!def) continue;
-      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(def)) break;
+      // (company) grp.as: the first of them is someone in particular — a
+      // turncoat companion fights under their own name and face
+      for (let k = 0; k < grp.n; k++) if (!this.spawnEnemy(k === 0 && grp.as ? { ...def, ...grp.as } : def)) break;
     }
     // tell several foes of one kind apart in the log and the turn strip
     const counts = {};
-    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
+    for (const e of this.enemies) if (!e.def.named) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
     const seen = {};
-    for (const e of this.enemies) if (counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
-    const names = this.enemyList.map((g) => {
-      const d = byId(this.game.monsters, g.id);
+    for (const e of this.enemies) if (!e.def.named && counts[e.def.id] > 1) e.tag = String.fromCharCode(65 + (seen[e.def.id] = (seen[e.def.id] || 0) + 1) - 1);
+    const names = this.enemyList.flatMap((g) => (g.as && g.n > 1 ? [{ ...g, n: 1 }, { id: g.id, n: g.n - 1, vet: g.vet }] : [g])).map((g) => {
+      const d = g.as ? { ...byId(this.game.monsters, g.id), ...g.as, boss: true } : this.groupDef(g);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean);
     this.log(`Battle! You face ${names.join(' and ')}.`, 'bad');
+  }
+
+  // the monster a group of the roster is: its kind, seasoned when the band
+  // came as veterans (grp.vet: the levels it rose, see rules.js veteranDef)
+  groupDef(grp) {
+    const def = byId(this.game.monsters, grp.id);
+    return def && grp.vet ? veteranDef(this.game, def, grp.vet) : def;
   }
 
   spawnEnemy(def, near = null) {
@@ -177,14 +191,14 @@ export class Battle {
     for (const f of F.foes) this.addFoe(f);
     this.retag();
     const counts = {};
-    for (const e of this.enemies) counts[e.def.id] = (counts[e.def.id] || 0) + 1;
-    this.log(`Battle! You face ${this.facing(Object.entries(counts).map(([id, n]) => ({ id, n })))}.`, 'bad');
+    for (const e of this.enemies) { const k = `${e.def.id}|${e.def.vet || 0}`; counts[k] = (counts[k] || 0) + 1; }
+    this.log(`Battle! You face ${this.facing(Object.entries(counts).map(([k, n]) => ({ id: k.split('|')[0], vet: +k.split('|')[1], n })))}.`, 'bad');
   }
 
   // "3 goblins and a giant spider"
   facing(list) {
     return list.map((g) => {
-      const d = byId(this.game.monsters, g.id);
+      const d = this.groupDef(g);
       return d ? (d.boss ? d.name : g.n > 1 ? `${g.n} ${d.plural || d.name}` : `${/^[aeiou]/i.test(d.name) ? 'an' : 'a'} ${d.name}`) : '';
     }).filter(Boolean).join(' and ');
   }
@@ -217,7 +231,7 @@ export class Battle {
   // tell several foes of one kind apart (letters stay with whoever had them)
   retag() {
     const byDef = {};
-    for (const e of this.enemies) (byDef[e.def.id] ||= []).push(e);
+    for (const e of this.enemies) if (!e.def.named) (byDef[e.def.id] ||= []).push(e);
     for (const list of Object.values(byDef)) {
       if (list.length < 2) continue;
       const used = new Set(list.map((e) => e.tag).filter(Boolean));
@@ -322,7 +336,7 @@ export class Battle {
   foesOf(u) { return this.units.filter((x) => x.side !== u.side && this.alive(x)); }
   friendsOf(u) { return this.units.filter((x) => x.side === u.side && this.alive(x)); }
   label(u) { return u.tag ? `${u.name} ${u.tag}` : u.name; }
-  the(u) { return !u.member && !u.def?.boss ? `the ${this.label(u)}` : this.label(u); }
+  the(u) { return !u.member && !u.def?.boss && !u.def?.named ? `the ${this.label(u)}` : this.label(u); }
   The(u) { const t = this.the(u); return t[0].toUpperCase() + t.slice(1); }
 
   unitAt(x, y) { return this.units.find((u) => this.alive(u) && u.x === x && u.y === y); }
@@ -371,6 +385,20 @@ export class Battle {
     return null;
   }
 
+  // (tactics II) High ground: a knoll, a rocky rise or a dais (a terrain's
+  // `high`). A fighter on it shoots down at +settings.highGround (1) to hit a
+  // foe below, and a foe below strikes up at it at −1 hand to hand.
+  highBonus() { return Math.max(0, Math.round(+(this.game.settings?.highGround ?? 1) || 0)); }
+  highGround(x, y) {
+    if (!inBounds(this.arena, x, y)) return false;
+    return !!terrain(getTile(this.arena, x, y)).high;
+  }
+  // what high ground gives a unit standing at (x, y), in words ('' for none)
+  highNote(x, y) {
+    const k = this.highBonus();
+    return k && this.highGround(x, y) ? `High ground: +${k} to your shots; blows from below are −${k}` : '';
+  }
+
   dist(a, b) { return cheb(a, b); }
   adjacent(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1; }
 
@@ -380,6 +408,27 @@ export class Battle {
     if (dx && this.obstacle(t.x + dx, t.y)) return true;
     if (dy && this.obstacle(t.x, t.y + dy)) return true;
     return false;
+  }
+
+  // the obstacles beside t that shelter it from a missile from `from` (as
+  // inCover reckons it): [{ x, y }]
+  coverSquares(t, from) {
+    const dx = Math.sign(from.x - t.x), dy = Math.sign(from.y - t.y), out = [];
+    if (dx && this.obstacle(t.x + dx, t.y)) out.push({ x: t.x + dx, y: t.y });
+    if (dy && this.obstacle(t.x, t.y + dy)) out.push({ x: t.x, y: t.y + dy });
+    return out;
+  }
+
+  // Who on the other side of `side` shoots (a bow, crossbow or sling; a
+  // monster with a missile; a knife-thrower): only their rolls care about cover
+  shooters(side) {
+    return this.units.filter((f) => f.side !== side && this.alive(f) && !this.helpless(f) && this.weaponRange(f) > 1);
+  }
+
+  // the shooters a square would shelter a unit of `side` from: [unit]
+  coverFrom(x, y, side) {
+    const at = { x, y };
+    return this.shooters(side).filter((f) => this.inCover(at, f) && cheb(f, at) <= this.weaponRange(f) + 2);
   }
 
   // standing on the square at a foe's back
@@ -403,6 +452,8 @@ export class Battle {
   }
   power(u, id) { return u.st[id]?.power || 0; }
   helpless(u) { return u.sleep > 0 || u.stun > 0; }
+  // cannot move this turn (pinned, or reeling from a heavy blow), though it may still fight
+  held(u) { return this.has(u, 'rooted') || this.has(u, 'staggered'); }
   // foes cannot see or aim at it: hidden in smoke, or in a sanctuary
   unseen(u) { return !!(u.st.hidden || u.st.sanctuary); }
 
@@ -420,9 +471,12 @@ export class Battle {
 
   resists(t, id) {
     if (this.hook('resist', t, id)) return true; // (charms) wards, and charms of resistance
+    // (isles) a monster may be proof against some conditions (a statue does not bleed venom or fear)
+    if (t.def?.immune?.includes(id)) return true;
     const iron = !!t.member && perkCount(t.member, 'iron_will');
     const stout = !!t.member && hasTrait(this.game, t.member, 'stout');
     if (id === 'stunned') return iron || (t.def?.boss && rng.chance(0.5));
+    if (id === 'staggered') return !!t.def?.boss && rng.chance(0.5); // (a great foe keeps its feet half the time)
     if (id === 'asleep') return iron || t.def?.sleepImmune || t.def?.undead || (stout && rng.chance(0.5));
     if (id === 'afraid') return iron || t.def?.boss || (stout && rng.chance(0.5));
     // (a hero's mind is the player's: only monsters and called creatures turn on their own)
@@ -462,18 +516,26 @@ export class Battle {
     this.emit('update');
   }
 
-  acOf(u) {
-    let ac = u.member ? armorClass(this.game, u.member) : (u.def.ac || 10);
+  // vs 'melee': a blow struck hand to hand (a trained blade parries it)
+  acOf(u, vs = null) {
+    let ac = u.member ? armorClass(this.game, u.member, vs) : (u.def.ac || 10);
     if (!u.member) for (const b of u.buffs || []) if (b.kind === 'shield') ac += b.power;
     return ac + this.power(u, 'shielded');
   }
 
   movesFor(u) {
     let n = u.member ? combatMoves(this.game, u.member) : (u.def.moves ?? 4);
-    if (this.has(u, 'rooted')) return 0;
+    if (this.held(u)) return 0;
     n += this.power(u, 'hasted'); // (charms) quick feet
     if (this.has(u, 'slowed')) n = Math.ceil(n / 2);
     return n;
+  }
+
+  // (a trained staff's Ward) more to the sure damage of spells and magical skills
+  wardOf(u) {
+    if (!u?.member) return 0;
+    const tr = weaponTrait(this.game, u.member, weaponOf(this.game, u.member));
+    return tr?.trait === 'ward' ? tr.power ?? 1 : 0;
   }
 
   statMod(u, stat) {
@@ -750,7 +812,7 @@ export class Battle {
       }
       const other = this.unitAt(nx, ny);
       if (other && other.side === 'enemy') return this.attack(u, other);
-      if (this.has(u, 'rooted')) { this.log(`${u.name} is pinned and cannot move — attack, use a skill, or end the turn.`, 'warn'); sfx('bump'); return false; }
+      if (this.held(u)) { this.log(`${u.name} ${this.has(u, 'rooted') ? 'is pinned' : 'is reeling'} and cannot move — attack, use a skill, or end the turn.`, 'warn'); sfx('bump'); return false; }
       if (!(u.moves > 0)) { this.log(`${u.name} has no moves left — attack, cast, or press Space to end the turn.`, 'warn'); sfx('bump'); return false; }
       if (other && other.side === 'party') {
         // swap places with an ally
@@ -837,16 +899,130 @@ export class Battle {
       && cheb(f, from) <= 1 && cheb(f, { x, y }) > 1);
   }
 
-  // Free strikes at a unit breaking away; false if it does not survive them
+  // Breaking away is a gamble, not a certainty: the chance that f lands its
+  // free strike as u leaves its reach. Half the time (settings.breakAway),
+  // better for f the higher its level over u's and the quicker its reflexes
+  // (a hero's Dexterity; a monster's reflex, or its pace), worse the other
+  // way; never below 15% nor above 90%. So a seasoned hero slips away from
+  // goblins, and cuts down the goblin that runs.
+  breakChance(f, u) {
+    const base = this.game.settings?.breakAway ?? 0.5;
+    if (base >= 1) return 1;
+    if (base <= 0) return 0;
+    const lv = (x) => (x.member ? x.member.level || 1 : x.def?.level || 1);
+    const p = base + 0.08 * (lv(f) - lv(u)) + 0.05 * (this.reflexOf(f) - this.reflexOf(u));
+    return Math.round(Math.max(0.15, Math.min(0.9, p)) * 100) / 100;
+  }
+
+  // quickness in a scramble: a hero's Dexterity modifier; a monster's own
+  // reflex, else its pace (fast movers and double actors are quicker, the
+  // slow lumberers slower; a boss is wary)
+  reflexOf(u) {
+    if (u.member) return mod(u.member.dex);
+    const d = u.def || {};
+    if (d.reflex != null && d.reflex !== '') return +d.reflex || 0;
+    const mv = d.moves ?? 4;
+    return (mv >= 5 ? 1 : mv <= 2 ? -1 : 0) + (d.speed > 1 ? 1 : 0) + (d.boss ? 1 : 0);
+  }
+
+  // Free strikes at a unit breaking away; false if it does not survive them.
+  // Each foe it leaves has its chance (and spends its reaction either way).
   async provoke(u, x, y) {
     for (const f of this.provokers(u, x, y)) {
       if (!this.alive(u)) return false;
       f.reacted = true;
+      const p = this.breakChance(f, u);
+      if (!rng.chance(p)) {
+        this.log(`${this.The(u)} slips away from ${this.the(f)}${p >= 0.5 ? '!' : '.'}`, u.side === 'party' ? 'good' : 'bad');
+        this.fx.number(u.x, u.y, 'Slips away', 'info', '#9fe0c0');
+        this.emit('breakaway', { u, f, struck: false, p });
+        continue;
+      }
       this.log(`${this.The(f)} strikes at ${this.the(u)} as ${u.member ? 'they break' : 'it breaks'} away!`, u.side === 'party' ? 'bad' : 'good');
       this.fx.number(f.x, f.y, 'Free strike!', 'info', '#ffd070');
+      this.emit('breakaway', { u, f, struck: true, p });
       await this.strike(f, u, { ab: FREE_STRIKE });
     }
     return this.alive(u);
+  }
+
+  // Withdraw: any hero may give up the rest of the turn's moves to step one
+  // square back with no free strikes (the turn goes on: shoot, cast or guard).
+  // The squares it could step to, or [] when it cannot.
+  withdrawSquares(u) {
+    if (!(u.moves > 0) || this.held(u) || !this.alive(u)) return [];
+    return DIR4.map(([dx, dy]) => ({ x: u.x + dx, y: u.y + dy })).filter((c) => this.walkable(c.x, c.y, u) && !this.field?.exitAt?.(c.x, c.y));
+  }
+
+  canWithdraw(u) {
+    if (this.held(u)) return { ok: false, why: this.has(u, 'rooted') ? 'Pinned in place.' : 'Reeling: no moving this turn.', short: this.has(u, 'rooted') ? 'Pinned' : 'Reeling' };
+    if (!(u.moves > 0)) return { ok: false, why: 'No moves left this turn to give up.', short: 'No moves left' };
+    if (!this.withdrawSquares(u).length) return { ok: false, why: 'No open square beside you to step back to.', short: 'Hemmed in' };
+    if (!this.foesOf(u).some((f) => cheb(f, u) <= 1 && !this.helpless(f) && !f.reacted)) return { ok: false, why: 'No foe beside you could strike as you go: just walk away.', short: 'No foe near' };
+    return { ok: true, why: '', short: 'No free strike' };
+  }
+
+  actWithdraw(x, y, expect) {
+    return this.perform(async (u) => {
+      const can = this.canWithdraw(u);
+      if (!can.ok) { this.log(can.why, 'warn'); sfx('error'); return false; }
+      if (!this.withdrawSquares(u).some((c) => c.x === x && c.y === y)) { this.log('Withdraw one square, to an open square beside you.', 'warn'); sfx('error'); return false; }
+      u.moves = 0;
+      u.face = [x - u.x, y - u.y];
+      u.x = x; u.y = y;
+      sfx('step');
+      this.log(`${u.name} withdraws a step, guard up — no opening for a free strike.`);
+      this.fx.number(x, y, 'Withdraws', 'info', '#b8f0d0');
+      await this.view.moveEntity(u.id, x, y, 0.2);
+      this.emit('moved', u);
+      await this.stepOn(u);
+      if (!this.alive(u)) return true;
+      return this.turnDone(u);
+    }, expect);
+  }
+
+  // ------------------------------------------------------------ weapon traits: reach
+  // How far a hero's hand weapon reaches: 2 squares for a trained spear (its kind's range)
+  reachOf(u) {
+    if (!u?.member) return 1;
+    const tr = weaponTrait(this.game, u.member, weaponOf(this.game, u.member));
+    return tr?.trait === 'reach' ? Math.max(2, tr.range ?? 2) : 1;
+  }
+
+  // a foe a spear can strike from here: in a straight line along a row or a
+  // column, within its reach, with nothing between but companions
+  inReach(u, t) {
+    const r = this.reachOf(u);
+    if (r < 2 || !t) return false;
+    const dx = t.x - u.x, dy = t.y - u.y;
+    if (dx && dy) return false;
+    const d = Math.abs(dx) + Math.abs(dy);
+    if (d < 2 || d > r) return false;
+    for (let i = 1; i < d; i++) {
+      const x = u.x + Math.sign(dx) * i, y = u.y + Math.sign(dy) * i;
+      if (this.obstacle(x, y)) return false;
+      const o = this.unitAt(x, y);
+      if (o && o.side !== u.side) return false;
+    }
+    return true;
+  }
+
+  // could u strike a foe at t hand to hand from where it stands? beside it, or within a spear's reach
+  inMelee(u, t) { return Math.abs(t.x - u.x) + Math.abs(t.y - u.y) === 1 || this.inReach(u, t); }
+
+  // A spear set against a charge: a foe that steps into a spearman's reach
+  // (from outside it) takes a blow first, once a round
+  async braced(m, from) {
+    if (!from || !this.alive(m)) return;
+    for (const h of this.foesOf(m)) {
+      if (!this.alive(m)) return;
+      if (!h.member || h.reacted || this.helpless(h) || this.reachOf(h) < 2) continue;
+      if (this.inMelee(h, from) || !this.inMelee(h, m)) continue;
+      h.reacted = true;
+      this.log(`${h.name} sets the spear — ${this.the(m)} runs onto the point!`, m.side === 'enemy' ? 'good' : 'bad');
+      this.fx.number(h.x, h.y, 'Set spear!', 'info', '#d8e0ff');
+      await this.strike(h, m, { ab: BRACE });
+    }
   }
 
   // A move ends the turn only when nothing else is left to do: no moves,
@@ -896,7 +1072,7 @@ export class Battle {
   canAttack(u, t) {
     if (!t || t.side === u.side || !this.alive(t)) return false;
     if (u.side === 'enemy' && this.unseen(t)) return false;
-    if (this.adjacent(u, t)) return true;
+    if (this.adjacent(u, t) || this.inReach(u, t)) return true;
     const range = this.weaponRange(u);
     return range > 1 && this.dist(u, t) <= range && this.lineClear(u, t);
   }
@@ -904,13 +1080,15 @@ export class Battle {
   weaponRange(u) {
     if (u.member) {
       const r = rangedOf(this.game, u.member);
-      return r ? (r.range || 1) + perkCount(u.member, 'marksman') : 1;
+      if (!r) return 1;
+      const far = weaponTrait(this.game, u.member, r); // (a trained archer's bow reaches further)
+      return (r.range || 1) + perkCount(u.member, 'marksman') + (far?.trait === 'far' ? far.power ?? 1 : 0);
     }
     return u.def.range || 1;
   }
 
   weaponFor(u, t) {
-    return this.adjacent(u, t) ? weaponOf(this.game, u.member) : rangedOf(this.game, u.member) || weaponOf(this.game, u.member);
+    return this.adjacent(u, t) || this.inReach(u, t) ? weaponOf(this.game, u.member) : rangedOf(this.game, u.member) || weaponOf(this.game, u.member);
   }
 
   attackTargets(u) { return this.foesOf(u).filter((e) => this.canAttack(u, e)); }
@@ -938,8 +1116,10 @@ export class Battle {
       const ranged = (w.range || 1) > 1;
       const d = parseDice(w.dmg || '1d2'), b = damageBonus(this.game, m, w);
       return {
-        w, ranged, hit: attackBonus(this.game, m, w), critMin: critRange(this.game, m), name: w.name,
-        min: Math.max(1, d.n + d.b + b), max: Math.max(1, d.n * d.d + d.b + b), roll: () => damageRoll(this.game, m, w),
+        w, ranged, hit: attackBonus(this.game, m, w), critMin: critRange(this.game, m, w), name: w.name,
+        min: Math.max(1, d.n + d.b + b), max: Math.max(1, d.n * d.d + d.b + b), die: d.d, roll: () => damageRoll(this.game, m, w),
+        // (its kind's trait works only in a trained hand)
+        trait: weaponTrait(this.game, m, w), untrained: !training(this.game, m, w).ok,
       };
     }
     const def = u.def;
@@ -948,7 +1128,7 @@ export class Battle {
     const d = parseDice(dmg);
     return {
       w: ab?.thrown ? this.thrownWeapon(ab) : null, ranged, hit: def.hit || 0, critMin: 20, name: ab?.thrown ? ab.name : ranged ? 'missile' : 'blow',
-      min: Math.max(1, d.n + d.b), max: Math.max(1, d.n * d.d + d.b), roll: () => Math.max(1, roll(dmg)),
+      min: Math.max(1, d.n + d.b), max: Math.max(1, d.n * d.d + d.b), die: d.d, roll: () => Math.max(1, roll(dmg)),
     };
   }
 
@@ -959,7 +1139,10 @@ export class Battle {
   // Situational modifiers, with a note for each so the player can see why
   strikeMods(u, t, kit, ab) {
     const notes = [];
-    let hit = 0, mult = 1, auto = false;
+    let hit = 0, mult = 1, auto = false, dmg = 0, back = false;
+    const tr = kit.trait;
+    // (the hand: an untrained one is already −3 in the weapon's figure; a trait is named)
+    if (kit.untrained) notes.push(`Untrained −${untrainedPenalty(this.game)}`);
     const bl = this.power(u, 'blessed');
     if (bl) { hit += bl; notes.push(`Blessed +${bl}`); }
     if (this.has(u, 'weakened')) { hit -= 2; notes.push('Weakened −2'); }
@@ -970,24 +1153,66 @@ export class Battle {
     const mark = this.has(t, 'marked') ? this.power(t, 'marked') || 2 : 0;
     if (mark) { hit += mark; notes.push(`Marked +${mark}, +${mark} dmg`); }
     if (t.member && hasTrait(this.game, t.member, 'lucky')) { hit -= 2; notes.push('Lucky −2'); }
+    let cover = null;
+    // (tactics II) high ground: down onto a foe below, up at one above
+    const hk = this.highBonus(), uHigh = hk && this.highGround(u.x, u.y), tHigh = hk && this.highGround(t.x, t.y);
     if (!kit.ranged) {
-      if (this.friendsOf(u).some((f) => f !== u && this.adjacent(f, t) && !this.helpless(f))) { hit += 2; notes.push('Flanking +2'); }
+      if (tHigh && !uHigh) { hit -= hk; notes.push(`Uphill −${hk}`); }
+      if (u.member && !this.adjacent(u, t) && this.inReach(u, t)) notes.push('Reach (spear)');
+      const flank = this.friendsOf(u).some((f) => f !== u && this.adjacent(f, t) && !this.helpless(f));
+      if (flank) { hit += 2; notes.push('Flanking +2'); }
       const hidden = this.has(u, 'hidden');
-      if (hidden || this.behind(u, t)) {
+      const rear = hidden || this.behind(u, t);
+      if (rear) {
         const stab = !!u.member && hasAbility(this.game, u.member, 'backstab');
         hit += hidden ? 4 : 2;
         mult *= stab ? 2 : 1.5;
         notes.push(hidden ? 'Unseen +4' : 'From behind +2', stab ? 'Backstab ×2 dmg' : 'Rear ×1.5 dmg');
       }
+      if (rear) back = true;
+      if (tr?.trait === 'quick' && (flank || rear)) { hit += tr.power ?? 2; notes.push(`Quick +${tr.power ?? 2}`); }
+      if (tr?.trait === 'hew' && this.acOf(t) >= (tr.minAc ?? 14)) { dmg += tr.power ?? 2; notes.push(`Hew +${tr.power ?? 2} dmg`); }
+      if (tr?.trait === 'stagger') notes.push(`Stagger ${Math.round((tr.chance ?? 0.3) * 100)}%`);
+      if (tr?.trait === 'sweep' && this.foesOf(u).some((f) => f !== t && this.adjacent(f, u))) notes.push('Sweep on a kill');
     } else {
-      if (!ab?.ignoreCover && !steady && this.inCover(t, u)) { hit -= 3; notes.push('Cover −3'); }
-      if (this.foesOf(u).some((f) => this.adjacent(f, u) && !this.helpless(f))) { hit -= 4; notes.push('Engaged −4'); }
+      if (uHigh && !tHigh) { hit += hk; notes.push(`High ground +${hk}`); }
+      if (!ab?.ignoreCover && !steady && this.inCover(t, u)) {
+        if (tr?.trait === 'pierce') notes.push('Pierce: cover ignored');
+        else { hit -= 3; cover = 'Cover −3'; }
+      }
+      if (this.foesOf(u).some((f) => this.adjacent(f, u) && !this.helpless(f))) {
+        if (tr?.trait === 'snap') notes.push('Snap shot: not engaged');
+        else { hit -= 4; notes.push('Engaged −4'); }
+      }
     }
+    // (cover is what the player most needs to see first)
+    if (cover) notes.unshift(cover);
     if (this.helpless(t)) { auto = true; notes.push('Helpless: sure hit'); }
     // a finishing blow on a badly wounded foe
     if (ab?.execute && this.hpOf(t) <= this.maxHpOf(t) * ab.execute) { auto = true; mult *= 2; notes.push('Wounded: sure hit, ×2 dmg'); }
-    return { hit, mult, auto, crit: !!ab?.autoCrit, notes, mark };
+    // (tactics II) a shield may turn the blow aside: not one from behind, nor a sure one
+    const block = auto || ab?.autoCrit ? 0 : this.blockChance(t, u, back);
+    if (block) notes.push(`Shield blocks ${Math.round(block * 100)}%`);
+    else if (back && this.blockChance(t, u, false)) notes.push('From behind: no block');
+    return { hit, mult, auto, crit: !!ab?.autoCrit, notes, mark, dmg, cover: !!cover, block, back };
   }
+
+  // (tactics II) The chance t's shield turns aside a blow from u that would
+  // land: a hero's shield (rules.js shieldBlock), a monster's own `block`.
+  // A shield guards the front and flanks: none against a blow from behind
+  // (back: struck from the rear square, or by one unseen; a missile from the
+  // half behind its facing), nor while it sleeps or reels stunned.
+  blockChance(t, u, back = false) {
+    if (!t || this.helpless(t)) return 0;
+    const p = t.member ? shieldBlock(this.game, t.member) : Math.max(0, Math.min(0.75, +t.def?.block || 0));
+    if (!p || back) return 0;
+    const f = t.face || [0, 1];
+    if (u && cheb(u, t) > 1 && (u.x - t.x) * f[0] + (u.y - t.y) * f[1] < 0) return 0;
+    return p;
+  }
+
+  // the name of what t blocks with ("Kite Shield"; a monster's "shield")
+  shieldName(t) { return (t.member && itemOf(this.game, t.member.equip?.shield)?.name) || t.def?.shieldName || 'shield'; }
 
   hitChance(bonus, ac, critMin, auto) {
     if (auto) return 1;
@@ -1004,8 +1229,8 @@ export class Battle {
     if (ab && !ab.attack && !ab.thrown) {
       const sm = this.statMod(u, ab.stat);
       if (ab.damage && t.side !== u.side) {
-        const d = parseDice(ab.damage);
-        let lo = Math.max(1, d.n + d.b + sm), hi = Math.max(1, d.n * d.d + d.b + sm);
+        const d = parseDice(ab.damage), wd = this.wardOf(u) + (u.member ? perkCount(u.member, 'spellfire') * 2 : 0);
+        let lo = Math.max(1, d.n + d.b + sm + wd), hi = Math.max(1, d.n * d.d + d.b + sm + wd);
         if (ab.undeadBonus && t.def?.undead) { lo *= ab.undeadBonus; hi *= ab.undeadBonus; }
         return { chance: 1, lo, hi, notes: ['Never misses'], sure: true };
       }
@@ -1016,15 +1241,18 @@ export class Battle {
     const kit = this.strikeKit(u, t, ab);
     if (!kit) return null;
     const md = this.strikeMods(u, t, kit, ab);
-    const chance = md.crit ? 1 : this.hitChance(kit.hit + md.hit, this.acOf(t), kit.critMin, md.auto);
+    const chance = (md.crit ? 1 : this.hitChance(kit.hit + md.hit, this.acOf(t, kit.ranged ? 'ranged' : 'melee'), kit.critMin, md.auto)) * (1 - (md.block || 0));
     const weak = this.has(u, 'weakened') ? 2 : 0;
     const k = md.mult * (ab?.mult ?? 1);
-    let lo = Math.max(1, Math.round((kit.min - weak) * k)), hi = Math.max(1, Math.round((kit.max - weak) * k));
+    let lo = Math.max(1, Math.round((kit.min - weak) * k)) + md.dmg, hi = Math.max(1, Math.round((kit.max - weak) * k)) + md.dmg;
+    // (what the target's armour soaks off each blow)
+    const soak = t.member ? armorSoak(this.game, t.member) : 0;
+    if (soak) { lo = Math.max(1, lo - soak); hi = Math.max(1, hi - soak); }
     if (ab?.bonus) { const d = parseDice(ab.bonus); lo += d.n + d.b; hi += d.n * d.d + d.b; }
     if (ab?.undeadBonus && t.def?.undead) { lo *= ab.undeadBonus; hi *= ab.undeadBonus; }
     lo += md.mark; hi += md.mark;
     if (md.crit) { lo *= 2; hi *= 2; md.notes.push('Certain critical'); }
-    return { chance, lo, hi, crit: md.crit ? 1 : Math.max(0, (21 - kit.critMin) / 20), notes: md.notes, ranged: kit.ranged, weapon: kit.name };
+    return { chance, lo, hi, crit: md.crit ? 1 : Math.max(0, (21 - kit.critMin) / 20), notes: md.notes, ranged: kit.ranged, weapon: kit.name, cover: md.cover, untrained: !!kit.untrained, trait: kit.trait || null, block: md.block || 0 };
   }
 
   async shoot(from, to, kit, ab) {
@@ -1053,7 +1281,7 @@ export class Battle {
     const md = this.strikeMods(u, t, kit, ab);
     const d20 = rng.int(1, 20);
     const crit = md.crit || d20 >= kit.critMin;
-    const hit = md.auto || crit || (d20 !== 1 && d20 + kit.hit + md.hit >= this.acOf(t));
+    const hit = md.auto || crit || (d20 !== 1 && d20 + kit.hit + md.hit >= this.acOf(t, kit.ranged ? 'ranged' : 'melee'));
     if (this.has(u, 'hidden')) this.removeStatus(u, 'hidden');
     if (this.has(u, 'sanctuary')) this.removeStatus(u, 'sanctuary');
     if (this.has(u, 'focused')) this.removeStatus(u, 'focused');
@@ -1064,23 +1292,57 @@ export class Battle {
       await this.riposte(u, t, kit);
       return { hit: false };
     }
-    let dmg = kit.roll() - (this.has(u, 'weakened') ? 2 : 0);
-    dmg = Math.max(1, Math.round(dmg * md.mult * (ab?.mult ?? 1))) + md.mark;
+    // (tactics II) the blow would land, but a shield may turn it aside (the
+    // bearer's own roll, as a d20 is: rng.float, not the attacker's chances)
+    if (md.block > 0 && rng.float() < md.block) {
+      this.fx.block?.(t, u);
+      sfx('block');
+      const what = kit.ranged ? (kit.w?.thrown ? 'throw' : 'shot') : 'blow';
+      const whose = u.member ? `${u.name}'s` : `${this.the(u)}'s`;
+      this.log(t.member ? `${t.name} blocks ${whose} ${what} with the ${this.shieldName(t)}!` : `${this.The(t)} turns ${whose} ${what} aside on its ${this.shieldName(t)}.`, t.side === 'party' ? 'good' : '');
+      this.emit('block', { u, t, p: md.block });
+      await this.riposte(u, t, kit);
+      return { hit: false, blocked: true, crit };
+    }
+    // A monster's critical on a hero is the most its weapon can do and one
+    // die more, not double: still a terrible blow, but no longer one that
+    // fells a hero from full health on a lucky roll
+    const gentle = crit && !u.member && !!t.member;
+    let dmg = (gentle ? kit.max + (kit.die ? rng.int(1, kit.die) : 0) : kit.roll()) - (this.has(u, 'weakened') ? 2 : 0);
+    dmg = Math.max(1, Math.round(dmg * md.mult * (ab?.mult ?? 1))) + md.mark + md.dmg;
     if (ab?.bonus) dmg += roll(ab.bonus);
     if (ab?.undeadBonus && t.def?.undead) dmg *= ab.undeadBonus;
     if (u.member) {
       if (hasAbility(this.game, u.member, 'cleave') && this.hpOf(t) < this.maxHpOf(t) / 2) dmg += 2;
       if (kit.w?.id === 'runeblade' && (t.def?.undead || t.def?.boss)) dmg += 4;
     }
-    if (crit) dmg *= 2;
+    if (crit && !gentle) dmg *= 2;
+    // mail and plate soak up part of every blow that lands on a hero
+    const soak = t.member ? armorSoak(this.game, t.member) : 0;
+    const soaked = soak ? Math.max(0, Math.min(soak, dmg - 1)) : 0;
+    dmg -= soaked;
     sfx(crit ? 'crit' : u.side === 'party' ? 'hit' : 'hurt');
     const how = crit ? (u.side === 'party' ? 'critically hits' : 'lands a terrible blow on') : 'hits';
-    this.log(`${this.The(u)} ${how} ${this.the(t)} for ${dmg}${md.mult > 1 ? ' (from behind)' : ''}.`, u.side === 'party' ? (crit ? 'good' : '') : 'bad');
+    this.log(`${this.The(u)} ${how} ${this.the(t)} for ${dmg}${md.mult > 1 ? ' (from behind)' : ''}${soaked ? ` (armour soaks ${soaked})` : ''}.`, u.side === 'party' ? (crit ? 'good' : '') : 'bad');
     await this.damage(t, dmg, { crit, by: u, from: u });
     if (this.alive(t) && u.side === 'enemy' && t.side === 'party' && u.def.poison && rng.chance(u.def.poison)) this.addStatus(t, 'poisoned', 3, 2, u);
     if (ab?.lifesteal && this.alive(u)) this.heal(u, Math.max(1, Math.round(dmg * ab.lifesteal)));
+    // (weapon traits) a mace's blow may leave the foe reeling; a great blade
+    // that fells a foe swings on into another beside its wielder
+    const tr = kit.trait;
+    if (tr?.trait === 'stagger' && !kit.ranged && this.alive(t) && rng.chance(tr.chance ?? 0.3)) {
+      if (this.addStatus(t, 'staggered', 1, 0, u)) this.log(`${this.The(t)} reels from the blow — it cannot move on its next turn.`, t.side === 'party' ? 'bad' : 'good');
+    }
+    if (tr?.trait === 'sweep' && !kit.ranged && !this.alive(t) && !opts.sweep && this.alive(u)) {
+      const next = this.foesOf(u).filter((f) => this.adjacent(f, u)).sort((a, b) => this.hpOf(a) - this.hpOf(b))[0];
+      if (next) {
+        this.log(`${u.name}'s swing carries on into ${this.the(next)}!`, 'good');
+        this.fx.number(u.x, u.y, 'Sweep!', 'info', '#ffe0c0');
+        await this.strike(u, next, { ab: SWEEP, sweep: true });
+      }
+    }
     await this.riposte(u, t, kit);
-    return { hit: true, dmg, crit };
+    return { hit: true, dmg, crit, soaked };
   }
 
   // Shield Wall: a guardian standing beside the one struck at takes the blow
@@ -1105,6 +1367,8 @@ export class Battle {
 
   async damage(t, dmg, opts = {}) {
     if (!this.alive(t)) return;
+    // (isles) hard hides and stone shrug off part of every blow
+    if (t.def?.hardened && dmg > 1 && !opts.dot) dmg = Math.max(1, dmg - t.def.hardened);
     if (t.sleep > 0 && dmg > 0) t.sleep = 0;
     // whoever harms a foe leaves the sanctuary's light
     const by = opts.by || (opts.from?.side ? opts.from : null);
@@ -1115,6 +1379,15 @@ export class Battle {
       this.removeStatus(t, 'deathward');
       this.log(`The light of dawn holds ${this.the(t)} up — still standing!`, t.side === 'party' ? 'good' : 'bad');
       this.fx.callout(t.x, t.y, 'Saved!', 0xffd870);
+    }
+    // The last stand (settings.lastStand): a hero above half health survives
+    // any single blow on 1 health, once a battle. No one falls from fine fettle
+    // to the ground in one stroke; the next blow, though, is real.
+    if (t.member && !opts.dot && this.game.settings?.lastStand !== false && !t.lastStood && dmg >= this.hpOf(t) && this.hpOf(t) > this.maxHpOf(t) / 2) {
+      dmg = this.hpOf(t) - 1;
+      t.lastStood = true;
+      this.log(`${t.name} reels — but stands! (Last stand: 1 health left, once a battle. The next blow is real.)`, 'warn');
+      this.fx.callout(t.x, t.y, 'Last stand!', 0xffb050);
     }
     if (t.member) {
       t.member.hp -= dmg;
@@ -1515,7 +1788,7 @@ export class Battle {
     const cd = u.cd[ab.id] || 0;
     if (cd > 0) return { ok: false, why: `${ab.name} is recovering: ready in ${cd} turn${cd > 1 ? 's' : ''}.`, short: `Ready in ${cd}`, cd };
     if (ab.needs === 'ranged' && u.member && !rangedOf(this.game, u.member)) return { ok: false, why: `${ab.name} needs a bow, crossbow or sling.`, short: 'Needs a bow' };
-    if ((ab.move === 'charge' || ab.addMoves) && this.has(u, 'rooted')) return { ok: false, why: 'Pinned in place.', short: 'Pinned' };
+    if ((ab.move === 'charge' || ab.addMoves) && this.held(u)) return { ok: false, why: this.has(u, 'rooted') ? 'Pinned in place.' : 'Reeling: no moving this turn.', short: this.has(u, 'rooted') ? 'Pinned' : 'Reeling' };
     if (ab.summon) {
       if (!this.summonBase(ab)) return { ok: false, why: `Nothing answers the call: there is no “${ab.summon}” in this realm.`, short: 'Nothing answers' };
       if (this.pets.some((p) => p.owner === u && this.alive(p) && p.def.id === ab.summon)) return { ok: false, why: `${u.name}'s ${this.summonBase(ab).name} is still in the fight.`, short: 'Still here' };
@@ -1579,10 +1852,13 @@ export class Battle {
     } else if (ab.move === 'charge') {
       const path = this.chargePath(u, target, ab.range || 5) || [];
       for (const [x, y] of path) {
+        const from = { x: u.x, y: u.y };
         u.face = [x - u.x, y - u.y];
         u.x = x; u.y = y;
         await this.view.moveEntity(u.id, x, y, 0.07, 0.22);
         await this.stepOn(u);
+        if (!this.alive(u)) return true;
+        await this.braced(u, from);
         if (!this.alive(u)) return true;
       }
       if (path.length) this.emit('moved', u);
@@ -1619,7 +1895,7 @@ export class Battle {
     if ((ab.attack || ab.thrown) && !opts.sure) {
       landed = (await this.strike(u, t, { ab })).hit;
     } else if (ab.damage && !friend && (!ab.undeadOnly || t.def?.undead)) {
-      let dmg = roll(ab.damage) + this.statMod(u, ab.stat) - (this.has(u, 'weakened') ? 2 : 0) + (u.member ? perkCount(u.member, 'spellfire') * 2 : 0);
+      let dmg = roll(ab.damage) + this.statMod(u, ab.stat) - (this.has(u, 'weakened') ? 2 : 0) + (u.member ? perkCount(u.member, 'spellfire') * 2 : 0) + this.wardOf(u);
       if (ab.undeadBonus && t.def?.undead) dmg *= ab.undeadBonus;
       dmg = Math.max(1, dmg);
       sfx(ab.vfx === 'fire' ? 'fire' : 'spell');
@@ -1728,7 +2004,7 @@ export class Battle {
       this.log(`${u.name} calls down ${ab.name}… it lands on the marked squares when ${u.name} next acts.`, 'magic');
       this.fx.ring(c.x, c.y, ab.fx ?? 0xffb030, 0.3, (ab.radius ?? 0) + 0.9, 0.5);
     } else {
-      const verb = ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high';
+      const verb = ab.windupVerb || (ab.vfx === 'fire' ? 'draws a deep, smouldering breath' : ab.vfx === 'shadow' ? 'gathers darkness about itself' : 'raises its weapon high'); // (isles: or its own words)
       this.log(u.side === 'party' ? `${this.The(u)} ${verb}!` : `${this.The(u)} ${verb}… get clear of the marked squares!`, u.side === 'party' ? 'good' : 'bad');
     }
     this.emit('update');
@@ -1763,7 +2039,7 @@ export class Battle {
       this.log('…but it strikes only empty ground.', 'good');
     }
     for (const t of hit) {
-      const dmg = Math.max(1, roll(ab.damage || '2d6') + this.statMod(u, ab.stat));
+      const dmg = Math.max(1, roll(ab.damage || '2d6') + this.statMod(u, ab.stat) + this.wardOf(u));
       this.log(`${ab.name} hits ${this.the(t)} for ${dmg}!`, 'bad');
       await this.damage(t, dmg, { by: u, from: center.x === t.x && center.y === t.y ? u : center, crit: dmg >= 12, color: fxHex(col) });
       if (!this.alive(t)) continue;
@@ -1908,7 +2184,7 @@ export class Battle {
       for (const f of targets) kind === 'holy' ? this.fx.beam(f.x, f.y, color) : this.fx.shock(f.x, f.y, color);
       await this.view.wait(0.3);
     }
-    const fire = caster.member && spell.effect === 'damage' ? perkCount(caster.member, 'spellfire') * 2 : 0;
+    const fire = !caster.member ? 0 : (spell.effect === 'damage' ? perkCount(caster.member, 'spellfire') * 2 : 0) + (spell.effect === 'damage' || spell.effect === 'drain' ? this.wardOf(caster) : 0);
     const power = () => roll(spell.power || '1d6') + bonus + fire;
     for (const t of targets) {
       switch (spell.effect) {
@@ -2226,6 +2502,7 @@ export class Battle {
     for (const [x, y] of path) {
       if (!this.alive(m)) return;
       if (!(await this.provoke(m, x, y))) return;
+      const from = { x: m.x, y: m.y };
       m.face = [x - m.x, y - m.y];
       // (delve) a foe moving out in the dark, where no hero sees it, is not waited on
       const unseen = this.field && m.side === 'enemy' && !this.field.visible?.(m.x, m.y) && !this.field.visible?.(x, y);
@@ -2233,7 +2510,9 @@ export class Battle {
       await this.view.moveEntity(m.id, x, y, unseen ? 0.02 : speed);
       // a sprung trap stops it where it stands
       await this.stepOn(m);
-      if (!this.alive(m) || this.helpless(m) || this.has(m, 'rooted')) return;
+      // (a spear set against it strikes as it steps into reach)
+      await this.braced(m, from);
+      if (!this.alive(m) || this.helpless(m) || this.held(m)) return;
     }
   }
 
@@ -2256,7 +2535,8 @@ export class Battle {
           if (this.behind(c, target)) s += 8;
         }
       } else s = -(field.get(`${c.x},${c.y}`) ?? 99) * 5 - c.d * 0.2;
-      if (c.d > 0 && this.provokers(m, c.x, c.y).length) s -= 15;
+      // (breaking away is a gamble: the likelier the free strike, the less it likes the square)
+      if (c.d > 0) for (const f of this.provokers(m, c.x, c.y)) s -= 4 + 24 * this.breakChance(f, m);
       if (this.inDanger(c.x, c.y, m.side)) s -= 30;
       if (s > bs) { bs = s; best = c; }
     }
@@ -2268,7 +2548,11 @@ export class Battle {
     if (steps <= 0) return;
     const reach = this.reachable(m, steps);
     const foes = this.foesOf(m).filter((p) => !this.has(p, 'hidden'));
-    const range = ai === 'archer' ? this.weaponRange(m) : 5;
+    // (a caster hangs back only as far as its spells carry: a wraith whose
+    // Drain Life reaches 4 would otherwise hover at 5, out of reach of all it has)
+    const spellReach = Math.max(0, ...(m.def.spells || []).map((id) => byId(this.game.spells, id))
+      .filter((sp) => sp && sp.combat !== false && (sp.target === 'enemy' || sp.target === 'area')).map((sp) => sp.range || 6));
+    const range = ai === 'archer' ? this.weaponRange(m) : Math.max(this.weaponRange(m), Math.min(5, spellReach || 5));
     let best = null, bs = -Infinity;
     for (const c of reach.values()) {
       if (c.ally) continue;
@@ -2278,7 +2562,11 @@ export class Battle {
       if (target && cheb(target, c) <= range && this.lineClear(c, target)) s += 10 - (this.inCover(target, c) ? 4 : 0);
       if (near <= 1) s -= 40; else if (near === 2) s -= 8; else s += Math.min(near, 5) * 2;
       s -= c.d * 0.3;
-      if (c.d > 0 && this.provokers(m, c.x, c.y).length) s -= 12;
+      if (c.d > 0) for (const f of this.provokers(m, c.x, c.y)) s -= 3 + 20 * this.breakChance(f, m);
+      // (a shooter likes a square in cover from the heroes' own shooters)
+      if (this.shooters(m.side).some((f) => this.inCover(c, f))) s += 4;
+      // (tactics II) ...and an archer likes high ground, to shoot down from
+      if (ai === 'archer' && this.highBonus() && this.highGround(c.x, c.y)) s += 7;
       if (this.inDanger(c.x, c.y, m.side)) s -= 40;
       if (s > bs) { bs = s; best = c; }
     }

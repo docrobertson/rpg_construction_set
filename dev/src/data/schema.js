@@ -1,5 +1,5 @@
 // Game module structure: creation, (de)serialisation and migration.
-import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC } from './defaults.js';
+import { MAGIC_GEAR, MAGIC_SYSTEMS, RACES, CLASSES, ITEMS, SPELLS, MONSTERS, GEAR_MAGIC, ABILITIES, WEAPON_KIND_DEFS, SHOP_THEMES } from './defaults.js';
 import { deepClone, rleEncode, rleDecode, uid } from '../core/util.js';
 import { createMap } from '../world/map.js';
 import { generateWorld } from '../world/generate.js';
@@ -29,6 +29,20 @@ export function defaultSettings() {
     dayNight: true,
     combatMoves: 3,
     loot: true,
+    // (tactics) weapon training, heroic health, the last stand, breaking away
+    untrainedWeapons: 'penalty', // or 'forbid': only the kinds a class is trained in
+    untrainedPenalty: 3,
+    heroicHealth: 4,
+    dodgeEvery: 3, // heroes in cloth or leather gain +1 armour every this-many levels (0: never)
+    lastStand: true,
+    breakAway: 0.5, // a foe's chance to land a free strike on one who breaks away, before levels and reflexes (1: always)
+    // (tactics II) seasoned foes, high ground
+    veterans: 3, // a wandering kind this many levels below the company comes as veterans (0: never; rules.js veteranRise)
+    highGround: 1, // to hit with shots from high ground at a foe below, and off blows struck up at it (0: none, and no raised squares in battle)
+    // (market) what merchants pay for what they buy back, as a share of its price,
+    // and every shop price in the realm scaled at once
+    sellRate: 0.35,
+    priceScale: 1,
   };
 }
 
@@ -54,9 +68,15 @@ export function newGame(opts = {}) {
     items: deepClone(ITEMS),
     spells: deepClone(SPELLS),
     monsters: deepClone(MONSTERS),
+    // (tactics) the kinds of weapon and their traits
+    weaponKinds: deepClone(WEAPON_KIND_DEFS),
+    // (market) the lines of trade a shop may follow
+    shopThemes: deepClone(SHOP_THEMES),
     quests: [],
     // the designer's outline: chapters that group quests (see game/story.js)
     story: { chapters: [] },
+    // (company) whodunits: clues, suspects and a judge (see game/company.js)
+    mysteries: [],
     maps: [],
   };
   let world;
@@ -79,6 +99,8 @@ export function newGame(opts = {}) {
   game.maps.push(world);
   game.settings.charmsV = CHARMS_V; // (born with charms: nothing to migrate)
   game.settings.poolsV = 1;
+  game.settings.tacticsV = TACTICS_V; // (born with weapon training: nothing to migrate)
+  game.settings.marketV = MARKET_V; // (born with the new prices: nothing to migrate)
   game.settings.start = findStart(world);
   return game;
 }
@@ -163,6 +185,7 @@ export function migrateGame(game) {
   ensure('monsters', MONSTERS);
   migrateCharms(game);
   migratePools(game);
+  migrateIsles(game);
   if (!game.magic.some((m) => m.id === 'innate')) game.magic.push(deepClone(MAGIC_SYSTEMS.find((m) => m.id === 'innate')));
   migrateMagic(game);
   // classes from before class specials existed get their default one
@@ -174,8 +197,146 @@ export function migrateGame(game) {
   if (!game.story || typeof game.story !== 'object') game.story = { chapters: [] };
   if (!Array.isArray(game.story.chapters)) game.story.chapters = [];
   if (!game.maps.length) game.maps.push(createMap({ type: 'world', name: 'The World' }));
+  migrateCompany(game);
+  migrateTactics(game);
+  migrateMarket(game);
   if (!game.settings.start || !game.maps.some((m) => m.id === game.settings.start.map)) game.settings.start = findStart(game.maps[0]);
   return game;
+}
+
+// Weapon training and the tactics pass came later (TACTICS_V 1). Older games
+// gain the weapon kinds and their traits (World Data → Weapon kinds), the
+// built-in callings their heavy-weapon training, and the built-in mail and
+// plate, heavy weapons and first foes their new figures — each only while it
+// is still as it came: a designer's own pieces and changes are left alone.
+// (The new rules themselves — heroic health, the last stand, breaking away
+// as a gamble — are Rules settings, on with their defaults.)
+//
+// (tactics II, TACTICS_V 2) Shields came to block: the built-in shields
+// still at their old armour take their new figures (less armour, a chance to
+// turn a blow aside); a designer's own are left alone. And a class from
+// before training (TACTICS_V 0) that is not a built-in calling as it came
+// keeps every weapon it could wield then: heavy weapons too, if it listed a
+// kind a heavy weapon of the game belongs to (an old "axes" class keeps its
+// battle axe), or listed none.
+export const TACTICS_V = 2;
+const OLD_FIGURES = {
+  chain_mail: { ac: 4 }, scale_mail: { ac: 5 }, plate_armor: { ac: 7 }, truesilver_mail: { ac: 7 }, dragonscale: { ac: 6 },
+  goblin: { hit: 4, dmg: '1d6+2' }, wolf: { hit: 4, dmg: '1d6+2' },
+};
+// the built-in shields as they were before they blocked, and as they are
+// now (the two of the sample realm too: its pieces are not in ITEMS)
+export const OLD_SHIELDS = {
+  buckler: { was: { ac: 1 }, now: { ac: 0, block: 0.1 } }, kite_shield: { was: { ac: 2 }, now: { ac: 0, block: 0.2 } },
+  serpent_shield: { was: { ac: 3 }, now: { ac: 1, block: 0.2 } }, gilded_buckler: { was: { ac: 3 }, now: { ac: 0, block: 0.25 } },
+};
+// Could a class wield a heavy weapon before heavy training existed? Any
+// weapon of a kind it listed (or any, with no list): so if the game holds a
+// heavy weapon of a kind it lists, or it lists a heavy kind
+export function oldHeavyTraining(game, k) {
+  const list = k?.weapons || [];
+  if (!list.length) return true;
+  const kinds = Array.isArray(game.weaponKinds) && game.weaponKinds.length ? game.weaponKinds : WEAPON_KIND_DEFS;
+  if (kinds.some((x) => x.heavy && list.includes(x.id))) return true;
+  return (game.items || []).some((it) => it.type === 'weapon' && (it.range || 1) <= 1 && list.includes(it.wkind)
+    && (it.heavy ?? (!!kinds.find((x) => x.id === it.wkind)?.heavy || !!it.twoHanded)));
+}
+export function migrateTactics(game) {
+  if (!Array.isArray(game.weaponKinds) || !game.weaponKinds.length) game.weaponKinds = deepClone(WEAPON_KIND_DEFS);
+  const v = game.settings.tacticsV || 0;
+  if (v >= TACTICS_V) return;
+  game.settings.tacticsV = TACTICS_V;
+  const same = (o, was) => Object.entries(was).every(([key, val]) => o[key] === val);
+  if (v < 1) {
+    for (const k of game.classes || []) {
+      if (k.heavyWeapons !== undefined) continue;
+      // (a built-in calling still as it came takes its own; any other keeps what it could wield)
+      const d = CLASSES.find((x) => x.id === k.id);
+      const asCame = d && JSON.stringify([...(k.weapons || [])].sort()) === JSON.stringify([...(d.weapons || [])].sort());
+      k.heavyWeapons = asCame ? d.heavyWeapons : oldHeavyTraining(game, k);
+    }
+    for (const it of game.items || []) {
+      const d = ITEMS.find((x) => x.id === it.id);
+      if (!d) continue;
+      if (OLD_FIGURES[it.id] && same(it, OLD_FIGURES[it.id])) it.ac = d.ac;
+      if (d.heavy && it.heavy === undefined) it.heavy = true;
+    }
+    for (const m of game.monsters || []) {
+      const d = MONSTERS.find((x) => x.id === m.id);
+      if (d && OLD_FIGURES[m.id] && same(m, OLD_FIGURES[m.id])) { m.hit = d.hit; m.dmg = d.dmg; }
+    }
+  }
+  if (v < 2) {
+    if (game.settings.veterans === undefined) game.settings.veterans = 3;
+    if (game.settings.highGround === undefined) game.settings.highGround = 1;
+    // (the built-in beasts' seasoned names: "Dire Wolf", not "Wolf Veteran")
+    for (const m of game.monsters || []) {
+      const d = MONSTERS.find((x) => x.id === m.id);
+      if (d?.vetName && m.vetName === undefined && m.name === d.name) { m.vetName = d.vetName; if (d.vetPlural) m.vetPlural = d.vetPlural; }
+    }
+    for (const it of game.items || []) {
+      const o = OLD_SHIELDS[it.id];
+      if (o && it.type === 'shield' && it.block === undefined && same(it, o.was)) Object.assign(it, o.now);
+    }
+  }
+}
+
+// (market) Shop themes and a real economy came later (MARKET_V 1). Older games
+// gain the built-in themes (World Data → Shop themes) and merchants who buy
+// back at the new sell rate (a Rules setting, on with its default); the
+// built-in items take their new prices only while still at the price they
+// came with (a designer's own prices are left alone). A shop keeps the stock
+// it was given: shops with a list of their own sell just what they did.
+export const MARKET_V = 1;
+const OLD_PRICES = {
+  dagger: 4, short_sword: 18, long_sword: 40, great_sword: 90, hand_axe: 12, battle_axe: 70, mace: 20, warhammer: 45, quarterstaff: 6, spear: 15, sling: 5,
+  short_bow: 30, long_bow: 75, crossbow: 80, elven_bow: 300, ember_bow: 360, shadow_fang: 280, runeblade: 450, dwarf_axe: 380, hookblade: 120, staff_of_power: 420,
+  robe: 8, leather_armor: 25, studded_leather: 60, chain_mail: 120, scale_mail: 200, plate_armor: 450, truesilver_mail: 900, elven_cloak: 240, lizardhide: 150,
+  dragonscale: 520, buckler: 15, kite_shield: 55, healing_draught: 25, greater_draught: 70, antidote: 15, mana_tonic: 45, votive_candle: 45, larks_honey: 45,
+  phoenix_feather: 300, torch: 3, scroll_seeing: 60, iron_key: 30, scroll_acid_arrow: 90, scroll_phantasm: 110, scroll_vampiric: 160, scroll_ice_storm: 240,
+  lucky_acorn: 25, tin_whistle: 18, giants_hobnail: 40, glowworm_jar: 35, rabbit_foot: 45, worry_stone: 22, hazel_twig: 65, copper_bangle: 30, shepherds_bell: 50,
+  honeycake_tin: 40, hearth_stone: 55, gull_feather: 30, selkie_shell: 150, goatfoot_amulet: 240, merchants_brooch: 150, nettle_ring: 140, leech_stone: 220,
+  owl_feather: 200, wolf_tooth: 160, shieldmaiden_brooch: 170, frostfang_pendant: 240, viper_amulet: 260, wanderers_pin: 230, bone_dice: 190, wildwood_whistle: 280,
+  salamander_scale: 320, oath_ring_aldred: 210, oath_ring_edric: 210, thieves_penny: 110, ember_ring: 200, thunder_egg: 180, menders_pendant: 170, barrow_bell: 230,
+  deep_runering: 300, leaf_brooch: 260, old_toby_pipe: 120, kings_coin: 220, golden_string: 300, hawk_eye: 260, shieldwall_torc: 280, forgespark_amulet: 260,
+  coral_charm: 140, quicksilver_hourglass: 300, ring_of_opening: 380, trollblood_ring: 480, warding_mirror: 360, phoenix_ember: 420, stormcaller_orb: 520,
+  horn_of_brannoc: 650, sunstone: 340, moonstone: 340, fox_ring: 330, star_ring: 420, dawn_medallion: 380, shadowsilk_mask: 340, jade_idol: 420,
+  heart_of_the_mountain: 1400, seers_eye: 900, phial_of_morning: 760, dragons_eye: 1600,
+};
+export function migrateMarket(game) {
+  if (!Array.isArray(game.shopThemes)) game.shopThemes = deepClone(SHOP_THEMES);
+  if ((game.settings.marketV || 0) >= MARKET_V) return;
+  game.settings.marketV = MARKET_V;
+  for (const it of game.items || []) {
+    const d = ITEMS.find((x) => x.id === it.id);
+    if (d && OLD_PRICES[it.id] != null && it.price === OLD_PRICES[it.id]) it.price = d.price;
+  }
+}
+
+// (company) Starting heroes, companions' words and mysteries came later.
+// startHeroes is left unset in older games: party creation then makes four
+// and lets the player take more or fewer, as it always did.
+export function migrateCompany(game) {
+  const st = game.settings;
+  if (st.startHeroes != null && st.startHeroes !== '') {
+    const n = parseInt(st.startHeroes, 10);
+    if (n > 0) st.startHeroes = Math.min(8, n); else delete st.startHeroes;
+  }
+  if (!Array.isArray(game.mysteries)) game.mysteries = [];
+  game.mysteries = game.mysteries.filter((my) => my && typeof my === 'object');
+  for (const my of game.mysteries) {
+    if (!my.id) my.id = uid('mystery');
+    if (!Array.isArray(my.suspects)) my.suspects = [];
+    if (!Array.isArray(my.clues)) my.clues = [];
+    if (!my.right || typeof my.right !== 'object') my.right = {};
+    if (!my.wrong || typeof my.wrong !== 'object') my.wrong = {};
+  }
+  for (const m of game.maps) for (const e of m.entities || []) {
+    const r = e.type === 'npc' && e.recruit;
+    if (!r) continue;
+    if (r.banter != null && !Array.isArray(r.banter)) delete r.banter;
+    if (r.leaves != null && (typeof r.leaves !== 'object' || Array.isArray(r.leaves))) delete r.leaves;
+  }
 }
 
 // Charms came later (a fifth equipment slot and the trinkets worn in it).
@@ -192,6 +353,24 @@ export function migrateCharms(game) {
     const it = game.items.find((x) => x.id === id);
     if (it && it.effects === undefined && it.ability === undefined) Object.assign(it, deepClone(magic));
   }
+}
+
+// The isles came later (ISLES_V 1): their folk and beasts, the powers they
+// fight with and the gear found there join older games once, so a designer
+// can build a tropical land in them. Their habitats are the isles' own, so
+// nothing new walks the old lands.
+export const ISLES_V = 1;
+const ISLE_MONSTERS = ['giant_frog', 'jungle_cat', 'lizardfolk', 'lizard_shaman', 'reef_shark', 'mist_wraith', 'stone_guardian', 'sea_hag', 'naga'];
+const ISLE_ABILITIES = ['tongue_lash', 'venom_spit', 'shark_lunge', 'thrash', 'wail', 'constrict', 'hag_curse'];
+const ISLE_ITEMS = ['coral_charm', 'jade_idol', 'hookblade', 'lizardhide'];
+export function migrateIsles(game) {
+  if ((game.settings.islesV || 0) >= ISLES_V) return;
+  game.settings.islesV = ISLES_V;
+  const add = (list, defs, ids) => { for (const id of ids) { const d = defs.find((x) => x.id === id); if (d && !list.some((x) => x.id === id)) list.push(deepClone(d)); } };
+  add(game.monsters, MONSTERS, ISLE_MONSTERS);
+  add(game.items, ITEMS, ISLE_ITEMS);
+  // (games from before battle abilities get the whole set when they load: see rules.js)
+  if (Array.isArray(game.abilities)) add(game.abilities, ABILITIES, ISLE_ABILITIES);
 }
 
 // Restoring draughts once refilled any pool, so a cleric drank Mana Tonic for

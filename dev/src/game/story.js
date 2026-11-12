@@ -23,6 +23,7 @@
 import { getTile, inBounds } from '../world/map.js';
 import { terrain } from '../data/terrain.js';
 import { uniqueId } from '../core/util.js';
+import { shopStock } from './shops.js'; // (market) what a shop sells
 // (quests.js imports this module too: only functions cross, so the cycle is safe)
 import { ensureQuestState, startAutoQuests, checkQuests, onTalk, startQuest, canOffer, activeQuests, currentStage, isDone as questDone, questOf } from './quests.js';
 
@@ -210,7 +211,7 @@ export function storyFacts(game) {
       if (e.type === 'npc') {
         npcs.set(e.id, { npc: e, map });
         if (e.recruit) joiners.add(e.id);
-        for (const id of e.shop?.stock || []) addItem(id, { kind: 'shop', map, npc: e });
+        for (const id of e.shop ? shopStock(game, e.shop) : []) addItem(id, { kind: 'shop', map, npc: e }); // (market) a theme's wares too
         for (const k of e.keywords || []) {
           if (k.action?.type === 'give_item') addItem(k.action.value, { kind: 'gift', map, npc: e });
           if (k.action?.type === 'join') joiners.add(e.id);
@@ -387,7 +388,7 @@ export function walkStory(game, opt = {}) {
         let got = null;
         if (e.type === 'chest' || e.type === 'treasure') got = e.items || [];
         else if (e.type === 'event') got = (e.choices || []).flatMap((c) => [...(c.effects?.items || []), ...(c.win?.items || [])]);
-        else if (e.type === 'npc') got = [...(e.shop?.stock || []).map((id) => ({ id })), ...(e.keywords || []).filter((k) => k.action?.type === 'give_item').map((k) => ({ id: k.action.value }))];
+        else if (e.type === 'npc') got = [...(e.shop ? shopStock(game, e.shop) : []).map((id) => ({ id })), ...(e.keywords || []).filter((k) => k.action?.type === 'give_item').map((k) => ({ id: k.action.value }))];
         if (!got) continue;
         taken.add(e.id);
         for (const it of got) if (it?.id) inv[it.id] = (inv[it.id] || 0) + (it.n || 1);
@@ -395,6 +396,21 @@ export function walkStory(game, opt = {}) {
         for (const k of e.keywords || []) if (k.action?.type === 'set_flag' && k.action.value) state.party.flags[k.action.value] = true;
         moved = true;
       }
+      // (adventure) levers, plates, braziers, riddles and runes set their flags (and groups theirs) where the company can go
+      for (const e of map.entities || []) {
+        if (!['lever', 'plate', 'brazier', 'riddle', 'rune'].includes(e.type)) continue;
+        const f = e.type === 'rune' ? e.group : e.flag || e.id;
+        for (const x of [f, e.type === 'brazier' && e.order ? e.group : null, e.reward?.flag]) if (x && !state.party.flags[x]) { state.party.flags[x] = true; moved = true; }
+      }
+    }
+    // (adventure) a mystery is solved once enough of its clues are found (and the judge will listen)
+    for (const my of game.mysteries || []) {
+      const flags = state.party.flags;
+      if (!my.right?.flag || flags[my.right.flag]) continue;
+      const found = (my.clues || []).filter((c) => flags[c.flag]).length;
+      const want = Math.min((my.clues || []).length, parseInt(my.need, 10) >= 0 ? parseInt(my.need, 10) : 2);
+      const listens = !my.requires || String(my.requires).split(',').every((t) => (t.trim()[0] === '!' ? !flags[t.trim().slice(1)] : !!flags[t.trim()]));
+      if (found >= want && listens) { flags[my.right.flag] = true; moved = true; }
     }
     // accept every quest on offer from someone the company can reach
     for (const q of game.quests || []) {

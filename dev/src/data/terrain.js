@@ -14,6 +14,10 @@
 //   light  - emits light (dungeon visibility)
 //   talkOver - NPCs can be talked to across it (shop counters)
 //   deck   - planks over water (bridges, piers): walked on, never sailed
+//   habitat - the wild things met there, where it is not the arena's own
+//             (the isles keep fauna of their own: see game/session.js habitatOf)
+//   high   - high ground in battle: +1 to shots from it, −1 to blows from below
+//   lift   - drawn as a raised square whose top stands this far above the ground
 
 const defs = [
   // id, key, name, group, props
@@ -101,6 +105,34 @@ const defs = [
   [88, 'pit_water', 'Dark Pool', 'dungeon', { walk: false, water: true, h: -0.18, top: 0x1d3550, arena: 'cave' }],
   [89, 'crystal', 'Crystals', 'dungeon', { walk: false, h: 0, top: 0x5f564d, side: 0x403a34, deco: 'crystal', light: 2 }],
   [90, 'void', 'Void', 'dungeon', { walk: false, sight: true, h: -1.5, top: 0x050505, side: 0x050505 }],
+
+  // The isles: a tropical, ancient land (ids from 120; decor in render/isleDecor.js)
+  [120, 'jungle', 'Jungle', 'world', { h: 0.02, top: 0x255a22, side: 0x4a3a22, deco: 'jungle', sight: true, cost: 2, arena: 'jungle', habitat: 'jungle' }],
+  [121, 'palms', 'Palm Grove', 'world', { h: -0.02, top: 0xd6c186, side: 0xb59a62, deco: 'palms', cost: 1.5, arena: 'beach', habitat: 'beach' }],
+  // (the ground dips under the water: wading among the roots, never sailed)
+  [122, 'mangrove', 'Mangrove', 'world', { h: -0.08, top: 0x6a6a3c, side: 0x3f3a25, deco: 'mangrove', sight: true, cost: 2.5, arena: 'jungle', habitat: 'jungle' }],
+  [123, 'reef', 'Coral Reef', 'world', { walk: false, ship: true, water: true, h: -0.2, top: 0x3ec4c4, deco: 'reef', arena: 'water', habitat: 'reef' }],
+  [124, 'ruins_floor', 'Ancient Paving', 'any', { h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'ruinsfloor', arena: 'temple', habitat: 'temple' }],
+  [125, 'temple_wall', 'Temple Wall', 'any', { walk: false, sight: true, wall: true, h: 0.8, top: 0x6a7258, side: 0x9e967c, deco: 'templewall' }],
+  [126, 'vines', 'Overgrowth', 'world', { h: 0, top: 0x2f6224, side: 0x5a4127, deco: 'vines', cost: 1.5, arena: 'jungle', habitat: 'jungle' }],
+  [127, 'obsidian', 'Obsidian Flats', 'world', { h: 0.02, top: 0x2e2a34, side: 0x1a1820, deco: 'obsidian', cost: 1.25, arena: 'ash', habitat: 'ash' }],
+  [128, 'temple', 'Jungle Temple', 'world', { h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'templesite', feature: true, arena: 'temple' }],
+  [129, 'idol', 'Stone Idol', 'any', { walk: false, h: 0.01, top: 0x9c9682, side: 0x6e6858, deco: 'idol' }],
+  [130, 'pool', 'Sacred Pool', 'any', { walk: false, water: true, h: -0.18, top: 0x2a6a6a, deco: 'lilypool', arena: 'temple' }],
+  // single trees for gardens, villages and battlefields on the isles
+  [131, 'jungle_tree', 'Jungle Tree', 'town', { walk: false, sight: true, h: 0, top: 0x4c8a2e, side: 0x5a4127, deco: 'jungletree' }],
+  [132, 'palm_tree', 'Palm Tree', 'town', { walk: false, h: 0, top: 0xd6c186, side: 0xb59a62, deco: 'palmtree' }],
+  // stepping stones across a shallow stream: wet feet, slow going, but no
+  // bridge needed (and, like a bridge, no ship gets past)
+  [133, 'ford', 'Ford', 'world', { h: -0.2, water: true, deck: true, walk: true, cost: 2, top: 0x3c8fc0, deco: 'ford', arena: 'bridge' }],
+  // (tactics II) high ground: walkable raised squares that give a fighter
+  // standing on them the upper hand (game/combat.js highGround): a grassy
+  // knoll, a shelf of rock, the steps of a ruined dais. Battlefields of
+  // fitting styles get a few (world/generate.js generateArena)
+  // (lift: how far its top stands above the ground round it)
+  [134, 'knoll', 'Knoll', 'any', { h: 0.02, top: 0x98bc58, side: 0x8a7046, deco: 'knoll', cost: 1.5, arena: 'grass', high: 1, lift: 0.44 }],
+  [135, 'rise', 'Rocky Rise', 'any', { h: 0.02, top: 0x9a9282, side: 0x6a6256, deco: 'rise', cost: 1.5, arena: 'hills', high: 1, lift: 0.48 }],
+  [136, 'dais', 'Raised Dais', 'any', { h: 0.02, top: 0xb0a890, side: 0x7e7866, deco: 'dais', cost: 1.25, arena: 'ruins', high: 1, lift: 0.4 }],
 ];
 
 export const TERRAIN = [];
@@ -129,6 +161,9 @@ for (const [id, key, name, group, p] of defs) {
     locked: !!p.locked,
     talkOver: !!p.talkOver,
     deck: !!p.deck,
+    habitat: p.habitat || null,
+    high: p.high || 0,
+    lift: p.lift || 0,
   };
   TERRAIN[id] = t;
   T[key] = id;
@@ -161,4 +196,5 @@ export const FEATURE_KINDS = {
   dwarfgate: { terrain: 'dwarfgate', mapType: 'town', label: 'Dwarf Hold' },
   harbour: { terrain: 'harbour', mapType: 'town', label: 'Harbour' },
   seacave: { terrain: 'seacave', mapType: 'dungeon', label: 'Sea Cave' },
+  temple: { terrain: 'temple', mapType: 'dungeon', label: 'Jungle Temple' },
 };

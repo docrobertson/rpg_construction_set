@@ -64,6 +64,21 @@ const fol = await ev(() => {
 });
 check('every companion has a figure of their own', fol.leader && fol.ids.length === fol.alive - 1 && fol.alive > 1, fol);
 
+// --- one style: figures are painted like the land, with no ink line; the
+// hidden shell shows only as the hover glow, in its colour, and hides again
+const ink = await ev(() => {
+  const v = window.__app.view;
+  const shells = (id) => { const out = []; v.entities.get(id).model.traverse((o) => { if (o.isMesh && o.userData.outline) out.push(o); }); return out; };
+  const shown = () => [...v.entities.keys()].flatMap(shells).filter((o) => o.visible).length;
+  const all = [...v.entities.keys()].flatMap(shells).length;
+  const before = shown();
+  v.hoverGlow.set('party', 0xffd860);
+  const lit = shells('party').filter((o) => o.visible && o.material === v.hoverGlow.inkMat).length;
+  v.hoverGlow.set(null);
+  return { all, before, lit, after: shown() };
+});
+check('no figure carries an ink line; the hover glow shows the outline in its own colour and takes it away again', ink.all > 0 && ink.before === 0 && ink.lit > 0 && ink.after === 0, ink);
+
 const near = (r) => r.dists.every((d) => d < 2.2) && r.minGap >= 0.3 && r.onGround;
 const groupState = () => ev(() => {
   const s = window.__app.session, v = window.__app.view;

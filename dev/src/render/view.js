@@ -28,6 +28,11 @@ const LIGHTING = {
   night: { bg: 0x16203a, sky: 0x34497a, hemiSky: 0x6c8ad8, hemiGround: 0x1c1a2a, hemi: 1.05, sun: 1.05, sunColor: 0xa8bcff, light: 1.0, party: 0.9, vellum: 0.5, fogNear: 1.3, fogFar: 3.6 },
   dark: { bg: 0x0a080c, sky: 0x18202a, hemiSky: 0x8c9cc4, hemiGround: 0x3a2c1e, hemi: 1.05, sun: 0.75, sunColor: 0xb8c4e4, light: 1.15, party: 1.0, vellum: 0.4, fogNear: 1.45, fogFar: 4.2 },
 };
+// (isles) a map's mood tints its light: a temple's dark is green and close,
+// its haze the colour of wet stone, its torchlight warmer
+const MOODS = {
+  temple: { dark: { bg: 0x0a120e, sky: 0x1a3a30, hemiSky: 0x8cc4a8, hemiGround: 0x2a3a1e, hemi: 1.12, sun: 0.7, sunColor: 0xb8e0c4, light: 1.2, fogNear: 1.3, fogFar: 3.8 } },
+};
 const WORLD_FIGURE = 0.78;
 // (how much larger each point of interest is drawn there; the other things
 // treasure is found in are drawn larger too, like a chest)
@@ -151,7 +156,7 @@ export class View {
   setLighting(name) {
     const L = LIGHTING[name] || LIGHTING.day;
     this.lighting = name;
-    this._applyLight({ ...L });
+    this._applyLight({ ...L, ...(MOODS[this.map?.mood]?.[name] || {}) });
   }
 
   // Blend the outdoor light through the day: 0 = full day, 0.5 = dusk, 1 = night
@@ -171,11 +176,13 @@ export class View {
   // ---- map ----
   setMap(map) {
     this.map = map;
+    this.setCutKeep(null);
     this.clearEntities();
     this.clearFx();
     // buildings claim their walls before the terrain is built round them
     this.buildings.prepare(map);
     this.terrain.extraLights = []; // the last map's glows (build() adds this map's)
+    this.terrain.puzzleLights = []; // (puzzles) and its braziers' (the session adds this map's)
     this.terrain.setMap(map);
     this.buildings.build();
     this._buildingsDirty = false;
@@ -281,6 +288,7 @@ export class View {
     if (t.key === 'lava') return LAVA_Y;
     const g = this.terrain.groundAt(x, y);
     if (t.wall) return g + t.h;
+    if (t.lift) return g + t.lift; // (tactics II) the top of high ground
     if (t.deco === 'stairsup') return g + 0.1;
     return g;
   }
@@ -292,6 +300,7 @@ export class View {
       const t = terrain(getTile(this.map, tx, ty));
       if (t.water) return t.deck ? 0.05 : WATER_Y;
       if (t.wall) return this.terrain.groundAt(tx, ty) + t.h;
+      if (t.lift) return this.terrain.groundAt(tx, ty) + t.lift;
     }
     return Math.max(this.terrain.heightAtPoint(px, pz), WATER_Y);
   }
@@ -866,6 +875,38 @@ export class View {
     if (this._followers) this._followers.update(dt);
     if (this._markers) this._markers.update();
     if (this._hoverGlow) this._hoverGlow.update();
+  }
+
+  // (tactics II) Squares whose scenery the see-through windows only ghost
+  // (at most k), never clear: in battle, the tree or rock that gives the foe
+  // being aimed at its cover, so the player sees what shields it. [{ x, y }] or null
+  setCutKeep(tiles, k = 0.3) {
+    const q = shared.uKeep.value;
+    const list = (tiles || []).slice(0, q.length);
+    // (a canopy spreads a little past its square)
+    list.forEach((t, i) => q[i].set(t.x - 0.2, t.y - 0.2, t.x + 1.2, t.y + 1.2));
+    shared.uKeepN.value = list.length;
+    shared.uKeepK.value = k;
+    this.cutKeep = list;
+  }
+
+  // How much of the scenery at a world point the see-through windows clear
+  // just now, as the shader reckons it: 0 none, 1 all of it (0.5 a ghost)
+  cutAt(x, y, z) {
+    const cuts = shared.uCut.value, ys = shared.uCutY.value, ks = shared.uCutK.value, n = shared.uCutN.value;
+    const pr = this.renderer.getPixelRatio(), H = this._h || 1;
+    const p = this.worldToScreen(x, y, z), fx = p.x * pr, fy = (H - p.y) * pr;
+    const ss = (e0, e1, v) => { const t = Math.max(0, Math.min(1, (v - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+    const q = shared.uKeep.value, keep = [...Array(shared.uKeepN.value).keys()].some((j) => x >= q[j].x && x <= q[j].z && z >= q[j].y && z <= q[j].w);
+    let most = 0;
+    for (let i = 0; i < n; i++) {
+      const c = cuts[i], d = Math.hypot(fx - c.x, fy - c.y);
+      if (d > c.z || z < c.w) continue;
+      let k = ss(c.z, c.z * 0.9, d) * ss(0, 0.1, y - ys[i]) * ss(0, 0.12, z - c.w) * ks[i];
+      if (keep) k = Math.min(k, shared.uKeepK.value);
+      most = Math.max(most, k);
+    }
+    return most;
   }
 
   // ---- cutaway & carried light ----

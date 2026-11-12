@@ -9,7 +9,7 @@ export function renderSettings(ed, left, main) {
   left.appendChild(h('div.panel-title', 'Rules'));
   left.appendChild(h('p.hint', 'The rules of the realm: the company, food and time, which kinds of magic exist, and what heroes set out with.'));
   const jump = (id) => main.querySelector('#' + id)?.scrollIntoView({ behavior: 'smooth' });
-  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
+  for (const [id, label] of [['set-rules', '⚖ Rules'], ['set-battle', '⚔ Battle'], ['set-trade', '◆ Trade'], ['set-magic', '🔮 Magic systems'], ['set-start', '🎒 Starting out']]) {
     left.appendChild(h('button.entry', { onclick: () => jump(id) }, label));
   }
   const changed = () => ed.markDirty();
@@ -19,6 +19,11 @@ export function renderSettings(ed, left, main) {
 
   main.appendChild(section('set-rules', '⚖ Rules', buildForm(game, [
     { key: 'settings.maxParty', label: 'Largest party', type: 'number', min: 1, max: 8 },
+    // (company) a lone hero, or a set number, and an easier road for a small company
+    { key: 'settings.startHeroes', label: 'Heroes who set out', type: 'number', min: 1, max: 8, nullable: true, placeholder: '4 — the player chooses',
+      hint: '1: the player creates a lone hero, and companions join along the road. A number: exactly that many. Blank: four, and the player may take more or fewer.' },
+    { key: 'settings.gentleStart', label: 'Gentle first fights', type: 'number', min: 0, max: 20, nullable: true, placeholder: '3',
+      hint: 'While the company is under four strong, its first this-many wandering bands come sized for it, without escorts. 0: never.' },
     { key: 'settings.creationPoints', label: 'Attribute points at creation', type: 'number', min: 0, max: 60 },
     { key: 'settings.startLevel', label: 'Heroes start at level', type: 'number', min: 1, max: 20 },
     { key: 'settings.startGold', label: 'Starting gold', type: 'number', min: 0 },
@@ -30,6 +35,30 @@ export function renderSettings(ed, left, main) {
     { key: 'settings.dayNight', label: 'Day and night', type: 'check', hint: 'Outdoors the sun sets every 300 turns: at night you see less and more monsters roam.' },
     { key: 'settings.loot', label: 'Monsters drop weapons and armour', type: 'check', hint: 'Sometimes, scaled to the foes defeated. Mark special items as never dropped.' },
     { key: 'settings.pitch', label: 'Camera angle', type: 'number', min: 35, max: 80, hint: 'Degrees above the horizon (52 gives a 3D diorama view; higher looks more straight down)' },
+  ], changed)));
+
+  // (tactics) the rules of a fight: weapon training, how hard heroes are to kill, breaking away
+  main.appendChild(section('set-battle', '⚔ Battle', h('p.hint', 'How fights go. Weapon kinds and their traits are under World Data → Weapon kinds; which kinds a class is trained in, under Classes.'), buildForm(game, [
+    { key: 'settings.untrainedWeapons', label: 'A weapon a hero is not trained in', type: 'select', rerender: true, options: [['penalty', 'May be wielded, at a penalty'], ['forbid', 'Cannot be wielded at all']] },
+    { key: 'settings.untrainedPenalty', label: 'Untrained: to hit', type: 'number', min: 0, max: 10, show: (o) => o.settings.untrainedWeapons !== 'forbid', hint: 'Taken off the hero\'s to-hit; the kind\'s trait does not work either. Heavy weapons need heavy-weapon training too.' },
+    { key: 'settings.heroicHealth', label: 'Heroic health', type: 'number', min: 0, max: 30, hint: 'Extra health every hero has, from level 1: it matters most early, when one goblin\'s blow could take half a wizard.' },
+    { key: 'settings.lastStand', label: 'Last stand', type: 'check', hint: 'A hero above half health survives any single blow on 1 health, once per battle: no one falls from full health in one stroke.' },
+    { key: 'settings.breakAway', label: 'Breaking away: chance of a free strike', type: 'number', step: 0.05, min: 0, max: 1, hint: 'When anyone steps out of a foe\'s reach. 0.5: half the time, more against a higher-level or quicker foe, less the other way (15–90%). 1: always, as of old. Withdraw always steps back safely.' },
+    { key: 'settings.dodgeEvery', label: 'Light armour dodges: +1 armour every … levels', type: 'number', min: 0, max: 10, hint: 'For heroes in cloth or leather (mail and plate soak blows instead). 3: at levels 3, 6 and 9. 0: never.' },
+    // (tactics II)
+    { key: 'settings.highGround', label: 'High ground: to hit, shooting down', type: 'number', min: 0, max: 4, nullable: true, placeholder: '1',
+      hint: 'Battlefields of grass, wood, hill, swamp, sand, snow, ash, cave, ruin and temple hold a knoll, a rocky rise or a dais or two. A fighter on one shoots at this much more to hit a foe below, and a foe below strikes up at it at this much less. Paint Knoll, Rocky Rise or Raised Dais for a dungeon\'s own fights. 0: none.' },
+    { key: 'settings.veterans', label: 'Seasoned foes: a wandering kind … levels below the company comes as veterans', type: 'number', min: 0, max: 10, nullable: true, placeholder: '3',
+      hint: 'So the open country still bites when the company has outgrown it. 3: a band three or more levels below rises to two levels below the company (+1 to hit and damage a level, more health, and more experience), named so: "Orc Veteran". 0: never. A monster can be kept as it is (World Data → Monsters).' },
+  ], changed)));
+
+  // (market) what merchants pay, and every price in the realm at once
+  main.appendChild(section('set-trade', '◆ Trade', h('p.hint', 'Prices are the items\' own (World Data → Items), times a shop\'s markup or its theme\'s. What each shop sells follows its theme (World Data → ',
+    h('button.small.link', { onclick: () => ed.goTo({ tab: 'data', cat: 'shopThemes' }) }, 'Shop themes'), ') unless its wares are picked by hand on the person.'), buildForm(game, [
+    { key: 'settings.sellRate', label: 'Merchants pay', type: 'number', step: 0.05, min: 0, max: 1, placeholder: '0.35',
+      hint: 'A share of an item\'s price, for what the company sells: 0.35 (the default) and a found great sword buys a long sword, not the shop; 0.5 is generous.' },
+    { key: 'settings.priceScale', label: 'Price scale', type: 'number', step: 0.05, min: 0.1, max: 5, placeholder: '1',
+      hint: 'Every shop price in the realm at once: 1.25 for a hard, poor land, 0.8 for a kind one. (What merchants pay follows the items\' own prices.)' },
   ], changed)));
 
   const magic = h('div.magic-toggles');

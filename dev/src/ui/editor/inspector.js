@@ -4,7 +4,8 @@ import { buildForm } from './forms.js';
 import { ACTIONS, CONDITIONS } from '../../game/dialog.js';
 import { TERRAIN_LIST } from '../../data/terrain.js';
 import { MAP_TYPES } from '../../world/map.js';
-import { defaultStock } from '../../world/generate.js';
+import { ROLE_SHOP_KINDS, followsTheme, shopStock, themeOf, themeById, themesFor, pickTheme, themesInUse, buyBase } from '../../game/shops.js';
+import { SHOP_KIND_NAMES } from '../../data/defaults.js';
 import { inspectEvent, npcQuestSection } from './quests.js';
 import { DEFAULT_LEASH } from '../../game/travel.js';
 import { clueFor, newMapItem, landmarksNear } from '../../game/treasure.js';
@@ -13,8 +14,12 @@ import { isHoard } from '../../game/charms.js';
 import { CONTAINERS, chestLook, containerLookFor } from '../../data/containers.js';
 import { containerLookFields } from './containerFields.js';
 import { battleArts } from '../../game/rules.js';
+import { recruitables } from '../../game/company.js';
+import { flagDatalist } from './flagList.js';
+import { isPuzzle } from '../../game/puzzles.js';
+import { inspectPuzzle } from './puzzles.js'; // (puzzles)
 
-const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton']];
+const RACES = [['human', 'Human'], ['elf', 'Elf'], ['dwarf', 'Dwarf'], ['hobbit', 'Halfling'], ['orc', 'Orc'], ['goblin', 'Goblin'], ['troll', 'Troll'], ['skeleton', 'Skeleton'], ['lizard', 'Lizardfolk'], ['hag', 'Hag']]; // (isles: lizardfolk and hags)
 const HATS = [['none', 'None'], ['wizard', 'Wizard hat'], ['helm', 'Helm'], ['hornhelm', 'Horned helm'], ['hood', 'Hood'], ['crown', 'Crown'], ['circlet', 'Circlet'], ['cap', 'Feathered cap'], ['mitre', 'Mitre']];
 const WEAPONS = [['none', 'None'], ['sword', 'Sword'], ['greatsword', 'Great sword'], ['axe', 'Axe'], ['hammer', 'Hammer'], ['mace', 'Mace'], ['club', 'Club'], ['staff', 'Staff'], ['spear', 'Spear'], ['dagger', 'Dagger'], ['bow', 'Bow'], ['crossbow', 'Crossbow'], ['sling', 'Sling']];
 const ARMORS = [['', 'None'], ['leather', 'Leather'], ['chain', 'Chain'], ['plate', 'Plate']];
@@ -78,6 +83,8 @@ function keywordFields(game) {
     { key: 'action.value', label: 'Fights as', type: 'select', options: monsters, show: (r) => act(r) === 'fight' },
     { key: 'action.value', label: 'Flag name', type: 'text', show: (r) => ['set_flag', 'clear_flag'].includes(act(r)) },
     { key: 'action.value', label: 'Quest', type: 'select', options: () => (game.quests || []).map((q) => [q.id, q.name]), show: (r) => ['start_quest', 'advance_quest', 'complete_quest'].includes(act(r)) },
+    // (company) who leaves: this person, or a companion named here
+    { key: 'action.value', label: 'Who leaves', type: 'select', options: () => recruitables(game), empty: '— this person —', show: (r) => act(r) === 'leave_party', hint: 'They leave by their own leaving rule (its words, a fight, where they go), if they have one.' },
     { key: 'action.n', label: 'Amount', type: 'number', min: 1, show: (r) => ['give_item', 'take_item', 'give_gold', 'take_gold', 'give_xp'].includes(act(r)) },
     { key: 'action.map', label: 'To map', type: 'select', options: maps, show: (r) => act(r) === 'teleport' },
     { key: 'action.x', label: 'X', type: 'number', show: (r) => act(r) === 'teleport' },
@@ -87,7 +94,88 @@ function keywordFields(game) {
   ];
 }
 
-export function npcFields(game) {
+// (company) a companion's words on the road, and when (and how) they leave
+export function companionFields(game, mapId = null) {
+  const maps = () => game.maps.map((m) => [m.id, m.name]);
+  const monsters = () => game.monsters.map((m) => [m.id, `${m.name} (lvl ${m.level})`]);
+  const lv = (o) => o.recruit?.leaves;
+  const how = (o) => (lv(o)?.hostile ? 'hostile' : lv(o)?.goTo ? 'goTo' : 'gone');
+  return [
+    { type: 'section', label: 'On the road' },
+    { type: 'info', label: 'Lines they say in the log (with their portrait) while in the company: when the company enters a place, or when a story flag is set. At most one line every little while, so they never chatter.' },
+    { key: 'recruit.banter', label: 'Banter', type: 'list', wide: true, addLabel: '+ Add a line', newRow: () => ({ text: '', once: true }),
+      rowLabel: (r) => (r.text ? `“${String(r.text).slice(0, 34)}${String(r.text).length > 34 ? '…' : ''}”` : '(a new line)'),
+      fields: [
+        { key: 'text', label: 'Says', type: 'textarea', rows: 2, placeholder: 'Smell that? Salt. We are near the sea at last.' },
+        { key: 'map', label: 'On entering', type: 'select', options: maps, empty: '— anywhere —', nullable: true },
+        { key: 'need', label: 'When', type: 'text', list: 'cs-flags', placeholder: 'flag  ·  a,b both  ·  a|b either  ·  !a not', hint: 'Story flags that must be set (blank: any time). Said when they come true.' },
+        { key: 'once', label: 'Only once', type: 'check' },
+      ] },
+    { key: 'recruit.leaves', label: 'May leave the company', type: 'check', get: (o) => !!lv(o),
+      put: (o, v) => { if (v) o.recruit.leaves = { need: '', text: '' }; else delete o.recruit.leaves; },
+      hint: 'Going home, or a betrayal. Their own kit goes with them; what the company gave them comes back to the pack. Sets the flag left_<their id>.' },
+    { key: 'recruit.leaves.need', label: 'Leaves when', type: 'text', list: 'cs-flags', placeholder: 'e.g. found_letter', show: (o) => !!lv(o), hint: 'Story flags, as above. Or let a conversation (“A companion leaves”) or an event decide.' },
+    { key: 'recruit.leaves.text', label: 'Says as they go', type: 'textarea', rows: 2, show: (o) => !!lv(o) },
+    { key: 'recruit.leaves.how', label: 'Then', type: 'select', show: (o) => !!lv(o), rerender: true, get: how,
+      options: [['gone', 'They are gone'], ['goTo', 'They go somewhere, to be found and talked to'], ['hostile', 'They turn on the company: a fight']],
+      put: (o, v) => {
+        const l = o.recruit.leaves;
+        delete l.hostile; delete l.goTo;
+        if (v === 'hostile') l.hostile = { monster: game.monsters.find((m) => /bandit|cultist|knight/.test(m.id))?.id || game.monsters[0]?.id, count: '1' };
+        if (v === 'goTo') l.goTo = { map: mapId || game.maps[0]?.id, x: o.x, y: o.y };
+      } },
+    { key: 'recruit.leaves.hostile.monster', label: 'Fights as', type: 'select', options: monsters, show: (o) => how(o) === 'hostile', hint: 'They lead the fight under their own name and face; the monster gives their strength and escort.' },
+    { key: 'recruit.leaves.hostile.count', label: 'How many', type: 'text', placeholder: '1', show: (o) => how(o) === 'hostile', hint: 'Of that monster, counting them; its escort comes too. Beating them sets defeated_<their id>.' },
+    { key: 'recruit.leaves.goTo.map', label: 'Goes to', type: 'select', options: maps, show: (o) => how(o) === 'goTo' },
+    { key: 'recruit.leaves.goTo.x', label: 'X', type: 'number', show: (o) => how(o) === 'goTo' },
+    { key: 'recruit.leaves.goTo.y', label: 'Y', type: 'number', show: (o) => how(o) === 'goTo', hint: 'They keep their words there; give them some that wait on the flag left_<their id>.' },
+    { key: 'recruit.leaves.goTo.greeting', label: 'Greets the company there with', type: 'textarea', rows: 2, show: (o) => how(o) === 'goTo', hint: 'Blank: their usual greeting.' },
+    // (adventure) one who went somewhere may be won back
+    { key: 'recruit.leaves.rejoin', label: 'Will join again when', type: 'text', list: 'cs-flags', placeholder: 'blank: never  ·  yes: any time  ·  or story flags', show: (o) => how(o) === 'goTo',
+      get: (o) => (lv(o)?.rejoin === true ? 'yes' : lv(o)?.rejoin || ''), put: (o, v) => { const t = String(v || '').trim(); if (!t) delete o.recruit.leaves.rejoin; else o.recruit.leaves.rejoin = t === 'yes' ? true : t; },
+      hint: 'Asked to JOIN again once these flags are set, they come back as they were when they left (their level, their own kit). They never leave a second time.' },
+  ];
+}
+
+// (market) A keeper's shop: the theme it trades along (World Data → Shop
+// themes), what that gives, and the wares picked by hand instead; its markup
+const isShop = (o) => !!SHOP_KINDS[o.role];
+const handPicked = (o) => isShop(o) && !followsTheme(o.shop);
+const pct = (k) => (k > 1 ? `+${Math.round((k - 1) * 100)}%` : k < 1 ? `−${Math.round((1 - k) * 100)}%` : 'none');
+const waresText = (game, o) => {
+  const ids = shopStock(game, o.shop);
+  if (!ids.length) return 'Nothing for sale: choose a theme, or pick the wares by hand.';
+  const its = ids.map((id) => game.items.find((i) => i.id === id)).filter(Boolean);
+  return [`Sells ${its.length}: `, ...its.map((it) => h('span.ware', `${it.name} ◆${Math.max(1, Math.round(buyBase(game, it, o.shop)))}`))];
+};
+function tradeFields(game, ed) {
+  // (to the theme itself, in World Data)
+  const toTheme = (o) => (ed && themeOf(game, o.shop) ? h('button.small.link.to-theme', {
+    title: 'Open this shop\'s theme in World Data → Shop themes', onclick: (ev) => { ev.preventDefault(); ed.goTo({ tab: 'data', cat: 'shopThemes', id: themeOf(game, o.shop).id }); },
+  }, 'Edit the theme…') : null);
+  return [
+    { key: 'shop.theme', label: 'Trades in', type: 'select', show: isShop, rerender: true, empty: (o) => (handPicked(o) ? '— no theme: just the wares below —' : '— the first theme of its kind —'), nullable: true,
+      options: (o) => themesFor(game, o.role).map((t) => [t.id, `${t.name} — ${t.desc || SHOP_KIND_NAMES[t.kind] || t.kind}`]),
+      put: (o, v) => {
+        if (!o.shop) o.shop = { kind: SHOP_KINDS[o.role], stock: [] };
+        if (v) { o.shop.theme = v; const t = themeById(game, v); if (t) o.shop.kind = t.kind; } else delete o.shop.theme;
+        o.shop.chosen = true; // (the designer's own choice: kept when the place is built again)
+      },
+      hint: 'Its line of trade, named on the shop screen. Edit the themes, or add your own, under World Data → Shop themes.' },
+    { key: 'shop.own', label: 'Pick the wares by hand', type: 'check', show: isShop,
+      get: (o) => handPicked(o),
+      put: (o, v) => { if (!o.shop) o.shop = { kind: SHOP_KINDS[o.role], stock: [] }; o.shop.stock = v ? shopStock(game, { ...o.shop, stock: [] }) : []; },
+      hint: 'Off: it sells what its theme gives, and changes with the theme. On: just the wares ticked below (the theme still names it).' },
+    { type: 'info', label: (o) => h('span.insp-wares', waresText(game, o), ' ', toTheme(o)), show: isShop },
+    { key: 'shop.stock', label: 'Sells', type: 'multicheck', show: handPicked,
+      options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]) },
+    { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.05, min: 0.1, nullable: true, show: isShop,
+      placeholder: (o) => `${+(parseFloat(themeOf(game, o.shop)?.priceMod) || 1).toFixed(2)} — the theme's`,
+      hint: (o) => `Blank: the theme's markup (${pct(parseFloat(themeOf(game, o.shop)?.priceMod) || 1)}). 1.2 makes this shop a fifth dearer — a remote isle, a castle; 0.9 a little cheaper, for its own speciality.` },
+  ];
+}
+
+export function npcFields(game, ed = null) {
   return [
     { type: 'section', label: 'Character' },
     { key: 'name', label: 'Name', type: 'text' },
@@ -95,6 +183,8 @@ export function npcFields(game) {
     { key: 'role', label: 'Role', type: 'select', options: NPC_ROLES, rerender: true },
     { key: 'shopName', label: 'Name over the door', type: 'text', placeholder: 'The Gilded Griffin', show: (o) => !['villager', 'guard'].includes(o.role || 'villager'), hint: 'Names the building this person keeps (blank: a name is made up).' },
     { key: 'wander', label: 'Wanders up to', type: 'number', min: 0, max: 30, hint: 'tiles from home (0 = stays put)' },
+    // (adventure) someone who comes and goes with the story
+    { key: 'need', label: 'Here only while', type: 'text', list: 'cs-flags', placeholder: 'blank: always  ·  flag  ·  a,b  ·  !a', hint: 'Story flags: while they hold, this person is here; otherwise they are gone (a traitor fled once unmasked: !unmasked).' },
     { type: 'section', label: 'Conversation' },
     { key: 'greeting', label: 'Greeting', type: 'textarea', rows: 2 },
     { key: 'job', label: 'Answer to JOB', type: 'textarea', rows: 2 },
@@ -102,8 +192,7 @@ export function npcFields(game) {
     { key: 'keywords', label: 'Keywords', type: 'list', fields: keywordFields(game), rowLabel: (r) => (r.key || '(new keyword)').toUpperCase(), newRow: () => ({ key: '', text: '' }), addLabel: '+ Add keyword', wide: true },
     { key: 'rumour', label: 'Rumour', type: 'text', hint: 'Barkeeps anywhere may repeat this when asked for RUMOURS.' },
     { type: 'section', label: 'Trade', show: (o) => !!SHOP_KINDS[o.role] || o.role === 'inn' },
-    { key: 'shop.stock', label: 'Sells', type: 'multicheck', options: () => game.items.filter((i) => i.type !== 'quest').map((i) => [i.id, `${i.name} (◆${i.price})`]), show: (o) => !!SHOP_KINDS[o.role] },
-    { key: 'shop.priceMod', label: 'Price multiplier', type: 'number', step: 0.1, min: 0.1, show: (o) => !!SHOP_KINDS[o.role], hint: '1 = normal prices' },
+    ...tradeFields(game, ed),
     { key: 'price', label: 'Room price per hero', type: 'number', min: 0, show: (o) => o.role === 'inn' },
     { type: 'section', label: 'The ship for sale', show: (o) => o.role === 'shipwright' },
     { type: 'info', label: 'Players ask about the SHIP and say BUY. Once paid for, she is moored on the world map in the nearest open water beside this person\'s site (or at the square below).', show: (o) => o.role === 'shipwright' },
@@ -130,12 +219,17 @@ export function inspectEntity(ed, ent, container) {
         if (ent.role === 'shipwright' && !ent.ship) ent.ship = { name: 'Seahorse', price: 450 };
         const kind = SHOP_KINDS[ent.role];
         if (kind) {
-          if (!ent.shop || ent.shop.kind !== kind) ent.shop = { kind, stock: defaultStock(game, kind), priceMod: 1 };
+          // (market) a new shop trades along a theme fitting its keeper and place
+          if (!ent.shop || !(ROLE_SHOP_KINDS[ent.role] || [kind]).includes(ent.shop.kind)) {
+            const theme = pickTheme(game, { kind, role: ent.role, race: ent.look?.race, style: ed.map?.settlement, seed: ent.id, used: themesInUse(game) });
+            ent.shop = { kind, stock: [], ...(theme ? { theme } : {}) };
+          }
         } else ent.shop = null;
       };
       // a sage placed before sages sold scrolls has no shop yet: ticking stock opens one
-      container.appendChild(buildForm(ent, npcFields(game), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
+      container.appendChild(buildForm(ent, npcFields(game, ed), (k) => { if (k === 'role') onRole(); if (ent.shop && !ent.shop.kind) ent.shop.kind = SHOP_KINDS[ent.role]; changed(); }));
       // companion section (custom)
+      flagDatalist(game); // (company) suggestions for the flag fields
       const rec = h('div.form');
       const cb = h('input', { type: 'checkbox' });
       cb.checked = !!ent.recruit;
@@ -152,6 +246,7 @@ export function inspectEntity(ed, ent, container) {
           { key: 'recruit.joinText', label: 'Says on joining', type: 'text' },
           { key: 'recruit.after', label: 'Joins after quest', type: 'select', options: () => [['', '— any time —'], ...(game.quests || []).map((q) => [q.id, q.name])], hint: 'Only once this quest is done; they ask to join as it ends' },
           { key: 'recruit.offerText', label: 'Says when offering', type: 'text', show: (o) => !!o.recruit?.after },
+          ...companionFields(game, ed.map?.id),
         ], changed));
       };
       cb.addEventListener('change', () => {
@@ -265,7 +360,8 @@ export function inspectEntity(ed, ent, container) {
       break;
     }
     default:
-      container.appendChild(head(ent.type));
+      if (isPuzzle(ent)) inspectPuzzle(ed, ent, container, head, changed); // (puzzles)
+      else container.appendChild(head(ent.type));
   }
   container.appendChild(h('div.insp-foot', del));
 }

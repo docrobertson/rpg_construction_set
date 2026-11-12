@@ -10,12 +10,13 @@ import { findBuildings, buildingMap } from '../world/buildings.js';
 import { npcMarker } from '../game/quests.js';
 import { eventLabel, EVENT_KINDS } from '../game/events.js';
 import { bfsPath, cheapestPath } from '../game/walk.js';
-import { partyAlive, partyLevel, raceOf, classOf, itemOf } from '../game/rules.js';
+import { partyAlive, partyLevel, raceOf, classOf, itemOf, bandDef } from '../game/rules.js';
 import { sfx } from '../core/sound.js';
 import { HoverInfo, CURSORS } from './hoverInfo.js';
 import { markerGlyph } from '../render/markers.js';
 import { digOptions } from '../game/treasure.js';
 import { charmWay } from '../game/charms.js';
+import { isPuzzle, puzzleSolid, needFlags, GLYPH_NAMES } from '../game/puzzles.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -49,6 +50,12 @@ const GLYPHS = {
   sign: P('M11 10h2v12h-2z') + P('M3 3h18v8H3z'),
   star: P('M12 2.2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17.1l-6.1 3.5 1.5-6.8-5.2-4.6 6.9-.7z'),
   leave: P('M3 3h10v18H3z') + ST('M14 12h8M18.5 8.5L22 12l-3.5 3.5', 2.4),
+  // (puzzles) a lever, a gate, a brazier's flame, a rune
+  lever: P('M4 17h16v5H4z') + ST('M12 18L17 5', 2.6) + '<circle cx="17.5" cy="4.5" r="2.8"/>',
+  gate: P('M3 3h18v4H3z') + ST('M6 7v14M10 7v14M14 7v14M18 7v14', 2.2) + ST('M4 12h16', 1.6),
+  flame: P('M12 2c2 4 6 6.5 6 12a6 6 0 01-12 0c0-3 1.5-4.5 3-6 0 2 1 3.2 2 3.6C11 9 11 5 12 2z'),
+  rune: '<circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>' + ST('M12 5v14M7 9l5 3 5-3M8 16l4-4 4 4', 2),
+  rock: P('M5 19c-2-2-2.5-6-.5-9.5C7 5.5 11 4 15 5.5c3.5 1.3 5.5 5 5 8.5-.5 3.5-2.5 5.5-6 6z'),
   dig: ST('M16.5 3.5L9.5 13', 2.6) + P('M14.6 1.6l5.8 4-1.4 2-5.8-4z') + P('M8.2 10.8l4 2.8-2.6 5.6c-.7 1.5-2.6 2-4 1L4 19c-1.3-.9-1.6-2.8-.6-4.1z'),
 };
 export const glyph = (k) => `<svg class="xg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${GLYPHS[k] || GLYPHS.star}</svg>`;
@@ -108,6 +115,7 @@ export class Explorer {
     const s = this.s;
     if (!e) return null;
     if ((e.type === 'npc' || e.type === 'monster') && !s.isVisible(e.x, e.y)) return null;
+    if (e.type === 'trigger') return null; // (puzzles) never seen in play
     if (s.visible && !s.map.explored[e.y * s.map.w + e.x]) return null;
     return { kind: e.type, e, x: e.x, y: e.y };
   }
@@ -153,7 +161,7 @@ export class Explorer {
       const here = this.buildingIndexAt(s.state.pos.x, s.state.pos.y);
       if (b && here !== bi) return { kind: 'building', b, bi, x: t.x, y: t.y };
     }
-    const at = s.map.entities.filter((e) => e.x === t.x && e.y === t.y && e.type !== 'npc' && e.type !== 'monster' && e.type !== 'treasure');
+    const at = s.map.entities.filter((e) => e.x === t.x && e.y === t.y && e.type !== 'npc' && e.type !== 'monster' && e.type !== 'treasure' && e.type !== 'trigger');
     for (const e of at) { const et = this.entityTarget(e); if (et) return et; }
     return { kind: 'tile', x: t.x, y: t.y };
   }
@@ -162,7 +170,7 @@ export class Explorer {
   // squares the party may step through on the way somewhere
   // known: squares that count as seen even in the dark (a building the player
   // clicked: everyone knows a house has a way in and rooms behind its door)
-  passable(goalX, goalY, known = null) {
+  passable(goalX, goalY, known = null, avoid = null) {
     const s = this.s, map = s.map;
     const ship = !!s.state.vehicle;
     return (x, y) => {
@@ -180,6 +188,7 @@ export class Explorer {
       }
       const gate = map.entities.find((e) => e.type === 'portal' && e.x === x && e.y === y && e.requires);
       if (gate && !s.hasItem(gate.requires)) return false;
+      if (avoid && !goal && avoid.has(x + ',' + y)) return false; // (puzzles) runes are not walked by the way
       return true;
     };
   }
@@ -188,6 +197,14 @@ export class Explorer {
     const s = this.s, p = s.state.pos;
     // afloat every square is alike; ashore the quickest way keeps to roads
     if (s.state.vehicle) return bfsPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy, plan.known), 40);
+    // (puzzles) the way round a floor of runes, so a click elsewhere never
+    // treads out a wrong sequence; straight over them if there is no other
+    const runes = s.map.entities.filter((e) => e.type === 'rune');
+    if (runes.length) {
+      const avoid = new Set(runes.map((e) => e.x + ',' + e.y));
+      const path = cheapestPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy, plan.known, avoid), (x, y) => s.stepCost(x, y), 40);
+      if (path) return path;
+    }
     return cheapestPath(p.x, p.y, plan.goal, this.passable(plan.gx, plan.gy, plan.known), (x, y) => s.stepCost(x, y), 40);
   }
 
@@ -224,6 +241,15 @@ export class Explorer {
         if (tg.mem) return { goal: this.besideGoal(tg.mem, false), arrive: bump(tg.mem), track: tg.e, tone: 'attack' };
         const e = tg.e;
         return { goal: this.besideGoal(e, false), arrive: bump(e), track: e, tone: tg.kind === 'monster' ? 'attack' : 'use' };
+      }
+      // (puzzles) walk up to it and use it; a rune, a plate or an open gate is walked onto
+      case 'lever': case 'riddle': case 'brazier': case 'boulder': case 'gate': case 'plate': case 'rune': {
+        const e = tg.e;
+        if (!puzzleSolid(e)) return { goal: (x, y) => x === e.x && y === e.y, gx: e.x, gy: e.y, tone: e.type === 'gate' ? 'walk' : 'use' };
+        const p = s.state.pos;
+        const by = Math.abs(e.x - p.x) + Math.abs(e.y - p.y) === 1;
+        if (e.type === 'boulder' && by) return { here: true, arrive: () => s.puzzles.use(e), tone: 'use' };
+        return { goal: this.besideGoal(e, false), arrive: () => s.puzzles.use(e), track: e, tone: 'use' };
       }
       // (delve) a hero: send them on alone (or, the one walking, wait a turn)
       case 'hero': return { here: true, arrive: () => (tg.m === s.dv?.actor() ? s.wait() : s.dv?.select(tg.m)), tone: 'self' };
@@ -308,7 +334,7 @@ export class Explorer {
         if (steps > 0) {
           const near = foes().find((e) => e.id !== plan.track?.id && (!known.has(e.id) && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 7 || Math.abs(e.x - p.x) + Math.abs(e.y - p.y) <= 2));
           if (near) {
-            const d = byId(s.game.monsters, near.monster);
+            const d = bandDef(s.game, near);
             s.log(`You stop: ${d ? (d.boss ? d.name : d.plural || d.name) : 'something'} ahead!`, 'warn');
             break;
           }
@@ -348,7 +374,7 @@ export class Explorer {
   // ------------------------------------------------------------ describing
   monsterInfo(e) {
     const s = this.s;
-    const d = byId(s.game.monsters, e.monster);
+    const d = bandDef(s.game, e); // (tactics II) a seasoned band says so: "Orc Veterans"
     if (!d) return { title: 'Something', sub: '' };
     const lvl = d.level || 1, pl = partyLevel(s.party);
     const diff = lvl - pl;
@@ -356,7 +382,7 @@ export class Explorer {
     const m = String(e.count || '').match(/^(\d+)(?:\s*-\s*(\d+))?$/);
     const n = m ? (m[2] ? `${m[1]}–${m[2]}` : m[1]) : d.group ? `${d.group[0]}–${d.group[1]}` : '1';
     const group = n === '1' ? '' : `a band of ${n} · `;
-    return { title: (e.boss ? '★ ' : '') + (n === '1' ? d.name : d.plural || d.name), sub: `${group}level ${lvl} · ${threat}` };
+    return { title: (e.boss ? '★ ' : '') + (n === '1' ? d.name : d.plural || d.name), sub: `${group}level ${lvl}${d.vet ? ' · seasoned' : ''} · ${threat}` };
   }
 
   npcInfo(e) {
@@ -410,6 +436,13 @@ export class Explorer {
       case 'event': {
         const e = tg.e;
         return { title: eventLabel(e), sub: EVENT_KINDS[e.kind] && e.name ? EVENT_KINDS[e.kind].label : '', act: reach ? `Click to visit${far}` : noWay, tone };
+      }
+      case 'lever': case 'riddle': case 'brazier': case 'boulder': case 'gate': case 'plate': case 'rune': {
+        // (puzzles) what it is, and what a click does
+        const d = s.puzzles.describe(tg.e);
+        const p = s.state.pos, by = Math.abs(tg.e.x - p.x) + Math.abs(tg.e.y - p.y) === 1;
+        const verb = tg.kind === 'boulder' ? (by ? 'push it' : 'walk up to it') : d.verb + ' it';
+        return { title: d.title, sub: d.sub, note: d.note, act: reach ? `Click to ${verb}${far}` : noWay, tone };
       }
       case 'sign': return { title: 'A signpost', sub: tg.e.text ? `“${String(tg.e.text).slice(0, 48)}${String(tg.e.text).length > 48 ? '…' : ''}”` : '', act: reach ? `Click to read${far}` : noWay, tone };
       case 'chest': {
@@ -596,6 +629,7 @@ export class Explorer {
         if (e.type === 'monster' && s.isVisible(x, y)) { const i = this.monsterInfo(e); acts.push({ kind: 'attack', icon: 'attack', label: `Attack ${i.title}`, run: step(x, y), pri: 1 }); }
         else if (e.type === 'event') acts.push({ kind: 'use', icon: 'star', label: `Visit ${eventLabel(e)}`, run: step(x, y), pri: 1 });
         else if (e.type === 'sign') acts.push({ kind: 'use', icon: 'sign', label: 'Read the sign', run: step(x, y), pri: 3 });
+        else if (isPuzzle(e) && e.type !== 'trigger' && !ship) { const a = this.puzzleAct(e, x - p.x, y - p.y); if (a) acts.push(a); }
         else if (e.type === 'chest' && !ship) acts.push({ kind: 'use', icon: 'chest', label: s.chestWords(e).act, run: step(x, y), pri: 1 });
         else if (e.type === 'ship' && !ship) acts.push({ kind: 'enter', icon: 'ship', label: 'Board the ship', run: step(x, y), pri: 2 });
         else if (e.type === 'portal' && !ship) {
@@ -643,6 +677,22 @@ export class Explorer {
       if (a.kind === 'talk' && !t) { a.key = 'T'; t = true; } else if (a.kind !== 'talk' && !e) { a.key = 'E'; e = true; } else if (n <= 4) a.key = String(n++);
     }
     return acts.slice(0, 6);
+  }
+
+  // (puzzles) the Nearby button for a puzzle beside whoever walks
+  puzzleAct(e, dx, dy) {
+    const s = this.s;
+    const run = () => s.puzzles.use(e);
+    const side = dx > 0 ? 'east' : dx < 0 ? 'west' : dy > 0 ? 'south' : 'north';
+    switch (e.type) {
+      case 'lever': return { kind: 'use', icon: 'lever', label: e.on ? 'Push the lever back up' : 'Pull the lever', run, pri: 1 };
+      case 'brazier': return e.lit ? null : { kind: 'use', icon: 'flame', label: 'Light the brazier', run, pri: 1 };
+      case 'riddle': return { kind: 'talk', icon: 'talk', label: e.solved ? `Look at ${(e.name || 'the stone face').replace(/^(a|an) /i, 'the ')}` : 'Answer the riddle', run, pri: 0 };
+      case 'boulder': return { kind: 'use', icon: 'rock', label: `Push the boulder ${side}`, run, pri: 2 };
+      case 'gate': return e._open ? null : { kind: 'none', icon: 'gate', label: needFlags(e.need).length ? 'The gate is shut fast' : 'The way is barred', run, pri: 4 };
+      case 'rune': return s.puzzles.flags[e.group] ? null : { kind: 'use', icon: 'rune', label: `Step on the ${GLYPH_NAMES[e.glyph] || ''} rune`.replace('  ', ' '), run, pri: 2 };
+      default: return null;
+    }
   }
 
   refreshNearby() {

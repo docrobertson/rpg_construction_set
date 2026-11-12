@@ -4,7 +4,7 @@
 // the original ones, so saves made before the quest update keep their places.
 import { newGame, findStart } from './schema.js';
 import { createMap, setTile, getTile, inBounds } from '../world/map.js';
-import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, defaultStock, npcLook, uniqueTownsfolk, smugglersCave } from '../world/generate.js';
+import { STAMPS, PATHS, line4, placeFeature, generateDungeon, nameNpcs, npcLook, uniqueTownsfolk, smugglersCave } from '../world/generate.js';
 import { T, terrain } from './terrain.js';
 import { RNG } from '../core/rng.js';
 import { uid, deterministicIds } from '../core/util.js';
@@ -34,7 +34,7 @@ function buildSample() {
   };
   const S = game.settings;
   S.victory = { type: 'kill', target: 'shadow_lord' };
-  S.startGold = 120;
+  S.startGold = 130; // (market) a little more to kit out with, now that gear is dear
   S.startFood = 90;
 
   // a unique quest item and a few treasures
@@ -44,24 +44,27 @@ function buildSample() {
     { id: 'merek_letter', name: 'Letter to Fennick', type: 'quest', unique: true, price: 0, desc: 'A letter from Merek the sage, sealed with green wax and smelling faintly of ink and pipe smoke.' },
     { id: 'star_chart', name: 'Fennick\'s Star-Chart', type: 'quest', unique: true, price: 0, desc: 'A great roll of vellum crowded with stars, moons and furious annotations.' },
     { id: 'wolfhide_jerkin', name: 'Shepherd\'s Wolfhide', type: 'armor', weight: 'leather', ac: 4, price: 160, unique: true, desc: 'A jerkin of thick black wolfhide. It has turned many a fang.' },
-    { id: 'serpent_shield', magical: true, glow: 0x60d0c8, name: 'Serpent-scale Shield', type: 'shield', ac: 3, price: 220, unique: true, desc: 'Green-black scales sewn over oak. Light as driftwood, hard as stone.' },
+    { id: 'serpent_shield', magical: true, glow: 0x60d0c8, name: 'Serpent-scale Shield', type: 'shield', ac: 1, block: 0.2, price: 220, unique: true, desc: 'Green-black scales sewn over oak. Light as driftwood, hard as stone.' },
   );
   // named foes for the quests: each is a unique boss, never met at random
   const monster = (id) => game.monsters.find((m) => m.id === id);
   const named = (base, def) => { const m = { ...JSON.parse(JSON.stringify(monster(base))), ...def, boss: true, habitat: [] }; game.monsters.push(m); return m; };
-  named('wolf', { id: 'greyfang', name: 'Greyfang', plural: 'Greyfangs', level: 3, hp: '7d8+8', ac: 13, hit: 5, dmg: '1d8+2', xp: 60, gold: '0', group: [1, 1], escort: [{ id: 'wolf', min: 2, max: 2 }],
+  // (tactics pass: heroes now have heroic health, mail that soaks and a last
+  // stand, and wolves strike softer, so the bosses strike a point harder to
+  // stay a real fight at their own level: see tests/balance.mjs)
+  named('wolf', { id: 'greyfang', name: 'Greyfang', plural: 'Greyfangs', level: 3, hp: '7d8+8', ac: 13, hit: 6, dmg: '1d8+3', xp: 60, gold: '0', group: [1, 1], escort: [{ id: 'wolf', min: 2, max: 2 }],
     phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'wolf', min: 2, max: 2 }], phaseText: 'Greyfang throws back his head and howls — and from the trees, more wolves answer!',
     look: { kind: 'quadruped', color: 0x2e2a2c, eyes: 0xffd040, scale: 1.45 }, desc: 'A wolf as big as a pony, black as soot, with eyes like lamps.' });
-  named('orc_captain', { id: 'grishak', name: 'Grishak the Burner', plural: 'Grishaks', level: 4, hp: '12d8+16', hit: 8, dmg: '1d10+5', xp: 110, gold: '8d10', escort: [{ id: 'orc', min: 2, max: 3 }, { id: 'orc_archer', min: 1, max: 1 }],
+  named('orc_captain', { id: 'grishak', name: 'Grishak the Burner', plural: 'Grishaks', level: 4, hp: '13d8+18', hit: 8, dmg: '1d12+5', xp: 110, gold: '8d10', escort: [{ id: 'orc', min: 2, max: 3 }, { id: 'orc_archer', min: 1, max: 1 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'orc', min: 2, max: 2 }], phaseText: 'Grishak bellows for his warband, and orcs come running with torches!',
     look: { kind: 'humanoid', race: 'orc', body: 0x6a1a10, armor: 'chain', hat: 'hornhelm', hatColor: 0x2a2a2a, weapon: 'axe', weaponGlow: 0xff7020, cape: 0x8a2a10, scale: 1.2 }, desc: 'An orc chieftain who laughs as he burns.' });
-  named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '15d8+20', ac: 15, hit: 8, dmg: '1d10+5', xp: 160, gold: '6d10', castChance: 0.3, ai: 'boss', abilities: ['brutal_smash'], escort: [{ id: 'skeleton', min: 2, max: 2 }],
+  named('barrow_wight', { id: 'hollow_king', name: 'Ulfgar the Hollow King', plural: 'Hollow Kings', level: 5, hp: '15d8+20', ac: 15, hit: 9, dmg: '1d10+5', xp: 160, gold: '6d10', castChance: 0.3, ai: 'boss', abilities: ['brutal_smash'], escort: [{ id: 'skeleton', min: 2, max: 2 }],
     speed: 2, phaseAt: 0.5, phaseEnrage: true, phaseAdds: [{ id: 'skeleton', min: 2, max: 2 }], phaseText: '"Rise, my thanes!" Ulfgar\'s cry shakes the barrow, and the dead claw their way up through the floor!',
     look: { kind: 'wraith', color: 0x2a3436, eyes: 0x70ffb0, hat: 'crown', crownColor: 0xe8b830, weapon: 'sword', weaponGlow: 0x70ffb0, scale: 1.55 }, desc: 'A king of the old days, crowned still, who will not stay dead.' });
   named('sea_serpent', { id: 'west_serpent', name: 'Old Gulper', plural: 'Old Gulpers', level: 6, hp: '18d8+20', hit: 9, xp: 220, gold: '10d10', group: [1, 1], abilities: ['tidal_surge', 'tail_sweep'],
     speed: 2, phaseAt: 0.4, phaseEnrage: true, phaseText: 'Old Gulper thrashes in fury, and the whole sea seems to heave!',
     look: { kind: 'serpent', color: 0x1a5a5a, scale: 1.8 }, desc: 'The great serpent of the western sea. It has eaten boats.' });
-  named('giant_spider', { id: 'spider_queen', name: 'Skarrith the Spider Queen', plural: 'Spider Queens', level: 5, hp: '13d8+15', ac: 14, hit: 8, dmg: '1d10+4', poison: 0.5, xp: 180, gold: '4d10', group: [1, 1], escort: [{ id: 'giant_spider', min: 2, max: 2 }], castChance: 0.35,
+  named('giant_spider', { id: 'spider_queen', name: 'Skarrith the Spider Queen', plural: 'Spider Queens', level: 5, hp: '13d8+15', ac: 14, hit: 9, dmg: '1d10+4', poison: 0.5, xp: 180, gold: '4d10', group: [1, 1], escort: [{ id: 'giant_spider', min: 2, max: 2 }], castChance: 0.35,
     speed: 2, phaseAt: 0.5, phaseAdds: [{ id: 'giant_spider', min: 2, max: 2 }], phaseText: 'Skarrith shrieks, and her brood boils out of the webs!',
     look: { kind: 'spider', color: 0x3a1a3a, mark: 0xe0c020, scale: 1.9 }, desc: 'Bloated and ancient, she fattens on the Shadow\'s malice.' });
   named('skeleton', { id: 'mimic', name: 'Mimic', plural: 'Mimics', level: 3, hp: '6d8+6', ac: 14, hit: 6, dmg: '1d10+2', undead: false, xp: 60, gold: '6d10', group: [1, 1], escort: [],
@@ -222,7 +225,70 @@ function buildSample() {
   addCharms(game, w);
   harbourYard(game, w);
   addCountryside(game, w);
+  stockShops(game);
   return game;
+}
+
+// (market) Every shop in Eldmark keeps a line of trade, and no two towns'
+// smiths are alike. Westhold, where the company sets out, sells the humble
+// tiers: militia arms, leatherwork, a chandler's stores and herbs. The dear
+// gear is a road away: the knightly arms and plate of Caer Aldon, the elves'
+// bows and swords, the dwarves' axes and mail (cheaper at the forge). A great
+// sword is sold only at the castle, and costs a long saving. (theme: what the
+// shop sells, or with a list of wares, what it is called and its markup.)
+const ELDMARK_THEMES = [
+  { id: 'castle_stores', name: 'Castle Stores', kind: 'provisions', desc: 'rations, torches, draughts and tonics for the King\'s champions',
+    items: ['rations', 'torch', 'healing_draught', 'greater_draught', 'antidote', 'mana_tonic', 'votive_candle'], styles: ['castle'] },
+];
+const ELDMARK_SHOPS = {
+  Westhold: {
+    weapons: { theme: 'militia_arms' },
+    armor: { theme: 'leatherwork' },
+    provisions: { theme: 'chandlery' },
+    reagents: { theme: 'herbs_simples' },
+  },
+  'Caer Aldon': {
+    weapons: { theme: 'castle_armoury' },
+    armor: { theme: 'plate_steel' },
+    npc_bryce: { theme: 'castle_stores' },
+    // the sage keeps rings of the Magi and a mirror of warding among his scrolls
+    npc_merek: { theme: 'arcana', stock: ['scroll_acid_arrow', 'scroll_phantasm', 'star_ring', 'warding_mirror', 'owl_feather'] },
+  },
+  Lindaleth: {
+    weapons: { theme: 'elven_arms' },
+    npc_nimrodel: { theme: 'pilgrim_fare' },
+    reagents: { theme: 'moon_garden', stock: ['moonpetal', 'silverleaf', 'hawkweed', 'nightshade', 'silverdust', 'wildwood_whistle', 'hawk_eye'] },
+  },
+  Hammerdeep: {
+    // the dwarves' own work: the axe of the deep forges, and a forge-spark amulet
+    weapons: { theme: 'axes_hammers', stock: ['hand_axe', 'mace', 'warhammer', 'battle_axe', 'dwarf_axe', 'crossbow', 'forgespark_amulet'] },
+    armor: { theme: 'dwarf_mail', stock: ['chain_mail', 'scale_mail', 'plate_armor', 'kite_shield', 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc'] },
+    // (and the salts of rune-craft, for the runesmiths of the hold)
+    provisions: { theme: 'delvers_supplies', stock: ['rations', 'torch', 'iron_key', 'healing_draught', 'greater_draught', 'wyrmroot', 'silverdust'] },
+  },
+  Brookend: {
+    provisions: { theme: 'village_stores', stock: ['rations', 'torch', 'healing_draught', 'antidote', 'iron_key', 'honeycake_tin', 'hearth_stone'] },
+  },
+  Eldmark: {
+    // Pell walks the great road with what the shops of the realm do not sell, at a pedlar's price
+    npc_pell: { theme: 'oddments', stock: ['greater_draught', 'scroll_seeing', 'studded_leather', 'crossbow', 'lucky_acorn', 'giants_hobnail', 'honeycake_tin'], priceMod: 1.2 },
+  },
+};
+function stockShops(game) {
+  for (const t of ELDMARK_THEMES) if (!game.shopThemes.some((x) => x.id === t.id)) game.shopThemes.push(JSON.parse(JSON.stringify(t)));
+  for (const [place, shops] of Object.entries(ELDMARK_SHOPS)) {
+    const map = game.maps.find((m) => m.name === place);
+    for (const [who, set] of Object.entries(shops)) {
+      const e = map?.entities.find((x) => x.type === 'npc' && x.shop && (x.id === who || (!who.startsWith('npc_') && x.shop.kind === who)));
+      if (!e) continue;
+      e.shop.theme = set.theme;
+      e.shop.stock = set.stock ? [...set.stock] : [];
+      if (set.priceMod != null) e.shop.priceMod = set.priceMod; else delete e.shop.priceMod;
+    }
+  }
+  // a thief's ring, from a thief
+  const nim = game.maps.flatMap((m) => m.entities).find((e) => e.id === 'npc_nim');
+  if (nim?.shop && !nim.shop.stock.includes('fox_ring')) nim.shop.stock.push('fox_ring');
 }
 
 // Four torn maps and the hoards they lead to, each found a different way: in
@@ -237,7 +303,7 @@ function hideTreasures(game, w, westhold) {
     { id: 'whisperwind', magical: true, glow: 0xc0f0ff, name: 'Whisperwind', type: 'weapon', wkind: 'bow', dmg: '1d8+1', hit: 2, range: 8, price: 220, model: 'bow', unique: true, desc: 'A poacher\'s longbow of black yew. Its arrows fly without a sound.' },
     { id: 'fallen_hauberk', magical: true, glow: 0xa8b0ff, name: 'Hauberk of the Fallen Host', type: 'armor', weight: 'chain', ac: 6, price: 420, unique: true, desc: 'Bright mail of the old kings, untouched by rust after a hundred years in the earth.' },
     { id: 'coral_cutlass', name: 'Coral Cutlass', type: 'weapon', wkind: 'blade', dmg: '1d8+2', hit: 2, range: 1, price: 300, model: 'sword', glow: 0x60e0d0, unique: true, desc: 'A sea-captain\'s blade with a hilt of pink coral. It shines faintly, like light through water.' },
-    { id: 'gilded_buckler', magical: true, glow: 0xffd060, name: 'Gilded Buckler', type: 'shield', ac: 3, price: 360, unique: true, desc: 'Gold leaf over oak, stamped with a fat grinning face. Blows seem to slide off it, laughing.' },
+    { id: 'gilded_buckler', magical: true, glow: 0xffd060, name: 'Gilded Buckler', type: 'shield', ac: 0, block: 0.25, price: 360, unique: true, desc: 'Gold leaf over oak, stamped with a fat grinning face. Blows seem to slide off it, laughing.' },
   );
   addCrab(game);
   const ent = (id) => w.entities.find((e) => e.id === id);
@@ -422,7 +488,6 @@ function addCharms(game, w) {
   const npc = (id) => game.maps.flatMap((m) => m.entities).find((e) => e.id === id);
   const placed = (monster) => w.entities.find((e) => e.type === 'monster' && e.monster === monster);
   const give = (holder, ...ids) => { if (holder) holder.loot = [...(holder.loot || []), ...ids.map((id) => ({ id, n: 1 }))]; };
-  const sell = (shop, ...ids) => { if (shop?.shop) shop.shop.stock = [...new Set([...(shop.shop.stock || []), ...ids])]; };
   const reward = (qid, ...ids) => { const q = game.quests.find((x) => x.id === qid); if (q) q.reward.items = [...(q.reward.items || []), ...ids.map((id) => ({ id, n: 1 }))]; };
 
   // the tale's magic arms and armour gain a little magic of their own
@@ -448,18 +513,12 @@ function addCharms(game, w) {
       kw('TWIG', 'A hazel dowsing-twig. It dips over buried things. Many a treasure-hunter has dug where it told him — sometimes there was even treasure.'),
       kw('FEATHER', 'An owl\'s feather sees what is hidden. The elves hide things in their wood that no mortal eye can find. An owl\'s eye is not mortal.'),
     ],
-    shop: { kind: 'charms', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'gull_feather', 'hazel_twig', 'selkie_shell', 'thunder_egg', 'owl_feather'], priceMod: 1.25 },
+    // (market) a small tray, and dear: the six she talks of, a charm a real find
+    shop: { kind: 'charms', theme: 'curios', stock: ['lucky_acorn', 'worry_stone', 'tin_whistle', 'hazel_twig', 'selkie_shell', 'owl_feather'], priceMod: 1.25 },
     rumour: 'There\'s an old woman in the square sells charms. Selkie shells and the like — dear, mind. My cousin swears by his lucky acorn.',
   });
-  // the sage keeps rings of the Magi and a mirror of warding; the dwarves their own work; Pell a few trinkets
-  sell(npc('npc_merek'), 'star_ring', 'warding_mirror', 'owl_feather');
-  const deep = mapNamed('Hammerdeep');
-  sell(deep?.entities.find((e) => e.shop?.kind === 'armor'), 'goatfoot_amulet', 'deep_runering', 'shieldwall_torc');
-  sell(deep?.entities.find((e) => e.shop?.kind === 'weapons'), 'forgespark_amulet');
-  sell(npc('npc_pell'), 'lucky_acorn', 'giants_hobnail', 'honeycake_tin');
-  sell(npc('npc_nim'), 'fox_ring'); // (a thief's ring, from a thief)
-  sell(mapNamed('Lindaleth')?.entities.find((e) => e.shop?.kind === 'reagents'), 'wildwood_whistle', 'hawk_eye');
-  sell(mapNamed('Brookend')?.entities.find((e) => e.shop?.kind === 'provisions'), 'honeycake_tin', 'hearth_stone');
+  // (the sage's rings of the Magi, the dwarves' own work, Pell's and Nim's
+  // trinkets and the rest: each shop's wares are set out in stockShops)
 
   // quest rewards and what the great foes carry
   reward('q_wolf', 'wolf_tooth');
@@ -524,6 +583,7 @@ function addCharms(game, w) {
 
   // --- the old vault of Hammerdeep, sealed by Fennick's art
   const durgan = npc('npc_durgan');
+  const deep = mapNamed('Hammerdeep');
   if (deep && durgan) {
     const at = freeSpot(deep, durgan.x + 4, durgan.y);
     deep.entities.push({ id: 'chest_vault', type: 'chest', x: at.x, y: at.y, gold: '250', items: [{ id: 'heart_of_the_mountain', n: 1 }], sealed: true,
@@ -687,7 +747,7 @@ function placeWonders(game, w, { barrow, fortress, tower, village }) {
     lookExtra: { body: 0x7a5a2a, hat: 'cap', hatColor: 0x8a2a2a, cape: 0x5a3a1a },
     greeting: 'Pell\'s Peerless Provisions! Rare goods from four kingdoms! Wouldst thou BUY?',
     job: 'I walk the roads with the finest goods in Eldmark. Prices are fair — mostly. Ask to BUY.',
-    shop: { kind: 'mixed', stock: ['greater_draught', 'healing_draught', 'mana_tonic', 'votive_candle', 'larks_honey', 'antidote', 'torch', 'rations', 'scroll_seeing', 'iron_key', 'silverdust', 'nightshade', 'studded_leather', 'long_bow', 'crossbow'], priceMod: 1.2 },
+    shop: { kind: 'mixed', stock: [] }, // (wares and prices: stockShops)
     keywords: [kw('RUMOURS', 'They say a troll has claimed the Eldwater bridge. Pays to be clever with trolls — or rich.')],
     rumour: 'Pell the pedlar walks the great road. He sells things you won\'t find in any shop.',
   });
@@ -1059,7 +1119,7 @@ function dressCastle(game, map) {
   const sage = byRole(map, 'sage')[0];
   if (sage) Object.assign(sage, {
     id: 'npc_merek', name: 'Merek', desc: 'the royal sage, ink-stained and absent-minded',
-    shop: { kind: 'scrolls', stock: ['scroll_acid_arrow', 'scroll_phantasm'], priceMod: 1 },
+    shop: { kind: 'scrolls', stock: [] }, // (wares: stockShops)
     greeting: 'Hmm? Oh — visitors! Do mind the scrolls.',
     job: 'I study the five ARTS of MAGIC, and the stars. I sell spell SCROLLS too — wouldst thou BUY?',
     keywords: [
@@ -1085,13 +1145,10 @@ function dressCastle(game, map) {
     greeting: 'Provisions for the King\'s champions? Thou\'lt not march far on an empty belly.',
     job: 'I keep the castle stores: FOOD, torches and draughts. Wouldst thou BUY?',
     keywords: [kw('FOOD', 'Rations, waybread, salt pork. Every hero eats a ration each twenty paces or so in the wild — more than folk expect. Stock up before the road.')],
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'torch', 'mana_tonic', 'votive_candle', 'larks_honey', 'iron_key'] },
+    shop: { kind: 'provisions', stock: [] }, // (wares: stockShops)
   });
   nameNpcs(map, game, 2);
-  const smith = map.entities.find((x) => x.shop?.kind === 'weapons');
-  if (smith) smith.shop.stock = ['dagger', 'short_sword', 'long_sword', 'great_sword', 'spear', 'mace', 'warhammer', 'battle_axe', 'long_bow', 'crossbow', 'sling'];
-  const armorer = map.entities.find((x) => x.shop?.kind === 'armor');
-  if (armorer) armorer.shop.stock = ['leather_armor', 'studded_leather', 'chain_mail', 'scale_mail', 'buckler', 'kite_shield'];
+  // (the smith and the armourer keep the wares set out in stockShops)
   for (const v of byRole(map, 'villager')) v.rumour = 'The King has not slept well since the orcs burned the farms at Brookend.';
   // the road crosses the moat on the bridge, not through the water beside it
   for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
@@ -1130,8 +1187,7 @@ function dressElves(game, map) {
   });
   const bowyer = byRole(map, 'bowyer')[0] || map.entities.find((e) => e.shop?.kind === 'weapons');
   if (bowyer) {
-    bowyer.name = 'Faelon';
-    bowyer.shop.stock = ['short_bow', 'long_bow', 'dagger', 'short_sword', 'long_sword', 'spear'];
+    bowyer.name = 'Faelon'; // (his wares: stockShops)
   }
   for (const e of map.entities) if (e.type === 'npc' && e.role === 'villager') e.look.race = 'elf';
   addNpc(map, 18, 24, {
@@ -1139,7 +1195,7 @@ function dressElves(game, map) {
     lookExtra: { body: 0x8ab06a, robe: true, trim: 0xf0e0b0 },
     greeting: 'Thou lookest hungry. Elven waybread keeps for a month and fills a soldier for a day.',
     job: 'I bake the waybread of Lindaleth, and keep a few draughts besides. Wouldst thou BUY?',
-    shop: { kind: 'provisions', stock: ['rations', 'healing_draught', 'antidote', 'mana_tonic', 'votive_candle', 'larks_honey', 'torch'] },
+    shop: { kind: 'provisions', stock: [] }, // (wares: stockShops)
   });
   nameNpcs(map, game, 3);
   const singer = addNpc(map, 12, 22, {
@@ -1174,12 +1230,7 @@ function dressDwarves(game, map) {
   });
   for (const e of map.entities) if (e.type === 'npc' && (e.role === 'villager' || e.role === 'guard')) e.look.race = 'dwarf';
   nameNpcs(map, game, 4);
-  const smith = map.entities.find((e) => e.shop?.kind === 'weapons');
-  if (smith) smith.shop.stock = ['hand_axe', 'battle_axe', 'dwarf_axe', 'mace', 'warhammer', 'crossbow'];
-  const armorer = map.entities.find((e) => e.shop?.kind === 'armor');
-  if (armorer) armorer.shop.stock = ['leather_armor', 'chain_mail', 'scale_mail', 'plate_armor', 'buckler', 'kite_shield'];
-  const prov = map.entities.find((e) => e.shop?.kind === 'provisions');
-  if (prov) prov.shop.stock = [...defaultStock(game, 'provisions'), ...defaultStock(game, 'reagents')];
+  // (the smith, the armourer and the provisioner keep the wares set out in stockShops)
 }
 
 function dressVillage(game, map) {

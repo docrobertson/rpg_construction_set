@@ -21,6 +21,8 @@ import * as Story from '../../game/story.js';
 import * as StoryGen from '../../world/storyGen.js';
 import * as Places from '../../world/places.js';
 import { BEATS, PERSON_ROLES, addBeat, lockablePortals, townsOf, dungeonsOf, lastQuestOf } from '../../world/storyGen.js';
+import { mysteryList, renderMystery } from './mysteries.js';
+import { mysteryById } from '../../game/company.js';
 
 if (typeof window !== 'undefined') {
   window.__storyGen = StoryGen;
@@ -56,12 +58,15 @@ export class StoryEditor {
 
   showLoose() { this.view = { kind: 'loose' }; this.render(); this.main.scrollTop = 0; }
 
+  // (company) open a mystery
+  selectMystery(id) { this.view = { kind: 'mystery', id }; this.render(); this.main.scrollTop = 0; }
+
   render() {
     const game = this.game;
     if (!Array.isArray(game.quests)) game.quests = [];
     if (!game.story || !Array.isArray(game.story.chapters)) game.story = { chapters: [] };
     const v = this.view;
-    const valid = v && (v.kind === 'overview' || v.kind === 'loose' || (v.kind === 'chapter' && chapterById(game, v.id)) || (v.kind === 'quest' && game.quests.includes(v.q)));
+    const valid = v && (v.kind === 'overview' || v.kind === 'loose' || (v.kind === 'chapter' && chapterById(game, v.id)) || (v.kind === 'quest' && game.quests.includes(v.q)) || (v.kind === 'mystery' && mysteryById(game, v.id)));
     if (!valid) this.view = chapterList(game).length ? { kind: 'chapter', id: chapterList(game)[0].id } : { kind: 'loose' };
     this.facts = storyFacts(game);
     this.spans = questSpans(game);
@@ -106,6 +111,7 @@ export class StoryEditor {
       h('span', chs.length ? 'Quests in no chapter' : 'Quests'), h('span.tag', String(loose.length))));
     for (const q of loose) list.appendChild(this.questEntry(q));
     L.appendChild(list);
+    mysteryList(this, L); // (company)
   }
 
   questEntry(q, sp = null) {
@@ -127,6 +133,7 @@ export class StoryEditor {
     if (v.kind === 'chapter') this.renderChapter(chapterById(this.game, v.id));
     else if (v.kind === 'quest') this.renderQuest(v.q);
     else if (v.kind === 'overview') this.renderOverview();
+    else if (v.kind === 'mystery') renderMystery(this, mysteryById(this.game, v.id)); // (company)
     else this.renderLoose();
   }
 
