@@ -13,9 +13,6 @@ import { LANDMARK_BUILDERS } from './landmarks.js';
 import { PUZZLE_BUILDERS } from './puzzles.js'; // (puzzles) levers, plates, gates, runes…
 
 const cache = new Map();
-// camera distance beyond which figures lose their ink outline
-export const OUTLINE_FAR = 30;
-
 export { RACE_LOOKS, HAIR_STYLES };
 
 // --- objects ---
@@ -354,7 +351,7 @@ function farmstead(spec) {
   const B = res.B, G = res.G;
   const wall = 0xeee4cc, beam = 0x5a3a22, thatch = spec.roof ?? 0xcfa24c, stone = 0xa29c90;
   // the yard: trodden earth and a few flagstones to the door
-  // (flat ground goes in the detail layer, which carries no ink outline)
+  // (flat ground goes in the detail layer, which the hover glow does not outline)
   lathe(B.detail, [[0.002, 0.004], [0.66, 0.006], [0.7, 0.0]], [0xb8a470, 0xa8946a], { segs: 20, sq: 0.66 });
   for (let k = 0; k < 3; k++) B.detail.shape(TPL.cyl6, 0xb0a890, { x: -0.22 + k * 0.03, y: 0.004, z: -0.08 + k * 0.1, sx: 0.08, sy: 0.012, sz: 0.06, ry: k });
   // the cottage, long side to the yard
@@ -826,15 +823,13 @@ export function makeModel(spec, materials) {
     m.castShadow = true;
     group.add(m);
     if (materials.outline) {
-      // the ink outline is about as costly as the figure itself: it is
-      // dropped when the camera is far away and the figures are small
+      // (one style) figures are painted like the rest of the world, without an
+      // ink line: the shell is kept, hidden, for the hover and target glow
+      // (render/markers.js HoverGlow), which shows it in its own colour
       const o = new THREE.Mesh(g.shell, materials.outline);
       o.userData.outline = true;
-      const lod = new THREE.LOD();
-      lod.addLevel(o, 0);
-      lod.addLevel(new THREE.Object3D(), OUTLINE_FAR);
-      lod.userData.outline = true;
-      group.add(lod);
+      o.visible = false;
+      group.add(o);
     }
   }
   if (g.glow) group.add(new THREE.Mesh(g.glow, materials.entityGlow));

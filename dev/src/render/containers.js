@@ -1,6 +1,6 @@
 // Containers: the other things treasure is found in (see data/containers.js
 // for their names and words). Each is a little diorama about a square across,
-// like the chest: chunky wood, stone and iron with ink outlines, and a glint
+// like the chest: chunky wood, stone and iron, painted like the land, and a glint
 // of gold that says "something here" from across the map.
 // Models face +Z (towards the camera) with their feet at y = 0.
 import * as THREE from 'three';

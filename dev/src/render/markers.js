@@ -244,15 +244,17 @@ export class HoverGlow {
     this.ringMat.color.setHex(color);
     e.model.traverse((o) => {
       if (o.isMesh && (o.userData.outline || o.parent?.userData?.outline)) {
-        this.swapped.push([o, o.material]);
+        // the figure's hidden shell, shown only as this glow
+        this.swapped.push([o, o.material, o.visible]);
         o.material = this.inkMat;
+        o.visible = true;
       }
     });
     this.ring.visible = true;
   }
 
   _restore() {
-    for (const [o, m] of this.swapped) o.material = m;
+    for (const [o, m, vis] of this.swapped) { o.material = m; o.visible = vis; }
     this.swapped = [];
   }
 

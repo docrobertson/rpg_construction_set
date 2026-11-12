@@ -425,14 +425,22 @@ function paintWorld(w) {
 // rebuild them); the dungeons are placed here and dressed in buildDungeons.
 function placePlaces(game, w, MON) {
   const P = {};
-  const coastal = (t, x, y) => !t.water && !t.feature && t.walk && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(w, x + dx, y + dy) && terrain(getTile(w, x + dx, y + dy)).key === 'ocean');
   const inland = (t) => t.walk && !t.water && !t.feature;
+  // a town's model fills its square, and the land round a square that touches
+  // water sinks into the shore: so a town stands on dry ground all round, and
+  // a port within a few steps of the open sea, not on the tide-line
+  const dry = (x, y) => [-1, 0, 1].every((dy) => [-1, 0, 1].every((dx) => !inBounds(w, x + dx, y + dy) || !terrain(getTile(w, x + dx, y + dy)).water));
+  const dryLand = (t, x, y) => inland(t) && dry(x, y);
+  const seaWithin = (x, y, r) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (inBounds(w, x + dx, y + dy) && terrain(getTile(w, x + dx, y + dy)).key === 'ocean') return true; return false; };
+  const coastal = (t, x, y) => dryLand(t, x, y) && seaWithin(x, y, 3);
+  // a sea cave or a light on its rock: on the tide-line itself
+  const tideline = (t, x, y) => !t.water && !t.feature && t.walk && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => inBounds(w, x + dx, y + dy) && terrain(getTile(w, x + dx, y + dy)).key === 'ocean');
   const at = (x, y, pred = inland) => nearestWhereXY(w, x, y, pred);
   const plan = (kind, over) => {
     const base = defaultPlan(kind);
     return { ...base, ...over, buildings: { ...base.buildings, ...(over.buildings || {}) } };
   };
-  const town = (key, kind, x, y, name, seed, over, pred) => {
+  const town = (key, kind, x, y, name, seed, over, pred = dryLand) => {
     const p = at(x, y, pred);
     P[key + 'At'] = p;
     P[key] = placeFeature(game, w, p.x, p.y, kind, name, seed, plan(kind, { seed, ...over }));
@@ -456,9 +464,9 @@ function placePlaces(game, w, MON) {
     P[key] = placeFeature(game, w, p.x, p.y, kind, name, seed, { kind, ...plan, seed });
     return P[key];
   };
-  dungeon('gannet', 'tower', 7, 146, 'Gannet Rock Light', 401, { style: 'crypt', size: 'small', rooms: 5, monsters: ['giant_rat', 'bat_swarm', 'shore_crab'], counts: { giant_rat: '1-2', bat_swarm: '1', shore_crab: '1' }, boss: 'old_snapper', treasure: { gold: 40, items: [{ id: 'healing_draught', n: 1 }] }, chests: 1, wonders: 1 }, coastal);
+  dungeon('gannet', 'tower', 7, 146, 'Gannet Rock Light', 401, { style: 'crypt', size: 'small', rooms: 5, monsters: ['giant_rat', 'bat_swarm', 'shore_crab'], counts: { giant_rat: '1-2', bat_swarm: '1', shore_crab: '1' }, boss: 'old_snapper', treasure: { gold: 40, items: [{ id: 'healing_draught', n: 1 }] }, chests: 1, wonders: 1 }, tideline);
   dungeon('warren', 'cave', 25, 101, 'The Hollin Warren', 402, { style: 'cave', size: 'small', rooms: 7, monsters: ['goblin', 'giant_rat', 'goblin_shaman'], counts: { goblin: '2-3', giant_rat: '2-3', goblin_shaman: '1' }, boss: 'grubnose', treasure: { gold: 90, items: [{ id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 1 });
-  dungeon('wreckers', 'seacave', 47, 147, 'The Wreckers\' Hole', 403, { style: 'seacave', size: 'small', rooms: 7, monsters: ['bandit', 'giant_rat'], counts: { bandit: '2-3', giant_rat: '2-3' }, boss: 'gaff_hollis', treasure: { gold: 160, items: [{ id: 'wreckers_hook', n: 1 }, { id: 'saltwake_leathers', n: 1 }, { id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 1 }, coastal);
+  dungeon('wreckers', 'seacave', 47, 147, 'The Wreckers\' Hole', 403, { style: 'seacave', size: 'small', rooms: 7, monsters: ['bandit', 'giant_rat'], counts: { bandit: '2-3', giant_rat: '2-3' }, boss: 'gaff_hollis', treasure: { gold: 160, items: [{ id: 'wreckers_hook', n: 1 }, { id: 'saltwake_leathers', n: 1 }, { id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 1 }, tideline);
   dungeon('abbey', 'tower', 19, 70, 'Mistwatch Abbey', 404, { style: 'crypt', size: 'medium', rooms: 8, monsters: ['skeleton', 'bat_swarm', 'giant_rat'], counts: { skeleton: '2-3', bat_swarm: '2-3', giant_rat: '2-3' }, boss: null, treasure: { gold: 120, items: [{ id: 'healing_draught', n: 2 }] }, chests: 2, wonders: 2 });
   dungeon('midway', 'tower', 90, 62, 'The Midway Light', 405, { style: 'crypt', size: 'small', rooms: 6, monsters: [MON('mist_wraith', 'barrow_wight'), 'skeleton'], counts: { [MON('mist_wraith', 'barrow_wight')]: '2', skeleton: '3-4' }, boss: null, treasure: { gold: 200, items: [{ id: 'greater_draught', n: 2 }] }, chests: 1, wonders: 1 });
   dungeon('temple', templeKind, 138, 54, 'Sunken Temple of the Sun', 406, { style: temple, size: 'large', rooms: 10, monsters: [MON('lizardfolk', 'orc'), MON('stone_guardian', 'troll'), MON('lizard_shaman', 'goblin_shaman'), MON('giant_frog', 'bog_lurker')], counts: { [MON('lizardfolk', 'orc')]: '3-4', [MON('stone_guardian', 'troll')]: '1-2', [MON('lizard_shaman', 'goblin_shaman')]: '1-2', [MON('giant_frog', 'bog_lurker')]: '3-4' }, boss: null, treasure: { gold: 300, items: [{ id: 'greater_draught', n: 2 }] }, chests: 3, wonders: 2 });

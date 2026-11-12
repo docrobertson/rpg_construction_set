@@ -818,6 +818,7 @@ export function autoPlaceSites(game, world, wants, opt = {}) {
 
   const busy = new Uint8Array(N);
   for (const e of world.entities) if (inBounds(world, e.x, e.y) && !moving.has(e)) busy[e.y * w + e.x] = 1;
+  const wet = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (inBounds(world, x + dx, y + dy) && terrain(world.tiles[(y + dy) * w + x + dx]).water) return true; return false; };
   const out = [];
   for (const want of wants) {
     const kind = want.kind;
@@ -837,6 +838,9 @@ export function autoPlaceSites(game, world, wants, opt = {}) {
         if (gap < Math.max(3, minGap)) continue;
         const coastal = COASTAL.has(kind);
         if (coastal && dSea[i] !== 1) continue;
+        // a place's model fills its square, and ground beside water sinks into
+        // the shore: only a harbour or a sea cave stands on the water's edge
+        if (!coastal && strict && wet(x, y)) continue;
         if (!coastal && !reach[i] && pass < 4) continue;
         const fit = suits(kind, { i, t, dSea, dDeep, dHigh, dBlight, open, woods, hills, walk, far, reach, jungle }, strict);
         if (fit == null) continue;

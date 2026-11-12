@@ -13,6 +13,51 @@ try { pw = require('playwright'); } catch { pw = require(execSync('npm root -g')
 let fails = 0;
 const check = (name, ok, info) => { console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : ' ' + JSON.stringify(info)}`); if (!ok) fails++; };
 
+// ---- without a browser: no town stands at the water's edge (its model fills
+// the square, and the ground beside water sinks into the shore, so a town there
+// looked half drowned): only harbours, sea caves and lights on their rocks may
+{
+  const { generateWorld } = await import('../src/world/generate.js');
+  const { newGame } = await import('../src/data/schema.js');
+  const { terrain } = await import('../src/data/terrain.js');
+  const { autoPlaceSites } = await import('../src/world/places.js');
+  const { buildSampleGame } = await import('../src/data/sample.js');
+  const { buildLanternsGame } = await import('../src/data/lanterns.js');
+  const SETTLED = new Set(['town', 'village', 'castle', 'elfhall', 'dwarfgate']);
+  const wetSites = (game) => {
+    const out = [];
+    for (const w of game.maps.filter((m) => m.type === 'world')) {
+      for (const e of w.entities.filter((x) => x.type === 'portal' && x.style === 'site')) {
+        if (!SETTLED.has(terrain(w.tiles[e.y * w.w + e.x]).key)) continue;
+        let wet = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const x = e.x + dx, y = e.y + dy;
+          if (x >= 0 && y >= 0 && x < w.w && y < w.h && terrain(w.tiles[y * w.w + x]).water) wet++;
+        }
+        if (wet) out.push(`${e.label} (${e.x},${e.y}): ${wet}`);
+      }
+    }
+    return out;
+  };
+  const lan = buildLanternsGame();
+  check('no town or village of Eldmark or the Glass Sea stands at the water\'s edge', [...wetSites(buildSampleGame()), ...wetSites(lan)].length === 0, [...wetSites(buildSampleGame()), ...wetSites(lan)]);
+  const lw = lan.maps.find((m) => m.id === lan.settings.start.map);
+  const salt = lw.entities.find((e) => e.type === 'portal' && e.label === 'Saltcombe');
+  let sea = false;
+  for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (terrain(lw.tiles[(salt.y + dy) * lw.w + salt.x + dx]).key === 'ocean') sea = true;
+  check('…and Saltcombe is still a port, the open sea within three steps of its gate', sea, salt);
+  const wet = [];
+  for (const seed of [7, 41, 913]) {
+    const game = newGame({ blank: true, w: 60, h: 60 });
+    const world = game.maps[0];
+    const fresh = generateWorld(60, 60, seed, { shape: 'coast' });
+    world.tiles = fresh.tiles; world.w = fresh.w; world.h = fresh.h; world.entities = fresh.entities;
+    autoPlaceSites(game, world, [{ kind: 'town' }, { kind: 'town' }, { kind: 'castle' }, { kind: 'village' }, { kind: 'village' }, { kind: 'village' }], { seed });
+    wet.push(...wetSites(game).map((x) => `seed ${seed}: ${x}`));
+  }
+  check('nor do the towns, castles and villages a generated coast is given', wet.length === 0, wet);
+}
+
 // ---- without a browser: generated worlds and the site generators
 {
   const { generateWorld, generateSettlement, placeFeature } = await import('../src/world/generate.js');

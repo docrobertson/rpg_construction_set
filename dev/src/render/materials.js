@@ -350,9 +350,9 @@ export function createMaterials() {
     `,
   });
 
-  // Figures are painted miniatures: a soft cel ramp from the sun, the sky's
-  // fill, a rim of sky light around the silhouette and a dark, colour-matched
-  // outline (back faces pushed out along smoothed normals). The face atlas
+  // Figures are painted miniatures, lit as the rest of the world is: a smooth
+  // turn from the sun, the sky's fill and a rim of sky light around the
+  // silhouette (no ink line: see models.js makeModel). The face atlas
   // supplies painted eyes and mouths; everything else samples its white corner.
   const entity = injectVisibility(new THREE.MeshToonMaterial({
     vertexColors: true, map: faceAtlas(), gradientMap: toonRamp(), alphaTest: 0.5, alphaToCoverage: true,
@@ -395,8 +395,9 @@ export function createMaterials() {
       }
     `,
   });
-  // The ink line keeps a steady width on screen (about 1.7 px), so it stays
-  // crisp both in close-ups and on a zoomed-out map.
+  // The figure's shell (back faces pushed out along smoothed normals), kept
+  // hidden; the hover glow shows it in its own colour. A steady width on
+  // screen (about 1.7 px), crisp in close-ups and on a zoomed-out map.
   const outline = injectVisibility(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, color: new THREE.Color().setRGB(0.075, 0.06, 0.055) }), {
     key: 'outline',
     vertexPre: `{
@@ -415,15 +416,16 @@ export function createMaterials() {
   return { land, props, water, glow, lava, entity, entityGlow, outline, shadowBlob };
 }
 
-// A soft cel ramp for figures: shadowed side, a quick but smooth terminator,
-// then the lit side.
+// (one style) figures take the light as the rest of the world does: a smooth
+// turn from the sun, like the props' Lambert shading, with no cel step and a
+// little lift on the shadowed side so a small figure keeps its colours
 function toonRamp() {
   const n = 32;
   const d = new Uint8Array(n * 4);
   for (let i = 0; i < n; i++) {
-    const x = i / (n - 1);
-    const t = Math.min(1, Math.max(0, (x - 0.4) / 0.2));
-    const v = 0.58 + 0.42 * t * t * (3 - 2 * t);
+    const x = i / (n - 1); // (dot(normal, sun) + 1) / 2
+    const t = Math.min(1, Math.max(0, (x - 0.3) / 0.7));
+    const v = 0.3 + 0.7 * t;
     d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = Math.round(v * 255);
     d[i * 4 + 3] = 255;
   }
